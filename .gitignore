@@ -1,0 +1,12 @@
+.DS_Store
+.vscode/
+DEL/
+
+**/.build/
+**/dist/
+**/build/
+mi-remote-voice-driver-poc/build-source/
+**/recordings/
+*.wav
+*.raw.bin
+*.pcm
