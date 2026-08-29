@@ -615,7 +615,7 @@ final class VoiceKeyFilter {
 
 final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
-    private var headerLabel: NSMenuItem!
+    private var statusLabel: NSMenuItem!
     private var launchAtLoginItem: NSMenuItem!
     private var loggingToggleItem: NSMenuItem!
     private var logSizeItem: NSMenuItem!
@@ -663,14 +663,28 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         AppStorage.prepare()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "⚠️"
+        setStatusIcon(systemName: "exclamationmark.triangle")
 
         let menu = NSMenu()
         menu.delegate = self
-        let header = NSMenuItem(title: "状态 · 启动中", action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
-        headerLabel = header
+        let brand = NSMenuItem(title: ProductIdentity.name, action: nil, keyEquivalent: "")
+        brand.isEnabled = false
+        menu.addItem(brand)
+
+        let status = NSMenuItem(title: "状态 · 启动中", action: nil, keyEquivalent: "")
+        status.isEnabled = false
+        menu.addItem(status)
+        statusLabel = status
+
+        menu.addItem(.separator())
+
+        let controlCenter = NSMenuItem(
+            title: "打开控制中心…",
+            action: #selector(openKeyMapping),
+            keyEquivalent: ","
+        )
+        controlCenter.target = self
+        menu.addItem(controlCenter)
 
         let launch = NSMenuItem(
             title: "登录时自动启动",
@@ -681,31 +695,24 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(launch)
         launchAtLoginItem = launch
 
-        let keyMapping = NSMenuItem(
-            title: "按键映射...",
-            action: #selector(openKeyMapping),
-            keyEquivalent: ","
-        )
-        keyMapping.target = self
-        menu.addItem(keyMapping)
-
         menu.addItem(.separator())
         menu.addItem(makeLogMenu())
         menu.addItem(makeRecordingMenu())
 
         menu.addItem(.separator())
-        let version = Bundle.main.object(
-            forInfoDictionaryKey: "CFBundleShortVersionString"
-        ) as? String ?? "未知"
         let versionItem = NSMenuItem(
-            title: "版本 · \(version)",
+            title: "\(ProductIdentity.name) · \(ProductIdentity.versionLabel)",
             action: nil,
             keyEquivalent: ""
         )
         versionItem.isEnabled = false
         menu.addItem(versionItem)
 
-        let quit = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(
+            title: "退出 Voice Remote Bridge",
+            action: #selector(quit),
+            keyEquivalent: "q"
+        )
         quit.target = self
         menu.addItem(quit)
         statusItem.menu = menu
@@ -850,8 +857,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try filter.start()
         } catch {
             let msg = error.localizedDescription
-            headerLabel.title = "状态 · \(msg)"
-            statusItem.button?.title = "⚠️"
+            statusLabel.title = "状态 · \(msg)"
+            setStatusIcon(systemName: "exclamationmark.triangle")
             print("[ERR] filter: \(msg)")
         }
     }
@@ -954,18 +961,28 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateStatus() {
         if remoteStreaming {
-            headerLabel.title = "状态 · 遥控器录音中"
-            statusItem.button?.title = "🎙️"
+            statusLabel.title = "状态 · 遥控器录音中"
+            setStatusIcon(systemName: "waveform.badge.mic")
         } else if hidConnected && bleConnected {
-            headerLabel.title = "状态 · 已就绪"
-            statusItem.button?.title = "🎤"
+            statusLabel.title = "状态 · 已就绪"
+            setStatusIcon(systemName: "checkmark.circle")
         } else if hidConnected || bleConnected {
-            headerLabel.title = "状态 · 正在连接语音服务"
-            statusItem.button?.title = "⏳"
+            statusLabel.title = "状态 · 正在连接语音服务"
+            setStatusIcon(systemName: "hourglass")
         } else {
-            headerLabel.title = "状态 · 等待遥控器"
-            statusItem.button?.title = "⚠️"
+            statusLabel.title = "状态 · 等待遥控器"
+            setStatusIcon(systemName: "exclamationmark.triangle")
         }
+    }
+
+    private func setStatusIcon(systemName: String) {
+        let image = NSImage(
+            systemSymbolName: systemName,
+            accessibilityDescription: ProductIdentity.name
+        )
+        image?.isTemplate = true
+        statusItem?.button?.image = image
+        statusItem?.button?.title = ""
     }
 
     private func refreshMenuState() {
@@ -988,7 +1005,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             try LaunchAtLogin.setEnabled(!LaunchAtLogin.isEnabled)
         } catch {
-            headerLabel.title = "状态 · 登录启动设置失败"
+            statusLabel.title = "状态 · 登录启动设置失败"
         }
         refreshMenuState()
     }

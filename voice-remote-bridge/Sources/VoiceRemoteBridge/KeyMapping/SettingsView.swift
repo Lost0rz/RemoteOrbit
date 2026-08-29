@@ -1,13 +1,15 @@
-// SettingsView.swift — 按键映射设置界面
+// SettingsView.swift — Voice Remote Bridge Control Center
 //
-// 布局：左列按钮列表（Capsule 样式）+ 右侧动作选择器（Menu + 快捷键录制）。
-// Settings UI and shortcut recorder for this app.
+// 产品级设置工作区：概览、默认映射、App Profile、诊断和关于。
+// Shortcut recording remains in this file so the recorder shares the mapping
+// model and uses the same product-specific window flow.
 
 import AppKit
 import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var store: MappingStore
+    @State private var selectedSection: WorkspaceSection = .overview
     @State private var selectedButton: RemoteButton = .back
     @State private var mappingScope: MappingScope = .global
     @State private var selectedTemplateTarget: TemplateTarget = .none
@@ -28,19 +30,49 @@ struct SettingsView: View {
         case template(UUID)
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            HStack(spacing: 0) {
-                buttonListPanel
-                Divider()
-                actionPanel
+    private enum WorkspaceSection: String, CaseIterable, Identifiable {
+        case overview
+        case mappings
+        case profiles
+        case diagnostics
+        case about
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .overview: return "概览"
+            case .mappings: return "按键映射"
+            case .profiles: return "应用配置"
+            case .diagnostics: return "诊断与日志"
+            case .about: return "关于"
             }
-            Divider()
-            footer
         }
-        .frame(minWidth: 760, minHeight: 580)
+
+        var subtitle: String {
+            switch self {
+            case .overview: return "连接与运行状态"
+            case .mappings: return "定义每个按钮的行为"
+            case .profiles: return "按 App 管理独立方案"
+            case .diagnostics: return "日志、录音与存储"
+            case .about: return "版本与产品信息"
+            }
+        }
+
+        var symbolName: String {
+            switch self {
+            case .overview: return "rectangle.grid.2x2"
+            case .mappings: return "slider.horizontal.3"
+            case .profiles: return "square.stack.3d.up"
+            case .diagnostics: return "stethoscope"
+            case .about: return "info.circle"
+            }
+        }
+    }
+
+    var body: some View {
+        workspace
+        .frame(minWidth: 980, minHeight: 660)
         // 用 sheet(item:) 直接以按钮作为展示状态，避免第一次点击时
         // showRecorder 已变成 true、recorderButton 仍是 nil，导致空 sheet。
         .sheet(item: $recorderButton) { button in
@@ -114,6 +146,881 @@ struct SettingsView: View {
             }
         } message: {
             Text("删除后该 App 将使用通用映射，其他模板不受影响。")
+        }
+    }
+
+    // MARK: - Product workspace
+
+    private var workspace: some View {
+        VStack(spacing: 0) {
+            ProductTitleBar()
+            Divider()
+
+            HStack(spacing: 0) {
+                navigationRail
+                Divider()
+                pageContent
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var navigationRail: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("WORKSPACE")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+
+            ForEach(WorkspaceSection.allCases) { section in
+                Button {
+                    selectedSection = section
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: section.symbolName)
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(section.title)
+                                .font(.body.weight(.medium))
+                            Text(section.subtitle)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(
+                                selectedSection == section
+                                    ? Color.accentColor.opacity(0.14)
+                                    : Color.clear
+                            )
+                    )
+                    .foregroundStyle(selectedSection == section ? Color.accentColor : .primary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer(minLength: 20)
+
+            VStack(alignment: .leading, spacing: 7) {
+                Label("配置只保存在本机", systemImage: "lock.shield")
+                    .font(.caption.weight(.medium))
+                Text("Voice Remote Bridge 使用独立的本地配置，不连接其他项目的设置或服务。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+            .background(Color.accentColor.opacity(0.07))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .padding(12)
+        .frame(width: 224, alignment: .topLeading)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    @ViewBuilder
+    private var pageContent: some View {
+        switch selectedSection {
+        case .overview:
+            overviewPage
+        case .mappings:
+            mappingsPage
+        case .profiles:
+            profilesPage
+        case .diagnostics:
+            diagnosticsPage
+        case .about:
+            aboutPage
+        }
+    }
+
+    private var overviewPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                pageHeader(
+                    title: "概览",
+                    description: "Voice Remote Bridge 正在后台监听遥控器，并把按钮动作交给当前 App。",
+                    symbolName: "rectangle.grid.2x2"
+                )
+
+                HStack(spacing: 12) {
+                    metricCard(
+                        title: "遥控器按钮",
+                        value: "\(RemoteButton.allCases.count)",
+                        detail: "可配置按键",
+                        symbolName: "remote"
+                    )
+                    metricCard(
+                        title: "应用配置",
+                        value: "\(store.appTemplates.count)",
+                        detail: "独立 App Profile",
+                        symbolName: "square.stack.3d.up"
+                    )
+                    metricCard(
+                        title: "滚动速度",
+                        value: "\(store.scrollLinesPerStep)",
+                        detail: "行 / 次",
+                        symbolName: "arrow.up.and.down"
+                    )
+                }
+
+                workspaceCard(title: "生效逻辑", symbolName: "arrow.triangle.branch") {
+                    VStack(alignment: .leading, spacing: 14) {
+                        logicRow(
+                            index: "01",
+                            title: "默认映射",
+                            description: "所有 App 都有一套基础行为，未配置 Profile 时直接使用。"
+                        )
+                        logicRow(
+                            index: "02",
+                            title: "应用 Profile",
+                            description: "当前 App 有激活 Profile 时，只有该 App 使用自己的按钮方案。"
+                        )
+                        logicRow(
+                            index: "03",
+                            title: "始终使用默认",
+                            description: "在单个按钮上开启后，它会跳过 App Profile，适合音量、Home 等全局操作。"
+                        )
+                    }
+                }
+
+                workspaceCard(title: "首次使用建议", symbolName: "sparkles") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("先在“按键映射”里确认默认行为，再到“应用配置”为常用 App 建立独立方案。")
+                        Text("修改会立即保存到本机；按键按下后会锁定当时的目标 App，避免切换窗口时误发到别的程序。")
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .padding(28)
+        }
+    }
+
+    private var mappingsPage: some View {
+        VStack(spacing: 0) {
+            mappingToolbar
+            Divider()
+
+            HStack(spacing: 0) {
+                mappingButtonRail
+                Divider()
+                mappingEditor
+            }
+        }
+    }
+
+    private var mappingToolbar: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 16) {
+                pageHeader(
+                    title: "按键映射",
+                    description: "先选择配置范围，再编辑单个遥控器按钮。每次修改会立即保存。",
+                    symbolName: "slider.horizontal.3"
+                )
+
+                Spacer(minLength: 16)
+
+                VStack(alignment: .trailing, spacing: 5) {
+                    Text("配置范围")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("配置范围", selection: Binding(
+                        get: { mappingScope },
+                        set: { selectMappingScope($0) }
+                    )) {
+                        Text("默认 · 所有 App").tag(MappingScope.global)
+                        if !configuredAppChoices.isEmpty {
+                            Section("已配置 Profile") {
+                                ForEach(configuredAppChoices) { app in
+                                    Text(app.displayName).tag(MappingScope.app(app.bundleIdentifier))
+                                }
+                            }
+                        }
+                        if !moreAppChoices.isEmpty {
+                            Section("可添加的 App") {
+                                ForEach(moreAppChoices) { app in
+                                    Text(app.displayName).tag(MappingScope.app(app.bundleIdentifier))
+                                }
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 220)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Label(mappingScopeDisplayName, systemImage: mappingScope == .global ? "globe" : "square.stack.3d.up")
+                    .font(.subheadline.weight(.semibold))
+
+                if case let .app(bundleID) = mappingScope {
+                    Divider().frame(height: 18)
+                    Picker("Profile", selection: Binding(
+                        get: { selectedTemplateTarget },
+                        set: { selectTemplate($0, for: bundleID) }
+                    )) {
+                        let templates = store.templates(for: bundleID)
+                        if templates.isEmpty {
+                            Text("暂无 Profile").tag(TemplateTarget.none)
+                        } else {
+                            ForEach(templates) { template in
+                                Text(template.templateName + (store.isActiveTemplate(template.id) ? " · Active" : ""))
+                                    .tag(TemplateTarget.template(template.id))
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 220)
+
+                    Button("导入预设") { showTemplatePresetImporter = true }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(store.templatePresets(for: bundleID).isEmpty)
+                    Button("新建 Profile") { showTemplateCreator = true }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                } else {
+                    Text("基础方案 · 对所有未覆盖的 App 生效")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("新建应用 Profile") { showTemplateCreator = true }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+            }
+
+            if let template = selectedEditorTemplate {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(.green)
+                        .frame(width: 7, height: 7)
+                    Text("Active Profile · \(template.templateName)")
+                        .font(.caption.weight(.medium))
+                    Text(template.appBundleIdentifier)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("删除 Profile", role: .destructive) {
+                        templateToDelete = template.id
+                        showDeleteTemplateConfirm = true
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                }
+            } else if case .app = mappingScope {
+                Label("当前 App 还没有 Profile，请先新建或导入一个。", systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 18)
+    }
+
+    private var mappingButtonRail: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("REMOTE BUTTONS")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(RemoteButton.allCases.count)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+
+            ScrollView {
+                LazyVStack(spacing: 5) {
+                    ForEach(RemoteButton.allCases) { button in
+                        Button { selectedButton = button } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: buttonSymbol(for: button))
+                                    .frame(width: 20)
+                                    .foregroundStyle(selectedButton == button ? Color.accentColor : .secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(button.displayName)
+                                        .font(.subheadline.weight(selectedButton == button ? .semibold : .regular))
+                                    Text(bindingSummary(for: button))
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                                if store.isGloballyPinned(button) && mappingScope != .global {
+                                    Image(systemName: "pin.fill")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                            .background(
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .fill(selectedButton == button ? Color.accentColor.opacity(0.13) : Color.clear)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
+        }
+        .padding(14)
+        .frame(width: 270, alignment: .topLeading)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.62))
+    }
+
+    private var mappingEditor: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(selectedButton.displayName)
+                            .font(.title2.weight(.semibold))
+                        Text("HID 0x\(String(selectedButton.hidUsage, radix: 16, uppercase: true)) · \(selectedButton == .microphone ? "语音键特殊逻辑" : "遥控器按钮")")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("恢复此按钮默认") { resetSelectedButtonToDefault() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+
+                bindingSummaryCard(currentBinding(for: selectedButton))
+
+                if case .global = mappingScope {
+                    globalBehaviorCard
+                } else if isSelectedButtonGloballyPinned {
+                    pinnedBehaviorCard
+                }
+
+                if hasEditableScope {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if selectedButton != .microphone {
+                            presetActionCard
+                        }
+                        customShortcutCard
+                    }
+                    .disabled(isAppMappingLocked)
+                    .opacity(isAppMappingLocked ? 0.55 : 1)
+                } else {
+                    workspaceCard(title: "还没有可编辑的 Profile", symbolName: "square.stack.3d.up") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("当前 App 尚未建立独立方案。创建或导入 Profile 后，这里的按钮才会只对当前 App 生效。")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Button("新建 Profile") { showTemplateCreator = true }
+                                .buttonStyle(.borderedProminent)
+                        }
+                    }
+                }
+
+                if selectedButton == .microphone {
+                    microphoneBehaviorCard(currentBinding(for: selectedButton))
+                }
+
+                if isScrollAction(currentBinding(for: selectedButton)) {
+                    workspaceCard(title: "滚动速度", symbolName: "arrow.up.and.down") {
+                        scrollSpeedControl
+                    }
+                }
+
+                Spacer(minLength: 20)
+                HStack {
+                    Button("重置当前配置范围", role: .destructive) { showResetConfirm = true }
+                        .buttonStyle(.borderless)
+                    Spacer()
+                    Label("修改会自动保存", systemImage: "checkmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(28)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var presetActionCard: some View {
+        workspaceCard(title: "预设动作", symbolName: "bolt.circle") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("使用有语义的动作，Voice Remote Bridge 会负责向当前 App 发送对应事件。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("预设动作", selection: Binding(
+                    get: {
+                        if case let .preset(action) = currentBinding(for: selectedButton) { return action }
+                        return ButtonAction.disabled
+                    },
+                    set: { setCurrentBinding(.preset($0), for: selectedButton) }
+                )) {
+                    ForEach(availableActionCategories) { category in
+                        Section(category.displayName) {
+                            ForEach(actions(in: category)) { action in
+                                Text(action.displayName).tag(action)
+                            }
+                        }
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 480)
+            }
+        }
+    }
+
+    private var customShortcutCard: some View {
+        workspaceCard(title: "自定义快捷键", symbolName: "command") {
+            VStack(alignment: .leading, spacing: 12) {
+                if case let .shortcut(chord, trigger) = currentBinding(for: selectedButton) {
+                    HStack(spacing: 10) {
+                        Text(chord.displayName)
+                            .font(.system(.body, design: .monospaced).weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.accentColor.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        Picker("触发方式", selection: Binding(
+                            get: { trigger },
+                            set: { setCurrentBinding(.shortcut(chord, trigger: $0), for: selectedButton) }
+                        )) {
+                            ForEach(ShortcutTriggerMode.allCases) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 180)
+                        Spacer()
+                        Button("重新录制") { recorderButton = selectedButton }
+                            .buttonStyle(.bordered)
+                    }
+                    Text(trigger.helpText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("还没有自定义快捷键。录制后会覆盖当前按钮的预设动作。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Button("录制快捷键…") { recorderButton = selectedButton }
+                        .buttonStyle(.bordered)
+                }
+            }
+        }
+    }
+
+    private var globalBehaviorCard: some View {
+        workspaceCard(title: "默认行为", symbolName: "globe") {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(
+                    "始终使用默认映射",
+                    isOn: Binding(
+                        get: { store.isGloballyPinned(selectedButton) },
+                        set: { store.setGlobalPinning($0, for: selectedButton) }
+                    )
+                )
+                Text("开启后，这个按钮不会被任何 App Profile 覆盖，适合系统音量、Home 或你希望保持一致的操作。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var pinnedBehaviorCard: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "pin.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("此按钮被默认映射锁定")
+                    .font(.subheadline.weight(.semibold))
+                Text("当前 App Profile 不会覆盖它。切回“默认 · 所有 App”即可修改实际行为。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(14)
+        .background(Color.orange.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func bindingSummaryCard(_ binding: ButtonBinding) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: binding.isDisabled ? "minus.circle" : "checkmark.circle.fill")
+                .font(.title3)
+                .foregroundStyle(binding.isDisabled ? .secondary : Color.accentColor)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("当前生效")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(currentBindingLabel(for: binding))
+                    .font(.body.weight(.semibold))
+                    .lineLimit(2)
+            }
+            Spacer()
+            Text(mappingScope == .global ? "Default" : "Profile")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.secondary.opacity(0.10))
+                .clipShape(Capsule())
+        }
+        .padding(14)
+        .background(Color.accentColor.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func microphoneBehaviorCard(_ binding: ButtonBinding) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "mic.circle.fill")
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("语音键的独立逻辑")
+                    .font(.subheadline.weight(.semibold))
+                if case .voiceKeyDefault = binding {
+                    Text("短按使用本机物理麦克风，长按切换到遥控器麦克风，并由 Voice Remote Bridge 统一处理。")
+                } else {
+                    Text("当前已改为自定义动作，短按/长按语音桥接行为不会执行。")
+                        .foregroundStyle(.orange)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .background(Color.blue.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var profilesPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                HStack {
+                    pageHeader(
+                        title: "应用配置",
+                        description: "每个 App 可以拥有独立的按钮方案；只有激活的 Profile 会参与运行时选择。",
+                        symbolName: "square.stack.3d.up"
+                    )
+                    Spacer()
+                    Button("新建应用 Profile") { showTemplateCreator = true }
+                        .buttonStyle(.borderedProminent)
+                }
+
+                if configuredAppChoices.isEmpty {
+                    workspaceCard(title: "还没有应用 Profile", symbolName: "plus.square") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("打开你准备适配的 App，然后创建一个 Profile。它会从默认映射复制一份，之后可以单独修改。")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Button("创建第一个 Profile") { showTemplateCreator = true }
+                                .buttonStyle(.borderedProminent)
+                        }
+                    }
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(configuredAppChoices) { app in
+                            profileRow(app)
+                        }
+                    }
+                }
+
+                workspaceCard(title: "Profile 的选择规则", symbolName: "questionmark.circle") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Voice Remote Bridge 会根据真正拥有输入焦点的 App 选择激活 Profile。按键按下时会锁定这个选择，确保按住、重复和松开使用同一套动作。")
+                        Text("如果某个按钮在默认范围开启“始终使用默认映射”，这个按钮会跳过所有 App Profile。")
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .padding(28)
+        }
+    }
+
+    private func profileRow(_ app: AppTemplateChoice) -> some View {
+        Button {
+            selectMappingScope(.app(app.bundleIdentifier))
+            selectedSection = .mappings
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "app.badge")
+                    .font(.title3)
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(app.displayName)
+                        .font(.body.weight(.semibold))
+                    Text(app.bundleIdentifier)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                let templates = store.templates(for: app.bundleIdentifier)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("\(templates.count) 个 Profile")
+                        .font(.caption.weight(.medium))
+                    if let active = store.activeTemplate(for: app.bundleIdentifier) {
+                        Text("Active · \(active.templateName)")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("未激活")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(15)
+            .contentShape(Rectangle())
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var diagnosticsPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                pageHeader(
+                    title: "诊断与日志",
+                    description: "排查连接、按键注入和音频桥接问题时使用。",
+                    symbolName: "stethoscope"
+                )
+
+                HStack(spacing: 12) {
+                    diagnosticCard(
+                        title: "运行日志",
+                        detail: AppStorage.formattedSize(Log.byteSize),
+                        symbolName: "doc.text.magnifyingglass",
+                        openAction: {
+                            AppStorage.ensureDirectory(AppStorage.logsDirectory)
+                            NSWorkspace.shared.open(AppStorage.logsDirectory)
+                        },
+                        clearAction: {
+                            Log.clear()
+                        }
+                    )
+                    diagnosticCard(
+                        title: "调试录音",
+                        detail: AppStorage.formattedSize(AppStorage.byteSize(of: AppStorage.recordingsDirectory)),
+                        symbolName: "waveform",
+                        openAction: {
+                            AppStorage.ensureDirectory(AppStorage.recordingsDirectory)
+                            NSWorkspace.shared.open(AppStorage.recordingsDirectory)
+                        },
+                        clearAction: {
+                            AppStorage.clearFiles(in: AppStorage.recordingsDirectory)
+                        }
+                    )
+                }
+
+                workspaceCard(title: "当前配置摘要", symbolName: "list.bullet.rectangle") {
+                    VStack(alignment: .leading, spacing: 9) {
+                        diagnosticLine(label: "默认映射", value: "\(store.bindings.count) 个按钮")
+                        diagnosticLine(label: "应用 Profile", value: "\(store.appTemplates.count) 个")
+                        diagnosticLine(label: "滚动速度", value: "\(store.scrollLinesPerStep) 行 / 次")
+                        diagnosticLine(label: "日志记录", value: Log.isEnabled ? "已开启" : "未开启")
+                    }
+                }
+
+                workspaceCard(title: "权限提醒", symbolName: "lock.open") {
+                    Text("辅助功能和输入监控权限用于读取遥控器按钮并发送快捷键；蓝牙和麦克风权限用于遥控器连接及语音桥接。系统权限仍需你在 macOS 设置中手动确认。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(28)
+        }
+    }
+
+    private func diagnosticCard(
+        title: String,
+        detail: String,
+        symbolName: String,
+        openAction: @escaping () -> Void,
+        clearAction: @escaping () -> Void
+    ) -> some View {
+        workspaceCard(title: title, symbolName: symbolName) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(detail)
+                    .font(.title3.monospacedDigit().weight(.semibold))
+                HStack {
+                    Button("打开文件夹", action: openAction)
+                        .buttonStyle(.bordered)
+                    Button("清空", role: .destructive, action: clearAction)
+                        .buttonStyle(.borderless)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var aboutPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                pageHeader(
+                    title: "关于 Voice Remote Bridge",
+                    description: "独立的遥控器、语音和快捷键控制中心。",
+                    symbolName: "info.circle"
+                )
+
+                workspaceCard(title: "产品信息", symbolName: "waveform.circle") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        aboutLine(label: "产品", value: ProductIdentity.name)
+                        aboutLine(label: "版本", value: ProductIdentity.versionLabel)
+                        aboutLine(label: "Bundle ID", value: ProductIdentity.bundleIdentifier)
+                        aboutLine(label: "音频设备", value: "VoiceRemote Mic 2ch")
+                    }
+                }
+
+                workspaceCard(title: "独立项目边界", symbolName: "checkmark.shield") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("这是 Voice Remote Bridge 自己的产品界面、配置空间和安装身份。按键 Profile、日志和录音都使用独立的本地路径。")
+                        Text("当前版本不需要连接其他项目的运行时或配置；适配器只在你主动启用对应 App Profile 时参与。")
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                }
+
+                Text("© 2026 Lost0rz · Voice Remote Bridge")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(28)
+        }
+    }
+
+    private func pageHeader(title: String, description: String, symbolName: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbolName)
+                .font(.title2)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.title2.weight(.semibold))
+                Text(description)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func metricCard(title: String, value: String, detail: String, symbolName: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: symbolName)
+                    .foregroundStyle(Color.accentColor)
+                Spacer()
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Text(value)
+                .font(.system(size: 28, weight: .semibold, design: .rounded))
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func workspaceCard<Content: View>(
+        title: String,
+        symbolName: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 13) {
+            Label(title, systemImage: symbolName)
+                .font(.subheadline.weight(.semibold))
+            content()
+        }
+        .padding(17)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func logicRow(index: String, title: String, description: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(index)
+                .font(.caption.monospacedDigit().weight(.bold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 26, alignment: .leading)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.subheadline.weight(.medium))
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func diagnosticLine(label: String, value: String) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.secondary)
+            Spacer()
+            Text(value).font(.body.monospacedDigit().weight(.medium))
+        }
+    }
+
+    private func aboutLine(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: 100, alignment: .leading)
+            Text(value)
+                .font(.body.monospaced())
+            Spacer()
+        }
+    }
+
+    private func buttonSymbol(for button: RemoteButton) -> String {
+        switch button {
+        case .microphone: return "mic"
+        case .power: return "power"
+        case .up: return "arrow.up"
+        case .left: return "arrow.left"
+        case .ok: return "checkmark"
+        case .right: return "arrow.right"
+        case .down: return "arrow.down"
+        case .back: return "arrow.uturn.backward"
+        case .volumeUp: return "speaker.plus"
+        case .home: return "house"
+        case .volumeDown: return "speaker.minus"
+        case .menu: return "line.3.horizontal"
+        case .tv: return "rectangle.on.rectangle"
+        }
+    }
+
+    private func resetSelectedButtonToDefault() {
+        let defaultBinding = DefaultBindings.all[selectedButton] ?? .preset(.disabled)
+        if case let .template(id) = selectedTemplateTarget,
+           selectedEditorTemplate != nil,
+           !store.isGloballyPinned(selectedButton) {
+            store.setBinding(defaultBinding, for: selectedButton, templateID: id)
+        } else {
+            store.setBinding(defaultBinding, for: selectedButton)
         }
     }
 

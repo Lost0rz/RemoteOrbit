@@ -204,12 +204,11 @@ remoteGain
 “FloatTabs：显示 / 隐藏”；全局动作在目标程序前台时隐藏，不在前台时打开并激活。
 是否应用全局由用户逐个按键选择，不会自动改变已有映射。
 
-在“按键映射设置”中，先用“程序”下拉框选择通用映射或某个 App；选中 App 后，
-第二个“模板”下拉框只显示这个 App 的模板，不会把不同 App 的模板混在一起。
-选择模板就会将它设为该 App 的 Active 模板。第一次创建 App 模板时点击“新增
-App 模板”并选择目标程序；已有 App 再增加模板时，先选中该 App，再点击“新增
-模板”。第一个模板会自动生效。模板会从当前通用映射复制一份完整的 13 个按键
-配置，之后可以独立修改每一个按键。
+在 Voice Remote Bridge Control Center 的“按键映射”页面，先选择“默认 · 所有 App”
+或某个 App，再选择该 App 的 Active Profile。默认映射、App Profile 和单按钮的“始终
+使用默认”关系不会混在一起；第一次创建应用配置时，在“应用配置”页面新建 Profile，
+或在按键映射页面导入预设。新 Profile 会从当前默认映射复制一份完整的 13 个按键配置，
+之后可以独立修改每一个按键。
 
 运行时按遥控器按钮的瞬间读取前台 App，并锁定这次按下对应的模板；即使该快捷键
 随后切换窗口或退出程序，松开和长按重复仍使用同一套映射。没有对应 App 激活
@@ -333,7 +332,8 @@ defaults write com.lost0rz.VoiceRemoteBridge loggingEnabled -bool false
 - `voice-remote-bridge/Sources/VoiceRemoteBridge/main.swift`：短按/长按状态机、立即物理 Option、设备级映射。
 - `voice-remote-bridge/Sources/VoiceRemoteBridge/AudioPipe.swift`：自动选择物理麦克风、遥控器增益、预缓冲和虚拟设备输出诊断。
 - `voice-remote-bridge/Sources/VoiceRemoteBridge/KeyMapping/MappingStore.swift`：全局映射、App 模板、持久化迁移和按下时目标快照。
-- `voice-remote-bridge/Sources/VoiceRemoteBridge/KeyMapping/SettingsView.swift`：按 App 分组的模板设置、预设导入和全局按键锁定。
+- `voice-remote-bridge/Sources/VoiceRemoteBridge/KeyMapping/SettingsView.swift`：Voice Remote Bridge Control Center、按键 Profile、预设导入和全局按键锁定。
+- `voice-remote-bridge/Sources/VoiceRemoteBridge/ProductBranding.swift`：独立产品标题栏、版本信息和统一品牌文案。
 - `voice-remote-bridge/Sources/VoiceRemoteBridge/KeyMapping/AppTemplatePresets.swift`：内置 App 模板与语义动作目录。
 - `voice-remote-bridge/Sources/VoiceRemoteBridge/KeyMapping/KeyInjector.swift`：预设动作、目标 App 激活、滚屏和外部适配回退。
 - `voice-remote-bridge/Sources/VoiceRemoteBridge/KeyMapping/FloatTabsCommandClient.swift`：FloatTabs 本地命令与输入焦点握手。

@@ -1,4 +1,4 @@
-// SettingsWindow.swift — NSWindow 包装器
+// SettingsWindow.swift — Voice Remote Bridge Control Center window
 //
 // 从菜单栏打开一个 NSWindow，内嵌 SwiftUI SettingsView。
 // 保持窗口单例，避免重复创建。
@@ -22,12 +22,13 @@ final class SettingsWindow {
         let hostingController = NSHostingController(rootView: settingsView)
 
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 620),
+            contentRect: NSRect(x: 0, y: 0, width: 1_080, height: 720),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
-        win.title = "按键映射设置"
+        win.title = "\(ProductIdentity.name) · Control Center"
+        win.minSize = NSSize(width: 980, height: 660)
         win.contentViewController = hostingController
         win.center()
         win.makeKeyAndOrderFront(nil)
