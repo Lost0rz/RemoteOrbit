@@ -5,7 +5,7 @@ DEL/
 **/.build/
 **/dist/
 **/build/
-mi-remote-voice-driver-poc/build-source/
+voice-remote-audio-driver/build-source/
 **/recordings/
 *.wav
 *.raw.bin

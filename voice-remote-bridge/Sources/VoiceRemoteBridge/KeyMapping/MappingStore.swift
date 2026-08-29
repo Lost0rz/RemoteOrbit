@@ -1,0 +1,558 @@
+// MappingStore.swift — 通用映射与 App 模板映射
+//
+// 通用映射适用于所有 App。每个 App 可以拥有多个模板，但同一个 App
+// 同时只有一个激活模板；如果没有激活模板，就回退到通用映射。
+
+import AppKit
+import Combine
+import Foundation
+import ApplicationServices
+
+/// 一个 App 的完整按键映射模板。
+struct AppMappingTemplate: Codable, Equatable, Identifiable {
+    let id: UUID
+    var appBundleIdentifier: String
+    var appName: String
+    var templateName: String
+    var bindings: [RemoteButton: ButtonBinding]
+
+    init(
+        id: UUID = UUID(),
+        appBundleIdentifier: String,
+        appName: String,
+        templateName: String,
+        bindings: [RemoteButton: ButtonBinding] = DefaultBindings.all
+    ) {
+        self.id = id
+        self.appBundleIdentifier = appBundleIdentifier
+        self.appName = appName
+        self.templateName = templateName
+        self.bindings = bindings
+    }
+
+    var displayName: String {
+        "\(appName) · \(templateName)"
+    }
+}
+
+private struct PersistedMappingConfiguration: Codable {
+    var globalBindings: [RemoteButton: ButtonBinding]
+    // Optional so configurations created before per-button global pinning was
+    // added can still be decoded.
+    var globallyPinnedButtons: Set<RemoteButton>?
+    var appTemplates: [AppMappingTemplate]
+    var activeTemplateIDs: [String: UUID]
+    // Optional so configurations created before the scroll setting was added
+    // can still be decoded.
+    var scrollLinesPerStep: Int?
+}
+
+final class MappingStore: ObservableObject {
+    private static let storageKey = "VoiceRemoteBridge.mappingConfiguration.v3"
+    private static let legacyStorageKey = "VoiceRemoteBridge.buttonBindings.v2"
+    static let chatGPTBundleIdentifier = "com.openai.codex"
+    static let defaultScrollLinesPerStep = 6
+    static let scrollLinesPerStepRange = 1...40
+
+    /// 通用映射：没有匹配的 App 激活模板时使用。
+    @Published var bindings: [RemoteButton: ButtonBinding] = DefaultBindings.all {
+        didSet { save() }
+    }
+
+    /// These buttons always use the corresponding global binding, even when
+    /// the foreground App has an active template.
+    @Published private(set) var globallyPinnedButtons: Set<RemoteButton> = []
+
+    /// 所有 App 模板。一个 App 可以有多个模板。
+    @Published private(set) var appTemplates: [AppMappingTemplate] = [] {
+        didSet { save() }
+    }
+
+    /// Bundle ID → 激活模板 ID。每个 App 最多一个激活模板。
+    @Published private(set) var activeTemplateIDs: [String: UUID] = [:] {
+        didSet { save() }
+    }
+
+    /// 每次向上/向下滚屏事件发送的滚轮行数。数值越大，单次和长按滚动都越快。
+    @Published var scrollLinesPerStep: Int = MappingStore.defaultScrollLinesPerStep {
+        didSet {
+            let clamped = Self.clampedScrollLinesPerStep(scrollLinesPerStep)
+            if scrollLinesPerStep != clamped {
+                scrollLinesPerStep = clamped
+                return
+            }
+            save()
+        }
+    }
+
+    /// 按下时锁定的映射快照。这样即使快捷键切换/退出前台 App，松开和重复
+    /// 事件仍然使用同一套映射，不会发送错模板或留下修饰键状态。
+    private var pressedBindings: [RemoteButton: ButtonBinding] = [:]
+
+    /// 与映射快照配套锁定目标 App。FloatTabs 是浮动窗口，不能在按键的
+    /// down/up 或 repeat 边沿重新读取 frontmostApplication，否则窗口短暂
+    /// 激活时会把同一个物理按键路由到另一个模板。
+    private var pressedApplicationBundleIDs: [RemoteButton: String] = [:]
+
+    private var hasLoaded = false
+
+    init() {
+        load()
+    }
+
+    // MARK: - 通用与模板查询
+
+    /// 获取通用映射。
+    func binding(for button: RemoteButton) -> ButtonBinding {
+        bindings[button] ?? DefaultBindings.all[button] ?? .preset(.disabled)
+    }
+
+    /// 获取指定模板中的映射。
+    func binding(for button: RemoteButton, templateID: UUID) -> ButtonBinding {
+        guard let template = template(withID: templateID) else {
+            return binding(for: button)
+        }
+        return template.bindings[button]
+            ?? DefaultBindings.all[button]
+            ?? .preset(.disabled)
+    }
+
+    /// 根据前台 App 选择实际生效的映射；没有激活模板时回退到通用映射。
+    func binding(for button: RemoteButton, appBundleIdentifier: String?) -> ButtonBinding {
+        if globallyPinnedButtons.contains(button) {
+            return binding(for: button)
+        }
+        guard let template = activeTemplate(for: appBundleIdentifier) else {
+            return binding(for: button)
+        }
+        return template.bindings[button]
+            ?? DefaultBindings.all[button]
+            ?? .preset(.disabled)
+    }
+
+    func template(withID id: UUID) -> AppMappingTemplate? {
+        appTemplates.first { $0.id == id }
+    }
+
+    func templates(for appBundleIdentifier: String) -> [AppMappingTemplate] {
+        appTemplates.filter { $0.appBundleIdentifier == appBundleIdentifier }
+    }
+
+    /// 获取当前 App 可导入的内置模板。
+    func templatePresets(for appBundleIdentifier: String) -> [AppTemplatePreset] {
+        AppTemplatePresetLibrary.presets(for: appBundleIdentifier)
+    }
+
+    func activeTemplate(for appBundleIdentifier: String?) -> AppMappingTemplate? {
+        guard let appBundleIdentifier,
+              let activeID = activeTemplateIDs[appBundleIdentifier]
+        else { return nil }
+        return appTemplates.first {
+            $0.id == activeID && $0.appBundleIdentifier == appBundleIdentifier
+        }
+    }
+
+    func isActiveTemplate(_ templateID: UUID) -> Bool {
+        guard let template = template(withID: templateID) else { return false }
+        return activeTemplateIDs[template.appBundleIdentifier] == templateID
+    }
+
+    // MARK: - 运行时按键快照
+
+    /// 返回真正拥有系统焦点控件的 App。
+    ///
+    /// 仅看 NSWorkspace.frontmostApplication 对浮动窗口不可靠：FloatTabs
+    /// 可以显示在 Codex 或其他 App 之上，但用户的输入焦点仍然属于下面的
+    /// App。Accessibility 的 system-wide focused element 能提供更准确的
+    ///进程归属；如果当前没有可读焦点，则回退到传统的前台 App。
+    static func preferredApplicationBundleIdentifier() -> String? {
+        let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if let focused = focusedApplicationBundleIdentifier(),
+           focused != Bundle.main.bundleIdentifier {
+            return focused
+        }
+        return frontmost
+    }
+
+    private static func focusedApplicationBundleIdentifier() -> String? {
+        guard AXIsProcessTrusted() else { return nil }
+
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            systemWide,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedValue
+        ) == .success,
+        let focusedValue,
+        CFGetTypeID(focusedValue) == AXUIElementGetTypeID()
+        else { return nil }
+
+        let focusedElement = unsafeBitCast(focusedValue, to: AXUIElement.self)
+        var processIdentifier: pid_t = 0
+        guard AXUIElementGetPid(focusedElement, &processIdentifier) == .success,
+              processIdentifier > 0,
+              let application = NSRunningApplication(processIdentifier: processIdentifier)
+        else { return nil }
+        return application.bundleIdentifier
+    }
+
+    /// 在按下边沿解析一次前台 App，并锁定该按键的映射。
+    @discardableResult
+    func beginPress(for button: RemoteButton) -> ButtonBinding {
+        let bundleID = Self.preferredApplicationBundleIdentifier()
+        let binding = binding(for: button, appBundleIdentifier: bundleID)
+        pressedBindings[button] = binding
+        if let bundleID {
+            pressedApplicationBundleIDs[button] = bundleID
+        } else {
+            pressedApplicationBundleIDs.removeValue(forKey: button)
+        }
+
+        if let bundleID, let template = activeTemplate(for: bundleID) {
+            print("[MappingStore] \(button.displayName) → \(template.displayName) [target=\(bundleID)]")
+        } else {
+            print("[MappingStore] \(button.displayName) → 通用映射 [target=\(bundleID ?? "unknown")]")
+        }
+        return binding
+    }
+
+    /// 获取当前按住事件锁定的映射；没有快照时才重新读取前台 App。
+    func activePressBinding(for button: RemoteButton) -> ButtonBinding {
+        pressedBindings[button] ?? binding(
+            for: button,
+            appBundleIdentifier: Self.preferredApplicationBundleIdentifier()
+        )
+    }
+
+    /// 获取当前按键按下时锁定的目标 App。用于诊断和需要区分 App 的动作。
+    func activePressApplicationBundleIdentifier(for button: RemoteButton) -> String? {
+        pressedApplicationBundleIDs[button]
+            ?? Self.preferredApplicationBundleIdentifier()
+    }
+
+    /// 结束按键并返回按下时锁定的映射。
+    @discardableResult
+    func endPress(for button: RemoteButton) -> ButtonBinding {
+        let binding = pressedBindings.removeValue(forKey: button)
+            ?? activePressBinding(for: button)
+        pressedApplicationBundleIDs.removeValue(forKey: button)
+        return binding
+    }
+
+    func clearPressedBindings() {
+        pressedBindings.removeAll()
+        pressedApplicationBundleIDs.removeAll()
+    }
+
+    // MARK: - 通用映射修改
+
+    /// 设置通用映射。
+    func setBinding(_ binding: ButtonBinding, for button: RemoteButton) {
+        bindings[button] = binding
+    }
+
+    /// 重置通用映射。
+    func resetAll() {
+        bindings = DefaultBindings.all
+        globallyPinnedButtons.removeAll()
+        save()
+    }
+
+    /// 设置某个按钮是否由通用映射接管所有 App 场景。
+    func setGlobalPinning(_ isPinned: Bool, for button: RemoteButton) {
+        var updated = globallyPinnedButtons
+        if isPinned {
+            updated.insert(button)
+        } else {
+            updated.remove(button)
+        }
+        guard updated != globallyPinnedButtons else { return }
+        globallyPinnedButtons = updated
+        save()
+    }
+
+    func isGloballyPinned(_ button: RemoteButton) -> Bool {
+        globallyPinnedButtons.contains(button)
+    }
+
+    // MARK: - App 模板修改
+
+    /// 新建模板。第一个模板自动成为该 App 的激活模板，后续模板需要手动激活。
+    @discardableResult
+    func addTemplate(
+        appBundleIdentifier: String,
+        appName: String,
+        templateName: String
+    ) -> UUID {
+        let cleanName = templateName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let template = AppMappingTemplate(
+            appBundleIdentifier: appBundleIdentifier,
+            appName: appName,
+            templateName: cleanName.isEmpty ? "默认模板" : cleanName,
+            // 新模板从当前通用映射开始，之后可独立修改全部按钮。
+            bindings: bindings
+        )
+        var updatedTemplates = appTemplates
+        updatedTemplates.append(template)
+        appTemplates = updatedTemplates
+        if activeTemplateIDs[appBundleIdentifier] == nil {
+            var updatedActiveIDs = activeTemplateIDs
+            updatedActiveIDs[appBundleIdentifier] = template.id
+            activeTemplateIDs = updatedActiveIDs
+        }
+        save()
+        print("[MappingStore] added template: \(template.displayName) [\(appBundleIdentifier)]")
+        return template.id
+    }
+
+    /// 导入一个内置模板并立即设为该 App 的 Active 模板。
+    /// 同名模板已经存在时保留用户现有修改，只切换 Active，不覆盖内容。
+    @discardableResult
+    func importTemplatePreset(
+        _ presetID: String,
+        for appBundleIdentifier: String,
+        appName: String
+    ) -> UUID? {
+        guard let preset = AppTemplatePresetLibrary.preset(id: presetID),
+              preset.appBundleIdentifier == appBundleIdentifier
+        else { return nil }
+
+        if let existing = appTemplates.first(where: {
+            $0.appBundleIdentifier == appBundleIdentifier &&
+            $0.templateName == preset.templateName
+        }) {
+            setActiveTemplate(existing.id)
+            print("[MappingStore] activated existing preset template: \(existing.displayName)")
+            return existing.id
+        }
+
+        let template = AppMappingTemplate(
+            appBundleIdentifier: appBundleIdentifier,
+            appName: appName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? preset.appName
+                : appName,
+            templateName: preset.templateName,
+            bindings: preset.bindings
+        )
+        var updatedTemplates = appTemplates
+        updatedTemplates.append(template)
+        appTemplates = updatedTemplates
+
+        var updatedActiveIDs = activeTemplateIDs
+        updatedActiveIDs[appBundleIdentifier] = template.id
+        activeTemplateIDs = updatedActiveIDs
+        save()
+        print("[MappingStore] imported preset template: \(template.displayName)")
+        return template.id
+    }
+
+    /// 设置某个 App 的激活模板。
+    func setActiveTemplate(_ templateID: UUID) {
+        guard let template = template(withID: templateID) else { return }
+        guard template.appBundleIdentifier.isEmpty == false else { return }
+        var updatedActiveIDs = activeTemplateIDs
+        updatedActiveIDs[template.appBundleIdentifier] = templateID
+        activeTemplateIDs = updatedActiveIDs
+        save()
+        print("[MappingStore] active template: \(template.displayName)")
+    }
+
+    /// 设置模板内某个按钮的映射。
+    func setBinding(_ binding: ButtonBinding, for button: RemoteButton, templateID: UUID) {
+        guard let index = appTemplates.firstIndex(where: { $0.id == templateID }) else { return }
+        var updatedTemplates = appTemplates
+        updatedTemplates[index].bindings[button] = binding
+        appTemplates = updatedTemplates
+    }
+
+    /// 将当前模板恢复为系统默认映射。
+    func resetTemplate(_ templateID: UUID) {
+        guard let index = appTemplates.firstIndex(where: { $0.id == templateID }) else { return }
+        var updatedTemplates = appTemplates
+        updatedTemplates[index].bindings = DefaultBindings.all
+        appTemplates = updatedTemplates
+    }
+
+    /// 删除模板。若删除的是激活模板，会自动激活同一 App 的另一个模板；
+    /// 如果没有剩余模板，该 App 自动回退到通用映射。
+    func deleteTemplate(_ templateID: UUID) {
+        guard let index = appTemplates.firstIndex(where: { $0.id == templateID }) else { return }
+        let bundleID = appTemplates[index].appBundleIdentifier
+        let wasActive = activeTemplateIDs[bundleID] == templateID
+        var updatedTemplates = appTemplates
+        updatedTemplates.remove(at: index)
+        appTemplates = updatedTemplates
+
+        if wasActive {
+            var updatedActiveIDs = activeTemplateIDs
+            if let replacement = updatedTemplates.first(where: { $0.appBundleIdentifier == bundleID }) {
+                updatedActiveIDs[bundleID] = replacement.id
+            } else {
+                updatedActiveIDs.removeValue(forKey: bundleID)
+            }
+            activeTemplateIDs = updatedActiveIDs
+        }
+        save()
+    }
+
+    // MARK: - 持久化
+
+    private func load() {
+        guard !hasLoaded else { return }
+
+        if let data = UserDefaults.standard.data(forKey: Self.storageKey) {
+            do {
+                let decoded = try JSONDecoder().decode(PersistedMappingConfiguration.self, from: data)
+                bindings = Self.mergedBindings(decoded.globalBindings)
+                globallyPinnedButtons = decoded.globallyPinnedButtons ?? []
+                appTemplates = decoded.appTemplates.map { template in
+                    var merged = template
+                    merged.bindings = Self.mergedBindings(template.bindings)
+                    return merged
+                }
+                activeTemplateIDs = decoded.activeTemplateIDs
+                scrollLinesPerStep = Self.clampedScrollLinesPerStep(
+                    decoded.scrollLinesPerStep ?? Self.defaultScrollLinesPerStep
+                )
+                hasLoaded = true
+                ensureBuiltInTemplates()
+                print("[MappingStore] loaded v3: global=\(bindings.count), templates=\(appTemplates.count), scroll=\(scrollLinesPerStep) lines")
+                return
+            } catch {
+                print("[MappingStore] v3 load failed: \(error)")
+            }
+        }
+
+        // 兼容之前只保存全局映射的 v2 数据。
+        if let data = UserDefaults.standard.data(forKey: Self.legacyStorageKey) {
+            do {
+                let decoded = try JSONDecoder().decode([RemoteButton: ButtonBinding].self, from: data)
+                bindings = Self.mergedBindings(decoded)
+                print("[MappingStore] migrated v2 global bindings: \(decoded.count)")
+            } catch {
+                print("[MappingStore] v2 load failed: \(error)")
+            }
+        }
+
+        hasLoaded = true
+        ensureBuiltInTemplates()
+    }
+
+    /// 首次升级到模板库版本时，为当前机器已安装的常用 App 提供默认模板。
+    /// 已有任意模板的 App 完全保留用户配置，不会被自动覆盖。
+    private func ensureBuiltInTemplates() {
+        ensureBuiltInChatGPTTemplate()
+
+        for presetID in AppTemplatePresetLibrary.defaultPresetIDs {
+            guard let preset = AppTemplatePresetLibrary.preset(id: presetID),
+                  preset.appBundleIdentifier != Self.chatGPTBundleIdentifier,
+                  NSWorkspace.shared.urlForApplication(
+                      withBundleIdentifier: preset.appBundleIdentifier
+                  ) != nil,
+                  !appTemplates.contains(where: {
+                      $0.appBundleIdentifier == preset.appBundleIdentifier
+                  })
+            else { continue }
+
+            _ = importTemplatePreset(
+                presetID,
+                for: preset.appBundleIdentifier,
+                appName: preset.appName
+            )
+        }
+    }
+
+    /// 首次升级到 App 模板功能时自动添加 ChatGPT 默认模板。
+    /// 如果用户已经为 ChatGPT 创建过模板，则完全保留用户配置。
+    private func ensureBuiltInChatGPTTemplate() {
+        if let index = appTemplates.firstIndex(where: {
+            $0.appBundleIdentifier == Self.chatGPTBundleIdentifier &&
+            $0.templateName == "ChatGPT 默认"
+        }),
+           let currentRight = appTemplates[index].bindings[.right],
+           let newRight = DefaultBindings.chatGPT[.right] {
+            // 旧版内置模板使用 ⌃` 的“Open Terminal”动作；当前 ChatGPT
+            // View 菜单将它定义为只打开，⌘J 才是可反复显示/隐藏的底部面板。
+            let legacyRight = ButtonBinding.shortcut(
+                KeyChord(keyCode: 50, keyLabel: "`", modifiers: .control),
+                trigger: .single
+            )
+            if currentRight == legacyRight {
+                var updatedTemplates = appTemplates
+                updatedTemplates[index].bindings[.right] = newRight
+                appTemplates = updatedTemplates
+                save()
+                print("[MappingStore] migrated ChatGPT terminal toggle to ⌘J")
+            }
+        }
+
+        // The Codex preset uses the previously documented empty menu slot for
+        // the official previous-chat command. Migrate only that untouched
+        // default value; a user-customized Codex menu remains unchanged.
+        if let index = appTemplates.firstIndex(where: {
+            $0.appBundleIdentifier == Self.chatGPTBundleIdentifier &&
+            $0.templateName == "Codex 默认"
+        }),
+           let codexPreset = AppTemplatePresetLibrary.preset(id: "codex.default") {
+            var legacyBindings = codexPreset.bindings
+            legacyBindings[.menu] = .preset(.disabled)
+            if appTemplates[index].bindings == legacyBindings {
+                var updatedTemplates = appTemplates
+                updatedTemplates[index].bindings = codexPreset.bindings
+                appTemplates = updatedTemplates
+                save()
+                print("[MappingStore] migrated Codex default menu to previous chat")
+            }
+        }
+
+        guard !appTemplates.contains(where: {
+            $0.appBundleIdentifier == Self.chatGPTBundleIdentifier
+        }) else { return }
+
+        let template = AppMappingTemplate(
+            appBundleIdentifier: Self.chatGPTBundleIdentifier,
+            appName: "ChatGPT",
+            templateName: "ChatGPT 默认",
+            bindings: DefaultBindings.chatGPT
+        )
+        var updatedTemplates = appTemplates
+        updatedTemplates.append(template)
+        appTemplates = updatedTemplates
+
+        var updatedActiveIDs = activeTemplateIDs
+        updatedActiveIDs[Self.chatGPTBundleIdentifier] = template.id
+        activeTemplateIDs = updatedActiveIDs
+        save()
+        print("[MappingStore] added built-in template: \(template.displayName)")
+    }
+
+    private static func mergedBindings(_ decoded: [RemoteButton: ButtonBinding]) -> [RemoteButton: ButtonBinding] {
+        var merged = DefaultBindings.all
+        for (button, binding) in decoded {
+            merged[button] = binding
+        }
+        return merged
+    }
+
+    private static func clampedScrollLinesPerStep(_ value: Int) -> Int {
+        min(max(value, scrollLinesPerStepRange.lowerBound), scrollLinesPerStepRange.upperBound)
+    }
+
+    private func save() {
+        guard hasLoaded else { return }
+        do {
+            let configuration = PersistedMappingConfiguration(
+                globalBindings: bindings,
+                globallyPinnedButtons: globallyPinnedButtons,
+                appTemplates: appTemplates,
+                activeTemplateIDs: activeTemplateIDs,
+                scrollLinesPerStep: scrollLinesPerStep
+            )
+            let data = try JSONEncoder().encode(configuration)
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        } catch {
+            print("[MappingStore] save failed: \(error)")
+        }
+    }
+}
