@@ -109,7 +109,7 @@ enum Key {
 
 // MARK: - Device-scoped voice-key mapping
 
-/// Map only the Xiaomi remote's F5 usage to a real left Option at the HID
+/// Map only the supported remote's F5 usage to a real left Option at the HID
 /// event-system layer. Doubao recognizes this physical mapping reliably.
 /// The event tap may briefly defer this mapped Option pair only when FloatTabs
 /// needs to repair a stale WebKit text client.

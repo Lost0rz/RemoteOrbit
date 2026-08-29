@@ -150,7 +150,7 @@ final class ATVVProtocol {
             guard bytes.count >= 7 else { return nil }
             let standardCodecs = bytes[3]
             let standardInteractionModel = bytes[4]
-            // Xiaomi Remote firmware 2671 has occasionally been observed
+            // Firmware 2671 has occasionally been observed
             // returning these two fields in the opposite order. Only accept
             // that layout when the standard codec byte is unambiguously invalid.
             let hasKnownStandardCodec = standardCodecs & 0x03 != 0
