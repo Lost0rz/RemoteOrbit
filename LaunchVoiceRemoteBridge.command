@@ -1,8 +1,12 @@
 #!/bin/zsh
 set -euo pipefail
 
-APP="$HOME/Applications/VoiceRemoteBridge.app"
+APP="/Applications/VoiceRemoteBridge.app"
 DRIVER="/Library/Audio/Plug-Ins/HAL/VoiceRemoteAudio.driver"
+
+if [[ ! -d "$APP" ]]; then
+  APP="$HOME/Applications/VoiceRemoteBridge.app"
+fi
 
 if [[ ! -d "$DRIVER" ]]; then
   print "缺少 VoiceRemote Mic 2ch 驱动：$DRIVER"

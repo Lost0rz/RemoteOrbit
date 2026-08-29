@@ -17,10 +17,9 @@ FloatTabs/Codex/Ghostty 等应用适配，以及更完整的按键注入和语�
 本机实际安装过的配置、豆包设置、Redmi Air/其他型号兼容性边界和常见排障步骤，见
 [SETUP_NOTES.md](SETUP_NOTES.md)。
 
-本次 Release 暂时只发布源码，没有预编译 App、PKG、DMG 或一键安装包。项目已在
-Xiaomi Bluetooth Voice Remote 2 Pro、Apple Silicon Mac 和豆包输入法上完成连续长按、
-短按和音源往返切换验证。有动手能力的用户可以按下文从源码安装，也可以让能够执行
-终端命令的 AI Agent 协助安装。
+项目已在 Xiaomi Bluetooth Voice Remote 2 Pro、Apple Silicon Mac 和豆包输入法上完成
+连续长按、短按和音源往返切换验证。发布 DMG 会把 App 和独立音频驱动一起带上，普通用户
+不需要准备开发环境；维护者也可以用仓库中的脚本重新生成 DMG。
 
 ### 当前功能
 
@@ -33,21 +32,37 @@ Xiaomi Bluetooth Voice Remote 2 Pro、Apple Silicon Mac 和豆包输入法上完
 - 改进兼容模式下遥控器原生 Home/方向键的事件压制，并修复首次打开快捷键录制窗口无内容的问题。
 - 对带 Command 的自定义快捷键增加 System Events 路径，兼容 `KeyboardShortcuts`/Carbon 全局热键。
 
-## 使用前准备
+## DMG 安装（推荐）
 
-目前的源码安装方式需要：
+发布 DMG 已经包含 `VoiceRemoteBridge.app`、预先构建好的 `VoiceRemoteAudio.driver` 和
+图形化安装器。最终用户不需要安装 Xcode、Homebrew、Xcode Command Line Tools，也不需要
+再次联网下载 BlackHole 或其他构建依赖。
+
+1. 打开 DMG，双击 `VoiceRemoteBridge.pkg`，使用 macOS Installer 完成安装。
+2. 按提示输入管理员密码。安装器会把 App 放入 `/Applications`，把驱动安装到 macOS 的
+   HAL 目录，并自动重启音频服务。
+3. 按提示重启 Mac。重启是让 CoreAudio 完整加载新驱动的必要步骤。
+4. 重启后打开 `/Applications/VoiceRemoteBridge.app`，按 macOS 提示授予蓝牙、麦克风、
+   辅助功能和输入监控权限。
+5. 在“声音”或“音频 MIDI 设置”中确认 `VoiceRemote Mic 2ch` 已出现并作为输入设备。
+
+安装器会把被替换的旧 App/驱动备份到
+`~/Library/Application Support/VoiceRemoteBridge/Backups/`，不会覆盖原 BlackHole 驱动。
+
+## 从源码构建
+
+只有维护者从源码生成 DMG 时需要准备：
 
 1. macOS 13 或更高版本；当前主要在 Apple Silicon Mac 上验证。
-2. Xcode Command Line Tools：`xcode-select --install`。
-3. 已安装 Xcode Command Line Tools，并能运行 `xcodebuild`。驱动脚本会固定下载
+2. 已安装 Xcode Command Line Tools，并能运行 `xcodebuild`。驱动脚本会固定下载
    BlackHole 0.7.1 源码，构建独立的 `VoiceRemoteAudio.driver`，不会依赖或修改原 BlackHole。
-4. 安装 HAL 驱动时需要管理员密码。
-5. 首次启动后，由用户手动授予蓝牙、麦克风、辅助功能和输入监控权限。
+3. 生成 DMG 时会下载 BlackHole 0.7.1 源码并构建独立驱动；这些步骤发生在发布机上，
+   不会出现在最终用户的首次安装过程中。
 
 > AI Agent 可以执行检查、构建和安装命令，但不能代替用户输入管理员密码，也不能绕过
 > macOS 的隐私授权界面。
 
-## 从源码安装
+## 从源码安装（开发者备用流程）
 
 ### 有动手能力的用户
 
@@ -100,13 +115,14 @@ sudo ./voice-remote-audio-driver/install-driver.sh
 
 ## 启动与退出
 
-已安装的应用位于：
+DMG 安装的应用位于：
 
 ```text
-~/Applications/VoiceRemoteBridge.app
+/Applications/VoiceRemoteBridge.app
 ```
 
-双击应用或运行 `LaunchVoiceRemoteBridge.command` 即可启动。它是菜单栏应用，不显示 Dock 图标；
+双击应用或运行 `LaunchVoiceRemoteBridge.command` 即可启动。源码备用安装脚本仍会使用
+`~/Applications/VoiceRemoteBridge.app`。它是菜单栏应用，不显示 Dock 图标；
 点击菜单栏的麦克风图标可查看状态或退出。菜单中的“登录时自动启动”可以控制登录后
 自动启动，不需要管理员权限。
 
@@ -123,28 +139,42 @@ sudo ./voice-remote-audio-driver/install-driver.sh
 
 ## 当前限制
 
-- 这是源码预览版，App 和驱动目前使用本地 ad-hoc 签名，尚未提供签名和 Apple 公证的安装包。
+- App 和驱动目前使用本地 ad-hoc 签名，DMG 尚未提供 Developer ID 签名和 Apple 公证。
 - 驱动构建脚本会固定获取 BlackHole 0.7.1 源码并生成独立的 `VoiceRemoteAudio.driver`；遥控器型号兼容性仍以已验证设备为准。
 - 当前明确验证的硬件是 Xiaomi Bluetooth Voice Remote 2 Pro；其他型号和固件不保证兼容。
 - macOS 隐私权限必须由用户本人手动授予。
 
-## 下一步计划
+## 生成发布 DMG
 
-等维护者有时间后，会逐步推进：
+在发布机上执行：
+
+```bash
+./package-dmg.sh
+```
+
+该命令会下载固定版本的 BlackHole 源码、构建独立驱动、打包 App，并生成
+`dist/VoiceRemoteBridge-0.1.0.dmg`。如果已经有本地构建好的驱动，可以使用：
+
+```bash
+./package-dmg.sh --reuse-driver
+```
+
+后续计划包括：
 
 - 完善 GPL v3 对应源码和许可证分发。
 - 提供 App、驱动和登录启动项的统一卸载方法。
-- 增加 Developer ID 签名、Hardened Runtime 和 Apple 公证。
-- 评估统一 PKG、DMG 和 `.command` 安装体验。
+- 提供 Developer ID 签名、Hardened Runtime 和 Apple 公证的正式安装包。
 - 增加 GitHub Actions、更多自动测试和干净 Mac 安装验证。
 
-当前 `0.1.0` 是供开发者、动手能力较强的用户和 AI Agent 使用的独立源码基线；正式一键安装包
-会在后续版本中提供，感谢耐心等待。
+当前 `0.1.0` 是供开发者、动手能力较强的用户和 AI Agent 使用的独立源码基线；带签名和公证的
+正式安装包会在后续版本中提供，感谢耐心等待。
 
 ## 目录
 
 - `voice-remote-bridge/`：Swift 菜单栏应用、BLE/ATVV 解码和音频路由。
-- `voice-remote-audio-driver/`：生成 `VoiceRemote Mic 2ch` HAL 驱动的验证构建及安装脚本。
+- `voice-remote-audio-driver/`：生成 `VoiceRemote Mic 2ch` HAL 驱动的构建及安装脚本。
+- `installer/`：DMG 安装器和首次安装配置逻辑。
+- `package-dmg.sh`：在发布机上生成包含 App 与驱动的 DMG。
 
 ## 许可证
 

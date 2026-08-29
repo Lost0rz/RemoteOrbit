@@ -1,0 +1,43 @@
+#!/bin/zsh
+set -euo pipefail
+
+CONSOLE_USER="$(/usr/bin/stat -f %Su /dev/console)"
+if [[ "$CONSOLE_USER" == "root" || -z "$CONSOLE_USER" ]]; then
+    print -u2 "No logged-in user was found; installation will continue without backups."
+    exit 0
+fi
+
+USER_HOME="$(/usr/bin/dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory | /usr/bin/awk '{print $2}')"
+CONSOLE_GROUP="$(/usr/bin/id -gn "$CONSOLE_USER")"
+BACKUP_DIRECTORY="$USER_HOME/Library/Application Support/VoiceRemoteBridge/Backups"
+TIMESTAMP="$(date -u '+%Y%m%d-%H%M%S')"
+
+mkdir -p "$BACKUP_DIRECTORY"
+chown "$CONSOLE_USER:$CONSOLE_GROUP" "$USER_HOME/Library/Application Support/VoiceRemoteBridge" "$BACKUP_DIRECTORY"
+killall -TERM VoiceRemoteBridge 2>/dev/null || true
+sleep 1
+
+backup_path() {
+    local base="$1"
+    local candidate="$BACKUP_DIRECTORY/$base.$TIMESTAMP"
+    local suffix=1
+    while [[ -e "$candidate" ]]; do
+        candidate="$BACKUP_DIRECTORY/$base.$TIMESTAMP.$suffix"
+        suffix=$((suffix + 1))
+    done
+    print -r -- "$candidate"
+}
+
+# Keep previous app locations recoverable. The payload is installed into the
+# standard /Applications location below.
+if [[ -e "/Applications/VoiceRemoteBridge.app" ]]; then
+    mv "/Applications/VoiceRemoteBridge.app" "$(backup_path VoiceRemoteBridge.app)"
+fi
+if [[ -e "$USER_HOME/Applications/VoiceRemoteBridge.app" ]]; then
+    mv "$USER_HOME/Applications/VoiceRemoteBridge.app" "$(backup_path VoiceRemoteBridge.user.app)"
+fi
+if [[ -e "/Library/Audio/Plug-Ins/HAL/VoiceRemoteAudio.driver" ]]; then
+    mv "/Library/Audio/Plug-Ins/HAL/VoiceRemoteAudio.driver" "$(backup_path VoiceRemoteAudio.driver)"
+fi
+
+exit 0

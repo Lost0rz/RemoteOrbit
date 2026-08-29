@@ -34,7 +34,10 @@ perl -0777 -pi -e \
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
-DEFINITIONS='kNumber_Of_Channels=2 kPlugIn_BundleID=\"audio.local.VoiceRemoteAudio2chXX\" kDriver_Name=\"VoiceRemote Mic\"'
+# Compile with an equal-length placeholder so xcodebuild does not split the
+# preprocessor definition at the display name's space. The placeholder is
+# replaced in the finished binary before it is signed.
+DEFINITIONS='kNumber_Of_Channels=2 kPlugIn_BundleID=\"audio.local.VoiceRemoteAudio2chXX\" kDriver_Name=\"VoiceRemote_Mic\"'
 xcodebuild \
   -project "$SOURCE_ROOT/BlackHole.xcodeproj" \
   -configuration Release \
@@ -51,6 +54,11 @@ PLIST="$OUTPUT_DRIVER/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Delete :CFPlugInFactories" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :CFPlugInFactories:1A0861D7-CB3C-4DD2-A529-9AB081AF912C string BlackHole_Create" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFPlugInTypes:443ABAB8-E7B3-491A-B985-BEB9187030DB:0 1A0861D7-CB3C-4DD2-A529-9AB081AF912C" "$PLIST"
+
+# The placeholder and final name have the same byte length, so this changes
+# only the user-visible CoreAudio strings and their derived UIDs.
+perl -pi -e 's/VoiceRemote_Mic/VoiceRemote Mic/g' \
+  "$OUTPUT_DRIVER/Contents/MacOS/BlackHole"
 
 codesign --force --deep --sign - --timestamp=none "$OUTPUT_DRIVER"
 codesign --verify --deep --strict --verbose=2 "$OUTPUT_DRIVER"

@@ -12,6 +12,23 @@
 
 当前只验证过小米蓝牙语音遥控器 2 Pro。Redmi Air、其他 Redmi 蓝牙设备或其他型号遥控器目前没有验证，不能默认认为兼容。它们需要同时具备兼容的 ATVV 音频服务、HID 语音键报告和对应的 VID/PID；否则需要单独增加协议或按键映射。
 
+## 首次安装（DMG）
+
+普通用户应使用发布 DMG 中的 `VoiceRemoteBridge.pkg`，不需要自行安装 Xcode、
+Homebrew、Xcode Command Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建好的
+`VoiceRemoteAudio.driver`。
+
+安装器会自动完成：
+
+1. 将 `VoiceRemoteBridge.app` 安装到 `/Applications`；
+2. 请求管理员权限并安装 `VoiceRemoteAudio.driver`；
+3. 重启 CoreAudio；
+4. 将替换前的 App/驱动备份到 `~/Library/Application Support/VoiceRemoteBridge/Backups/`；
+5. 提示用户重启 Mac。
+
+重启后首次打开 App 时，仍需要用户按照 macOS 的隐私提示授予蓝牙、麦克风、辅助功能和
+输入监控权限。安装器不能绕过这些系统授权。
+
 ## 最终工作方式
 
 ### 短按

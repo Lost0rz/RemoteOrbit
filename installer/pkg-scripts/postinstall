@@ -1,0 +1,35 @@
+#!/bin/zsh
+set -euo pipefail
+
+APP_DESTINATION="/Applications/VoiceRemoteBridge.app"
+DRIVER_DESTINATION="/Library/Audio/Plug-Ins/HAL/VoiceRemoteAudio.driver"
+
+chown -R root:wheel "$APP_DESTINATION" "$DRIVER_DESTINATION"
+find "$DRIVER_DESTINATION" -type d -exec chmod 755 {} \;
+find "$DRIVER_DESTINATION" -type f -exec chmod 644 {} \;
+chmod 755 "$DRIVER_DESTINATION/Contents/MacOS/BlackHole"
+codesign --verify --deep --strict "$APP_DESTINATION"
+
+# CoreAudio restarts automatically. A full OS restart is still required before
+# testing so HAL and privacy state are loaded from a clean login session.
+killall -9 coreaudiod 2>/dev/null || true
+
+CONSOLE_USER="$(/usr/bin/stat -f %Su /dev/console)"
+if [[ "$CONSOLE_USER" != "root" && -n "$CONSOLE_USER" ]]; then
+    USER_HOME="$(/usr/bin/dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory | /usr/bin/awk '{print $2}')"
+    CONSOLE_GROUP="$(/usr/bin/id -gn "$CONSOLE_USER")"
+    STATE_DIRECTORY="$USER_HOME/Library/Application Support/VoiceRemoteBridge"
+    STATE_FILE="$STATE_DIRECTORY/install-state.plist"
+    APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_DESTINATION/Contents/Info.plist")"
+    mkdir -p "$STATE_DIRECTORY"
+    /usr/bin/defaults write "$STATE_FILE" \
+        InstallVersion -string "$APP_VERSION" \
+        InstalledAt -string "$(date -u '+%Y%m%d-%H%M%S')" \
+        DriverBundleID -string "audio.local.VoiceRemoteAudio2chXX"
+    chown "$CONSOLE_USER:$CONSOLE_GROUP" "$STATE_FILE" "$STATE_DIRECTORY"
+fi
+
+print "VoiceRemoteBridge installed to $APP_DESTINATION"
+print "VoiceRemoteAudio.driver installed to $DRIVER_DESTINATION"
+print "Restart macOS before opening VoiceRemoteBridge.app."
+exit 0
