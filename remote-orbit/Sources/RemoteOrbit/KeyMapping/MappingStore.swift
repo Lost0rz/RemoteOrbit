@@ -586,6 +586,28 @@ final class MappingStore: ObservableObject {
         var updatedTemplates = appTemplates
         var didMigrate = false
 
+        // Some upgraded installations have a customized ChatGPT template but
+        // still carry the old, incorrect system-volume bindings. Migrate only
+        // those two untouched legacy fields and preserve every other button.
+        if let index = updatedTemplates.firstIndex(where: {
+            $0.appBundleIdentifier == Self.chatGPTBundleIdentifier &&
+            $0.templateName == "ChatGPT 默认"
+        }) {
+            let oldVolumeUp = updatedTemplates[index].bindings[.volumeUp]
+            let oldVolumeDown = updatedTemplates[index].bindings[.volumeDown]
+            if oldVolumeUp == .preset(.volumeUp) {
+                updatedTemplates[index].bindings[.volumeUp] = .preset(.chatGPTPreviousChat)
+                didMigrate = true
+            }
+            if oldVolumeDown == .preset(.volumeDown) {
+                updatedTemplates[index].bindings[.volumeDown] = .preset(.chatGPTNextChat)
+                didMigrate = true
+            }
+            if oldVolumeUp == .preset(.volumeUp) || oldVolumeDown == .preset(.volumeDown) {
+                print("[MappingStore] migrated legacy ChatGPT volume buttons to conversation navigation")
+            }
+        }
+
         for (bundleID, templateName, legacyBindings) in migrations {
             guard let index = updatedTemplates.firstIndex(where: {
                 $0.appBundleIdentifier == bundleID &&
