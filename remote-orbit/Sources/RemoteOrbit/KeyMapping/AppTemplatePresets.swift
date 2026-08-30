@@ -73,7 +73,7 @@ enum AppTemplatePresetLibrary {
             appBundleIdentifier: "com.openai.codex",
             appName: "Codex",
             templateName: "Codex 默认",
-            summary: "内置官方 ChatGPT / Codex 全量快捷动作分类；默认含 Terminal、需要注意的对话和上一个对话。",
+            summary: "侧边栏显示/隐藏、输入栏左右移动、上/下一个对话和需要注意的对话。",
             bindings: codexBindings
         ),
         AppTemplatePreset(
@@ -172,14 +172,14 @@ enum AppTemplatePresetLibrary {
         .power: .preset(.disabled),
         .up: .preset(.pageUp),
         .down: .preset(.pageDown),
-        .left: .preset(.chatGPTToggleSidebar),
-        .right: .preset(.paste),
+        .left: .preset(.arrowLeft),
+        .right: .preset(.arrowRight),
         .ok: .preset(.returnKey),
         .back: .preset(.deleteBackward),
         .volumeUp: .preset(.chatGPTPreviousChat),
         .home: .preset(.chatGPTNextAttention),
         .volumeDown: .preset(.chatGPTNextChat),
-        .menu: .preset(.disabled),
+        .menu: .preset(.chatGPTToggleSidebar),
         .tv: .preset(.appSwitcher),
     ])
 

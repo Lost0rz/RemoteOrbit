@@ -710,9 +710,9 @@ enum DefaultBindings {
         .ok:          .preset(.returnKey),
         .right:       .preset(.chatGPTToggleBottomPanel),
         .back:        .preset(.deleteBackward),
-        .volumeUp:    .preset(.volumeUp),
+        .volumeUp:    .preset(.chatGPTPreviousChat),
         .home:        .preset(.chatGPTNextAttention),
-        .volumeDown:  .preset(.volumeDown),
+        .volumeDown:  .preset(.chatGPTNextChat),
         .menu:        .preset(.disabled),
         .tv:          .preset(.appSwitcher),
     ]

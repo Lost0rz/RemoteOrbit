@@ -370,7 +370,12 @@ final class MappingStore: ObservableObject {
     func resetTemplate(_ templateID: UUID) {
         guard let index = appTemplates.firstIndex(where: { $0.id == templateID }) else { return }
         var updatedTemplates = appTemplates
-        updatedTemplates[index].bindings = DefaultBindings.all
+        let template = updatedTemplates[index]
+        let builtInBindings = AppTemplatePresetLibrary.all.first(where: {
+            $0.appBundleIdentifier == template.appBundleIdentifier &&
+            $0.templateName == template.templateName
+        })?.bindings
+        updatedTemplates[index].bindings = builtInBindings ?? DefaultBindings.all
         appTemplates = updatedTemplates
     }
 
@@ -523,6 +528,11 @@ final class MappingStore: ObservableObject {
             ),
             (
                 Self.chatGPTBundleIdentifier,
+                "ChatGPT 默认",
+                Self.legacyAutoChatGPTBindings()
+            ),
+            (
+                Self.chatGPTBundleIdentifier,
                 "Codex 默认",
                 Self.legacyCodexBindings(menu: .preset(.chatGPTPreviousChat))
             ),
@@ -530,6 +540,16 @@ final class MappingStore: ObservableObject {
                 Self.chatGPTBundleIdentifier,
                 "Codex 默认",
                 Self.legacyCodexBindings(menu: .preset(.disabled))
+            ),
+            (
+                Self.chatGPTBundleIdentifier,
+                "Codex 默认",
+                Self.legacyCodexPresetBindings()
+            ),
+            (
+                Self.chatGPTBundleIdentifier,
+                "Codex 默认",
+                Self.legacyCodexTerminalPresetBindings()
             ),
             (
                 "com.lost0rz.FloatTabs",
@@ -590,6 +610,32 @@ final class MappingStore: ObservableObject {
         var bindings = legacyChatGPTBindings()
         bindings[.right] = .preset(.chatGPTToggleBottomPanel)
         bindings[.menu] = menu
+        return bindings
+    }
+
+    /// Codex 预设曾经已经使用右键粘贴，但菜单键仍是禁用；只迁移完整的
+    /// 未自定义模板，避免覆盖用户已经改过的单个按键。
+    private static func legacyCodexPresetBindings() -> [RemoteButton: ButtonBinding] {
+        var bindings = legacyChatGPTBindings()
+        bindings[.right] = .preset(.paste)
+        bindings[.menu] = .preset(.disabled)
+        return bindings
+    }
+
+    /// 最近一版本地测试预设已经使用右键粘贴和菜单键 Terminal；新默认改为
+    /// 左右方向键与菜单键侧边栏，只迁移未自定义的完整模板。
+    private static func legacyCodexTerminalPresetBindings() -> [RemoteButton: ButtonBinding] {
+        var bindings = legacyCodexPresetBindings()
+        bindings[.menu] = .preset(.chatGPTOpenTerminal)
+        return bindings
+    }
+
+    /// 早期自动创建的 ChatGPT 模板把音量键误设为系统音量。它与当前
+    /// DefaultBindings.chatGPT 只有这两个字段不同，用于安全迁移旧安装。
+    private static func legacyAutoChatGPTBindings() -> [RemoteButton: ButtonBinding] {
+        var bindings = DefaultBindings.chatGPT
+        bindings[.volumeUp] = .preset(.volumeUp)
+        bindings[.volumeDown] = .preset(.volumeDown)
         return bindings
     }
 
