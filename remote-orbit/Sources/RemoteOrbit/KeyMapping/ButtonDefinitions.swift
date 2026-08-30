@@ -291,8 +291,12 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
     case obsidianCommandPalette
     case obsidianQuickSwitcher
     case obsidianNewNote
+    case obsidianNewTab
+    case obsidianReopenClosedTab
     case obsidianCloseTab
     case obsidianSearch
+    case obsidianToggleEditMode
+    case obsidianAddProperty
     case obsidianPreviousTab
     case obsidianNextTab
     case neteasePreviousTrack
@@ -389,8 +393,9 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
              .ghosttyNewSplitDown, .ghosttyCommandPalette, .ghosttySearch:
             return .ghostty
         case .obsidianCommandPalette, .obsidianQuickSwitcher, .obsidianNewNote,
-             .obsidianCloseTab, .obsidianSearch, .obsidianPreviousTab,
-             .obsidianNextTab:
+             .obsidianNewTab, .obsidianReopenClosedTab, .obsidianCloseTab,
+             .obsidianSearch, .obsidianToggleEditMode, .obsidianAddProperty,
+             .obsidianPreviousTab, .obsidianNextTab:
             return .obsidian
         case .neteasePreviousTrack, .neteaseNextTrack:
             return .netease
@@ -521,8 +526,12 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .obsidianCommandPalette:   return "Obsidian：命令面板"
         case .obsidianQuickSwitcher:    return "Obsidian：快速切换文件"
         case .obsidianNewNote:          return "Obsidian：新建笔记"
+        case .obsidianNewTab:           return "Obsidian：新建标签"
+        case .obsidianReopenClosedTab:  return "Obsidian：恢复最近关闭标签"
         case .obsidianCloseTab:         return "Obsidian：关闭标签"
         case .obsidianSearch:           return "Obsidian：全库搜索"
+        case .obsidianToggleEditMode:   return "Obsidian：切换编辑 / 阅读模式"
+        case .obsidianAddProperty:      return "Obsidian：添加属性"
         case .obsidianPreviousTab:      return "Obsidian：上一个标签"
         case .obsidianNextTab:          return "Obsidian：下一个标签"
         case .neteasePreviousTrack:     return "网易云音乐：上一首"

@@ -495,6 +495,14 @@ enum KeyInjector {
             return sendPresetShortcut(keyCode: 31, keyLabel: "O", modifiers: .command)
         case .obsidianNewNote:
             return sendPresetShortcut(keyCode: 45, keyLabel: "N", modifiers: .command)
+        case .obsidianNewTab:
+            return sendPresetShortcut(keyCode: 17, keyLabel: "T", modifiers: .command)
+        case .obsidianReopenClosedTab:
+            return sendPresetShortcut(
+                keyCode: 17,
+                keyLabel: "T",
+                modifiers: [.command, .shift]
+            )
         case .obsidianCloseTab:
             return sendPresetShortcut(keyCode: 13, keyLabel: "W", modifiers: .command)
         case .obsidianSearch:
@@ -503,6 +511,10 @@ enum KeyInjector {
                 keyLabel: "F",
                 modifiers: [.command, .shift]
             )
+        case .obsidianToggleEditMode:
+            return sendPresetShortcut(keyCode: 14, keyLabel: "E", modifiers: .command)
+        case .obsidianAddProperty:
+            return sendPresetShortcut(keyCode: 41, keyLabel: ";", modifiers: .command)
         case .obsidianPreviousTab:
             return sendPresetShortcut(
                 keyCode: 48,

@@ -105,7 +105,7 @@ enum AppTemplatePresetLibrary {
             appBundleIdentifier: "md.obsidian",
             appName: "Obsidian",
             templateName: "Obsidian 默认",
-            summary: "标签切换、快速切换文件、命令面板、新建笔记和全库搜索。",
+            summary: "滚屏、标签切换、快速切换文件、命令面板、新建/恢复标签、新建笔记、编辑模式和全库搜索。",
             bindings: obsidianBindings
         ),
     ]
