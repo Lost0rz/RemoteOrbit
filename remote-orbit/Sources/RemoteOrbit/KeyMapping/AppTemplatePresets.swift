@@ -50,7 +50,7 @@ enum AppTemplatePresetLibrary {
     ]
 
     /// 首次启动时，只对本机已安装且尚未配置模板的 App 自动添加这些默认模板。
-    /// Codex 与 ChatGPT 当前共用 com.openai.codex，因此 Codex 模板保留为手动导入。
+    /// ChatGPT/Codex 共用 com.openai.codex，由 MappingStore 分别维护两个模板。
     static let defaultPresetIDs = [
         "chatgpt.default",
         "floatTabs.default",

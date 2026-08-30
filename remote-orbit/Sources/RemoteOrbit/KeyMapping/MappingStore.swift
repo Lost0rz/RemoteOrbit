@@ -448,6 +448,7 @@ final class MappingStore: ObservableObject {
     /// 已有任意模板的 App 完全保留用户配置，不会被自动覆盖。
     private func ensureBuiltInTemplates() {
         ensureBuiltInChatGPTTemplate()
+        ensureBuiltInCodexTemplate()
         migrateBuiltInTemplateMappings()
 
         for presetID in AppTemplatePresetLibrary.defaultPresetIDs {
@@ -511,6 +512,30 @@ final class MappingStore: ObservableObject {
         updatedActiveIDs[Self.chatGPTBundleIdentifier] = template.id
         activeTemplateIDs = updatedActiveIDs
         save()
+        print("[MappingStore] added built-in template: \(template.displayName)")
+    }
+
+    /// ChatGPT and Codex share the same bundle identifier, so Codex needs its
+    /// own selectable template. Keep the existing active template untouched so
+    /// an upgrade never overwrites a user's customized ChatGPT mapping.
+    private func ensureBuiltInCodexTemplate() {
+        guard let preset = AppTemplatePresetLibrary.preset(id: "codex.default") else {
+            return
+        }
+
+        let alreadyExists = appTemplates.contains {
+            $0.appBundleIdentifier == preset.appBundleIdentifier &&
+            $0.templateName == preset.templateName
+        }
+        guard !alreadyExists else { return }
+
+        let template = AppMappingTemplate(
+            appBundleIdentifier: preset.appBundleIdentifier,
+            appName: preset.appName,
+            templateName: preset.templateName,
+            bindings: preset.bindings
+        )
+        appTemplates.append(template)
         print("[MappingStore] added built-in template: \(template.displayName)")
     }
 

@@ -270,13 +270,16 @@ FloatTabs 的 App 模板和全局动作都支持同一个按键完成开关：�
 “打开 / 显示 / 隐藏 Codex”，用于从任意程序切换到 Codex，再按同一个按键隐藏它。
 这样 FloatTabs、Codex 的 App 模板和所有程序通用的唤起动作不会互相割裂。
 
-当前仓库内置了一个 ChatGPT 默认模板，绑定到 ChatGPT 桌面端的 Bundle ID
-`com.openai.codex`。首次启动新版 RemoteOrbit 时，如果尚未存在 ChatGPT 模板，会自动
-创建并激活“ChatGPT 默认”：左键打开侧边栏，右键用 ⌘J 开关终端底部面板，中键确认/批准，
-返回键 Delete，上下键发送滚轮滚动，主页键跳到下一个需要注意的对话，
-菜单键留空供自定义，TV 键保持 Command-Tab 应用切换；语音键和音量键保留原有
-行为。Codex 默认模板把左/右键设为输入栏左右移动，音量 `+/-` 设为侧边栏中的上一个/下一个对话，
-菜单键设为显示/隐藏侧边栏；Terminal 仍可从 Codex 预设动作中单独选择。
+当前仓库内置了 ChatGPT 默认和 Codex 默认两个模板，绑定到 ChatGPT/Codex 桌面端的同一个
+Bundle ID `com.openai.codex`。首次启动新版 RemoteOrbit 时，如果尚未存在 ChatGPT 模板，会自动
+创建并激活“ChatGPT 默认”；如果尚未存在 Codex 模板，也会自动补出“Codex 默认”，但不会
+擅自切换已经激活的模板或覆盖用户修改。需要使用 Codex 布局时，在程序范围选择
+“ChatGPT / Codex”，再在模板下拉框选择“Codex 默认”并点“设为 Active”。
+ChatGPT 默认：左键打开侧边栏，右键用 ⌘J 开关终端底部面板，中键确认/批准，返回键 Delete，
+上下键发送滚轮滚动，主页键跳到下一个需要注意的对话，菜单键留空，TV 键保持 Command-Tab
+应用切换；音量 `+/-` 为侧边栏中的上一个/下一个对话。Codex 默认：左/右键为输入栏左右移动，
+音量 `+/-` 为侧边栏中的上一个/下一个对话，菜单键为显示/隐藏侧边栏；Terminal 仍可从 Codex
+预设动作中单独选择。
 “搜索对话”在官方命令表中默认没有快捷键，RemoteOrbit 会优先尝试通过 Codex 的辅助功能菜单执行；如果系统未授予辅助功能权限，该动作会失败并在日志中显示原因。
 已有 ChatGPT 自定义模板不会被覆盖。
 
