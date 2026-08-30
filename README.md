@@ -1,10 +1,10 @@
-# VoiceRemoteBridge / Voice Remote Bridge
+# RemoteOrbit
 
 把小米蓝牙语音遥控器 2 Pro 变成 macOS 上的 Voice Coding 麦克风：
 
 - 短按语音键：自动选择可用的本机物理麦克风（内置或外接）。
 - 长按语音键：调用遥控器的 ATVV 蓝牙麦克风。
-- 向豆包输入法暴露可识别的 `VoiceRemote Mic 2ch` 输入设备。
+- 向豆包输入法暴露可识别的 `RemoteOrbit Mic 2ch` 输入设备。
 
 ## 当前版本：0.2.0（独立产品 UI 基线）
 
@@ -32,7 +32,7 @@ FloatTabs/Codex/Ghostty 等应用适配，以及更完整的按键注入和语�
 - 改进兼容模式下遥控器原生 Home/方向键的事件压制，并修复首次打开快捷键录制窗口无内容的问题。
 - 对带 Command 的自定义快捷键增加 System Events 路径，兼容 `KeyboardShortcuts`/Carbon 全局热键。
 
-## Voice Remote Bridge Control Center
+## RemoteOrbit Control Center
 
 菜单栏中的“打开控制中心…”现在是本项目自己的统一设置入口，包含：
 
@@ -43,24 +43,25 @@ FloatTabs/Codex/Ghostty 等应用适配，以及更完整的按键注入和语�
 - **关于**：展示独立产品名、Bundle ID、版本和音频设备信息。
 
 映射规则固定为“默认映射 → App Profile → 单按钮始终使用默认”。这套名称和界面只属于
-Voice Remote Bridge，不复用原项目的设置入口或配置界面。
+RemoteOrbit，不复用原项目的设置入口或配置界面。
 
 ## DMG 安装（推荐）
 
-发布 DMG 已经包含 `VoiceRemoteBridge.app`、预先构建好的 `VoiceRemoteAudio.driver` 和
-图形化安装器。最终用户不需要安装 Xcode、Homebrew、Xcode Command Line Tools，也不需要
-再次联网下载 BlackHole 或其他构建依赖。
+发布 DMG 顶层只包含可直接拖拽的 `RemoteOrbit.app` 和 `Applications` 快捷入口；App 内含预先构建好的
+`RemoteOrbitAudio.driver`。最终用户不需要安装 Xcode、Homebrew、
+Xcode Command Line Tools，也不需要再次联网下载 BlackHole 或其他构建依赖。
 
-1. 打开 DMG，双击 `VoiceRemoteBridge.pkg`，使用 macOS Installer 完成安装。
-2. 按提示输入管理员密码。安装器会把 App 放入 `/Applications`，把驱动安装到 macOS 的
-   HAL 目录，并自动重启音频服务。
-3. 按提示重启 Mac。重启是让 CoreAudio 完整加载新驱动的必要步骤。
-4. 重启后打开 `/Applications/VoiceRemoteBridge.app`，按 macOS 提示授予蓝牙、麦克风、
-   辅助功能和输入监控权限。
-5. 在“声音”或“音频 MIDI 设置”中确认 `VoiceRemote Mic 2ch` 已出现并作为输入设备。
+推荐安装流程：
 
-安装器会把被替换的旧 App/驱动备份到
-`~/Library/Application Support/VoiceRemoteBridge/Backups/`，不会覆盖原 BlackHole 驱动。
+1. 将 DMG 顶层的 `RemoteOrbit.app` 拖到旁边的 `Applications` 快捷入口。
+2. 从 `/Applications/RemoteOrbit.app` 启动，按 macOS 提示授予蓝牙、麦克风、辅助功能和输入监控权限。
+3. 打开“设置与诊断”。如果虚拟音频组件未检测到，点击“重新安装音频组件”并在管理员对话框中授权。
+4. 应用会自动重新加载 CoreAudio，通常不需要重启 Mac；在“声音”或“音频 MIDI 设置”中确认
+   `RemoteOrbit Mic 2ch` 已出现并作为输入设备。
+
+音频驱动补装会把被替换的旧 `MiRemoteVoice.driver` 和旧 `BlackHole2ch.driver`
+备份到 `~/Library/Application Support/RemoteOrbit/Backups/`，以免旧输入设备继续抢占系统默认输入。
+系统自带的 `ParrotAudioPlugin.driver` 和其他未列出的音频驱动不会被处理。
 
 ## 从源码构建
 
@@ -68,7 +69,7 @@ Voice Remote Bridge，不复用原项目的设置入口或配置界面。
 
 1. macOS 13 或更高版本；当前主要在 Apple Silicon Mac 上验证。
 2. 已安装 Xcode Command Line Tools，并能运行 `xcodebuild`。驱动脚本会固定下载
-   BlackHole 0.7.1 源码，构建独立的 `VoiceRemoteAudio.driver`，不会依赖或修改原 BlackHole。
+   BlackHole 0.7.1 源码，构建独立的 `RemoteOrbitAudio.driver`，不会依赖或修改原 BlackHole。
 3. 生成 DMG 时会下载 BlackHole 0.7.1 源码并构建独立驱动；这些步骤发生在发布机上，
    不会出现在最终用户的首次安装过程中。
 
@@ -80,62 +81,63 @@ Voice Remote Bridge，不复用原项目的设置入口或配置界面。
 ### 有动手能力的用户
 
 ```bash
-git clone https://github.com/Lost0rz/VoiceRemoteBridge.git
-cd VoiceRemoteBridge
+git clone https://github.com/Lost0rz/RemoteOrbit.git
+cd RemoteOrbit
 
 # 协议回归自测：应输出三行 PASS
-./voice-remote-bridge/run-self-tests.sh
+./remote-orbit/run-self-tests.sh
 
-# 从 BlackHole 0.7.1 源码生成 VoiceRemoteAudio HAL 驱动
-./voice-remote-audio-driver/build-driver.sh
-sudo ./voice-remote-audio-driver/install-driver.sh
+# 从 BlackHole 0.7.1 源码生成 RemoteOrbitAudio HAL 驱动
+./remote-orbit-audio-driver/build-driver.sh
+sudo ./remote-orbit-audio-driver/install-driver.sh
 
 # 构建并安装菜单栏 App
-./voice-remote-bridge/package-app.sh
-./voice-remote-bridge/install-app.sh
+./remote-orbit/package-app.sh
+./remote-orbit/install-app.sh
 
 # 启动
-./LaunchVoiceRemoteBridge.command
+./LaunchRemoteOrbit.command
 ```
 
-驱动安装会备份已有的 `VoiceRemoteAudio.driver`，然后提示重启 macOS，让 CoreAudio
-重新加载实际标记为 USB 的音频设备。
+驱动安装会备份已有的 `RemoteOrbitAudio.driver`，然后重启 `coreaudiod`，让 CoreAudio
+重新加载实际标记为 USB 的音频设备。只有设备在重载后仍未出现时，才需要把重启 macOS
+作为最后的恢复步骤。
 
 ### 让 AI Agent 协助安装
 
 可以把下面这段任务直接交给能够操作终端的 Agent：
 
 ```text
-请在我的 Mac 上从个人仓库安装 VoiceRemoteBridge：
+请在我的 Mac 上从个人仓库安装 RemoteOrbit：
 1. 检查 macOS、Xcode Command Line Tools，以及
    /Library/Audio/Plug-Ins/HAL/BlackHole2ch.driver。
-2. 克隆 https://github.com/Lost0rz/VoiceRemoteBridge.git。
-3. 运行 voice-remote-bridge/run-self-tests.sh，必须全部 PASS。
-4. 运行 voice-remote-audio-driver/build-driver.sh。
+2. 克隆 https://github.com/Lost0rz/RemoteOrbit.git。
+3. 运行 remote-orbit/run-self-tests.sh，必须全部 PASS。
+4. 运行 remote-orbit-audio-driver/build-driver.sh。
 5. 在我确认后，用管理员权限运行 install-driver.sh。
-6. 运行 voice-remote-bridge/package-app.sh 和 install-app.sh。
-7. 启动 VoiceRemoteBridge.app，逐项告诉我需要手动授予的 macOS 权限。
+6. 运行 remote-orbit/package-app.sh 和 install-app.sh。
+7. 启动 RemoteOrbit.app，逐项告诉我需要手动授予的 macOS 权限。
 不要绕过 Gatekeeper，不要替我修改系统安全策略。
 ```
 
 安装成功的基本判据：
 
 - 自测输出三行 `PASS`。
-- 驱动构建输出 `Built: .../VoiceRemoteAudio.driver`。
-- App 构建输出 `Built: .../VoiceRemoteBridge.app`。
-- “音频 MIDI 设置”或音频输入设备中出现 `VoiceRemote Mic 2ch`。
-- 菜单栏出现 Voice Remote Bridge 状态图标。
+- 驱动构建输出 `Built: .../RemoteOrbitAudio.driver`。
+- App 构建输出 `Built: .../RemoteOrbit.app`。
+- “音频 MIDI 设置”或音频输入设备中出现 `RemoteOrbit Mic 2ch`。
+- 菜单栏出现 RemoteOrbit 状态图标。
 
 ## 启动与退出
 
 DMG 安装的应用位于：
 
 ```text
-/Applications/VoiceRemoteBridge.app
+/Applications/RemoteOrbit.app
 ```
 
-双击应用或运行 `LaunchVoiceRemoteBridge.command` 即可启动。源码备用安装脚本仍会使用
-`~/Applications/VoiceRemoteBridge.app`。它是菜单栏应用，不显示 Dock 图标；
+双击应用或运行 `LaunchRemoteOrbit.command` 即可启动。源码备用安装脚本仍会使用
+`~/Applications/RemoteOrbit.app`。它是菜单栏应用，不显示 Dock 图标；
 点击菜单栏的麦克风图标可查看状态或退出。菜单中的“登录时自动启动”可以控制登录后
 自动启动，不需要管理员权限。
 
@@ -144,8 +146,8 @@ DMG 安装的应用位于：
 默认不写日志，也不保存录音。菜单中可以分别开启，并提供占用大小、刷新、打开文件夹
 和清空功能。
 
-- 日志：`~/Library/Logs/VoiceRemoteBridge/VoiceRemoteBridge.log`
-- 录音：`~/Library/Application Support/VoiceRemoteBridge/Recordings/`
+- 日志：`~/Library/Logs/RemoteOrbit/RemoteOrbit.log`
+- 录音：`~/Library/Application Support/RemoteOrbit/Recordings/`
 
 日志最大为 5 MB，到达上限后自动截断。调试录音会同时保存 16 kHz WAV 和原始 ATVV
 数据，仅在用户手动开启后生效。
@@ -153,7 +155,7 @@ DMG 安装的应用位于：
 ## 当前限制
 
 - App 和驱动目前使用本地 ad-hoc 签名，DMG 尚未提供 Developer ID 签名和 Apple 公证。
-- 驱动构建脚本会固定获取 BlackHole 0.7.1 源码并生成独立的 `VoiceRemoteAudio.driver`；遥控器型号兼容性仍以已验证设备为准。
+- 驱动构建脚本会固定获取 BlackHole 0.7.1 源码并生成独立的 `RemoteOrbitAudio.driver`；遥控器型号兼容性仍以已验证设备为准。
 - 当前明确验证的硬件是 Xiaomi Bluetooth Voice Remote 2 Pro；其他型号和固件不保证兼容。
 - macOS 隐私权限必须由用户本人手动授予。
 
@@ -166,7 +168,7 @@ DMG 安装的应用位于：
 ```
 
 该命令会下载固定版本的 BlackHole 源码、构建独立驱动、打包 App，并生成
-`dist/VoiceRemoteBridge-0.2.0.dmg`。如果已经有本地构建好的驱动，可以使用：
+`dist/RemoteOrbit-0.2.0.dmg`。如果已经有本地构建好的驱动，可以使用：
 
 ```bash
 ./package-dmg.sh --reuse-driver
@@ -184,8 +186,8 @@ DMG 安装的应用位于：
 
 ## 目录
 
-- `voice-remote-bridge/`：Swift 菜单栏应用、BLE/ATVV 解码和音频路由。
-- `voice-remote-audio-driver/`：生成 `VoiceRemote Mic 2ch` HAL 驱动的构建及安装脚本。
+- `remote-orbit/`：Swift 菜单栏应用、BLE/ATVV 解码和音频路由。
+- `remote-orbit-audio-driver/`：生成 `RemoteOrbit Mic 2ch` HAL 驱动的构建及安装脚本。
 - `installer/`：DMG 安装器和首次安装配置逻辑。
 - `package-dmg.sh`：在发布机上生成包含 App 与驱动的 DMG。
 

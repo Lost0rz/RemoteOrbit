@@ -1,4 +1,4 @@
-# Voice Remote Bridge 安装与排障记录
+# RemoteOrbit 安装与排障记录
 
 这份文档记录本次在 Apple Silicon Mac + 豆包输入法上的最终可用配置，方便以后从个人仓库重新安装时直接复现。
 
@@ -7,26 +7,23 @@
 - Mac mini（Apple Silicon，macOS 26.6.2）。
 - 小米蓝牙语音遥控器 2 Pro。
 - 豆包 macOS 输入法。
-- BlackHole 2ch 作为原始参考驱动；项目另外构建独立的 `VoiceRemote Mic 2ch`。
-- 当前实际使用的音频设备必须显示：`VoiceRemote Mic 2ch · Transport: USB`。
+- BlackHole 2ch 作为原始参考驱动；项目另外构建独立的 `RemoteOrbit Mic 2ch`。
+- 当前实际使用的音频设备必须显示：`RemoteOrbit Mic 2ch · Transport: USB`。
 
 当前只验证过小米蓝牙语音遥控器 2 Pro。Redmi Air、其他 Redmi 蓝牙设备或其他型号遥控器目前没有验证，不能默认认为兼容。它们需要同时具备兼容的 ATVV 音频服务、HID 语音键报告和对应的 VID/PID；否则需要单独增加协议或按键映射。
 
 ## 首次安装（DMG）
 
-普通用户应使用发布 DMG 中的 `VoiceRemoteBridge.pkg`，不需要自行安装 Xcode、
-Homebrew、Xcode Command Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建好的
-`VoiceRemoteAudio.driver`。
+普通用户优先将 DMG 顶层的 `RemoteOrbit.app` 拖到旁边的 `Applications` 快捷入口，
+再从 `/Applications/RemoteOrbit.app` 启动。不需要自行安装 Xcode、Homebrew、Xcode Command
+Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建好的 `RemoteOrbitAudio.driver`。
 
-安装器会自动完成：
+首次启动后，在“设置与诊断”中检查虚拟音频组件；如果未检测到，点击“重新安装音频组件”，
+在管理员对话框中授权。应用会自动重启 `coreaudiod`，通常不需要重启 Mac。
 
-1. 将 `VoiceRemoteBridge.app` 安装到 `/Applications`；
-2. 请求管理员权限并安装 `VoiceRemoteAudio.driver`；
-3. 重启 CoreAudio；
-4. 将替换前的 App/驱动备份到 `~/Library/Application Support/VoiceRemoteBridge/Backups/`；
-5. 提示用户重启 Mac。
+音频驱动补装会将替换前的驱动备份到 `~/Library/Application Support/RemoteOrbit/Backups/`。
 
-重启后首次打开 App 时，仍需要用户按照 macOS 的隐私提示授予蓝牙、麦克风、辅助功能和
+首次打开 App 时，仍需要用户按照 macOS 的隐私提示授予蓝牙、麦克风、辅助功能和
 输入监控权限。安装器不能绕过这些系统授权。
 
 ## 最终工作方式
@@ -37,17 +34,17 @@ Homebrew、Xcode Command Line Tools，也不需要单独下载 BlackHole。DMG �
 
 1. 遥控器的 HID 语音键由设备级映射转换为豆包能识别的真实左 Option，并立即发送，不等待语音键握手。
 2. FloatTabs 在显示和激活流程中主动预热原生/WebKit 输入焦点；其他程序直接沿用原路径。
-3. Voice Remote Bridge 自动从可用的本机物理麦克风中选择输入，并写入 `VoiceRemote Mic 2ch`。
+3. RemoteOrbit 自动从可用的本机物理麦克风中选择输入，并写入 `RemoteOrbit Mic 2ch`。
 
-本机麦克风不会写死为 MacBook、Mac mini 或 `External Microphone`。程序会优先使用当前默认的非回环设备；如果默认设备是 `VoiceRemote Mic 2ch` 或 BlackHole，则自动跳过它，选择其他可用物理麦克风。
+本机麦克风不会写死为 MacBook、Mac mini 或 `External Microphone`。程序会优先使用当前默认的非回环设备；如果默认设备是 `RemoteOrbit Mic 2ch` 或 BlackHole，则自动跳过它，选择其他可用物理麦克风。
 
 ### 长按
 
 长按超过约 300 ms 时：
 
 1. 真实左 Option 立即保持按下状态，所以豆包能显示按住说话浮窗；FloatTabs 的焦点预热不插入语音键延迟。
-2. Voice Remote Bridge 停止把本机麦克风送入虚拟设备。
-3. 遥控器 ATVV 解码后的音频被送入 `VoiceRemote Mic 2ch`，豆包从同一个默认输入读取。
+2. RemoteOrbit 停止把本机麦克风送入虚拟设备。
+3. 遥控器 ATVV 解码后的音频被送入 `RemoteOrbit Mic 2ch`，豆包从同一个默认输入读取。
 4. 松开遥控器后立即释放 Option、停止遥控器音频，并切回自动选择的本机物理麦克风。
 
 遥控器音频当前使用约 20 倍增益，并使用软限幅，解决遥控器距离较远时声音过小的问题；如果近距离说话出现失真，可以调低 `AudioPipe.swift` 中的 `remoteGain`。
@@ -55,30 +52,31 @@ Homebrew、Xcode Command Line Tools，也不需要单独下载 BlackHole。DMG �
 ## 从个人仓库重新安装
 
 ```bash
-git clone https://github.com/Lost0rz/VoiceRemoteBridge.git
-cd VoiceRemoteBridge
+git clone https://github.com/Lost0rz/RemoteOrbit.git
+cd RemoteOrbit
 
-./voice-remote-bridge/run-self-tests.sh
-./voice-remote-audio-driver/build-driver.sh
-sudo ./voice-remote-audio-driver/install-driver.sh
+./remote-orbit/run-self-tests.sh
+./remote-orbit-audio-driver/build-driver.sh
+sudo ./remote-orbit-audio-driver/install-driver.sh
 ```
 
 驱动安装脚本会：
 
 - 从 BlackHole 0.7.1 官方源码重新构建驱动；
 - 保持外层 Audio Box 为 Virtual，但把实际 Audio Device 标记为 USB；
-- 安装独立的 `VoiceRemoteAudio.driver`，不覆盖原 BlackHole；
-- 将已有的 `VoiceRemoteAudio.driver` 移到 `voice-remote-audio-driver/build/VoiceRemoteAudio.driver.previous` 备份；
+- 安装独立的 `RemoteOrbitAudio.driver`，不覆盖原 BlackHole；
+- 将已有的 `RemoteOrbitAudio.driver` 移到 `remote-orbit-audio-driver/build/RemoteOrbitAudio.driver.previous` 备份；
 - 重启 CoreAudio。
 
-安装驱动后必须重启整台 Mac，让 CoreAudio 完整重新加载驱动。只重启豆包不够。
+安装驱动后应用会重启 `coreaudiod`，通常不需要重启整台 Mac。只有 `RemoteOrbit Mic 2ch`
+仍未出现时，才把重启 macOS 作为最后的恢复步骤；只重启豆包不能代替音频驱动重载。
 
 然后构建并安装菜单栏 App：
 
 ```bash
-./voice-remote-bridge/package-app.sh
-./voice-remote-bridge/install-app.sh
-open ~/Applications/VoiceRemoteBridge.app
+./remote-orbit/package-app.sh
+./remote-orbit/install-app.sh
+open ~/Applications/RemoteOrbit.app
 ```
 
 首次启动时，按 macOS 提示授予蓝牙、麦克风、辅助功能和输入监控权限。豆包也建议在驱动安装、默认输入设备变化或 App 更新后重新启动一次。
@@ -87,9 +85,9 @@ open ~/Applications/VoiceRemoteBridge.app
 
 在“声音”或“音频 MIDI 设置”中确认：
 
-- `VoiceRemote Mic 2ch` 存在；
-- `VoiceRemote Mic 2ch` 是默认输入设备；
-- `VoiceRemote Mic 2ch` 显示 `Transport: USB`；
+- `RemoteOrbit Mic 2ch` 存在；
+- `RemoteOrbit Mic 2ch` 是默认输入设备；
+- `RemoteOrbit Mic 2ch` 显示 `Transport: USB`；
 - 豆包没有手动固定到 `External Microphone` 或其他设备；
 - 项目按键映射中的语音键仍然是“默认”，不要改成右 Option，也不要单独绑定右 Option。
 
@@ -108,15 +106,16 @@ macOS System Events 发送，发送顺序相当于：
 Command down → Home down → Home up → Command up
 ```
 
-更新 App 后重新运行 `package-app.sh` 和 `install-app.sh`，退出旧的 Voice Remote Bridge 进程
+更新 App 后重新运行 `package-app.sh` 和 `install-app.sh`，退出旧的 RemoteOrbit 进程
 并重新打开。首次触发时如果 macOS 要求自动化权限，请在“系统设置 → 隐私与
-安全性 → 自动化”中允许 Voice Remote Bridge 控制“系统事件”。同时确认 Float Tabs 自己设置
+安全性 → 自动化”中允许 RemoteOrbit 控制“系统事件”。同时确认 Float Tabs 自己设置
 的快捷键与物理键盘按下 `⌘Home` 时确实能够正常唤起；如果物理快捷键也无效，
 应先在 Float Tabs 中处理快捷键冲突。
 
-### 1. 没有 `VoiceRemote Mic 2ch`
+### 1. 没有 `RemoteOrbit Mic 2ch`
 
-确认驱动安装命令是否成功，然后重启整台 Mac。可用下面的命令检查：
+确认驱动安装命令是否成功，并先重新检测音频设备；只有 CoreAudio 重载后仍没有设备时，
+再重启整台 Mac。可用下面的命令检查：
 
 ```bash
 system_profiler SPAudioDataType
@@ -125,22 +124,22 @@ system_profiler SPAudioDataType
 如果仍没有设备，重新执行：
 
 ```bash
-./voice-remote-audio-driver/build-driver.sh
-sudo ./voice-remote-audio-driver/install-driver.sh
+./remote-orbit-audio-driver/build-driver.sh
+sudo ./remote-orbit-audio-driver/install-driver.sh
 ```
 
-### 2. `VoiceRemote Mic 2ch` 显示为 `Transport: Virtual`
+### 2. `RemoteOrbit Mic 2ch` 显示为 `Transport: Virtual`
 
-这是旧的二进制补丁没有正确修改 BlackHole 0.7.1 的实际设备属性。豆包可能因此忽略它并继续使用外接麦克风。不要继续修改 Option，重新用个人仓库里的源码构建脚本安装，然后重启 Mac。
+这是旧的二进制补丁没有正确修改 BlackHole 0.7.1 的实际设备属性。豆包可能因此忽略它并继续使用外接麦克风。不要继续修改 Option，重新用个人仓库里的源码构建脚本安装，然后重新检测；若设备仍未出现，再重启 Mac。
 
 ### 3. 长按有浮窗，但仍然读取外接麦克风
 
 按顺序检查：
 
-1. `VoiceRemote Mic 2ch` 是否为默认输入；
+1. `RemoteOrbit Mic 2ch` 是否为默认输入；
 2. Transport 是否为 USB；
 3. 驱动安装后豆包是否重新启动；
-4. Voice Remote Bridge 日志中长按时是否出现“输入切换 → 遥控器麦克风”；
+4. RemoteOrbit 日志中长按时是否出现“输入切换 → 遥控器麦克风”；
 5. 日志中是否有 `remoteBuffers` 和 `renderedFrames`。
 
 ### 4. 长按音频太小
@@ -148,7 +147,7 @@ sudo ./voice-remote-audio-driver/install-driver.sh
 先把遥控器靠近说话测试。如果仍然太小，调整：
 
 ```text
-voice-remote-bridge/Sources/VoiceRemoteBridge/AudioPipe.swift
+remote-orbit/Sources/RemoteOrbit/AudioPipe.swift
 remoteGain
 ```
 
@@ -204,7 +203,7 @@ remoteGain
 “FloatTabs：显示 / 隐藏”；全局动作在目标程序前台时隐藏，不在前台时打开并激活。
 是否应用全局由用户逐个按键选择，不会自动改变已有映射。
 
-在 Voice Remote Bridge Control Center 的“按键映射”页面，先选择“默认 · 所有 App”
+在 RemoteOrbit Control Center 的“按键映射”页面，先选择“默认 · 所有 App”
 或某个 App，再选择该 App 的 Active Profile。默认映射、App Profile 和单按钮的“始终
 使用默认”关系不会混在一起；第一次创建应用配置时，在“应用配置”页面新建 Profile，
 或在按键映射页面导入预设。新 Profile 会从当前默认映射复制一份完整的 13 个按键配置，
@@ -255,15 +254,15 @@ ChatGPT 与 Codex 在当前这台 Mac 的安装中都对应 `com.openai.codex`�
 同一程序下的两个可切换模板，而不是伪造两个不同的 Bundle ID。Ghostty 的新标签、
 标签切换、分屏、搜索和命令面板动作会先尝试通过辅助功能菜单适配器执行，不依赖
 当前快捷键；如果 Ghostty 版本、菜单语言或自定义配置导致菜单项找不到，则回退到
-该动作的默认快捷键，此时仍可在 Voice Remote Bridge 中改成自定义录制。首次使用适配器时，需要
-在“系统设置 → 隐私与安全性 → 辅助功能”中允许 Voice Remote Bridge 控制 Ghostty。
+该动作的默认快捷键，此时仍可在 RemoteOrbit 中改成自定义录制。首次使用适配器时，需要
+在“系统设置 → 隐私与安全性 → 辅助功能”中允许 RemoteOrbit 控制 Ghostty。
 
-FloatTabs 已内置 `⌃Tab` / `⌃⇧Tab` 的下一个/上一个标签快捷键。Voice Remote Bridge 的预设动作
+FloatTabs 已内置 `⌃Tab` / `⌃⇧Tab` 的下一个/上一个标签快捷键。RemoteOrbit 的预设动作
 也提供了“FloatTabs：下一个标签”和“FloatTabs：上一个标签”，不需要手动录制
 组合键。要用音量键切换 FloatTabs 标签：先在按键映射中选择 FloatTabs 的 App
 模板，再把“音量 +”设为下一个标签，把“音量 -”设为上一个标签。现在这些
 FloatTabs 专属动作会在 FloatTabs 运行时通过本机语义命令直连，不依赖 FloatTabs
-当前设置的快捷键；因此以后改 FloatTabs 快捷键不需要重新录制 Voice Remote Bridge 映射。
+当前设置的快捷键；因此以后改 FloatTabs 快捷键不需要重新录制 RemoteOrbit 映射。
 
 FloatTabs 的 App 模板和全局动作都支持同一个按键完成开关：目标程序前台时隐藏，
 目标程序不在前台时显示、激活并聚焦；目标未运行时则先启动。全局动作还可以选择
@@ -271,37 +270,38 @@ FloatTabs 的 App 模板和全局动作都支持同一个按键完成开关：�
 这样 FloatTabs、Codex 的 App 模板和所有程序通用的唤起动作不会互相割裂。
 
 当前仓库内置了一个 ChatGPT 默认模板，绑定到 ChatGPT 桌面端的 Bundle ID
-`com.openai.codex`。首次启动新版 Voice Remote Bridge 时，如果尚未存在 ChatGPT 模板，会自动
+`com.openai.codex`。首次启动新版 RemoteOrbit 时，如果尚未存在 ChatGPT 模板，会自动
 创建并激活“ChatGPT 默认”：左键打开侧边栏，右键用 ⌘J 开关终端底部面板，中键确认/批准，
 返回键 Delete，上下键发送滚轮滚动，主页键跳到下一个需要注意的对话，
 菜单键留空供自定义，TV 键保持 Command-Tab 应用切换；语音键和音量键保留原有
 行为。Codex 默认模板额外把菜单键设为官方的“上一个对话/标签”（⌃⇧Tab）。
-“搜索对话”在官方命令表中默认没有快捷键，Voice Remote Bridge 会优先尝试通过 Codex 的辅助功能菜单执行；如果系统未授予辅助功能权限，该动作会失败并在日志中显示原因。
+“搜索对话”在官方命令表中默认没有快捷键，RemoteOrbit 会优先尝试通过 Codex 的辅助功能菜单执行；如果系统未授予辅助功能权限，该动作会失败并在日志中显示原因。
 已有 ChatGPT 自定义模板不会被覆盖。
 
 ### 9. 豆包完全没有浮窗
 
-先用 Mac 键盘实际按左 Option，确认豆包本身正常。然后检查 Voice Remote Bridge 菜单状态和权限：
+先用 Mac 键盘实际按左 Option，确认豆包本身正常。然后检查 RemoteOrbit 菜单状态和权限：
 
-- 辅助功能：开启 VoiceRemoteBridge；
-- 输入监控：开启 VoiceRemoteBridge；
-- 蓝牙：允许 VoiceRemoteBridge 连接遥控器；
-- 麦克风：允许 VoiceRemoteBridge 使用本机麦克风。
+- 辅助功能：开启 RemoteOrbit；
+- 输入监控：开启 RemoteOrbit；
+- 蓝牙：允许 RemoteOrbit 连接遥控器；
+- 麦克风：允许 RemoteOrbit 使用本机麦克风。
 
-如果刚更新过 App，重新启动豆包和 VoiceRemoteBridge；如果刚更新过驱动，重启整台 Mac。
+如果刚更新过 App，退出旧的 RemoteOrbit 进程后重新打开；如果刚更新过驱动，先在设置中
+重新检测并等待 CoreAudio 重载，设备仍未出现时再重启整台 Mac。
 
 ## 日志与诊断
 
 打开日志：
 
 ```bash
-defaults write com.lost0rz.VoiceRemoteBridge loggingEnabled -bool true
+defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool true
 ```
 
 日志位置：
 
 ```text
-~/Library/Logs/VoiceRemoteBridge/VoiceRemoteBridge.log
+~/Library/Logs/RemoteOrbit/RemoteOrbit.log
 ```
 
 重点关注：
@@ -318,26 +318,26 @@ defaults write com.lost0rz.VoiceRemoteBridge loggingEnabled -bool true
 需要确认遥控器原始音频时，可以在菜单中打开调试录音。录音目录为：
 
 ```text
-~/Library/Application Support/VoiceRemoteBridge/Recordings/
+~/Library/Application Support/RemoteOrbit/Recordings/
 ```
 
 测试结束后可以关闭日志：
 
 ```bash
-defaults write com.lost0rz.VoiceRemoteBridge loggingEnabled -bool false
+defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool false
 ```
 
 ## 本次代码修改位置
 
-- `voice-remote-bridge/Sources/VoiceRemoteBridge/main.swift`：短按/长按状态机、立即物理 Option、设备级映射。
-- `voice-remote-bridge/Sources/VoiceRemoteBridge/AudioPipe.swift`：自动选择物理麦克风、遥控器增益、预缓冲和虚拟设备输出诊断。
-- `voice-remote-bridge/Sources/VoiceRemoteBridge/KeyMapping/MappingStore.swift`：全局映射、App 模板、持久化迁移和按下时目标快照。
-- `voice-remote-bridge/Sources/VoiceRemoteBridge/KeyMapping/SettingsView.swift`：Voice Remote Bridge Control Center、按键 Profile、预设导入和全局按键锁定。
-- `voice-remote-bridge/Sources/VoiceRemoteBridge/ProductBranding.swift`：独立产品标题栏、版本信息和统一品牌文案。
-- `voice-remote-bridge/Sources/VoiceRemoteBridge/KeyMapping/AppTemplatePresets.swift`：内置 App 模板与语义动作目录。
-- `voice-remote-bridge/Sources/VoiceRemoteBridge/KeyMapping/KeyInjector.swift`：预设动作、目标 App 激活、滚屏和外部适配回退。
-- `voice-remote-bridge/Sources/VoiceRemoteBridge/KeyMapping/FloatTabsCommandClient.swift`：FloatTabs 本地命令与输入焦点握手。
-- `voice-remote-bridge/Sources/VoiceRemoteBridge/KeyMapping/CodexCommandAdapter.swift`、`GhosttyCommandAdapter.swift`：辅助功能菜单适配。
-- `voice-remote-audio-driver/build-driver.sh`：固定从 BlackHole 0.7.1 源码构建 USB 传输驱动。
-- `voice-remote-audio-driver/install-driver.sh`：可恢复地备份并安装驱动。
-- `voice-remote-bridge/Packaging/Info.plist`：更新麦克风权限说明。
+- `remote-orbit/Sources/RemoteOrbit/main.swift`：短按/长按状态机、立即物理 Option、设备级映射。
+- `remote-orbit/Sources/RemoteOrbit/AudioPipe.swift`：自动选择物理麦克风、遥控器增益、预缓冲和虚拟设备输出诊断。
+- `remote-orbit/Sources/RemoteOrbit/KeyMapping/MappingStore.swift`：全局映射、App 模板、持久化迁移和按下时目标快照。
+- `remote-orbit/Sources/RemoteOrbit/KeyMapping/SettingsView.swift`：RemoteOrbit Control Center、按键 Profile、预设导入和全局按键锁定。
+- `remote-orbit/Sources/RemoteOrbit/ProductBranding.swift`：独立产品标题栏、版本信息和统一品牌文案。
+- `remote-orbit/Sources/RemoteOrbit/KeyMapping/AppTemplatePresets.swift`：内置 App 模板与语义动作目录。
+- `remote-orbit/Sources/RemoteOrbit/KeyMapping/KeyInjector.swift`：预设动作、目标 App 激活、滚屏和外部适配回退。
+- `remote-orbit/Sources/RemoteOrbit/KeyMapping/FloatTabsCommandClient.swift`：FloatTabs 本地命令与输入焦点握手。
+- `remote-orbit/Sources/RemoteOrbit/KeyMapping/CodexCommandAdapter.swift`、`GhosttyCommandAdapter.swift`：辅助功能菜单适配。
+- `remote-orbit-audio-driver/build-driver.sh`：固定从 BlackHole 0.7.1 源码构建 USB 传输驱动。
+- `remote-orbit-audio-driver/install-driver.sh`：可恢复地备份并安装驱动。
+- `remote-orbit/Packaging/Info.plist`：更新麦克风权限说明。

@@ -9,12 +9,14 @@ fi
 
 USER_HOME="$(/usr/bin/dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory | /usr/bin/awk '{print $2}')"
 CONSOLE_GROUP="$(/usr/bin/id -gn "$CONSOLE_USER")"
-BACKUP_DIRECTORY="$USER_HOME/Library/Application Support/VoiceRemoteBridge/Backups"
+BACKUP_DIRECTORY="$USER_HOME/Library/Application Support/RemoteOrbit/Backups"
 TIMESTAMP="$(date -u '+%Y%m%d-%H%M%S')"
 
 mkdir -p "$BACKUP_DIRECTORY"
-chown "$CONSOLE_USER:$CONSOLE_GROUP" "$USER_HOME/Library/Application Support/VoiceRemoteBridge" "$BACKUP_DIRECTORY"
-killall -TERM VoiceRemoteBridge 2>/dev/null || true
+chown "$CONSOLE_USER:$CONSOLE_GROUP" "$USER_HOME/Library/Application Support/RemoteOrbit" "$BACKUP_DIRECTORY"
+# Stop both the new process and known legacy names before replacing their
+# bundles. Legacy files are backed up below, never reused as live inputs.
+killall -TERM RemoteOrbit VoiceRemoteBridge MiRemoteBridge 2>/dev/null || true
 sleep 1
 
 backup_path() {
@@ -30,14 +32,39 @@ backup_path() {
 
 # Keep previous app locations recoverable. The payload is installed into the
 # standard /Applications location below.
+if [[ -e "/Applications/RemoteOrbit.app" ]]; then
+    mv "/Applications/RemoteOrbit.app" "$(backup_path RemoteOrbit.app)"
+fi
+if [[ -e "$USER_HOME/Applications/RemoteOrbit.app" ]]; then
+    mv "$USER_HOME/Applications/RemoteOrbit.app" "$(backup_path RemoteOrbit.user.app)"
+fi
+if [[ -e "/Library/Audio/Plug-Ins/HAL/RemoteOrbitAudio.driver" ]]; then
+    mv "/Library/Audio/Plug-Ins/HAL/RemoteOrbitAudio.driver" "$(backup_path RemoteOrbitAudio.driver)"
+fi
+
+# One-time namespace cutover: keep old binaries recoverable, but do not let
+# the new app inherit or load them. UserDefaults/configuration are deliberately
+# not migrated because RemoteOrbit has its own storage keys and bundle ID.
 if [[ -e "/Applications/VoiceRemoteBridge.app" ]]; then
     mv "/Applications/VoiceRemoteBridge.app" "$(backup_path VoiceRemoteBridge.app)"
 fi
 if [[ -e "$USER_HOME/Applications/VoiceRemoteBridge.app" ]]; then
     mv "$USER_HOME/Applications/VoiceRemoteBridge.app" "$(backup_path VoiceRemoteBridge.user.app)"
 fi
+if [[ -e "/Applications/MiRemoteBridge.app" ]]; then
+    mv "/Applications/MiRemoteBridge.app" "$(backup_path MiRemoteBridge.app)"
+fi
+if [[ -e "$USER_HOME/Applications/MiRemoteBridge.app" ]]; then
+    mv "$USER_HOME/Applications/MiRemoteBridge.app" "$(backup_path MiRemoteBridge.user.app)"
+fi
 if [[ -e "/Library/Audio/Plug-Ins/HAL/VoiceRemoteAudio.driver" ]]; then
     mv "/Library/Audio/Plug-Ins/HAL/VoiceRemoteAudio.driver" "$(backup_path VoiceRemoteAudio.driver)"
+fi
+if [[ -e "/Library/Audio/Plug-Ins/HAL/MiRemoteVoice.driver" ]]; then
+    mv "/Library/Audio/Plug-Ins/HAL/MiRemoteVoice.driver" "$(backup_path MiRemoteVoice.driver)"
+fi
+if [[ -e "/Library/Audio/Plug-Ins/HAL/BlackHole2ch.driver" ]]; then
+    mv "/Library/Audio/Plug-Ins/HAL/BlackHole2ch.driver" "$(backup_path BlackHole2ch.driver)"
 fi
 
 exit 0

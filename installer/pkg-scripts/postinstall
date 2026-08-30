@@ -1,8 +1,8 @@
 #!/bin/zsh
 set -euo pipefail
 
-APP_DESTINATION="/Applications/VoiceRemoteBridge.app"
-DRIVER_DESTINATION="/Library/Audio/Plug-Ins/HAL/VoiceRemoteAudio.driver"
+APP_DESTINATION="/Applications/RemoteOrbit.app"
+DRIVER_DESTINATION="/Library/Audio/Plug-Ins/HAL/RemoteOrbitAudio.driver"
 
 chown -R root:wheel "$APP_DESTINATION" "$DRIVER_DESTINATION"
 find "$DRIVER_DESTINATION" -type d -exec chmod 755 {} \;
@@ -10,26 +10,33 @@ find "$DRIVER_DESTINATION" -type f -exec chmod 644 {} \;
 chmod 755 "$DRIVER_DESTINATION/Contents/MacOS/BlackHole"
 codesign --verify --deep --strict "$APP_DESTINATION"
 
-# CoreAudio restarts automatically. A full OS restart is still required before
-# testing so HAL and privacy state are loaded from a clean login session.
+# Reload CoreAudio so the newly installed HAL driver can be discovered without
+# forcing a full macOS restart. The app's diagnostics page can retry this same
+# path if the device is not published immediately.
 killall -9 coreaudiod 2>/dev/null || true
 
 CONSOLE_USER="$(/usr/bin/stat -f %Su /dev/console)"
 if [[ "$CONSOLE_USER" != "root" && -n "$CONSOLE_USER" ]]; then
     USER_HOME="$(/usr/bin/dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory | /usr/bin/awk '{print $2}')"
     CONSOLE_GROUP="$(/usr/bin/id -gn "$CONSOLE_USER")"
-    STATE_DIRECTORY="$USER_HOME/Library/Application Support/VoiceRemoteBridge"
+    STATE_DIRECTORY="$USER_HOME/Library/Application Support/RemoteOrbit"
     STATE_FILE="$STATE_DIRECTORY/install-state.plist"
     APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_DESTINATION/Contents/Info.plist")"
     mkdir -p "$STATE_DIRECTORY"
-    /usr/bin/defaults write "$STATE_FILE" \
-        InstallVersion -string "$APP_VERSION" \
-        InstalledAt -string "$(date -u '+%Y%m%d-%H%M%S')" \
-        DriverBundleID -string "audio.local.VoiceRemoteAudio2chXX"
+    # `defaults write` accepts one key/value pair per invocation. Keeping the
+    # writes separate is important because this script runs with `set -e` and
+    # one malformed invocation would make Installer report the whole package
+    # as failed after the payload has already been copied.
+    /usr/bin/defaults write "$STATE_FILE" InstallVersion \
+        -string "$APP_VERSION"
+    /usr/bin/defaults write "$STATE_FILE" InstalledAt \
+        -string "$(date -u '+%Y%m%d-%H%M%S')"
+    /usr/bin/defaults write "$STATE_FILE" DriverBundleID \
+        -string "audio.local.RemoteOrbitAudio2chXX"
     chown "$CONSOLE_USER:$CONSOLE_GROUP" "$STATE_FILE" "$STATE_DIRECTORY"
 fi
 
-print "VoiceRemoteBridge installed to $APP_DESTINATION"
-print "VoiceRemoteAudio.driver installed to $DRIVER_DESTINATION"
-print "Restart macOS before opening VoiceRemoteBridge.app."
+print "RemoteOrbit installed to $APP_DESTINATION"
+print "RemoteOrbitAudio.driver installed to $DRIVER_DESTINATION"
+print "CoreAudio reloaded; no full macOS restart is required."
 exit 0

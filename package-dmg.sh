@@ -2,17 +2,17 @@
 set -euo pipefail
 
 ROOT="${0:A:h}"
-VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/voice-remote-bridge/Packaging/Info.plist")"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/remote-orbit/Packaging/Info.plist")"
 DIST="$ROOT/dist"
-PACKAGE_ROOT="$DIST/VoiceRemoteBridge-$VERSION-pkg-root"
-PACKAGE_SCRIPTS="$DIST/VoiceRemoteBridge-$VERSION-pkg-scripts"
-PACKAGE_EXPANDED="$DIST/VoiceRemoteBridge-$VERSION-pkg-expanded"
-PACKAGE_CLEAN="$DIST/VoiceRemoteBridge-$VERSION-clean.pkg"
-COMPONENT_PACKAGE="$DIST/VoiceRemoteBridge-$VERSION-component.pkg"
-DISTRIBUTION="$DIST/VoiceRemoteBridge-$VERSION-Distribution.xml"
-PACKAGE="$DIST/VoiceRemoteBridge-$VERSION.pkg"
-STAGING="$DIST/VoiceRemoteBridge-$VERSION-dmg-root"
-OUTPUT="$DIST/VoiceRemoteBridge-$VERSION.dmg"
+PACKAGE_ROOT="$DIST/RemoteOrbit-$VERSION-pkg-root"
+PACKAGE_SCRIPTS="$DIST/RemoteOrbit-$VERSION-pkg-scripts"
+PACKAGE_EXPANDED="$DIST/RemoteOrbit-$VERSION-pkg-expanded"
+PACKAGE_CLEAN="$DIST/RemoteOrbit-$VERSION-clean.pkg"
+COMPONENT_PACKAGE="$DIST/RemoteOrbit-$VERSION-component.pkg"
+DISTRIBUTION="$DIST/RemoteOrbit-$VERSION-Distribution.xml"
+PACKAGE="$DIST/RemoteOrbit-$VERSION.pkg"
+STAGING="$DIST/RemoteOrbit-$VERSION-dmg-root"
+OUTPUT="$DIST/RemoteOrbit-$VERSION.dmg"
 REBUILD_DRIVER=1
 
 while (($# > 0)); do
@@ -29,13 +29,13 @@ while (($# > 0)); do
 done
 
 if ((REBUILD_DRIVER)); then
-    "$ROOT/voice-remote-audio-driver/build-driver.sh"
+    "$ROOT/remote-orbit-audio-driver/build-driver.sh"
 fi
 
-"$ROOT/voice-remote-bridge/package-app.sh"
+"$ROOT/remote-orbit/package-app.sh"
 
-APP_SOURCE="$ROOT/voice-remote-bridge/dist/VoiceRemoteBridge.app"
-DRIVER_SOURCE="$ROOT/voice-remote-audio-driver/build/VoiceRemoteAudio.driver"
+APP_SOURCE="$ROOT/remote-orbit/dist/RemoteOrbit.app"
+DRIVER_SOURCE="$ROOT/remote-orbit-audio-driver/build/RemoteOrbitAudio.driver"
 if [[ ! -d "$APP_SOURCE" || ! -d "$DRIVER_SOURCE" ]]; then
     print -u2 "Build outputs are missing. Build the app and driver first."
     exit 1
@@ -48,9 +48,9 @@ mkdir -p \
     "$PACKAGE_ROOT/Applications" \
     "$PACKAGE_ROOT/Library/Audio/Plug-Ins/HAL"
 ditto --norsrc --noextattr --noqtn \
-    "$APP_SOURCE" "$PACKAGE_ROOT/Applications/VoiceRemoteBridge.app"
+    "$APP_SOURCE" "$PACKAGE_ROOT/Applications/RemoteOrbit.app"
 ditto --norsrc --noextattr --noqtn \
-    "$DRIVER_SOURCE" "$PACKAGE_ROOT/Library/Audio/Plug-Ins/HAL/VoiceRemoteAudio.driver"
+    "$DRIVER_SOURCE" "$PACKAGE_ROOT/Library/Audio/Plug-Ins/HAL/RemoteOrbitAudio.driver"
 find "$PACKAGE_ROOT" -name '._*' -delete
 
 mkdir -p "$PACKAGE_SCRIPTS"
@@ -63,7 +63,7 @@ find "$PACKAGE_SCRIPTS" -name '._*' -delete
 pkgbuild \
     --root "$PACKAGE_ROOT" \
     --scripts "$PACKAGE_SCRIPTS" \
-    --identifier "com.lost0rz.VoiceRemoteBridge.installer" \
+    --identifier "com.lost0rz.RemoteOrbit.installer" \
     --version "$VERSION" \
     --install-location / \
     --ownership recommended \
@@ -73,23 +73,39 @@ pkgbuild \
 # those packaging-only entries while preserving the actual scripts and payload.
 pkgutil --expand "$COMPONENT_PACKAGE" "$PACKAGE_EXPANDED"
 find "$PACKAGE_EXPANDED/Scripts" -name '._*' -delete
+# pkgbuild infers application bundles as relocatable when the package is
+# assembled from a local staging root. That would move RemoteOrbit.app back
+# into the repository instead of /Applications during installation. The
+# installer payload has an explicit destination, so remove only that inferred
+# relocation rule before flattening the component package again.
+perl -0pi -e 's/\s*<relocate>.*?<\/relocate>//s' "$PACKAGE_EXPANDED/PackageInfo"
 pkgutil --flatten "$PACKAGE_EXPANDED" "$PACKAGE_CLEAN"
 mv "$PACKAGE_CLEAN" "$COMPONENT_PACKAGE"
 rm -rf "$PACKAGE_EXPANDED"
 
-# Tell macOS Installer that this package changes CoreAudio/HAL state and must
-# finish with a system restart. The component package keeps the install and
-# recovery scripts; the product distribution adds the native restart action.
+# The HAL driver is reloaded by the postinstall script through coreaudiod. Do
+# not force a full macOS restart: the app and driver can be installed without
+# rebooting, with a reboot remaining only as a fallback if macOS does not
+# publish the device after coreaudiod reload.
 productbuild --synthesize --package "$COMPONENT_PACKAGE" "$DISTRIBUTION"
-perl -pi -e 's/onConclusion="none"/onConclusion="RequireRestart"/' "$DISTRIBUTION"
 productbuild \
     --distribution "$DISTRIBUTION" \
     --package-path "$DIST" \
     "$PACKAGE"
 
 mkdir -p "$STAGING"
-cp "$PACKAGE" "$STAGING/VoiceRemoteBridge.pkg"
 cp "$ROOT/installer/DMG-README.txt" "$STAGING/Read Me First.txt"
+# The DMG exposes one installation path: drag the app to Applications. The
+# embedded driver is installed on demand from the app's Settings page when
+# first-run diagnostics find it missing.
+ditto --norsrc --noextattr --noqtn \
+    "$APP_SOURCE" "$STAGING/RemoteOrbit.app"
+ln -s /Applications "$STAGING/Applications"
+# hdiutil on current macOS no longer exposes the historical -volicon flag.
+# A hidden volume icon plus the custom-icon bit produces the same Finder
+# result while keeping the DMG portable across supported macOS versions.
+cp "$ROOT/remote-orbit/dist/RemoteOrbit.icns" "$STAGING/.VolumeIcon.icns"
+SetFile -a C "$STAGING"
 
 mkdir -p "$STAGING/Documentation"
 cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" \
@@ -97,11 +113,11 @@ cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" \
 
 mkdir -p "$DIST"
 hdiutil create \
-    -volname "Voice Remote Bridge" \
+    -volname "RemoteOrbit" \
     -srcfolder "$STAGING" \
     -ov \
     -format UDZO \
     "$OUTPUT"
 
-codesign --verify --deep --strict "$PACKAGE_ROOT/Applications/VoiceRemoteBridge.app"
+codesign --verify --deep --strict "$PACKAGE_ROOT/Applications/RemoteOrbit.app"
 print "Built: $OUTPUT"
