@@ -56,6 +56,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
 
         if let output = Self.findOutputDevice() {
             startOutputDevice(output.id, name: output.name)
+            SystemAudioDeviceManager.applyPreferredInputSelection()
         } else {
             print(
                 "[AUDIO] ⚠️ 找不到语音输出设备；已查找: "
@@ -81,6 +82,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         stop()
         if let output = Self.findOutputDevice() {
             startOutputDevice(output.id, name: output.name)
+            SystemAudioDeviceManager.applyPreferredInputSelection()
         } else {
             print("[AUDIO] 补装后仍未发现语音输出设备")
         }
@@ -413,34 +415,6 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         outputDeviceName = name
         print("[AUDIO] \(name) IOProc 已启动: id=\(deviceID), 48000 Hz stereo")
 
-        // Make the bridge endpoint the system default input so applications
-        // such as Doubao can discover it without a per-application manual
-        // device selection. The actual source remains automatic: the IOProc
-        // receives the physical mic for a short press and decoded remote PCM
-        // for a hold.
-        Self.setDefaultInputDevice(deviceID)
-    }
-
-    private static func setDefaultInputDevice(_ deviceID: AudioDeviceID) {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var target = deviceID
-        let status = AudioObjectSetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address,
-            0,
-            nil,
-            UInt32(MemoryLayout<AudioDeviceID>.size),
-            &target
-        )
-        if status == noErr {
-            print("[AUDIO] 系统默认输入已自动切换: RemoteOrbit Mic 2ch")
-        } else {
-            print("[AUDIO] ⚠️ 无法自动设置系统默认输入: OSStatus=\(status)")
-        }
     }
 
     private func render(_ outputData: UnsafeMutablePointer<AudioBufferList>) {

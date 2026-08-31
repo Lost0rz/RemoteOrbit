@@ -18,6 +18,7 @@
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
+import CoreAudio
 import CoreGraphics
 import Darwin
 import IOKit.hid
@@ -639,6 +640,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusLabel: NSMenuItem!
     private var remoteStatusItem: NSMenuItem!
     private var audioStatusItem: NSMenuItem!
+    private var audioInputMenu: NSMenu!
+    private var audioOutputMenu: NSMenu!
 
     private var hidConnected = false
     private var bleConnected = false
@@ -814,6 +817,29 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(audioStatus)
         audioStatusItem = audioStatus
 
+        let audioDevicesItem = NSMenuItem(title: "音频设备", action: nil, keyEquivalent: "")
+        let audioDevicesMenu = NSMenu()
+        audioDevicesItem.submenu = audioDevicesMenu
+
+        let inputItem = NSMenuItem(title: "输入设备", action: nil, keyEquivalent: "")
+        let outputItem = NSMenuItem(title: "输出设备", action: nil, keyEquivalent: "")
+        audioInputMenu = NSMenu()
+        audioOutputMenu = NSMenu()
+        inputItem.submenu = audioInputMenu
+        outputItem.submenu = audioOutputMenu
+        audioDevicesMenu.addItem(inputItem)
+        audioDevicesMenu.addItem(outputItem)
+        audioDevicesMenu.addItem(.separator())
+
+        let refreshAudioDevices = NSMenuItem(
+            title: "刷新设备列表",
+            action: #selector(refreshAudioDeviceMenus),
+            keyEquivalent: ""
+        )
+        refreshAudioDevices.target = self
+        audioDevicesMenu.addItem(refreshAudioDevices)
+        menu.addItem(audioDevicesItem)
+
         menu.addItem(.separator())
 
         let controlCenter = NSMenuItem(
@@ -832,6 +858,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         quit.target = self
         menu.addItem(quit)
         statusItem.menu = menu
+        refreshAudioDeviceMenus()
         updateStatus()
 
         // HID connection (status icon).
@@ -1007,6 +1034,65 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        refreshAudioDeviceMenus()
+        updateStatus()
+    }
+
+    @objc private func refreshAudioDeviceMenus() {
+        rebuildAudioMenu(
+            audioInputMenu,
+            devices: SystemAudioDeviceManager.inputDevices(),
+            selectedID: SystemAudioDeviceManager.defaultInputDevice?.id,
+            action: #selector(selectAudioInput(_:))
+        )
+        rebuildAudioMenu(
+            audioOutputMenu,
+            devices: SystemAudioDeviceManager.outputDevices(),
+            selectedID: SystemAudioDeviceManager.defaultOutputDevice?.id,
+            action: #selector(selectAudioOutput(_:))
+        )
+    }
+
+    private func rebuildAudioMenu(
+        _ menu: NSMenu?,
+        devices: [SystemAudioDevice],
+        selectedID: AudioDeviceID?,
+        action: Selector
+    ) {
+        guard let menu else { return }
+        menu.removeAllItems()
+
+        if devices.isEmpty {
+            let unavailable = NSMenuItem(title: "未检测到可用设备", action: nil, keyEquivalent: "")
+            unavailable.isEnabled = false
+            menu.addItem(unavailable)
+            return
+        }
+
+        for device in devices {
+            let item = NSMenuItem(
+                title: SystemAudioDeviceManager.displayName(for: device),
+                action: action,
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = device.stableIdentifier
+            item.state = device.id == selectedID ? .on : .off
+            menu.addItem(item)
+        }
+    }
+
+    @objc private func selectAudioInput(_ sender: NSMenuItem) {
+        guard let identifier = sender.representedObject as? String else { return }
+        _ = SystemAudioDeviceManager.selectInput(identifier: identifier)
+        refreshAudioDeviceMenus()
+        updateStatus()
+    }
+
+    @objc private func selectAudioOutput(_ sender: NSMenuItem) {
+        guard let identifier = sender.representedObject as? String else { return }
+        _ = SystemAudioDeviceManager.selectOutput(identifier: identifier)
+        refreshAudioDeviceMenus()
         updateStatus()
     }
 

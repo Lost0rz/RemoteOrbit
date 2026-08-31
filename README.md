@@ -6,7 +6,7 @@
 - 长按语音键：调用遥控器的 ATVV 蓝牙麦克风。
 - 向豆包输入法暴露可识别的 `RemoteOrbit Mic 2ch` 输入设备。
 
-## 当前版本：0.2.3（RemoteOrbit 基线，Build 5）
+## 当前版本：0.2.4（RemoteOrbit 音频设备基线，Build 6）
 
 这是独立维护的开发基线，后续功能和发布节奏均由本项目单独维护。
 
@@ -34,6 +34,7 @@ FloatTabs/Codex/Ghostty/Obsidian 等应用适配，以及按键注入、语音�
 - 增加语音焦点事务保护，避免 FloatTabs/Codex 在第一次输入时因焦点回调过期而丢字。
 - 增加“刷新当前页面”语义预设：FloatTabs 走直连命令，其他浏览器走 `Command-R`。
 - 兼容 HID 监控模式下的遥控器电源原生事件，避免页面刷新映射同时触发 macOS 关机提示。
+- 增加菜单栏“音频设备”子菜单：可分别切换系统默认输入和输出设备；输入设备选择会保留，输出设备立即生效。
 
 ## RemoteOrbit Control Center
 
@@ -47,6 +48,18 @@ FloatTabs/Codex/Ghostty/Obsidian 等应用适配，以及按键注入、语音�
 
 映射规则固定为“默认映射 → App Profile → 单按钮始终使用默认”。这套名称和界面只属于
 RemoteOrbit，不复用原项目的设置入口或配置界面。
+
+### 音频设备切换
+
+点击菜单栏图标 → “音频设备”，可以分别选择系统默认输入和输出：
+
+- 输入设备会列出 `RemoteOrbit Mic 2ch（遥控器/自动）`、内置麦克风和当前可用的外接麦克风。
+- 输出设备会列出扬声器、显示器音频和耳机等真实输出设备，并自动隐藏 BlackHole、RemoteOrbit
+  等虚拟回环设备，避免误选。
+- 默认输入仍是 RemoteOrbit，保持短按本机麦克风、长按遥控器麦克风的原有工作方式。
+- 如果改选物理麦克风，macOS 会直接把它作为系统默认输入；需要恢复遥控器语音链路时，重新选择
+  `RemoteOrbit Mic 2ch（遥控器/自动）`。
+- 输出设备切换只修改 macOS 系统默认输出，不会重启 App；菜单每次打开时会刷新设备列表。
 
 ## DMG 安装（推荐）
 
@@ -171,7 +184,7 @@ DMG 安装的应用位于：
 ```
 
 该命令会下载固定版本的 BlackHole 源码、构建独立驱动、打包 App，并生成
-`dist/RemoteOrbit-0.2.3.dmg`。如果已经有本地构建好的驱动，可以使用：
+`dist/RemoteOrbit-0.2.4.dmg`。如果已经有本地构建好的驱动，可以使用：
 
 ```bash
 ./package-dmg.sh --reuse-driver
@@ -184,7 +197,7 @@ DMG 安装的应用位于：
 - 提供 Developer ID 签名、Hardened Runtime 和 Apple 公证的正式安装包。
 - 增加 GitHub Actions、更多自动测试和干净 Mac 安装验证。
 
-当前 `0.2.3` 是供开发者、动手能力较强的用户和 AI Agent 使用的独立产品基线；带签名和公证的
+当前 `0.2.4` 是供开发者、动手能力较强的用户和 AI Agent 使用的独立产品基线；带签名和公证的
 正式安装包会在后续版本中提供，感谢耐心等待。
 
 ## 目录
