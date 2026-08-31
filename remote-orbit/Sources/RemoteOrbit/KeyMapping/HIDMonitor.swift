@@ -91,7 +91,6 @@ final class HIDMonitor {
     private var activeDeviceIsSeized = false
     private var activeUsages = Set<UInt16>()
     private var repeatTimers: [UInt16: DispatchSourceTimer] = [:]
-    private var permissionMonitor: DispatchSourceTimer?
     private(set) var status = "按键映射未启用"
     private(set) var isRunning = false
 
@@ -140,6 +139,11 @@ final class HIDMonitor {
 
         let suppressionReady = eventSuppressor.start()
         print("[HID] event suppressor ready=\(suppressionReady)")
+        guard suppressionReady else {
+            updateStatus("无法拦截遥控器原生按键")
+            print("[HID] stopped: event suppressor unavailable; native power events are not safe to pass through")
+            return
+        }
 
         let m = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         let matching = [
@@ -171,14 +175,11 @@ final class HIDMonitor {
         }
         self.manager = m
         self.isRunning = true
-        startPermissionMonitor()
         updateStatus("等待遥控器连接")
         print("[HID] started; waiting for RC003")
     }
 
     func stop() {
-        permissionMonitor?.cancel()
-        permissionMonitor = nil
         repeatTimers.values.forEach { $0.cancel() }
         repeatTimers.removeAll()
         activeUsages.removeAll()
@@ -232,6 +233,7 @@ final class HIDMonitor {
 
         activeDevice = device
         activeDeviceIsSeized = seized
+        eventSuppressor.setRemotePowerSuppressionEnabled(!seized)
         if seized {
             updateStatus("遥控器已连接（独占模式）")
             print("[HID] connected: seized")
@@ -247,6 +249,7 @@ final class HIDMonitor {
         IOHIDDeviceClose(activeDevice, IOOptionBits(kIOHIDOptionsTypeNone))
         self.activeDevice = nil
         activeDeviceIsSeized = false
+        eventSuppressor.setRemotePowerSuppressionEnabled(false)
         activeUsages.removeAll()
         repeatTimers.values.forEach { $0.cancel() }
         repeatTimers.removeAll()
@@ -334,23 +337,6 @@ final class HIDMonitor {
             self.onButtonRepeat?(button)
         }
         repeatTimers[usage] = timer
-        timer.resume()
-    }
-
-    // MARK: - 权限监控
-
-    private func startPermissionMonitor() {
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + .seconds(1), repeating: .seconds(1))
-        timer.setEventHandler { [weak self] in
-            guard let self, self.manager != nil else { return }
-            if !Self.isInputMonitoringGranted || !KeyInjector.isAccessibilityTrusted {
-                self.stop()
-                self.updateStatus("系统权限已失效；已停止监控")
-                print("[HID] permissions revoked; stopped")
-            }
-        }
-        permissionMonitor = timer
         timer.resume()
     }
 

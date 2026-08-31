@@ -176,6 +176,9 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
     case arrowRight
     case pageUp
     case pageDown
+    /// Refreshes the current page semantically; FloatTabs uses its direct
+    /// command, while ordinary browsers receive their standard Command-R.
+    case reloadPage
     case deleteBackward
     case showDesktop
     case contextMenu
@@ -332,7 +335,7 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .openFloatTabs, .openCodex:
             return .applications
         case .escape, .returnKey, .arrowUp, .arrowDown, .arrowLeft, .arrowRight,
-             .pageUp, .pageDown:
+             .pageUp, .pageDown, .reloadPage:
             return .navigation
         case .copy, .paste, .cut, .selectAll, .deleteBackward, .undo, .redo:
             return .editing
@@ -416,6 +419,7 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .arrowRight:      return "方向右"
         case .pageUp:          return "向上滚屏"
         case .pageDown:        return "向下滚屏"
+        case .reloadPage:      return "刷新当前页面（FloatTabs 直连 / Command-R）"
         case .deleteBackward:  return "Delete（退格）"
         case .showDesktop:     return "显示桌面"
         case .contextMenu:     return "上下文菜单（Shift-F10）"

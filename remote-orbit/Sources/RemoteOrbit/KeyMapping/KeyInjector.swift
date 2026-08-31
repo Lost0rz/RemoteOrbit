@@ -14,9 +14,16 @@ enum KeyInjector {
 
     /// Carbon 全局热键（例如 KeyboardShortcuts 框架）不会响应普通的
     /// CGEvent.post 合成事件。对带 Command 的自定义快捷键，优先让
-    /// System Events 生成系统级按键；记录已完成的原子 tap，避免随后
-    /// 的遥控器 key-up 再发一个多余的 key-up。
-    private static var systemEventsTaps = Set<KeyChord>()
+    /// System Events 生成系统级按键。
+    ///
+    /// `osascript` 是一个短生命周期进程，但等待它退出可能需要几十到
+    /// 数百毫秒。遥控器回调在主线程上运行时，这个等待会表现为“连按
+    /// 不生效”或下一次按键要等一下。因此所有原子 System Events tap 都
+    /// 进入串行后台队列，既保持顺序，又不阻塞 HID/UI 主线程。
+    private static let systemEventsQueue = DispatchQueue(
+        label: "com.lost0rz.RemoteOrbit.system-events",
+        qos: .userInitiated
+    )
 
     static var isAccessibilityTrusted: Bool {
         AXIsProcessTrusted()
@@ -85,7 +92,10 @@ enum KeyInjector {
         scrollLinesPerStep: Int = MappingStore.defaultScrollLinesPerStep
     ) -> Bool {
         guard action != .disabled else { return true }
-        if let result = sendExternalAction(action) {
+        if let result = sendExternalAction(
+            action,
+            targetApplicationBundleIdentifier: targetApplicationBundleIdentifier
+        ) {
             return result
         }
         guard isAccessibilityTrusted else { return false }
@@ -117,6 +127,8 @@ enum KeyInjector {
                 scrollLinesPerStep: scrollLinesPerStep,
                 targetApplicationBundleIdentifier: targetApplicationBundleIdentifier
             )
+        case .reloadPage:
+            return sendPresetShortcut(keyCode: 15, keyLabel: "R", modifiers: .command)
         case .deleteBackward:
             postKey(code: 51)
         case .showDesktop:
@@ -567,23 +579,39 @@ enum KeyInjector {
         // KeyboardShortcuts/Carbon 全局热键不会被普通 CGEvent 注入触发。
         // System Events 的 key code 命令会经过 macOS 的系统按键服务，
         // 可同时覆盖 Float Tabs 这类菜单栏应用和 Codex 的 Control+`。
+        // 原子 tap 改为后台串行发送，避免在 HID 主线程同步等待
+        // /usr/bin/osascript。真正的 down/up 边沿仍使用 CGEvent，保证
+        // 需要保持修饰键时有成对的释放事件。
         if chord.modifiers.contains(.command) || chord.modifiers.contains(.control) {
             switch edge {
-            case .down:
-                if sendViaSystemEvents(chord) {
-                    systemEventsTaps.insert(chord)
-                    return true
-                }
-            case .up:
-                if systemEventsTaps.remove(chord) != nil {
-                    return true
-                }
+            case .down, .up:
+                break
             case nil:
-                if sendViaSystemEvents(chord) {
-                    return true
-                }
+                enqueueSystemEvents(chord)
+                return true
             }
         }
+
+        return sendViaCGEvents(chord, edge: edge)
+    }
+
+    /// Sends the non-blocking System Events path and falls back to the normal
+    /// CGEvent sequence only if the helper process cannot deliver the tap.
+    private static func enqueueSystemEvents(_ chord: KeyChord) {
+        systemEventsQueue.async {
+            guard !sendViaSystemEvents(chord) else { return }
+            _ = sendViaCGEvents(chord, edge: nil)
+        }
+    }
+
+    /// The direct CGEvent implementation is kept separate from the System
+    /// Events decision so the background fallback cannot recurse back into the
+    /// asynchronous branch above.
+    @discardableResult
+    private static func sendViaCGEvents(
+        _ chord: KeyChord,
+        edge: RemoteEventEdge?
+    ) -> Bool {
 
         guard let source = CGEventSource(stateID: .hidSystemState)
         else { return false }
@@ -670,7 +698,6 @@ enum KeyInjector {
 
     /// 进程退出前释放可能由旧版 CGEvent 路径留下的修饰键状态。
     static func releaseAll() {
-        systemEventsTaps.removeAll()
         guard let source = CGEventSource(stateID: .hidSystemState) else { return }
 
         for keyCode in [55, 59, 58, 56] as [CGKeyCode] {
@@ -831,7 +858,10 @@ enum KeyInjector {
 
     /// 先尝试软件直连/Accessibility 适配。返回 nil 表示没有执行成功，
     /// 调用方随后继续走稳定的快捷键回退路径；返回 false 表示目标 App 不可用。
-    private static func sendExternalAction(_ action: ButtonAction) -> Bool? {
+    private static func sendExternalAction(
+        _ action: ButtonAction,
+        targetApplicationBundleIdentifier: String?
+    ) -> Bool? {
         switch action {
         case .floatTabsNextTab:
             return FloatTabsCommandClient.send(.nextSlot)
@@ -847,6 +877,10 @@ enum KeyInjector {
             return FloatTabsCommandClient.toggleOrShow()
         case .openCodex:
             return ApplicationLauncher.toggle(bundleIdentifier: "com.openai.codex")
+        case .reloadPage:
+            guard targetApplicationBundleIdentifier == FloatTabsCommandClient.bundleIdentifier
+            else { return nil }
+            return FloatTabsCommandClient.send(.reload)
         case .ghosttyNewTab, .ghosttyNewWindow, .ghosttyPreviousTab,
              .ghosttyNextTab, .ghosttyCloseSurface, .ghosttyNewSplitRight,
              .ghosttyNewSplitDown, .ghosttyCommandPalette, .ghosttySearch:

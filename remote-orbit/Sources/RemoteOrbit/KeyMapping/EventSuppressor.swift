@@ -25,6 +25,7 @@ private func eventSuppressorCallback(
 
 final class EventSuppressor {
     private static let systemDefinedEventTypeRawValue: UInt32 = 14
+    private static let powerSystemKeyType: Int32 = 6
 
     private struct PendingEvent {
         let event: RemoteNativeEvent
@@ -34,6 +35,7 @@ final class EventSuppressor {
 
     private let lock = NSLock()
     private var pendingEvents: [PendingEvent] = []
+    private var remotePowerSuppressionEnabled = false
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
@@ -78,6 +80,7 @@ final class EventSuppressor {
     func stop() {
         lock.lock()
         pendingEvents.removeAll()
+        remotePowerSuppressionEnabled = false
         lock.unlock()
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
@@ -88,6 +91,24 @@ final class EventSuppressor {
         runLoopSource = nil
         eventTap = nil
         isRunning = false
+    }
+
+    /// In monitor mode the remote's power button may still produce a native
+    /// macOS power event. That event has no source-device identity at the
+    /// CGEvent layer, so while the supported remote is connected we protect
+    /// system power events and let RemoteOrbit deliver the mapped action.
+    func setRemotePowerSuppressionEnabled(_ enabled: Bool) {
+        lock.lock()
+        remotePowerSuppressionEnabled = enabled
+        lock.unlock()
+    }
+
+    static func shouldSuppressRemotePowerEvent(
+        _ event: RemoteNativeEvent,
+        remotePowerSuppressionEnabled: Bool
+    ) -> Bool {
+        remotePowerSuppressionEnabled
+            && event == .systemKey(type: powerSystemKeyType)
     }
 
     /// 预设要压制的原生事件。HIDMonitor 在检测到按钮边沿时调用。
@@ -120,6 +141,16 @@ final class EventSuppressor {
             return false
         }
         guard let descriptor = descriptor(type: type, event: event) else { return false }
+
+        lock.lock()
+        let powerSuppressionEnabled = remotePowerSuppressionEnabled
+        lock.unlock()
+        if Self.shouldSuppressRemotePowerEvent(
+            descriptor.event,
+            remotePowerSuppressionEnabled: powerSuppressionEnabled
+        ) {
+            return true
+        }
 
         let now = ProcessInfo.processInfo.systemUptime
         lock.lock()

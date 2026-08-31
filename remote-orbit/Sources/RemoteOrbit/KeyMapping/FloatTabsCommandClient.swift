@@ -11,6 +11,8 @@ enum FloatTabsDirectCommand: String {
     case togglePrimaryFocus = "togglePrimaryFocus"
     case scrollUp = "scrollUp"
     case scrollDown = "scrollDown"
+    case reload = "reload"
+    case cancelScroll = "cancelScroll"
     case focusInputForVoice = "focusInputForVoice"
     case settings = "settings"
 
@@ -24,12 +26,15 @@ enum FloatTabsDirectCommand: String {
 
 enum FloatTabsCommandClient {
     static let bundleIdentifier = "com.lost0rz.FloatTabs"
+    static let protocolVersion = 2
     private static let stateLock = NSLock()
     private static var lastShowRequestAt = Date.distantPast
     private static var focusReadyObserver: NSObjectProtocol?
-    private static var pendingFocusRequests: [String: (Bool) -> Void] = [:]
+    private static var pendingFocusRequests: [String: (Bool, String) -> Void] = [:]
     private static let presentationVoiceGrace: TimeInterval = 1.25
-    private static let focusRequestTimeout: TimeInterval = 1.75
+    // A focus repair normally completes in one or two WebKit turns. Do not
+    // sacrifice the start of speech if the page has no compatible composer.
+    private static let focusRequestTimeout: TimeInterval = 0.30
 
     /// 向正在运行的 FloatTabs 发送命令。命令本身不携带快捷键，因此 FloatTabs
     /// 用户修改自己的快捷键后，RemoteOrbit 预设仍然有效。
@@ -70,7 +75,7 @@ enum FloatTabsCommandClient {
     @discardableResult
     static func toggleOrShow() -> Bool {
         if isRunning,
-           MappingStore.preferredApplicationBundleIdentifier() == bundleIdentifier {
+           MappingStore.isApplicationActuallyFocused(bundleIdentifier) {
             return send(.toggleVisibility)
         }
         return show()
@@ -79,35 +84,37 @@ enum FloatTabsCommandClient {
     /// Whether the next voice gesture should use the FloatTabs focus handoff.
     /// This is kept separate from the request itself so the caller can arm its
     /// non-blocking HID event gate before posting the asynchronous command.
-    static var shouldWaitForInputFocus: Bool {
+    static func shouldPrepareInputFocus(for targetBundleIdentifier: String?) -> Bool {
         guard isRunning else { return false }
-        let ownsFocus = MappingStore.preferredApplicationBundleIdentifier() == bundleIdentifier
+        let ownsFocus = targetBundleIdentifier == bundleIdentifier
         return ownsFocus || hasRecentShowRequest
     }
 
     /// Ask FloatTabs to repair its native/WebKit input target. The request is
-    /// deliberately asynchronous: the bridge never blocks the HID/event-tap
-    /// thread waiting for another application. The caller owns the short
-    /// fail-open deadline for the mapped Option event.
+    /// deliberately asynchronous: RemoteOrbit never blocks the HID/event-tap
+    /// thread waiting for another application. The gesture transaction owns
+    /// the bounded safety deadline for the mapped Option event.
     @discardableResult
     static func requestInputFocusForVoice(
-        completion: @escaping (Bool) -> Void
+        gestureID: UUID,
+        completion: @escaping (Bool, String) -> Void
     ) -> Bool {
         guard isRunning else {
             return false
         }
-        guard shouldWaitForInputFocus else {
-            return false
-        }
         installFocusReadyObserver()
-        let requestID = UUID().uuidString
+        let requestID = gestureID.uuidString
         stateLock.lock()
         pendingFocusRequests[requestID] = completion
         stateLock.unlock()
 
         post(.focusInputForVoice, requestID: requestID)
         DispatchQueue.main.asyncAfter(deadline: .now() + focusRequestTimeout) {
-            completeFocusRequest(requestID, ready: false)
+            completeFocusRequest(
+                requestID,
+                ready: false,
+                reason: "response-timeout"
+            )
         }
         return true
     }
@@ -144,15 +151,31 @@ enum FloatTabsCommandClient {
                 return
             }
             let ready = (notification.userInfo?["ready"] as? NSNumber)?.boolValue ?? false
-            completeFocusRequest(requestID, ready: ready)
+            let responseVersion = (notification.userInfo?["protocolVersion"] as? NSNumber)?.intValue
+                ?? 1
+            let reason = notification.userInfo?["reason"] as? String
+                ?? (ready ? "ready" : "unknown")
+            guard responseVersion == protocolVersion else {
+                completeFocusRequest(
+                    requestID,
+                    ready: false,
+                    reason: "protocol-mismatch-\(responseVersion)"
+                )
+                return
+            }
+            completeFocusRequest(requestID, ready: ready, reason: reason)
         }
     }
 
-    private static func completeFocusRequest(_ requestID: String, ready: Bool) {
+    private static func completeFocusRequest(
+        _ requestID: String,
+        ready: Bool,
+        reason: String
+    ) {
         stateLock.lock()
         let completion = pendingFocusRequests.removeValue(forKey: requestID)
         stateLock.unlock()
-        completion?(ready)
+        completion?(ready, reason)
     }
 
     private static func post(
@@ -163,7 +186,10 @@ enum FloatTabsCommandClient {
         let notificationName = CFNotificationName(
             rawValue: FloatTabsDirectCommand.notificationName.rawValue as CFString
         )
-        var values: [String: Any] = ["command": command.rawValue]
+        var values: [String: Any] = [
+            "command": command.rawValue,
+            "protocolVersion": NSNumber(value: protocolVersion),
+        ]
         if let scrollLines {
             values["scrollLines"] = NSNumber(value: scrollLines)
         }

@@ -9,7 +9,7 @@ enum GhosttyCommandAdapter {
 
     @discardableResult
     static func execute(_ action: ButtonAction) -> Bool {
-        guard MappingStore.preferredApplicationBundleIdentifier() == bundleIdentifier,
+        guard MappingStore.isApplicationActuallyFocused(bundleIdentifier),
               let application = NSWorkspace.shared.runningApplications.first(where: {
                   $0.bundleIdentifier == bundleIdentifier
               }),

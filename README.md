@@ -6,13 +6,13 @@
 - 长按语音键：调用遥控器的 ATVV 蓝牙麦克风。
 - 向豆包输入法暴露可识别的 `RemoteOrbit Mic 2ch` 输入设备。
 
-## 当前版本：0.2.0（独立产品 UI 基线）
+## 当前版本：0.2.3（RemoteOrbit 基线，Build 5）
 
 这是独立维护的开发基线，后续功能和发布节奏均由本项目单独维护。
 
 当前 `main` 包含按 App 的按键模板、可重复触发策略、
-FloatTabs/Codex/Ghostty 等应用适配，以及更完整的按键注入和语音音频切换逻辑。
-这些内容尚未单独发布新版本，发布说明以代码和 `SETUP_NOTES.md` 为准。
+FloatTabs/Codex/Ghostty/Obsidian 等应用适配，以及按键注入、语音焦点和音频切换逻辑。
+当前基线以代码和 `SETUP_NOTES.md` 为准。
 
 本机实际安装过的配置、豆包设置、Redmi Air/其他型号兼容性边界和常见排障步骤，见
 [SETUP_NOTES.md](SETUP_NOTES.md)。
@@ -31,6 +31,9 @@ FloatTabs/Codex/Ghostty 等应用适配，以及更完整的按键注入和语�
 - 自定义组合快捷键改为完整发送修饰键按下、目标键按下/松开和修饰键释放，兼容更多全局快捷键监听器。
 - 改进兼容模式下遥控器原生 Home/方向键的事件压制，并修复首次打开快捷键录制窗口无内容的问题。
 - 对带 Command 的自定义快捷键增加 System Events 路径，兼容 `KeyboardShortcuts`/Carbon 全局热键。
+- 增加语音焦点事务保护，避免 FloatTabs/Codex 在第一次输入时因焦点回调过期而丢字。
+- 增加“刷新当前页面”语义预设：FloatTabs 走直连命令，其他浏览器走 `Command-R`。
+- 兼容 HID 监控模式下的遥控器电源原生事件，避免页面刷新映射同时触发 macOS 关机提示。
 
 ## RemoteOrbit Control Center
 
@@ -136,8 +139,8 @@ DMG 安装的应用位于：
 /Applications/RemoteOrbit.app
 ```
 
-双击应用或运行 `LaunchRemoteOrbit.command` 即可启动。源码备用安装脚本仍会使用
-`~/Applications/RemoteOrbit.app`。它是菜单栏应用，不显示 Dock 图标；
+双击应用或运行 `LaunchRemoteOrbit.command` 即可启动。源码安装脚本也默认使用
+`/Applications/RemoteOrbit.app`。它是菜单栏应用，不显示 Dock 图标；
 点击菜单栏的麦克风图标可查看状态或退出。菜单中的“登录时自动启动”可以控制登录后
 自动启动，不需要管理员权限。
 
@@ -168,7 +171,7 @@ DMG 安装的应用位于：
 ```
 
 该命令会下载固定版本的 BlackHole 源码、构建独立驱动、打包 App，并生成
-`dist/RemoteOrbit-0.2.0.dmg`。如果已经有本地构建好的驱动，可以使用：
+`dist/RemoteOrbit-0.2.3.dmg`。如果已经有本地构建好的驱动，可以使用：
 
 ```bash
 ./package-dmg.sh --reuse-driver
@@ -181,7 +184,7 @@ DMG 安装的应用位于：
 - 提供 Developer ID 签名、Hardened Runtime 和 Apple 公证的正式安装包。
 - 增加 GitHub Actions、更多自动测试和干净 Mac 安装验证。
 
-当前 `0.2.0` 是供开发者、动手能力较强的用户和 AI Agent 使用的独立产品 UI 基线；带签名和公证的
+当前 `0.2.3` 是供开发者、动手能力较强的用户和 AI Agent 使用的独立产品基线；带签名和公证的
 正式安装包会在后续版本中提供，感谢耐心等待。
 
 ## 目录

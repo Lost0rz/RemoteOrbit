@@ -193,12 +193,13 @@ final class VoicePressCoordinator {
     private var optionIsHeld = false
     private var suppressNewPressUntil = Date.distantPast
 
-    func keyDown() {
+    @discardableResult
+    func keyDown() -> Bool {
         guard Date() >= suppressNewPressUntil else {
             print("[PRESS] ignored release bounce")
-            return
+            return false
         }
-        guard mode == .idle else { return }
+        guard mode == .idle else { return false }
         AudioPipe.shared.beginRemoteCandidate()
         mode = .pending
 
@@ -216,6 +217,7 @@ final class VoicePressCoordinator {
             execute: work
         )
         print("[PRESS] pending; waiting 300 ms to classify tap vs hold")
+        return true
     }
 
     func keyUp() {
@@ -427,12 +429,15 @@ final class VoiceKeyFilter {
 
     private var tapPort: CFMachPort?
     private var voiceKeyIsDown = false
-    private var optionDeferralActive = false
+    private var optionDeferralGestureID: UUID?
     private var deferredOptionDownSeen = false
     private var deferredOptionUpSeen = false
-    private var optionDeferralWorkItem: DispatchWorkItem?
     var onVoiceKeyDown: (() -> Void)?
     var onVoiceKeyUp: (() -> Void)?
+
+    private var optionDeferralActive: Bool {
+        optionDeferralGestureID != nil
+    }
 
     /// HIDMonitor 活跃时跳过语音键处理（防止双重触发）。
     var skipVoiceKey = false
@@ -443,31 +448,32 @@ final class VoiceKeyFilter {
     /// into a fresh Option event pair when ready.
     /// This prevents the first Option edge from beating a stale WebKit text
     /// client without blocking the event-tap thread.
-    func beginOptionDeferral() {
-        optionDeferralWorkItem?.cancel()
-        optionDeferralActive = true
+    func beginOptionDeferral(gestureID: UUID) {
+        if let activeGestureID = optionDeferralGestureID,
+           activeGestureID != gestureID {
+            cancelDeferredOption(
+                gestureID: activeGestureID,
+                reason: "superseded"
+            )
+        }
+        optionDeferralGestureID = gestureID
         deferredOptionDownSeen = false
         deferredOptionUpSeen = false
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.releaseDeferredOption(reason: "fallback-timeout")
-        }
-        optionDeferralWorkItem = work
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + 0.22,
-            execute: work
-        )
-        print("[FLOATTABS] option deferral started; timeoutMs=220")
+        print("[VOICE] option gate armed gesture=\(gestureID.uuidString)")
     }
 
-    /// Release a deferred physical Option pair. This is idempotent because
-    /// either the FloatTabs acknowledgement or the short fallback timer may
-    /// win the race.
-    func releaseDeferredOption(reason: String) {
-        guard optionDeferralActive else { return }
-        optionDeferralActive = false
-        optionDeferralWorkItem?.cancel()
-        optionDeferralWorkItem = nil
+    /// Release a deferred physical Option pair. The gesture identifier makes
+    /// this idempotent and prevents a late acknowledgement from releasing a
+    /// newer gesture's Option edge.
+    func releaseDeferredOption(gestureID: UUID, reason: String) {
+        guard optionDeferralGestureID == gestureID else {
+            print(
+                "[VOICE] ignored stale option release gesture=\(gestureID.uuidString) "
+                    + "active=\(optionDeferralGestureID?.uuidString ?? "none")"
+            )
+            return
+        }
+        optionDeferralGestureID = nil
 
         let optionDownSeen = deferredOptionDownSeen
         let optionUpSeen = deferredOptionUpSeen
@@ -487,8 +493,21 @@ final class VoiceKeyFilter {
             }
         }
         print(
-            "[FLOATTABS] option deferral released reason=\(reason) "
+            "[VOICE] option gate released gesture=\(gestureID.uuidString) reason=\(reason) "
                 + "optionDown=\(optionDownSeen) optionUp=\(optionUpSeen)"
+        )
+    }
+
+    /// Drops a fully captured gesture without replaying it. This is used only
+    /// when a newer physical press supersedes a completed request; the stale
+    /// request must never turn into a delayed Option tap in the new target.
+    func cancelDeferredOption(gestureID: UUID, reason: String) {
+        guard optionDeferralGestureID == gestureID else { return }
+        optionDeferralGestureID = nil
+        deferredOptionDownSeen = false
+        deferredOptionUpSeen = false
+        print(
+            "[VOICE] option gate cancelled gesture=\(gestureID.uuidString) reason=\(reason)"
         )
     }
 
@@ -601,7 +620,9 @@ final class VoiceKeyFilter {
     }
 
     func stop() {
-        releaseDeferredOption(reason: "stop")
+        if let gestureID = optionDeferralGestureID {
+            cancelDeferredOption(gestureID: gestureID, reason: "stop")
+        }
         if voiceKeyIsDown {
             voiceKeyIsDown = false
             onVoiceKeyUp?()
@@ -631,35 +652,143 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let ble = BLEBridge()
     private let mappingStore = MappingStore()
     private let hidMonitor = HIDMonitor()
-    private func beginVoicePress() {
-        let needsFloatTabsFocus = FloatTabsCommandClient.shouldWaitForInputFocus
-        if needsFloatTabsFocus {
-            // The event tap itself must return immediately. Only the remote's
-            // device-scoped Option pair is held; audio capture and gesture
-            // classification continue independently.
-            filter.beginOptionDeferral()
-        }
-        voicePress.keyDown()
+    private let voiceFocusTransactions = VoiceFocusTransactionTracker()
+    private var voiceFocusSafetyWorkItem: DispatchWorkItem?
+    private let voiceFocusSafetyTimeout: TimeInterval = 0.36
 
-        guard needsFloatTabsFocus else { return }
-        let requested = FloatTabsCommandClient.requestInputFocusForVoice { [weak self] ready in
-            guard let self else { return }
-            print("[FLOATTABS] voice focus result=\(ready ? "ready" : "failed")")
-            self.filter.releaseDeferredOption(
-                reason: ready ? "focus-ready" : "focus-failed"
+    private func beginVoicePress(
+        targetApplicationBundleIdentifier lockedTarget: String? = nil
+    ) {
+        let target = lockedTarget
+            ?? MappingStore.preferredApplicationBundleIdentifier()
+        let needsFloatTabsFocus = FloatTabsCommandClient.shouldPrepareInputFocus(
+            for: target
+        )
+        let needsCodexFocus = !needsFloatTabsFocus
+            && CodexCommandAdapter.shouldPrepareInputFocus(for: target)
+        let needsFocusGate = needsFloatTabsFocus || needsCodexFocus
+        let gestureID = UUID()
+
+        if let previousGestureID = voiceFocusTransactions.activeGestureID {
+            voiceFocusSafetyWorkItem?.cancel()
+            voiceFocusSafetyWorkItem = nil
+            filter.cancelDeferredOption(
+                gestureID: previousGestureID,
+                reason: "superseded-by-new-press"
+            )
+            _ = voiceFocusTransactions.cancel(previousGestureID)
+        }
+
+        if needsFocusGate {
+            filter.beginOptionDeferral(gestureID: gestureID)
+        }
+
+        guard voicePress.keyDown() else {
+            if needsFocusGate {
+                filter.cancelDeferredOption(
+                    gestureID: gestureID,
+                    reason: "press-rejected"
+                )
+            }
+            return
+        }
+
+        guard needsFocusGate else { return }
+        voiceFocusTransactions.begin(gestureID)
+        armVoiceFocusSafetyTimeout(gestureID: gestureID)
+        print(
+            "[VOICE] focus transaction started gesture=\(gestureID.uuidString) "
+                + "target=\(target ?? "unknown")"
+        )
+
+        if needsFloatTabsFocus {
+            let requested = FloatTabsCommandClient.requestInputFocusForVoice(
+                gestureID: gestureID
+            ) { [weak self] ready, reason in
+                self?.completeVoiceFocus(
+                    gestureID: gestureID,
+                    ready: ready,
+                    source: "FloatTabs",
+                    reason: reason
+                )
+            }
+            if !requested {
+                completeVoiceFocus(
+                    gestureID: gestureID,
+                    ready: false,
+                    source: "FloatTabs",
+                    reason: "request-rejected"
+                )
+            }
+            return
+        }
+
+        CodexCommandAdapter.prepareInputFocusForVoice { [weak self] ready, reason in
+            self?.completeVoiceFocus(
+                gestureID: gestureID,
+                ready: ready,
+                source: "Codex",
+                reason: reason
             )
         }
-        if !requested {
-            print("[FLOATTABS] voice focus request not accepted; fail-open")
-            filter.releaseDeferredOption(reason: "request-rejected")
-        } else {
-            print("[FLOATTABS] voice focus request sent")
+    }
+
+    private func armVoiceFocusSafetyTimeout(gestureID: UUID) {
+        voiceFocusSafetyWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.completeVoiceFocus(
+                gestureID: gestureID,
+                ready: false,
+                source: "safety",
+                reason: "transaction-timeout"
+            )
         }
+        voiceFocusSafetyWorkItem = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + voiceFocusSafetyTimeout,
+            execute: work
+        )
+    }
+
+    private func completeVoiceFocus(
+        gestureID: UUID,
+        ready: Bool,
+        source: String,
+        reason: String
+    ) {
+        guard voiceFocusTransactions.complete(gestureID) else {
+            print(
+                "[VOICE] ignored stale focus result gesture=\(gestureID.uuidString) "
+                    + "source=\(source) ready=\(ready) reason=\(reason)"
+            )
+            return
+        }
+        voiceFocusSafetyWorkItem?.cancel()
+        voiceFocusSafetyWorkItem = nil
+        print(
+            "[VOICE] focus transaction completed gesture=\(gestureID.uuidString) "
+                + "source=\(source) ready=\(ready) reason=\(reason)"
+        )
+        filter.releaseDeferredOption(
+            gestureID: gestureID,
+            reason: ready ? "focus-ready" : "focus-failed-\(reason)"
+        )
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         AppStorage.prepare()
+        let appVersion = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String ?? "development"
+        let buildVersion = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleVersion"
+        ) as? String ?? "development"
+        print(
+            "[APP] launch version=\(appVersion) build=\(buildVersion) "
+                + "path=\(Bundle.main.bundlePath) "
+                + "FloatTabsProtocol=\(FloatTabsCommandClient.protocolVersion)"
+        )
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         setStatusIcon(systemName: "exclamationmark.triangle")
@@ -754,6 +883,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         hidMonitor.onButtonEdge = { [weak self] button, isDown in
             guard let self else { return }
+            let targetApplicationBundleIdentifier = self.mappingStore
+                .activePressApplicationBundleIdentifier(for: button)
             let binding = isDown
                 ? self.mappingStore.beginPress(for: button)
                 : self.mappingStore.endPress(for: button)
@@ -762,7 +893,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if button == .microphone {
                 if case .voiceKeyDefault = binding {
                     if isDown {
-                        self.beginVoicePress()
+                        self.beginVoicePress(
+                            targetApplicationBundleIdentifier: self.mappingStore
+                                .activePressApplicationBundleIdentifier(for: button)
+                        )
                     } else {
                         self.voicePress.keyUp()
                     }
@@ -796,6 +930,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 )
                 print("[KEY] \(button.displayName) down → \(binding.displayName); sent=\(sent)")
             } else {
+                if self.shouldCancelFloatTabsScroll(
+                    binding: binding,
+                    button: button,
+                    targetApplicationBundleIdentifier: targetApplicationBundleIdentifier
+                ) {
+                    let sent = FloatTabsCommandClient.send(.cancelScroll)
+                    print(
+                        "[KEY] \(button.displayName) scroll cancel → \(binding.displayName); sent=\(sent)"
+                    )
+                }
                 let sent = KeyInjector.sendUp(binding)
                 print("[KEY] \(button.displayName) up → \(binding.displayName); sent=\(sent)")
             }
@@ -848,6 +992,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             setStatusIcon(systemName: "exclamationmark.triangle", color: .systemOrange)
             print("[ERR] filter: \(msg)")
         }
+    }
+
+    private func shouldCancelFloatTabsScroll(
+        binding: ButtonBinding,
+        button: RemoteButton,
+        targetApplicationBundleIdentifier: String?
+    ) -> Bool {
+        guard button == .up || button == .down,
+              targetApplicationBundleIdentifier == FloatTabsCommandClient.bundleIdentifier,
+              case let .preset(action) = binding
+        else { return false }
+        return action == .pageUp || action == .pageDown
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -972,6 +1128,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         stopRecordingStatusPulse()
+        voiceFocusSafetyWorkItem?.cancel()
+        voiceFocusSafetyWorkItem = nil
+        voiceFocusTransactions.cancelAll()
         watcher.stop()
         voicePress.stop()
         filter.stop()

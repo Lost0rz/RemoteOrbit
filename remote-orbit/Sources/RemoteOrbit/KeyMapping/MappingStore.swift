@@ -53,6 +53,8 @@ final class MappingStore: ObservableObject {
     static let chatGPTBundleIdentifier = "com.openai.codex"
     static let defaultScrollLinesPerStep = 6
     static let scrollLinesPerStepRange = 1...40
+    private static let routingLock = NSLock()
+    private static var lastExternalApplicationBundleIdentifier: String?
 
     /// 通用映射：没有匹配的 App 激活模板时使用。
     @Published var bindings: [RemoteButton: ButtonBinding] = DefaultBindings.all {
@@ -166,12 +168,72 @@ final class MappingStore: ObservableObject {
     /// App。Accessibility 的 system-wide focused element 能提供更准确的
     ///进程归属；如果当前没有可读焦点，则回退到传统的前台 App。
     static func preferredApplicationBundleIdentifier() -> String? {
+        let ownBundleIdentifier = Bundle.main.bundleIdentifier
         let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        if let focused = focusedApplicationBundleIdentifier(),
-           focused != Bundle.main.bundleIdentifier {
+        let focused = focusedApplicationBundleIdentifier()
+
+        routingLock.lock()
+        let cachedExternal = lastExternalApplicationBundleIdentifier
+        routingLock.unlock()
+
+        let resolved = resolvedApplicationBundleIdentifier(
+            focused: focused,
+            frontmost: frontmost,
+            cachedExternal: cachedExternal,
+            ownBundleIdentifier: ownBundleIdentifier
+        )
+
+        if let resolved,
+           resolved != ownBundleIdentifier {
+            routingLock.lock()
+            lastExternalApplicationBundleIdentifier = resolved
+            routingLock.unlock()
+        }
+
+        if focused == ownBundleIdentifier || frontmost == ownBundleIdentifier {
+            print(
+                "[MappingRoute] ignoredSelf=true focused=\(focused ?? "nil") "
+                    + "frontmost=\(frontmost ?? "nil") "
+                    + "cached=\(cachedExternal ?? "nil") "
+                    + "resolved=\(resolved ?? "global")"
+            )
+        }
+        return resolved
+    }
+
+    /// Resolves a target without ever returning the bridge itself. Keeping this
+    /// decision pure makes the self-focus fallback testable and prevents a
+    /// transient menu/settings activation from routing an App template to the
+    /// global system-volume action.
+    static func resolvedApplicationBundleIdentifier(
+        focused: String?,
+        frontmost: String?,
+        cachedExternal: String?,
+        ownBundleIdentifier: String?
+    ) -> String? {
+        if let focused,
+           focused != ownBundleIdentifier {
             return focused
         }
-        return frontmost
+        if let frontmost,
+           frontmost != ownBundleIdentifier {
+            return frontmost
+        }
+        if let cachedExternal,
+           cachedExternal != ownBundleIdentifier {
+            return cachedExternal
+        }
+        return nil
+    }
+
+    /// Returns whether this process actually owns the current foreground or
+    /// Accessibility focus. Unlike `preferredApplicationBundleIdentifier`, it
+    /// intentionally does not use the cached external target.
+    static func isApplicationActuallyFocused(_ bundleIdentifier: String) -> Bool {
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleIdentifier {
+            return true
+        }
+        return focusedApplicationBundleIdentifier() == bundleIdentifier
     }
 
     private static func focusedApplicationBundleIdentifier() -> String? {

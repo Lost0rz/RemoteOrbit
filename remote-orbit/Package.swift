@@ -8,6 +8,11 @@ let package = Package(
         .executableTarget(
             name: "RemoteOrbit",
             path: "Sources/RemoteOrbit"
+        ),
+        .testTarget(
+            name: "RemoteOrbitTests",
+            dependencies: ["RemoteOrbit"],
+            path: "Tests/RemoteOrbitTests"
         )
     ]
 )

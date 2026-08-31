@@ -1,5 +1,30 @@
 # RemoteOrbit 安装与排障记录
 
+## 当前基线
+
+- RemoteOrbit 当前版本为 `0.2.3 (Build 5)`；当前 `main` 在本次整理前包含 10 个历史提交。
+- 当前主线覆盖独立产品改名、DMG/组件安装、Control Center、通用映射与 App 模板、Codex/FloatTabs/Ghostty/Obsidian 预设、音频链路和语音焦点修复。
+- FloatTabs 是独立仓库和独立应用；RemoteOrbit 只通过本机语义命令协议与它对接，两个仓库需要分别记录基线。
+
+### 历史提交进度
+
+以下 10 个提交已经全部位于 `main` 和 `origin/main`，不存在等待合并的 RemoteOrbit 分支：
+
+1. `f96291a`：建立独立项目基线，包含 BLE/ATVV 音频、HID、按键映射、日志和安装脚本。
+2. `26eeec5`：从旧项目重命名为 VoiceRemoteBridge，并切换源码与启动入口。
+3. `8ca98ab`：清理最后残留的旧命名。
+4. `6b1f395`：增加自包含 macOS 安装器、驱动备份和 CoreAudio 重载流程。
+5. `5120cf0`：重做 Control Center、映射设置界面和产品品牌。
+6. `83710a9`：切换到 RemoteOrbit 0.2.0 目录、Bundle、驱动和打包基线。
+7. `2368b64`：校准 Codex 默认按键映射。
+8. `4552b4c`：升级时补齐 Codex 默认模板且不覆盖用户配置。
+9. `1072ca0`：迁移旧版音量键的上下一个对话绑定。
+10. `bfbac6f`：扩展 Obsidian 标准动作和默认模板。
+
+本次基线把此前未提交的语音焦点事务、App 实际焦点路由、快捷键异步发送、滚动释放保护、
+电源原生事件拦截、FloatTabs 语义刷新协议和回归测试一并纳入。这样后续从个人仓库安装时，
+可以直接以本次基线提交为起点，不需要从旧的 VoiceRemoteBridge 文件名或旧安装路径恢复。
+
 这份文档记录本次在 Apple Silicon Mac + 豆包输入法上的最终可用配置，方便以后从个人仓库重新安装时直接复现。
 
 ## 当前验证过的设备和软件
@@ -76,7 +101,7 @@ sudo ./remote-orbit-audio-driver/install-driver.sh
 ```bash
 ./remote-orbit/package-app.sh
 ./remote-orbit/install-app.sh
-open ~/Applications/RemoteOrbit.app
+open /Applications/RemoteOrbit.app
 ```
 
 首次启动时，按 macOS 提示授予蓝牙、麦克风、辅助功能和输入监控权限。豆包也建议在驱动安装、默认输入设备变化或 App 更新后重新启动一次。
@@ -186,6 +211,15 @@ remoteGain
 没有设置自定义快捷键的预设动作继续沿用原规则：方向、音量、返回键支持长按
 重复，电源、主页、菜单、TV、确定等默认是单次动作。每次按键松开都会取消该键
 的重复计时器，避免修饰键或目标程序退出后残留按键。
+
+### 7.1 电源键映射成刷新却弹出关机提示
+
+这是遥控器原生电源 `systemDefined` 事件漏给 macOS，同时 RemoteOrbit 又发送了
+`Command-R` 的双重事件。当前版本在遥控器处于兼容 HID 模式并已连接时，专门拦截原生
+电源事件；RemoteOrbit 自己发送的合成刷新动作仍会放行。
+
+按键映射中优先选择“刷新当前页面”预设：FloatTabs 会走内部 `reload` 命令，其他浏览器
+发送标准 `Command-R`。原先手动录制的 `Command-R` 不会被升级过程自动覆盖。
 
 ### 8. 通用映射与 App 模板
 
