@@ -817,19 +817,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(audioStatus)
         audioStatusItem = audioStatus
 
-        let audioDevicesItem = NSMenuItem(title: "音频设备", action: nil, keyEquivalent: "")
-        let audioDevicesMenu = NSMenu()
-        audioDevicesItem.submenu = audioDevicesMenu
-
         let inputItem = NSMenuItem(title: "输入设备", action: nil, keyEquivalent: "")
         let outputItem = NSMenuItem(title: "输出设备", action: nil, keyEquivalent: "")
         audioInputMenu = NSMenu()
         audioOutputMenu = NSMenu()
         inputItem.submenu = audioInputMenu
         outputItem.submenu = audioOutputMenu
-        audioDevicesMenu.addItem(inputItem)
-        audioDevicesMenu.addItem(outputItem)
-        audioDevicesMenu.addItem(.separator())
+        menu.addItem(inputItem)
+        menu.addItem(outputItem)
+        menu.addItem(.separator())
 
         let refreshAudioDevices = NSMenuItem(
             title: "刷新设备列表",
@@ -837,8 +833,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             keyEquivalent: ""
         )
         refreshAudioDevices.target = self
-        audioDevicesMenu.addItem(refreshAudioDevices)
-        menu.addItem(audioDevicesItem)
+        menu.addItem(refreshAudioDevices)
 
         menu.addItem(.separator())
 
