@@ -171,4 +171,47 @@ final class ButtonActionTests: XCTestCase {
         XCTAssertTrue(actions.allSatisfy { $0.category == .floatTabs || $0 == .reloadPage })
         XCTAssertTrue(actions.allSatisfy { !$0.displayName.isEmpty })
     }
+
+    func testObsidianCatalogCoversCoreTabsSidebarsAndWorkspaceActions() {
+        let actions: [ButtonAction] = [
+            .obsidianToggleLeftSidebar,
+            .obsidianToggleRightSidebar,
+            .obsidianPreviousTab,
+            .obsidianNextTab,
+            .obsidianGoToTab1,
+            .obsidianGoToTab9,
+            .obsidianNewNote,
+            .obsidianNewNoteToRight,
+            .obsidianSearchCurrentFile,
+            .obsidianSearch,
+            .obsidianOpenGraphView,
+            .obsidianOpenSettings,
+            .obsidianCloseOtherTabs,
+            .obsidianShowBacklinks,
+            .obsidianShowOutgoingLinks,
+            .obsidianShowTags,
+            .obsidianOpenDailyNote,
+            .obsidianInsertTemplate,
+            .obsidianOpenFileExplorer,
+            .obsidianCreateNewCanvas,
+            .obsidianCommandPalette,
+        ]
+
+        XCTAssertTrue(actions.allSatisfy { $0.category == .obsidian })
+        XCTAssertTrue(actions.allSatisfy { !$0.repeatsWhenHeld })
+        XCTAssertTrue(actions.allSatisfy { !$0.displayName.isEmpty })
+    }
+
+    func testAppPresetCategoriesStayScopedToTheSelectedApplication() {
+        let floatTabsCategories = AppTemplatePresetLibrary.categories(
+            for: "com.lost0rz.FloatTabs"
+        )
+        let obsidianCategories = AppTemplatePresetLibrary.categories(for: "md.obsidian")
+
+        XCTAssertTrue(floatTabsCategories.contains(.floatTabs))
+        XCTAssertFalse(floatTabsCategories.contains(.obsidian))
+        XCTAssertTrue(obsidianCategories.contains(.obsidian))
+        XCTAssertFalse(obsidianCategories.contains(.floatTabs))
+        XCTAssertFalse(obsidianCategories.contains(.chatGPTChats))
+    }
 }

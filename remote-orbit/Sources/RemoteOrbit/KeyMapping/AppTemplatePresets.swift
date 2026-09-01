@@ -113,7 +113,7 @@ enum AppTemplatePresetLibrary {
             appBundleIdentifier: "md.obsidian",
             appName: "Obsidian",
             templateName: "Obsidian 默认",
-            summary: "滚屏、标签切换、快速切换文件、命令面板、新建/恢复标签、新建笔记、编辑模式和全库搜索。",
+            summary: "左右侧边栏、滚屏、标签切换、快速切换文件、命令面板、新建/恢复标签、新建笔记、编辑模式、搜索、图谱和设置；其他核心命令通过命令面板直连。",
             bindings: obsidianBindings
         ),
     ]
@@ -257,8 +257,8 @@ enum AppTemplatePresetLibrary {
         .power: .preset(.disabled),
         .up: .preset(.pageUp),
         .down: .preset(.pageDown),
-        .left: .preset(.obsidianPreviousTab),
-        .right: .preset(.obsidianNextTab),
+        .left: .preset(.obsidianToggleLeftSidebar),
+        .right: .preset(.obsidianToggleRightSidebar),
         .ok: .preset(.returnKey),
         .back: .preset(.obsidianCloseTab),
         .home: .preset(.obsidianQuickSwitcher),

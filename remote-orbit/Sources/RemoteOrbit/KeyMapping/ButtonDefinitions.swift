@@ -321,6 +321,34 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
     case obsidianAddProperty
     case obsidianPreviousTab
     case obsidianNextTab
+    case obsidianToggleLeftSidebar
+    case obsidianToggleRightSidebar
+    case obsidianGoToTab1
+    case obsidianGoToTab2
+    case obsidianGoToTab3
+    case obsidianGoToTab4
+    case obsidianGoToTab5
+    case obsidianGoToTab6
+    case obsidianGoToTab7
+    case obsidianGoToTab8
+    case obsidianGoToTab9
+    case obsidianNewNoteToRight
+    case obsidianSearchCurrentFile
+    case obsidianOpenGraphView
+    case obsidianOpenSettings
+    case obsidianCloseOtherTabs
+    case obsidianSplitDown
+    case obsidianShowBacklinks
+    case obsidianShowOutgoingLinks
+    case obsidianShowTags
+    case obsidianShowAllProperties
+    case obsidianShowFileProperties
+    case obsidianOpenDailyNote
+    case obsidianInsertTemplate
+    case obsidianOpenFileExplorer
+    case obsidianMoveTabToNewWindow
+    case obsidianOpenTabInNewWindow
+    case obsidianCreateNewCanvas
     case neteasePreviousTrack
     case neteaseNextTrack
     case mouseRightClick
@@ -426,7 +454,20 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .obsidianCommandPalette, .obsidianQuickSwitcher, .obsidianNewNote,
              .obsidianNewTab, .obsidianReopenClosedTab, .obsidianCloseTab,
              .obsidianSearch, .obsidianToggleEditMode, .obsidianAddProperty,
-             .obsidianPreviousTab, .obsidianNextTab:
+             .obsidianPreviousTab, .obsidianNextTab,
+             .obsidianToggleLeftSidebar, .obsidianToggleRightSidebar,
+             .obsidianGoToTab1, .obsidianGoToTab2, .obsidianGoToTab3,
+             .obsidianGoToTab4, .obsidianGoToTab5, .obsidianGoToTab6,
+             .obsidianGoToTab7, .obsidianGoToTab8, .obsidianGoToTab9,
+             .obsidianNewNoteToRight, .obsidianSearchCurrentFile,
+             .obsidianOpenGraphView, .obsidianOpenSettings,
+             .obsidianCloseOtherTabs, .obsidianSplitDown,
+             .obsidianShowBacklinks, .obsidianShowOutgoingLinks,
+             .obsidianShowTags, .obsidianShowAllProperties,
+             .obsidianShowFileProperties, .obsidianOpenDailyNote,
+             .obsidianInsertTemplate, .obsidianOpenFileExplorer,
+             .obsidianMoveTabToNewWindow, .obsidianOpenTabInNewWindow,
+             .obsidianCreateNewCanvas:
             return .obsidian
         case .neteasePreviousTrack, .neteaseNextTrack:
             return .netease
@@ -585,6 +626,34 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .obsidianAddProperty:      return "Obsidian：添加属性"
         case .obsidianPreviousTab:      return "Obsidian：上一个标签"
         case .obsidianNextTab:          return "Obsidian：下一个标签"
+        case .obsidianToggleLeftSidebar:  return "Obsidian：显示 / 隐藏左侧边栏"
+        case .obsidianToggleRightSidebar: return "Obsidian：显示 / 隐藏右侧边栏"
+        case .obsidianGoToTab1:          return "Obsidian：切换到标签 1"
+        case .obsidianGoToTab2:          return "Obsidian：切换到标签 2"
+        case .obsidianGoToTab3:          return "Obsidian：切换到标签 3"
+        case .obsidianGoToTab4:          return "Obsidian：切换到标签 4"
+        case .obsidianGoToTab5:          return "Obsidian：切换到标签 5"
+        case .obsidianGoToTab6:          return "Obsidian：切换到标签 6"
+        case .obsidianGoToTab7:          return "Obsidian：切换到标签 7"
+        case .obsidianGoToTab8:          return "Obsidian：切换到标签 8"
+        case .obsidianGoToTab9:          return "Obsidian：最后一个标签"
+        case .obsidianNewNoteToRight:   return "Obsidian：向右新建笔记"
+        case .obsidianSearchCurrentFile:return "Obsidian：搜索当前文件"
+        case .obsidianOpenGraphView:    return "Obsidian：打开关系图谱"
+        case .obsidianOpenSettings:     return "Obsidian：打开设置"
+        case .obsidianCloseOtherTabs:  return "Obsidian：关闭其他标签"
+        case .obsidianSplitDown:       return "Obsidian：向下分屏"
+        case .obsidianShowBacklinks:   return "Obsidian：显示反向链接"
+        case .obsidianShowOutgoingLinks:return "Obsidian：显示出链"
+        case .obsidianShowTags:        return "Obsidian：显示标签视图"
+        case .obsidianShowAllProperties:return "Obsidian：显示全部属性"
+        case .obsidianShowFileProperties:return "Obsidian：显示文件属性"
+        case .obsidianOpenDailyNote:   return "Obsidian：打开今日日记"
+        case .obsidianInsertTemplate:  return "Obsidian：插入模板"
+        case .obsidianOpenFileExplorer:return "Obsidian：显示文件列表"
+        case .obsidianMoveTabToNewWindow:return "Obsidian：移动当前标签到新窗口"
+        case .obsidianOpenTabInNewWindow:return "Obsidian：在新窗口打开当前标签"
+        case .obsidianCreateNewCanvas:return "Obsidian：新建 Canvas"
         case .neteasePreviousTrack:     return "网易云音乐：上一首"
         case .neteaseNextTrack:         return "网易云音乐：下一首"
         case .mouseRightClick: return "鼠标右键（当前位置）"

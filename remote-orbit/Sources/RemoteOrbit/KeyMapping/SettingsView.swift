@@ -1563,29 +1563,27 @@ struct SettingsView: View {
         if case let .app(bundleID) = mappingScope {
             allowed.formUnion(AppTemplatePresetLibrary.categories(for: bundleID))
         }
-        if case let .preset(action) = currentBinding(for: selectedButton) {
-            allowed.insert(action.category)
-        }
         return ButtonActionCategory.allCases.filter { allowed.contains($0) }
     }
 
     private var availableGestureActionCategories: [ButtonActionCategory] {
         var allowed: Set<ButtonActionCategory> = [
             .system,
-            .applications,
             .navigation,
             .editing,
             .media,
-            .floatTabs,
         ]
-        if case let .app(bundleID) = mappingScope {
+        switch mappingScope {
+        case .global:
+            // Application launchers are global-only actions. An app-specific
+            // action must never leak into the global gesture picker.
+            allowed.insert(.applications)
+        case let .app(bundleID):
+            // The selected app contributes only its own preset categories.
+            // Do not add categories from the current gesture profile: an old
+            // or migrated binding can otherwise make FloatTabs/Codex actions
+            // appear while editing another app.
             allowed.formUnion(AppTemplatePresetLibrary.categories(for: bundleID))
-        }
-        let profile = currentGestureProfile(for: selectedButton)
-        for slot in ButtonGestureSlot.allCases {
-            if case let .preset(action) = profile.binding(for: slot) {
-                allowed.insert(action.category)
-            }
         }
         return ButtonActionCategory.allCases.filter { allowed.contains($0) }
     }

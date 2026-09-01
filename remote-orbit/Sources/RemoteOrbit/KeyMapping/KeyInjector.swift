@@ -553,6 +553,45 @@ enum KeyInjector {
             )
         case .obsidianNextTab:
             return sendPresetShortcut(keyCode: 48, keyLabel: "Tab", modifiers: .control)
+        case .obsidianGoToTab1:
+            return sendPresetShortcut(keyCode: 18, keyLabel: "1", modifiers: .command)
+        case .obsidianGoToTab2:
+            return sendPresetShortcut(keyCode: 19, keyLabel: "2", modifiers: .command)
+        case .obsidianGoToTab3:
+            return sendPresetShortcut(keyCode: 20, keyLabel: "3", modifiers: .command)
+        case .obsidianGoToTab4:
+            return sendPresetShortcut(keyCode: 21, keyLabel: "4", modifiers: .command)
+        case .obsidianGoToTab5:
+            return sendPresetShortcut(keyCode: 23, keyLabel: "5", modifiers: .command)
+        case .obsidianGoToTab6:
+            return sendPresetShortcut(keyCode: 22, keyLabel: "6", modifiers: .command)
+        case .obsidianGoToTab7:
+            return sendPresetShortcut(keyCode: 26, keyLabel: "7", modifiers: .command)
+        case .obsidianGoToTab8:
+            return sendPresetShortcut(keyCode: 28, keyLabel: "8", modifiers: .command)
+        case .obsidianGoToTab9:
+            return sendPresetShortcut(keyCode: 25, keyLabel: "9", modifiers: .command)
+        case .obsidianNewNoteToRight:
+            return sendPresetShortcut(
+                keyCode: 45,
+                keyLabel: "N",
+                modifiers: [.command, .shift]
+            )
+        case .obsidianSearchCurrentFile:
+            return sendPresetShortcut(keyCode: 3, keyLabel: "F", modifiers: .command)
+        case .obsidianOpenGraphView:
+            return sendPresetShortcut(keyCode: 5, keyLabel: "G", modifiers: .command)
+        case .obsidianOpenSettings:
+            return sendPresetShortcut(keyCode: 43, keyLabel: ",", modifiers: .command)
+        case .obsidianToggleLeftSidebar, .obsidianToggleRightSidebar,
+             .obsidianCloseOtherTabs, .obsidianSplitDown,
+             .obsidianShowBacklinks, .obsidianShowOutgoingLinks,
+             .obsidianShowTags, .obsidianShowAllProperties,
+             .obsidianShowFileProperties, .obsidianOpenDailyNote,
+             .obsidianInsertTemplate, .obsidianOpenFileExplorer,
+             .obsidianMoveTabToNewWindow, .obsidianOpenTabInNewWindow,
+             .obsidianCreateNewCanvas:
+            return false // handled by ObsidianCommandAdapter above
         case .mouseRightClick:
             return postRightClick()
         case .volumeUp:
@@ -950,6 +989,20 @@ enum KeyInjector {
              .ghosttyNextTab, .ghosttyCloseSurface, .ghosttyNewSplitRight,
              .ghosttyNewSplitDown, .ghosttyCommandPalette, .ghosttySearch:
             return GhosttyCommandAdapter.execute(action) ? true : nil
+        case .obsidianToggleLeftSidebar, .obsidianToggleRightSidebar,
+             .obsidianCloseOtherTabs, .obsidianSplitDown,
+             .obsidianShowBacklinks, .obsidianShowOutgoingLinks,
+             .obsidianShowTags, .obsidianShowAllProperties,
+             .obsidianShowFileProperties, .obsidianOpenDailyNote,
+             .obsidianInsertTemplate, .obsidianOpenFileExplorer,
+             .obsidianMoveTabToNewWindow, .obsidianOpenTabInNewWindow,
+             .obsidianCreateNewCanvas:
+            guard targetApplicationBundleIdentifier == ObsidianCommandAdapter.bundleIdentifier
+                    || (targetApplicationBundleIdentifier == nil
+                        && NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                            == ObsidianCommandAdapter.bundleIdentifier)
+            else { return false }
+            return ObsidianCommandAdapter.execute(action)
         default:
             return nil
         }
