@@ -6,8 +6,15 @@ import Foundation
 enum FloatTabsDirectCommand: String {
     case show = "show"
     case toggleVisibility = "toggleVisibility"
+    case selectSlot = "selectSlot"
     case nextSlot = "nextSlot"
     case previousSlot = "previousSlot"
+    case addWebApp = "addWebApp"
+    case zoomIn = "zoomIn"
+    case zoomOut = "zoomOut"
+    case resetZoom = "resetZoom"
+    case addressBar = "addressBar"
+    case returnHome = "returnHome"
     case togglePrimaryFocus = "togglePrimaryFocus"
     case scrollUp = "scrollUp"
     case scrollDown = "scrollDown"
@@ -15,6 +22,8 @@ enum FloatTabsDirectCommand: String {
     case cancelScroll = "cancelScroll"
     case focusInputForVoice = "focusInputForVoice"
     case settings = "settings"
+    case togglePin = "togglePin"
+    case setResidency = "setResidency"
 
     static let notificationName = Notification.Name(
         "com.lost0rz.FloatTabs.external-command.v1"
@@ -26,7 +35,7 @@ enum FloatTabsDirectCommand: String {
 
 enum FloatTabsCommandClient {
     static let bundleIdentifier = "com.lost0rz.FloatTabs"
-    static let protocolVersion = 2
+    static let protocolVersion = 3
     private static let stateLock = NSLock()
     private static var lastShowRequestAt = Date.distantPast
     private static var focusReadyObserver: NSObjectProtocol?
@@ -41,10 +50,17 @@ enum FloatTabsCommandClient {
     @discardableResult
     static func send(
         _ command: FloatTabsDirectCommand,
-        scrollLines: Int? = nil
+        scrollLines: Int? = nil,
+        slotIndex: Int? = nil,
+        residencyPolicy: String? = nil
     ) -> Bool {
         guard isRunning else { return false }
-        post(command, scrollLines: scrollLines)
+        post(
+            command,
+            scrollLines: scrollLines,
+            slotIndex: slotIndex,
+            residencyPolicy: residencyPolicy
+        )
         return true
     }
 
@@ -181,7 +197,9 @@ enum FloatTabsCommandClient {
     private static func post(
         _ command: FloatTabsDirectCommand,
         scrollLines: Int? = nil,
-        requestID: String? = nil
+        requestID: String? = nil,
+        slotIndex: Int? = nil,
+        residencyPolicy: String? = nil
     ) {
         let notificationName = CFNotificationName(
             rawValue: FloatTabsDirectCommand.notificationName.rawValue as CFString
@@ -195,6 +213,12 @@ enum FloatTabsCommandClient {
         }
         if let requestID {
             values["requestID"] = requestID
+        }
+        if let slotIndex {
+            values["slotIndex"] = NSNumber(value: slotIndex)
+        }
+        if let residencyPolicy {
+            values["residencyPolicy"] = residencyPolicy
         }
         let userInfo = values as CFDictionary
         CFNotificationCenterPostNotification(

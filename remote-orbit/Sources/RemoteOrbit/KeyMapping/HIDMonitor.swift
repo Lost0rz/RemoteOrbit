@@ -65,8 +65,12 @@ final class HIDMonitor {
     /// 遥控器产品 ID（RC003）。
     static let productID = 0x32B8
 
-    /// 按钮边沿回调：(button, isDown)。
+    /// 按钮边沿回调：(button, isDown)。保留给旧调用方。
     var onButtonEdge: ((RemoteButton, Bool) -> Void)?
+
+    /// 带单调时钟时间戳的边沿回调。高级手势使用这个入口，避免用 UI
+    /// 回调到达时间估算长按时长；若设置了该回调，则不再调用旧入口。
+    var onButtonEdgeAt: ((RemoteButton, Bool, TimeInterval) -> Void)?
 
     /// 被输入层防抖丢弃的边沿，仅用于诊断。
     var onButtonEdgeSuppressed: ((RemoteButton, Bool) -> Void)?
@@ -78,6 +82,11 @@ final class HIDMonitor {
     /// 判断某个按钮当前是否需要启动长按重复计时器。
     /// 未设置时沿用遥控器原本的方向/音量/返回键重复规则。
     var shouldRepeatButton: ((RemoteButton) -> Bool)?
+
+    /// Advanced gesture buttons must receive every accepted down/up edge so
+    /// the recognizer can distinguish a double tap from a bounce. Their
+    /// repeat timer is owned by ButtonGestureRecognizer instead.
+    var shouldUseAdvancedGestures: ((RemoteButton) -> Bool)?
 
     /// 状态变化回调。
     var onStatusChange: ((String) -> Void)?
@@ -293,6 +302,7 @@ final class HIDMonitor {
             let shouldRepeat = shouldRepeatButton?(button)
                 ?? RemoteButton.repeatable.contains(button)
             let shouldDebounce = !shouldRepeat
+                && !(shouldUseAdvancedGestures?(button) ?? false)
             if shouldDebounce {
                 debouncedUsages.insert(usage)
             }
@@ -306,7 +316,7 @@ final class HIDMonitor {
                 continue
             }
 
-            onButtonEdge?(button, isDown)
+            emitButtonEdge(button: button, isDown: isDown, at: now)
             startRepeatIfNeeded(
                 usage: usage,
                 button: button,
@@ -334,7 +344,7 @@ final class HIDMonitor {
                 continue
             }
 
-            onButtonEdge?(button, isDown)
+            emitButtonEdge(button: button, isDown: isDown, at: now)
             repeatTimers.removeValue(forKey: usage)?.cancel()
             print("[HID] button up: \(button.displayName)")
         }
@@ -361,6 +371,18 @@ final class HIDMonitor {
     }
 
     // MARK: - 按键重复
+
+    private func emitButtonEdge(
+        button: RemoteButton,
+        isDown: Bool,
+        at timestamp: TimeInterval
+    ) {
+        if let callback = onButtonEdgeAt {
+            callback(button, isDown, timestamp)
+        } else {
+            onButtonEdge?(button, isDown)
+        }
+    }
 
     private func startRepeatIfNeeded(
         usage: UInt16,

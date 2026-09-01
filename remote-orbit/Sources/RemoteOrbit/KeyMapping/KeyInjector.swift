@@ -60,7 +60,20 @@ enum KeyInjector {
                 targetApplicationBundleIdentifier: targetApplicationBundleIdentifier,
                 scrollLinesPerStep: scrollLinesPerStep
             )
-        case let .shortcut(chord, _): return send(chord, edge: nil)
+        case let .shortcut(chord, _):
+            // FloatTabs registers its refresh shortcut through its own
+            // KeyboardShortcuts controller. A recorded Command-R should keep
+            // the same semantic behavior as the built-in Reload action,
+            // instead of depending on an injected global key event reaching a
+            // menu-bar/floating-window app.
+            if targetApplicationBundleIdentifier == FloatTabsCommandClient.bundleIdentifier,
+               chord.keyCode == 15,
+               chord.modifiers == .command {
+                let sent = FloatTabsCommandClient.send(.reload)
+                print("[KEY] FloatTabs Command-R → direct reload; sent=\(sent)")
+                return sent
+            }
+            return send(chord, edge: nil)
         case .voiceKeyDefault: return true  // 语音键走 VoicePressCoordinator 流程
         }
     }
@@ -176,13 +189,18 @@ enum KeyInjector {
         case .floatTabsSettings:
             return sendPresetShortcut(keyCode: 43, keyLabel: ",", modifiers: .command)
         case .floatTabsToggleAlwaysOnTop:
-            // FloatTabs' current Release exposes Pin / Auto-hide as its
-            // standard Command-Shift-P shortcut.
-            return sendPresetShortcut(
-                keyCode: 35,
-                keyLabel: "P",
-                modifiers: [.command, .shift]
-            )
+            return false // handled by the FloatTabs semantic adapter above
+        case .floatTabsSelectSlot1, .floatTabsSelectSlot2,
+             .floatTabsSelectSlot3, .floatTabsSelectSlot4,
+             .floatTabsSelectSlot5, .floatTabsSelectSlot6,
+             .floatTabsSelectSlot7, .floatTabsSelectSlot8,
+             .floatTabsSelectSlot9, .floatTabsAddWebApp,
+             .floatTabsZoomIn, .floatTabsZoomOut,
+             .floatTabsResetZoom, .floatTabsAddressBar,
+             .floatTabsReturnHome, .floatTabsTogglePin,
+             .floatTabsSetHotResidency, .floatTabsSetWarmResidency,
+             .floatTabsSetColdResidency:
+            return false // handled by the FloatTabs semantic adapter above
         case .chatGPTToggleSidebar:
             return sendPresetShortcut(keyCode: 11, keyLabel: "B", modifiers: .command)
         case .chatGPTToggleBottomPanel:
@@ -863,16 +881,63 @@ enum KeyInjector {
         targetApplicationBundleIdentifier: String?
     ) -> Bool? {
         switch action {
+        case .floatTabsSelectSlot1:
+            return FloatTabsCommandClient.send(.selectSlot, slotIndex: 1)
+        case .floatTabsSelectSlot2:
+            return FloatTabsCommandClient.send(.selectSlot, slotIndex: 2)
+        case .floatTabsSelectSlot3:
+            return FloatTabsCommandClient.send(.selectSlot, slotIndex: 3)
+        case .floatTabsSelectSlot4:
+            return FloatTabsCommandClient.send(.selectSlot, slotIndex: 4)
+        case .floatTabsSelectSlot5:
+            return FloatTabsCommandClient.send(.selectSlot, slotIndex: 5)
+        case .floatTabsSelectSlot6:
+            return FloatTabsCommandClient.send(.selectSlot, slotIndex: 6)
+        case .floatTabsSelectSlot7:
+            return FloatTabsCommandClient.send(.selectSlot, slotIndex: 7)
+        case .floatTabsSelectSlot8:
+            return FloatTabsCommandClient.send(.selectSlot, slotIndex: 8)
+        case .floatTabsSelectSlot9:
+            return FloatTabsCommandClient.send(.selectSlot, slotIndex: 9)
         case .floatTabsNextTab:
             return FloatTabsCommandClient.send(.nextSlot)
         case .floatTabsPreviousTab:
             return FloatTabsCommandClient.send(.previousSlot)
+        case .floatTabsAddWebApp:
+            return FloatTabsCommandClient.send(.addWebApp)
+        case .floatTabsZoomIn:
+            return FloatTabsCommandClient.send(.zoomIn)
+        case .floatTabsZoomOut:
+            return FloatTabsCommandClient.send(.zoomOut)
+        case .floatTabsResetZoom:
+            return FloatTabsCommandClient.send(.resetZoom)
+        case .floatTabsAddressBar:
+            return FloatTabsCommandClient.send(.addressBar)
+        case .floatTabsReturnHome:
+            return FloatTabsCommandClient.send(.returnHome)
         case .floatTabsToggleVisibility:
             return FloatTabsCommandClient.send(.toggleVisibility)
         case .floatTabsToggleFocus:
             return FloatTabsCommandClient.send(.togglePrimaryFocus)
         case .floatTabsSettings:
             return FloatTabsCommandClient.send(.settings)
+        case .floatTabsTogglePin, .floatTabsToggleAlwaysOnTop:
+            return FloatTabsCommandClient.send(.togglePin)
+        case .floatTabsSetHotResidency:
+            return FloatTabsCommandClient.send(
+                .setResidency,
+                residencyPolicy: "hot"
+            )
+        case .floatTabsSetWarmResidency:
+            return FloatTabsCommandClient.send(
+                .setResidency,
+                residencyPolicy: "warm"
+            )
+        case .floatTabsSetColdResidency:
+            return FloatTabsCommandClient.send(
+                .setResidency,
+                residencyPolicy: "cold"
+            )
         case .openFloatTabs:
             return FloatTabsCommandClient.toggleOrShow()
         case .openCodex:

@@ -15,19 +15,24 @@ struct AppMappingTemplate: Codable, Equatable, Identifiable {
     var appName: String
     var templateName: String
     var bindings: [RemoteButton: ButtonBinding]
+    /// Optional for backward-compatible decoding of templates saved before
+    /// advanced button gestures existed.
+    var gestureProfiles: [RemoteButton: ButtonGestureProfile]?
 
     init(
         id: UUID = UUID(),
         appBundleIdentifier: String,
         appName: String,
         templateName: String,
-        bindings: [RemoteButton: ButtonBinding] = DefaultBindings.all
+        bindings: [RemoteButton: ButtonBinding] = DefaultBindings.all,
+        gestureProfiles: [RemoteButton: ButtonGestureProfile]? = nil
     ) {
         self.id = id
         self.appBundleIdentifier = appBundleIdentifier
         self.appName = appName
         self.templateName = templateName
         self.bindings = bindings
+        self.gestureProfiles = gestureProfiles
     }
 
     var displayName: String {
@@ -45,6 +50,9 @@ private struct PersistedMappingConfiguration: Codable {
     // Optional so configurations created before the scroll setting was added
     // can still be decoded.
     var scrollLinesPerStep: Int?
+    // Optional so v3 configurations created before advanced button gestures
+    // existed can still be decoded without changing any existing bindings.
+    var globalGestureProfiles: [RemoteButton: ButtonGestureProfile]?
 }
 
 final class MappingStore: ObservableObject {
@@ -59,6 +67,13 @@ final class MappingStore: ObservableObject {
 
     /// 通用映射：没有匹配的 App 激活模板时使用。
     @Published var bindings: [RemoteButton: ButtonBinding] = DefaultBindings.all {
+        didSet { save() }
+    }
+
+    /// Extra gesture profiles for the global scope. An absent entry is the
+    /// exact legacy behavior; the settings UI creates an entry only when the
+    /// user enables or edits advanced gestures.
+    @Published private(set) var globalGestureProfiles: [RemoteButton: ButtonGestureProfile] = [:] {
         didSet { save() }
     }
 
@@ -91,6 +106,11 @@ final class MappingStore: ObservableObject {
     /// 按下时锁定的映射快照。这样即使快捷键切换/退出前台 App，松开和重复
     /// 事件仍然使用同一套映射，不会发送错模板或留下修饰键状态。
     private var pressedBindings: [RemoteButton: ButtonBinding] = [:]
+
+    /// Gesture profile captured alongside the base binding at button-down.
+    /// This prevents a template/focus change during a hold from changing the
+    /// meaning of the pending long-press or repeat gesture.
+    private var pressedGestureProfiles: [RemoteButton: ButtonGestureProfile] = [:]
 
     /// 与映射快照配套锁定目标 App。FloatTabs 是浮动窗口，不能在按键的
     /// down/up 或 repeat 边沿重新读取 frontmostApplication，否则窗口短暂
@@ -131,6 +151,36 @@ final class MappingStore: ObservableObject {
         return template.bindings[button]
             ?? DefaultBindings.all[button]
             ?? .preset(.disabled)
+    }
+
+    /// Get the global-scope gesture profile for a button.
+    func gestureProfile(for button: RemoteButton) -> ButtonGestureProfile {
+        globalGestureProfiles[button] ?? .disabled
+    }
+
+    /// Get the gesture profile in a specific template. A configured App
+    /// template is its own mapping scope, so an absent profile means the
+    /// feature is disabled there rather than inheriting a global gesture.
+    func gestureProfile(for button: RemoteButton, templateID: UUID) -> ButtonGestureProfile {
+        guard let template = template(withID: templateID) else {
+            return gestureProfile(for: button)
+        }
+        return template.gestureProfiles?[button] ?? .disabled
+    }
+
+    /// Resolve the active profile using the same App-template precedence as
+    /// ordinary bindings. Global pinning applies to gestures as well.
+    func gestureProfile(
+        for button: RemoteButton,
+        appBundleIdentifier: String?
+    ) -> ButtonGestureProfile {
+        if globallyPinnedButtons.contains(button) {
+            return gestureProfile(for: button)
+        }
+        guard let template = activeTemplate(for: appBundleIdentifier) else {
+            return gestureProfile(for: button)
+        }
+        return template.gestureProfiles?[button] ?? .disabled
     }
 
     func template(withID id: UUID) -> AppMappingTemplate? {
@@ -274,7 +324,12 @@ final class MappingStore: ObservableObject {
     func beginPress(for button: RemoteButton) -> ButtonBinding {
         let bundleID = Self.preferredApplicationBundleIdentifier()
         let binding = binding(for: button, appBundleIdentifier: bundleID)
+        let gestureProfile = gestureProfile(
+            for: button,
+            appBundleIdentifier: bundleID
+        )
         pressedBindings[button] = binding
+        pressedGestureProfiles[button] = gestureProfile
         if let bundleID {
             pressedApplicationBundleIDs[button] = bundleID
         } else {
@@ -297,6 +352,14 @@ final class MappingStore: ObservableObject {
         )
     }
 
+    /// Get the advanced gesture profile captured on button-down.
+    func activePressGestureProfile(for button: RemoteButton) -> ButtonGestureProfile {
+        pressedGestureProfiles[button] ?? gestureProfile(
+            for: button,
+            appBundleIdentifier: Self.preferredApplicationBundleIdentifier()
+        )
+    }
+
     /// 获取当前按键按下时锁定的目标 App。用于诊断和需要区分 App 的动作。
     func activePressApplicationBundleIdentifier(for button: RemoteButton) -> String? {
         pressedApplicationBundleIDs[button]
@@ -309,12 +372,14 @@ final class MappingStore: ObservableObject {
         let binding = pressedBindings.removeValue(forKey: button)
             ?? activePressBinding(for: button)
         pressedApplicationBundleIDs.removeValue(forKey: button)
+        pressedGestureProfiles.removeValue(forKey: button)
         return binding
     }
 
     func clearPressedBindings() {
         pressedBindings.removeAll()
         pressedApplicationBundleIDs.removeAll()
+        pressedGestureProfiles.removeAll()
     }
 
     // MARK: - 通用映射修改
@@ -324,9 +389,24 @@ final class MappingStore: ObservableObject {
         bindings[button] = binding
     }
 
+    /// Set or clear a global advanced gesture profile. Keeping disabled
+    /// profiles in storage preserves the user's configured slots when they
+    /// temporarily turn the feature off.
+    func setGestureProfile(_ profile: ButtonGestureProfile, for button: RemoteButton) {
+        var updated = globalGestureProfiles
+        if profile == .disabled {
+            updated.removeValue(forKey: button)
+        } else {
+            updated[button] = profile
+        }
+        guard updated != globalGestureProfiles else { return }
+        globalGestureProfiles = updated
+    }
+
     /// 重置通用映射。
     func resetAll() {
         bindings = DefaultBindings.all
+        globalGestureProfiles.removeAll()
         globallyPinnedButtons.removeAll()
         save()
     }
@@ -438,6 +518,24 @@ final class MappingStore: ObservableObject {
         appTemplates = updatedTemplates
     }
 
+    /// Set or clear one template's advanced gesture profile.
+    func setGestureProfile(
+        _ profile: ButtonGestureProfile,
+        for button: RemoteButton,
+        templateID: UUID
+    ) {
+        guard let index = appTemplates.firstIndex(where: { $0.id == templateID }) else { return }
+        var updatedTemplates = appTemplates
+        var profiles = updatedTemplates[index].gestureProfiles ?? [:]
+        if profile == .disabled {
+            profiles.removeValue(forKey: button)
+        } else {
+            profiles[button] = profile
+        }
+        updatedTemplates[index].gestureProfiles = profiles.isEmpty ? nil : profiles
+        appTemplates = updatedTemplates
+    }
+
     /// 将当前模板恢复为系统默认映射。
     func resetTemplate(_ templateID: UUID) {
         guard let index = appTemplates.firstIndex(where: { $0.id == templateID }) else { return }
@@ -448,6 +546,7 @@ final class MappingStore: ObservableObject {
             $0.templateName == template.templateName
         })?.bindings
         updatedTemplates[index].bindings = builtInBindings ?? DefaultBindings.all
+        updatedTemplates[index].gestureProfiles = nil
         appTemplates = updatedTemplates
     }
 
@@ -482,6 +581,7 @@ final class MappingStore: ObservableObject {
             do {
                 let decoded = try JSONDecoder().decode(PersistedMappingConfiguration.self, from: data)
                 bindings = Self.mergedBindings(decoded.globalBindings)
+                globalGestureProfiles = decoded.globalGestureProfiles ?? [:]
                 globallyPinnedButtons = decoded.globallyPinnedButtons ?? []
                 appTemplates = decoded.appTemplates.map { template in
                     var merged = template
@@ -795,7 +895,10 @@ final class MappingStore: ObservableObject {
                 globallyPinnedButtons: globallyPinnedButtons,
                 appTemplates: appTemplates,
                 activeTemplateIDs: activeTemplateIDs,
-                scrollLinesPerStep: scrollLinesPerStep
+                scrollLinesPerStep: scrollLinesPerStep,
+                globalGestureProfiles: globalGestureProfiles.isEmpty
+                    ? nil
+                    : globalGestureProfiles
             )
             let data = try JSONEncoder().encode(configuration)
             UserDefaults.standard.set(data, forKey: Self.storageKey)

@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var mappingScope: MappingScope = .global
     @State private var selectedTemplateTarget: TemplateTarget = .none
     @State private var recorderButton: RemoteButton?
+    @State private var gestureRecorderTarget: GestureRecorderTarget?
     @State private var showResetConfirm = false
     @State private var showTemplateCreator = false
     @State private var showTemplatePresetImporter = false
@@ -42,6 +43,13 @@ struct SettingsView: View {
         let buttons: [RemoteButton]
 
         var id: String { title }
+    }
+
+    private struct GestureRecorderTarget: Identifiable {
+        let button: RemoteButton
+        let slot: ButtonGestureSlot
+
+        var id: String { "\(button.rawValue)-\(slot.rawValue)" }
     }
 
     private enum TemplateTarget: Hashable {
@@ -102,6 +110,28 @@ struct SettingsView: View {
                 onRecord: { chord, trigger in
                     setCurrentBinding(.shortcut(chord, trigger: trigger), for: button)
                     recorderButton = nil
+                }
+            )
+        }
+        .sheet(item: $gestureRecorderTarget) { target in
+            ShortcutRecorderSheet(
+                button: target.button,
+                title: "设置 \(target.button.displayName) 的 \(target.slot.displayName) 快捷键",
+                showsTriggerMode: false,
+                clearButtonTitle: "清除这个手势",
+                initialTriggerMode: .single,
+                onCancel: { gestureRecorderTarget = nil },
+                onClear: {
+                    setCurrentGestureBinding(nil, for: target.button, slot: target.slot)
+                    gestureRecorderTarget = nil
+                },
+                onRecord: { chord, _ in
+                    setCurrentGestureBinding(
+                        .shortcut(chord, trigger: .single),
+                        for: target.button,
+                        slot: target.slot
+                    )
+                    gestureRecorderTarget = nil
                 }
             )
         }
@@ -543,6 +573,9 @@ struct SettingsView: View {
                             presetActionCard
                         }
                         customShortcutCard
+                        if selectedButton != .microphone {
+                            advancedGestureCard
+                        }
                     }
                     .disabled(isAppMappingLocked)
                     .opacity(isAppMappingLocked ? 0.55 : 1)
@@ -664,6 +697,163 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    private var advancedGestureCard: some View {
+        let profile = currentGestureProfile(for: selectedButton)
+        return workspaceCard(title: "额外按键手势", symbolName: "hand.tap") {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle(
+                    "启用额外按键手势",
+                    isOn: Binding(
+                        get: { currentGestureProfile(for: selectedButton).isEnabled },
+                        set: {
+                            var updated = currentGestureProfile(for: selectedButton)
+                            updated.isEnabled = $0
+                            setCurrentGestureProfile(updated, for: selectedButton)
+                            if $0,
+                               case let .shortcut(chord, trigger) = currentBinding(
+                                   for: selectedButton
+                               ),
+                               trigger == .repeatWhileHeld {
+                                // Once the advanced profile is enabled,
+                                // repetition is controlled by the long-press
+                                // selector below. Keep the base action atomic.
+                                setCurrentBinding(
+                                    .shortcut(chord, trigger: .single),
+                                    for: selectedButton
+                                )
+                            }
+                        }
+                    )
+                )
+                Text("未启用时完全沿用上面的单击映射。启用后，单击仍执行基础动作；双击和长按使用下面的额外动作。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if profile.isEnabled {
+                    Divider()
+                    gestureBindingRow(
+                        slot: .doubleTap,
+                        profile: profile
+                    )
+
+                    HStack {
+                        Text("长按行为")
+                            .font(.subheadline.weight(.medium))
+                        Spacer()
+                        Picker(
+                            "长按行为",
+                            selection: Binding(
+                                get: { currentGestureProfile(for: selectedButton).longPressBehavior },
+                                set: {
+                                    var updated = currentGestureProfile(for: selectedButton)
+                                    updated.longPressBehavior = $0
+                                    setCurrentGestureProfile(updated, for: selectedButton)
+                                }
+                            )
+                        ) {
+                            ForEach(ButtonLongPressBehavior.allCases) { behavior in
+                                Text(behavior.displayName).tag(behavior)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                    }
+
+                    if profile.longPressBehavior != .none {
+                        gestureBindingRow(
+                            slot: .longPress,
+                            profile: profile
+                        )
+                    }
+
+                    Text(
+                        profile.longPressBehavior == .repeatWhileHeld
+                            ? "达到长按阈值后每约 100 ms 发送一次；适合滚动、方向移动、删除等可重复动作。"
+                            : "短按会执行基础动作；超过长按阈值后只执行一次长按动作。"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func gestureBindingRow(
+        slot: ButtonGestureSlot,
+        profile: ButtonGestureProfile
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(slot.displayName)
+                    .font(.subheadline.weight(.medium))
+                Spacer()
+                Button("录制快捷键…") {
+                    gestureRecorderTarget = GestureRecorderTarget(
+                        button: selectedButton,
+                        slot: slot
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                if profile.binding(for: slot) != nil {
+                    Button("清除") {
+                        setCurrentGestureBinding(
+                            nil,
+                            for: selectedButton,
+                            slot: slot
+                        )
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                }
+            }
+
+            Picker(
+                "\(slot.displayName)预设动作",
+                selection: Binding(
+                    get: {
+                        guard case let .preset(action) = currentGestureProfile(
+                            for: selectedButton
+                        ).binding(for: slot)
+                        else { return ButtonAction.disabled }
+                        return action
+                    },
+                    set: { action in
+                        setCurrentGestureBinding(
+                            action == .disabled ? nil : .preset(action),
+                            for: selectedButton,
+                            slot: slot
+                        )
+                    }
+                )
+            ) {
+                ForEach(availableGestureActionCategories) { category in
+                    Section(category.displayName) {
+                        ForEach(actions(in: category)) { action in
+                            Text(action.displayName).tag(action)
+                        }
+                    }
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: 520)
+
+            if let binding = profile.binding(for: slot) {
+                Label(
+                    "当前：\(binding.displayName)",
+                    systemImage: binding.isDisabled ? "circle" : "checkmark.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(binding.isDisabled ? .secondary : .primary)
+            } else {
+                Text("未设置额外动作")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private var templateControlPanel: some View {
@@ -1268,8 +1458,10 @@ struct SettingsView: View {
            selectedEditorTemplate != nil,
            !store.isGloballyPinned(selectedButton) {
             store.setBinding(defaultBinding, for: selectedButton, templateID: id)
+            store.setGestureProfile(.disabled, for: selectedButton, templateID: id)
         } else {
             store.setBinding(defaultBinding, for: selectedButton)
+            store.setGestureProfile(.disabled, for: selectedButton)
         }
     }
 
@@ -1373,6 +1565,27 @@ struct SettingsView: View {
         }
         if case let .preset(action) = currentBinding(for: selectedButton) {
             allowed.insert(action.category)
+        }
+        return ButtonActionCategory.allCases.filter { allowed.contains($0) }
+    }
+
+    private var availableGestureActionCategories: [ButtonActionCategory] {
+        var allowed: Set<ButtonActionCategory> = [
+            .system,
+            .applications,
+            .navigation,
+            .editing,
+            .media,
+            .floatTabs,
+        ]
+        if case let .app(bundleID) = mappingScope {
+            allowed.formUnion(AppTemplatePresetLibrary.categories(for: bundleID))
+        }
+        let profile = currentGestureProfile(for: selectedButton)
+        for slot in ButtonGestureSlot.allCases {
+            if case let .preset(action) = profile.binding(for: slot) {
+                allowed.insert(action.category)
+            }
         }
         return ButtonActionCategory.allCases.filter { allowed.contains($0) }
     }
@@ -1491,6 +1704,18 @@ struct SettingsView: View {
         return store.binding(for: button, templateID: id)
     }
 
+    private func currentGestureProfile(for button: RemoteButton) -> ButtonGestureProfile {
+        if store.isGloballyPinned(button) {
+            return store.gestureProfile(for: button)
+        }
+        guard case let .template(id) = selectedTemplateTarget,
+              selectedEditorTemplate != nil
+        else {
+            return store.gestureProfile(for: button)
+        }
+        return store.gestureProfile(for: button, templateID: id)
+    }
+
     private func isScrollAction(_ binding: ButtonBinding) -> Bool {
         guard case let .preset(action) = binding else { return false }
         return action == .pageUp || action == .pageDown
@@ -1517,6 +1742,36 @@ struct SettingsView: View {
             return
         }
         store.setBinding(binding, for: button, templateID: id)
+    }
+
+    private func setCurrentGestureProfile(
+        _ profile: ButtonGestureProfile,
+        for button: RemoteButton
+    ) {
+        guard hasEditableScope else { return }
+        if case .app = mappingScope, store.isGloballyPinned(button) {
+            return
+        }
+        guard case let .template(id) = selectedTemplateTarget,
+              selectedEditorTemplate != nil
+        else {
+            store.setGestureProfile(profile, for: button)
+            return
+        }
+        store.setGestureProfile(profile, for: button, templateID: id)
+    }
+
+    private func setCurrentGestureBinding(
+        _ binding: ButtonBinding?,
+        for button: RemoteButton,
+        slot: ButtonGestureSlot
+    ) {
+        var profile = currentGestureProfile(for: button)
+        profile.setBinding(binding, for: slot)
+        if slot == .longPress, binding == nil {
+            profile.longPressBehavior = .none
+        }
+        setCurrentGestureProfile(profile, for: button)
     }
 
     private func resetCurrentMapping() {
@@ -1688,6 +1943,9 @@ private struct AppTemplateCreatorSheet: View {
 
 struct ShortcutRecorderSheet: View {
     let button: RemoteButton
+    let title: String?
+    let showsTriggerMode: Bool
+    let clearButtonTitle: String
     let onCancel: () -> Void
     let onClear: () -> Void
     let onRecord: (KeyChord, ShortcutTriggerMode) -> Void
@@ -1704,12 +1962,18 @@ struct ShortcutRecorderSheet: View {
 
     init(
         button: RemoteButton,
+        title: String? = nil,
+        showsTriggerMode: Bool = true,
+        clearButtonTitle: String = "禁用这个按键",
         initialTriggerMode: ShortcutTriggerMode,
         onCancel: @escaping () -> Void,
         onClear: @escaping () -> Void,
         onRecord: @escaping (KeyChord, ShortcutTriggerMode) -> Void
     ) {
         self.button = button
+        self.title = title
+        self.showsTriggerMode = showsTriggerMode
+        self.clearButtonTitle = clearButtonTitle
         self.onCancel = onCancel
         self.onClear = onClear
         self.onRecord = onRecord
@@ -1718,7 +1982,7 @@ struct ShortcutRecorderSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("设置 \(button.displayName) 的快捷键")
+            Text(title ?? "设置 \(button.displayName) 的快捷键")
                 .font(.title3.weight(.semibold))
             Text("按下一个键（可带修饰键），或直接按下修饰键（如 Control、Option、Shift、Command、Fn）。")
                 .foregroundColor(.secondary)
@@ -1734,19 +1998,21 @@ struct ShortcutRecorderSheet: View {
                 Spacer()
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("触发方式")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Picker("触发方式", selection: $triggerMode) {
-                    ForEach(ShortcutTriggerMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
+            if showsTriggerMode {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("触发方式")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Picker("触发方式", selection: $triggerMode) {
+                        ForEach(ShortcutTriggerMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    Text(triggerMode.helpText)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
                 }
-                .pickerStyle(.segmented)
-                Text(triggerMode.helpText)
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
             }
 
             if !errorText.isEmpty {
@@ -1760,7 +2026,7 @@ struct ShortcutRecorderSheet: View {
                 .foregroundColor(.secondary)
 
             HStack {
-                Button("禁用这个按键", action: onClear)
+                Button(clearButtonTitle, action: onClear)
                 Spacer()
                 Button("取消", action: onCancel)
             }

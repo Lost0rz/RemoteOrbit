@@ -145,4 +145,30 @@ final class ButtonActionTests: XCTestCase {
         XCTAssertFalse(ButtonAction.floatTabsNextTab.repeatsWhenHeld)
         XCTAssertFalse(ButtonAction.floatTabsPreviousTab.repeatsWhenHeld)
     }
+
+    func testFloatTabsFullCatalogIsAvailableAsSemanticActions() {
+        let actions: [ButtonAction] = [
+            .floatTabsSelectSlot1,
+            .floatTabsSelectSlot9,
+            .floatTabsNextTab,
+            .floatTabsPreviousTab,
+            .floatTabsAddWebApp,
+            .floatTabsZoomIn,
+            .floatTabsZoomOut,
+            .floatTabsResetZoom,
+            .floatTabsAddressBar,
+            .floatTabsReturnHome,
+            .reloadPage,
+            .floatTabsToggleFocus,
+            .floatTabsTogglePin,
+            .floatTabsSetHotResidency,
+            .floatTabsSetWarmResidency,
+            .floatTabsSetColdResidency,
+            .floatTabsSettings,
+        ]
+
+        XCTAssertEqual(actions.count, 17)
+        XCTAssertTrue(actions.allSatisfy { $0.category == .floatTabs || $0 == .reloadPage })
+        XCTAssertTrue(actions.allSatisfy { !$0.displayName.isEmpty })
+    }
 }

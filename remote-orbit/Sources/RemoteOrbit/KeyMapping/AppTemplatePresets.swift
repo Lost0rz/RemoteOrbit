@@ -85,6 +85,14 @@ enum AppTemplatePresetLibrary {
             bindings: floatTabsBindings
         ),
         AppTemplatePreset(
+            id: "floatTabs.browse",
+            appBundleIdentifier: "com.lost0rz.FloatTabs",
+            appName: "FloatTabs",
+            templateName: "FloatTabs 浏览增强",
+            summary: "滚屏、刷新、焦点切换、显示/隐藏和标签切换；菜单键直接刷新当前页面。",
+            bindings: floatTabsBrowseBindings
+        ),
+        AppTemplatePreset(
             id: "ghostty.default",
             appBundleIdentifier: "com.mitchellh.ghostty",
             appName: "Ghostty",
@@ -193,6 +201,25 @@ enum AppTemplatePresetLibrary {
         .back: .preset(.escape),
         .home: .preset(.floatTabsToggleVisibility),
         .menu: .preset(.floatTabsToggleAlwaysOnTop),
+        .tv: .preset(.appSwitcher),
+        .volumeUp: .preset(.floatTabsPreviousTab),
+        .volumeDown: .preset(.floatTabsNextTab),
+    ])
+
+    /// Alternative layout for page navigation. The existing default keeps
+    /// Pin / Auto-hide on Menu; this opt-in preset gives the same button a
+    /// semantic refresh action without relying on FloatTabs' configurable
+    /// Command-R shortcut.
+    private static let floatTabsBrowseBindings = overlay([
+        .power: .preset(.disabled),
+        .up: .preset(.pageUp),
+        .down: .preset(.pageDown),
+        .left: .preset(.floatTabsToggleFocus),
+        .right: .preset(.paste),
+        .ok: .preset(.returnKey),
+        .back: .preset(.escape),
+        .home: .preset(.floatTabsToggleVisibility),
+        .menu: .preset(.reloadPage),
         .tv: .preset(.appSwitcher),
         .volumeUp: .preset(.floatTabsPreviousTab),
         .volumeDown: .preset(.floatTabsNextTab),

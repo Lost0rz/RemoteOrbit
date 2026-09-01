@@ -192,8 +192,27 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
     case undo
     case redo
     /// FloatTabs' app-local tab navigation shortcuts.
+    case floatTabsSelectSlot1
+    case floatTabsSelectSlot2
+    case floatTabsSelectSlot3
+    case floatTabsSelectSlot4
+    case floatTabsSelectSlot5
+    case floatTabsSelectSlot6
+    case floatTabsSelectSlot7
+    case floatTabsSelectSlot8
+    case floatTabsSelectSlot9
     case floatTabsNextTab
     case floatTabsPreviousTab
+    case floatTabsAddWebApp
+    case floatTabsZoomIn
+    case floatTabsZoomOut
+    case floatTabsResetZoom
+    case floatTabsAddressBar
+    case floatTabsReturnHome
+    case floatTabsTogglePin
+    case floatTabsSetHotResidency
+    case floatTabsSetWarmResidency
+    case floatTabsSetColdResidency
     case floatTabsToggleVisibility
     case floatTabsToggleFocus
     case floatTabsSettings
@@ -341,10 +360,19 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
             return .editing
         case .volumeUp, .volumeDown, .volumeMute, .playPause:
             return .media
-        case .floatTabsToggleVisibility, .floatTabsToggleFocus, .floatTabsSettings,
+        case .floatTabsSelectSlot1, .floatTabsSelectSlot2,
+             .floatTabsSelectSlot3, .floatTabsSelectSlot4,
+             .floatTabsSelectSlot5, .floatTabsSelectSlot6,
+             .floatTabsSelectSlot7, .floatTabsSelectSlot8,
+             .floatTabsSelectSlot9, .floatTabsNextTab,
+             .floatTabsPreviousTab, .floatTabsAddWebApp,
+             .floatTabsZoomIn, .floatTabsZoomOut,
+             .floatTabsResetZoom, .floatTabsAddressBar,
+             .floatTabsReturnHome, .floatTabsTogglePin,
+             .floatTabsSetHotResidency, .floatTabsSetWarmResidency,
+             .floatTabsSetColdResidency, .floatTabsToggleVisibility,
+             .floatTabsToggleFocus, .floatTabsSettings,
              .floatTabsToggleAlwaysOnTop:
-            return .floatTabs
-        case .floatTabsNextTab, .floatTabsPreviousTab:
             return .floatTabs
         case .chatGPTOpenCommandMenu, .chatGPTOpenSettings,
              .chatGPTOpenKeyboardShortcuts, .chatGPTOpenFolder,
@@ -432,8 +460,27 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .selectAll:       return "全选（Command-A）"
         case .undo:            return "撤销（Command-Z）"
         case .redo:            return "重做（Command-Shift-Z）"
+        case .floatTabsSelectSlot1: return "FloatTabs：直达标签 1"
+        case .floatTabsSelectSlot2: return "FloatTabs：直达标签 2"
+        case .floatTabsSelectSlot3: return "FloatTabs：直达标签 3"
+        case .floatTabsSelectSlot4: return "FloatTabs：直达标签 4"
+        case .floatTabsSelectSlot5: return "FloatTabs：直达标签 5"
+        case .floatTabsSelectSlot6: return "FloatTabs：直达标签 6"
+        case .floatTabsSelectSlot7: return "FloatTabs：直达标签 7"
+        case .floatTabsSelectSlot8: return "FloatTabs：直达标签 8"
+        case .floatTabsSelectSlot9: return "FloatTabs：直达标签 9"
         case .floatTabsNextTab:     return "FloatTabs：下一个标签"
         case .floatTabsPreviousTab: return "FloatTabs：上一个标签"
+        case .floatTabsAddWebApp:   return "FloatTabs：新增网页"
+        case .floatTabsZoomIn:      return "FloatTabs：放大页面"
+        case .floatTabsZoomOut:     return "FloatTabs：缩小页面"
+        case .floatTabsResetZoom:   return "FloatTabs：重置页面缩放"
+        case .floatTabsAddressBar:  return "FloatTabs：打开地址栏"
+        case .floatTabsReturnHome:  return "FloatTabs：回到主页"
+        case .floatTabsTogglePin:  return "FloatTabs：置顶 / 自动隐藏"
+        case .floatTabsSetHotResidency:  return "FloatTabs：设为 Hot 驻留"
+        case .floatTabsSetWarmResidency: return "FloatTabs：设为 Warm 驻留"
+        case .floatTabsSetColdResidency: return "FloatTabs：设为 Cold 驻留"
         case .floatTabsToggleVisibility: return "FloatTabs：显示 / 隐藏"
         case .floatTabsToggleFocus:      return "FloatTabs：切换对话框 / 网页焦点"
         case .floatTabsSettings:         return "FloatTabs：打开设置"
@@ -628,6 +675,90 @@ enum ShortcutTriggerMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Optional gesture slots layered on top of a button's existing single-click
+/// binding. The base binding remains the single-click action; these slots are
+/// only consulted when the user enables the advanced gesture switch.
+enum ButtonGestureSlot: String, Codable, CaseIterable, Identifiable {
+    case doubleTap
+    case longPress
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .doubleTap: return "双击"
+        case .longPress: return "长按"
+        }
+    }
+}
+
+/// The long-press slot can either fire once or become a controlled repeat
+/// stream. Keeping this mutually exclusive prevents a long press from
+/// triggering two different actions at the same threshold.
+enum ButtonLongPressBehavior: String, Codable, CaseIterable, Identifiable {
+    case none
+    case triggerOnce
+    case repeatWhileHeld
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .none: return "无"
+        case .triggerOnce: return "长按触发一次"
+        case .repeatWhileHeld: return "按住重复"
+        }
+    }
+}
+
+/// Extra gestures for one physical button. This is deliberately separate from
+/// `ButtonBinding` so old configurations remain byte-for-byte compatible and
+/// an unchecked button follows the existing edge/repeat path exactly.
+struct ButtonGestureProfile: Codable, Equatable {
+    var isEnabled: Bool
+    var doubleTap: ButtonBinding?
+    var longPress: ButtonBinding?
+    var longPressBehavior: ButtonLongPressBehavior
+
+    init(
+        isEnabled: Bool = false,
+        doubleTap: ButtonBinding? = nil,
+        longPress: ButtonBinding? = nil,
+        longPressBehavior: ButtonLongPressBehavior = .none
+    ) {
+        self.isEnabled = isEnabled
+        self.doubleTap = doubleTap
+        self.longPress = longPress
+        self.longPressBehavior = longPressBehavior
+    }
+
+    static let disabled = ButtonGestureProfile()
+
+    /// Whether this profile should take the raw edge away from the legacy
+    /// immediate-send/repeat path.
+    var usesAdvancedGestures: Bool {
+        guard isEnabled else { return false }
+        let hasDoubleTap = doubleTap?.isUsableGestureAction == true
+        let hasLongPress = longPress?.isUsableGestureAction == true
+            && longPressBehavior != .none
+        return hasDoubleTap || hasLongPress
+    }
+
+    func binding(for slot: ButtonGestureSlot) -> ButtonBinding? {
+        switch slot {
+        case .doubleTap: return doubleTap
+        case .longPress: return longPress
+        }
+    }
+
+    mutating func setBinding(_ binding: ButtonBinding?, for slot: ButtonGestureSlot) {
+        switch slot {
+        case .doubleTap: doubleTap = binding
+        case .longPress: longPress = binding
+        }
+    }
+}
+
 /// 一个按钮的完整绑定，可以是预设动作、自定义快捷键或语音键默认行为。
 enum ButtonBinding: Codable, Equatable {
     case preset(ButtonAction)
@@ -688,6 +819,17 @@ enum ButtonBinding: Codable, Equatable {
     var isDisabled: Bool {
         if case .preset(.disabled) = self { return true }
         return false
+    }
+
+    /// Voice-default is owned by VoicePressCoordinator and cannot be used as
+    /// a generic gesture action. Disabled bindings also mean “no gesture”.
+    var isUsableGestureAction: Bool {
+        switch self {
+        case .preset(.disabled), .voiceKeyDefault:
+            return false
+        default:
+            return true
+        }
     }
 }
 

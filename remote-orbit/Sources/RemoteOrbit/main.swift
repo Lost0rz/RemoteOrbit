@@ -662,6 +662,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let ble = BLEBridge()
     private let mappingStore = MappingStore()
     private let hidMonitor = HIDMonitor()
+    private let buttonGestureRecognizer = ButtonGestureRecognizer()
     private let voiceFocusTransactions = VoiceFocusTransactionTracker()
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
@@ -897,12 +898,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         ble.start()
 
+        // Route recognized advanced gestures to the same binding injector as
+        // ordinary button actions. Without this callback the recognizer can
+        // classify a long press correctly but the selected action is dropped.
+        buttonGestureRecognizer.onEvent = { [weak self] event in
+            self?.handleGestureEvent(event)
+        }
+
         // HID Monitor：读取遥控器所有按钮的原始 HID 报告
         // HID 设备连接/断开时切换语音键处理路径
         hidMonitor.onDeviceChange = { [weak self] active in
             self?.filter.skipVoiceKey = active
             if !active {
                 self?.mappingStore.clearPressedBindings()
+                self?.buttonGestureRecognizer.cancelAll()
             }
             if active {
                 print("[HID] monitor active → VoiceKeyFilter 跳过语音键")
@@ -916,13 +925,67 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     + (isDown ? "down" : "up")
             )
         }
-        hidMonitor.onButtonEdge = { [weak self] button, isDown in
+        hidMonitor.onButtonEdgeAt = { [weak self] button, isDown, timestamp in
             guard let self else { return }
-            let targetApplicationBundleIdentifier = self.mappingStore
-                .activePressApplicationBundleIdentifier(for: button)
-            let binding = isDown
-                ? self.mappingStore.beginPress(for: button)
-                : self.mappingStore.endPress(for: button)
+            let binding: ButtonBinding
+            let targetApplicationBundleIdentifier: String?
+            if isDown {
+                binding = self.mappingStore.beginPress(for: button)
+                targetApplicationBundleIdentifier = self.mappingStore
+                    .activePressApplicationBundleIdentifier(for: button)
+                let profile = self.mappingStore.activePressGestureProfile(for: button)
+                if button != .microphone, profile.isEnabled {
+                    print(
+                        "[GESTURE-ROUTE] " + button.displayName + " down "
+                            + "advanced=\(profile.usesAdvancedGestures) "
+                            + "long=\(profile.longPressBehavior.rawValue) "
+                            + "double=\(profile.doubleTap?.displayName ?? "none") "
+                            + "longAction=\(profile.longPress?.displayName ?? "none")"
+                    )
+                }
+                if button != .microphone, profile.usesAdvancedGestures {
+                    self.buttonGestureRecognizer.handleDown(
+                        button: button,
+                        context: ButtonGestureContext(
+                            baseBinding: binding,
+                            profile: profile,
+                            targetApplicationBundleIdentifier: targetApplicationBundleIdentifier
+                        ),
+                        at: timestamp
+                    )
+                    return
+                }
+            } else {
+                targetApplicationBundleIdentifier = self.mappingStore
+                    .activePressApplicationBundleIdentifier(for: button)
+                let profile = self.mappingStore.activePressGestureProfile(for: button)
+                if button != .microphone, profile.isEnabled {
+                    print(
+                        "[GESTURE-ROUTE] " + button.displayName + " up "
+                            + "advanced=\(profile.usesAdvancedGestures) "
+                            + "long=\(profile.longPressBehavior.rawValue)"
+                    )
+                }
+                if button != .microphone, profile.usesAdvancedGestures {
+                    if profile.longPressBehavior == .repeatWhileHeld,
+                       let longPressBinding = profile.longPress,
+                       self.shouldCancelFloatTabsScroll(
+                           binding: longPressBinding,
+                           button: button,
+                           targetApplicationBundleIdentifier: targetApplicationBundleIdentifier
+                       ) {
+                        let sent = FloatTabsCommandClient.send(.cancelScroll)
+                        print(
+                            "[GESTURE] \(button.displayName) scroll cancel → "
+                                + "\(longPressBinding.displayName); sent=\(sent)"
+                        )
+                    }
+                    self.buttonGestureRecognizer.handleUp(button: button, at: timestamp)
+                    _ = self.mappingStore.endPress(for: button)
+                    return
+                }
+                binding = self.mappingStore.endPress(for: button)
+            }
 
             // 语音键：仅在绑定为 voiceKeyDefault 时走 VoicePressCoordinator
             if button == .microphone {
@@ -979,8 +1042,25 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 print("[KEY] \(button.displayName) up → \(binding.displayName); sent=\(sent)")
             }
         }
+        hidMonitor.shouldUseAdvancedGestures = { [weak self] button in
+            guard let self, button != .microphone else { return false }
+            let profile = self.mappingStore.gestureProfile(
+                for: button,
+                appBundleIdentifier: MappingStore.preferredApplicationBundleIdentifier()
+            )
+            return profile.usesAdvancedGestures
+        }
         hidMonitor.shouldRepeatButton = { [weak self] button in
             guard let self else { return RemoteButton.repeatable.contains(button) }
+            if button != .microphone {
+                let profile = self.mappingStore.gestureProfile(
+                    for: button,
+                    appBundleIdentifier: MappingStore.preferredApplicationBundleIdentifier()
+                )
+                if profile.usesAdvancedGestures {
+                    return false
+                }
+            }
             let binding = self.mappingStore.activePressBinding(for: button)
             switch binding {
             case let .shortcut(_, trigger):
@@ -993,6 +1073,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         hidMonitor.onButtonRepeat = { [weak self] button in
             guard let self else { return }
+            guard !self.mappingStore.activePressGestureProfile(for: button)
+                .usesAdvancedGestures else { return }
             let binding = self.mappingStore.activePressBinding(for: button)
             guard !binding.isDisabled else { return }
 
@@ -1027,6 +1109,39 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             setStatusIcon(systemName: "exclamationmark.triangle", color: .systemOrange)
             print("[ERR] filter: \(msg)")
         }
+    }
+
+    private func handleGestureEvent(_ event: ButtonGestureEvent) {
+        let binding: ButtonBinding?
+        switch event.kind {
+        case .singleTap:
+            binding = event.context.baseBinding
+        case .doubleTap:
+            binding = event.context.profile.doubleTap
+        case .longPress, .repeatStep:
+            binding = event.context.profile.longPress
+        }
+
+        guard let binding, binding.isUsableGestureAction else {
+            print(
+                "[GESTURE] \(event.button.displayName) \(event.kind.displayName) "
+                    + "duration=\(String(format: "%.3f", event.duration))s "
+                    + "clicks=\(event.clickCount) → disabled"
+            )
+            return
+        }
+
+        let sent = KeyInjector.send(
+            binding,
+            targetApplicationBundleIdentifier: event.context
+                .targetApplicationBundleIdentifier,
+            scrollLinesPerStep: mappingStore.scrollLinesPerStep
+        )
+        print(
+            "[GESTURE] \(event.button.displayName) \(event.kind.displayName) "
+                + "duration=\(String(format: "%.3f", event.duration))s "
+                + "clicks=\(event.clickCount) → \(binding.displayName); sent=\(sent)"
+        )
     }
 
     private func shouldCancelFloatTabsScroll(
