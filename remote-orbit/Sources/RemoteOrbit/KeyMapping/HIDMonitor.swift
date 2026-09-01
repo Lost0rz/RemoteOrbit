@@ -241,6 +241,7 @@ final class HIDMonitor {
         activeDevice = device
         activeDeviceIsSeized = seized
         eventSuppressor.setRemotePowerSuppressionEnabled(!seized)
+        eventSuppressor.setRemoteMediaSuppressionEnabled(!seized)
         if seized {
             updateStatus("遥控器已连接（独占模式）")
             print("[HID] connected: seized")
@@ -257,6 +258,7 @@ final class HIDMonitor {
         self.activeDevice = nil
         activeDeviceIsSeized = false
         eventSuppressor.setRemotePowerSuppressionEnabled(false)
+        eventSuppressor.setRemoteMediaSuppressionEnabled(false)
         activeUsages.removeAll()
         repeatTimers.values.forEach { $0.cancel() }
         repeatTimers.removeAll()

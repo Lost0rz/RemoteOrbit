@@ -47,4 +47,15 @@ final class MappingStoreRoutingTests: XCTestCase {
 
         XCTAssertEqual(resolved, "com.mitchellh.ghostty")
     }
+
+    func testFloatTabsFrontmostWinsOverWebKitChildFocus() {
+        let resolved = MappingStore.resolvedApplicationBundleIdentifier(
+            focused: "com.apple.WebKit.WebContent",
+            frontmost: MappingStore.floatTabsBundleIdentifier,
+            cachedExternal: "com.openai.codex",
+            ownBundleIdentifier: ownBundleIdentifier
+        )
+
+        XCTAssertEqual(resolved, MappingStore.floatTabsBundleIdentifier)
+    }
 }

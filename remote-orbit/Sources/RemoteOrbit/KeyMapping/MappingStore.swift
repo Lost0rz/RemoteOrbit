@@ -51,6 +51,7 @@ final class MappingStore: ObservableObject {
     private static let storageKey = "RemoteOrbit.mappingConfiguration.v3"
     private static let legacyStorageKey = "RemoteOrbit.buttonBindings.v2"
     static let chatGPTBundleIdentifier = "com.openai.codex"
+    static let floatTabsBundleIdentifier = "com.lost0rz.FloatTabs"
     static let defaultScrollLinesPerStep = 6
     static let scrollLinesPerStepRange = 1...40
     private static let routingLock = NSLock()
@@ -211,6 +212,15 @@ final class MappingStore: ObservableObject {
         cachedExternal: String?,
         ownBundleIdentifier: String?
     ) -> String? {
+        // FloatTabs is an accessory/floating app. Its WebKit focused element
+        // can report a child WebContent process even while FloatTabs owns the
+        // visible panel. Prefer the actual frontmost FloatTabs application so
+        // semantic tab actions do not fall through to the global system-volume
+        // mapping.
+        if frontmost == floatTabsBundleIdentifier,
+           frontmost != ownBundleIdentifier {
+            return frontmost
+        }
         if let focused,
            focused != ownBundleIdentifier {
             return focused
