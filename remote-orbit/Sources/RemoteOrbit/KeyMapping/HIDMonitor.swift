@@ -90,6 +90,10 @@ final class HIDMonitor {
     let eventSuppressor = EventSuppressor()
 
     private var manager: IOHIDManager?
+    /// Whether the manager opened current/future matching devices with the
+    /// seize option. IOHIDManagerOpen owns the device in this mode, so the
+    /// matching callback must not open the same device a second time.
+    private var managerSeizesDevices = false
     private var activeDevice: IOHIDDevice?
     private var activeDeviceIsSeized = false
     private var activeUsages = Set<UInt16>()
@@ -167,7 +171,31 @@ final class HIDMonitor {
             CFRunLoopMode.commonModes.rawValue
         )
 
-        let result = IOHIDManagerOpen(m, IOOptionBits(kIOHIDOptionsTypeNone))
+        // Seize at the manager level, before macOS can route the matching HID
+        // interface to the system. Opening the manager in monitor mode first
+        // and trying IOHIDDeviceOpen(...SeizeDevice) later is too late for
+        // system-level buttons such as Power: macOS may already have claimed
+        // the native event by the time the matching callback runs.
+        var result = IOHIDManagerOpen(
+            m,
+            IOOptionBits(kIOHIDOptionsTypeSeizeDevice)
+        )
+        if result == kIOReturnSuccess {
+            managerSeizesDevices = true
+            print("[HID] manager open: exclusive")
+        } else {
+            // Keep a diagnostic fallback for machines that reject exclusive
+            // HID access. The fallback is intentionally visible in logs so a
+            // user can distinguish a real exclusive session from best-effort
+            // CGEvent suppression.
+            print("[HID] manager exclusive open failed: \(result)")
+            _ = IOHIDManagerClose(m, IOOptionBits(kIOHIDOptionsTypeNone))
+            managerSeizesDevices = false
+            result = IOHIDManagerOpen(m, IOOptionBits(kIOHIDOptionsTypeNone))
+            if result == kIOReturnSuccess {
+                print("[HID] manager open: monitored fallback")
+            }
+        }
         guard result == kIOReturnSuccess else {
             IOHIDManagerUnscheduleFromRunLoop(
                 m,
@@ -175,6 +203,7 @@ final class HIDMonitor {
                 CFRunLoopMode.commonModes.rawValue
             )
             eventSuppressor.stop()
+            managerSeizesDevices = false
             updateStatus("无法打开 HID Manager（错误 \(result)）")
             return
         }
@@ -191,6 +220,7 @@ final class HIDMonitor {
         debouncedUsages.removeAll()
         edgeDebouncer.reset()
         eventSuppressor.stop()
+        managerSeizesDevices = false
         if let activeDevice {
             IOHIDDeviceClose(activeDevice, IOOptionBits(kIOHIDOptionsTypeNone))
             self.activeDevice = nil
@@ -217,18 +247,22 @@ final class HIDMonitor {
         var seized = false
 
         if result == kIOReturnSuccess {
-            // 优先尝试独占模式（seize）：阻止 macOS 接收遥控器事件
-            let seizeResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
-            if seizeResult == kIOReturnSuccess {
+            if managerSeizesDevices {
+                // IOHIDManagerOpen(...SeizeDevice) has already opened this
+                // matching device exclusively. Do not call IOHIDDeviceOpen a
+                // second time, which can turn a successful manager seize into
+                // a misleading per-device fallback.
                 openSucceeded = true
                 seized = true
             } else {
-                // 降级为 monitor 模式
+                // Manager was opened in monitor mode after exclusive access
+                // was rejected. Keep the existing per-device open as a
+                // compatibility fallback for report delivery.
                 let monitorResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
                 if monitorResult == kIOReturnSuccess {
                     openSucceeded = true
                 } else {
-                    print("[HID] device open failed: seize=\(seizeResult) monitor=\(monitorResult)")
+                    print("[HID] device open failed: monitor=\(monitorResult)")
                 }
             }
         }
