@@ -1346,6 +1346,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hidMonitor.stop()
         mappingStore.clearPressedBindings()
         KeyInjector.releaseAll()
+        ble.stop()
         AudioPipe.shared.stop()
         RemoteVoiceKeyMapping.setEnabled(false)
     }

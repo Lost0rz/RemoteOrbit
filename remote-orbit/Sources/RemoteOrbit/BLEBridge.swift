@@ -40,7 +40,24 @@ final class BLEBridge: NSObject {
     private var audioChar: CBCharacteristic?
     private var commandChar: CBCharacteristic?
     private var controlChar: CBCharacteristic?
-    private var atvvCharsComplete = false
+    private var discoveredATVVCharacteristics = Set<CBUUID>()
+    private var capabilitiesRequested = false
+    private var atvvReady = false
+
+    // HID and ATVV are separate CoreBluetooth transports. Keep a reconnect
+    // state machine for the voice transport so an HID reconnect does not
+    // leave the remote microphone permanently offline.
+    private var isStarted = false
+    private var isScanning = false
+    private var reconnectAttempt = 0
+    private var reconnectWorkItem: DispatchWorkItem?
+    private var scanTimeoutWorkItem: DispatchWorkItem?
+    private var connectTimeoutWorkItem: DispatchWorkItem?
+    private var handshakeTimeoutWorkItem: DispatchWorkItem?
+    private let reconnectDelays: [TimeInterval] = [1, 2, 4, 8, 15, 30]
+    private let scanTimeout: TimeInterval = 8
+    private let connectTimeout: TimeInterval = 12
+    private let handshakeTimeout: TimeInterval = 4
 
     private let protocolHandler = ATVVProtocol()
     private var streamID: UInt8 = 0
@@ -69,11 +86,33 @@ final class BLEBridge: NSObject {
     }
 
     func start() {
+        guard !isStarted else { return }
+        isStarted = true
+        reconnectAttempt = 0
         if central.state == .poweredOn {
             tryDirectConnect()
         } else {
             print("[BLE] 等待蓝牙就绪…")
         }
+    }
+
+    func stop() {
+        isStarted = false
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
+        scanTimeoutWorkItem?.cancel()
+        scanTimeoutWorkItem = nil
+        connectTimeoutWorkItem?.cancel()
+        connectTimeoutWorkItem = nil
+        handshakeTimeoutWorkItem?.cancel()
+        handshakeTimeoutWorkItem = nil
+        central.stopScan()
+        isScanning = false
+        if let peripheral {
+            central.cancelPeripheralConnection(peripheral)
+        }
+        clearTransportState(notify: true)
+        peripheral = nil
     }
 
     func setRecordingEnabled(_ enabled: Bool) {
@@ -98,6 +137,16 @@ final class BLEBridge: NSObject {
     /// the peripheral directly. This works even when the device is HID-paired
     /// (advertisement scan returns nothing in that case).
     private func tryDirectConnect() {
+        guard isStarted, central.state == .poweredOn else { return }
+        if let peripheral {
+            if peripheral.state == .connected {
+                discoverATVVServices(on: peripheral)
+                return
+            }
+            if peripheral.state == .connecting {
+                return
+            }
+        }
         guard let uuidString = try? String(contentsOfFile: Self.savedUUIDPath, encoding: .utf8),
               let uuid = UUID(uuidString: uuidString.trimmingCharacters(in: .whitespacesAndNewlines))
         else {
@@ -129,10 +178,26 @@ final class BLEBridge: NSObject {
     }
 
     private func beginScan() {
+        guard isStarted, central.state == .poweredOn, !isScanning else { return }
+        isScanning = true
         print("[BLE] 扫描中（按名字 \(nameHint ?? "?") + ATVV service 过滤）")
         central.scanForPeripherals(
             withServices: nil,
             options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+        )
+
+        scanTimeoutWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.isScanning else { return }
+            self.central.stopScan()
+            self.isScanning = false
+            print("[BLE] 扫描超时，进入退避重连")
+            self.scheduleReconnect(reason: "scan-timeout")
+        }
+        scanTimeoutWorkItem = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + scanTimeout,
+            execute: work
         )
     }
 
@@ -148,12 +213,130 @@ final class BLEBridge: NSObject {
     }
 
     fileprivate func connect(to p: CBPeripheral) {
+        guard isStarted else { return }
+        if let current = peripheral,
+           current.identifier == p.identifier,
+           current.state == .connecting || current.state == .connected {
+            return
+        }
         peripheral = p
         p.delegate = self
         central.stopScan()
+        isScanning = false
+        scanTimeoutWorkItem?.cancel()
+        scanTimeoutWorkItem = nil
+        connectTimeoutWorkItem?.cancel()
+        connectTimeoutWorkItem = nil
+        clearTransportState(notify: false)
+
+        // CoreBluetooth may return a live peripheral from
+        // retrieveConnectedPeripherals(). Calling connect() again is not a
+        // reliable way to restart ATVV discovery, so use the existing link.
+        if p.state == .connected {
+            discoverATVVServices(on: p)
+            return
+        }
+
         central.connect(p, options: nil)
         saveUUID(p.identifier)
         print("[BLE] 连接 \(p.name ?? "(no name)") (\(p.identifier))…")
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.peripheral?.identifier == p.identifier,
+                  !self.atvvReady
+            else { return }
+            print("[BLE] 连接请求超时，进入退避重连")
+            self.connectionSetupFailed("connect-timeout")
+        }
+        connectTimeoutWorkItem = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + connectTimeout,
+            execute: work
+        )
+    }
+
+    private func discoverATVVServices(on peripheral: CBPeripheral) {
+        peripheral.delegate = self
+        print("[BLE] 重新发现 ATVV 服务")
+        peripheral.discoverServices([Self.serviceUUID])
+    }
+
+    private func scheduleReconnect(reason: String, immediate: Bool = false) {
+        guard isStarted, central.state == .poweredOn else { return }
+        guard reconnectWorkItem == nil else { return }
+
+        let index = min(reconnectAttempt, reconnectDelays.count - 1)
+        let delay = immediate ? 0 : reconnectDelays[index]
+        if !immediate {
+            reconnectAttempt = min(reconnectAttempt + 1, reconnectDelays.count - 1)
+        }
+        print(
+            "[BLE] \(reason)，\(String(format: "%.1f", delay)) 秒后重连 "
+                + "(attempt=\(reconnectAttempt))"
+        )
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.reconnectWorkItem = nil
+            self.tryDirectConnect()
+        }
+        reconnectWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func markATVVReady() {
+        handshakeTimeoutWorkItem?.cancel()
+        handshakeTimeoutWorkItem = nil
+        guard !atvvReady else { return }
+        atvvReady = true
+        reconnectAttempt = 0
+        print("[BLE] ATVV 语音链路已就绪")
+        onConnectionChanged?(true)
+    }
+
+    private func clearTransportState(notify: Bool) {
+        connectTimeoutWorkItem?.cancel()
+        connectTimeoutWorkItem = nil
+        handshakeTimeoutWorkItem?.cancel()
+        handshakeTimeoutWorkItem = nil
+        keepAliveTimer?.invalidate()
+        keepAliveTimer = nil
+        if let recorder = wavRecorder {
+            recorder.close()
+            wavRecorder = nil
+        }
+        let wasStreaming = isStreaming
+        isStreaming = false
+        protocolHandler.endAudioStream()
+        audioChar = nil
+        commandChar = nil
+        controlChar = nil
+        discoveredATVVCharacteristics.removeAll()
+        capabilitiesRequested = false
+        let wasReady = atvvReady
+        atvvReady = false
+        if wasStreaming || notify {
+            notifyStreaming(false)
+        }
+        if wasReady {
+            onConnectionChanged?(false)
+        }
+    }
+
+    private func connectionSetupFailed(_ reason: String) {
+        print("[BLE] ATVV 建链失败: \(reason)")
+        let oldPeripheral = peripheral
+        clearTransportState(notify: true)
+        peripheral = nil
+        if let oldPeripheral {
+            central.cancelPeripheralConnection(oldPeripheral)
+        }
+        scheduleReconnect(reason: reason)
+    }
+
+    private func isCurrentPeripheral(_ candidate: CBPeripheral) -> Bool {
+        isStarted && peripheral?.identifier == candidate.identifier
     }
 
     private func writeCommand(_ data: Data) {
@@ -206,9 +389,15 @@ extension BLEBridge: CBCentralManagerDelegate {
         switch central.state {
         case .poweredOn:
             print("[BLE] 蓝牙已就绪")
-            tryDirectConnect()
+            scheduleReconnect(reason: "bluetooth-ready", immediate: true)
         case .poweredOff:
             print("[BLE] 蓝牙未开启")
+            reconnectWorkItem?.cancel()
+            reconnectWorkItem = nil
+            central.stopScan()
+            isScanning = false
+            clearTransportState(notify: true)
+            onConnectionChanged?(false)
         default:
             break
         }
@@ -230,28 +419,38 @@ extension BLEBridge: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard isCurrentPeripheral(peripheral) else {
+            central.cancelPeripheralConnection(peripheral)
+            return
+        }
         print("[BLE] 已连接")
-        onConnectionChanged?(true)
-        peripheral.discoverServices([Self.serviceUUID])
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
+        connectTimeoutWorkItem?.cancel()
+        connectTimeoutWorkItem = nil
+        discoverATVVServices(on: peripheral)
     }
 
     func centralManager(_ central: CBCentralManager,
                         didFailToConnect peripheral: CBPeripheral,
                         error: Error?) {
         print("[BLE] 连接失败: \(error?.localizedDescription ?? "unknown")")
-        onConnectionChanged?(false)
+        guard self.peripheral?.identifier == peripheral.identifier else { return }
+        clearTransportState(notify: true)
+        self.peripheral = nil
+        // A failed connect does not call didDisconnectPeripheral, so without
+        // this path an encryption timeout permanently stops voice reconnects.
+        scheduleReconnect(reason: "connect-failed")
     }
 
     func centralManager(_ central: CBCentralManager,
                         didDisconnectPeripheral peripheral: CBPeripheral,
                         error: Error?) {
         print("[BLE] 断开: \(error?.localizedDescription ?? "ok")")
-        onConnectionChanged?(false)
-        notifyStreaming(false)
-        isStreaming = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-            self?.beginScan()
-        }
+        guard self.peripheral?.identifier == peripheral.identifier else { return }
+        clearTransportState(notify: true)
+        self.peripheral = nil
+        scheduleReconnect(reason: "disconnected")
     }
 }
 
@@ -259,8 +458,14 @@ extension BLEBridge: CBCentralManagerDelegate {
 
 extension BLEBridge: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        guard isCurrentPeripheral(peripheral) else { return }
         guard error == nil, let services = peripheral.services else {
             print("[BLE] 服务发现失败: \(error?.localizedDescription ?? "?")")
+            connectionSetupFailed("service-discovery-failed")
+            return
+        }
+        guard services.contains(where: { $0.uuid == Self.serviceUUID }) else {
+            connectionSetupFailed("ATVV-service-missing")
             return
         }
         print("[BLE] 发现 \(services.count) 个 service")
@@ -276,17 +481,26 @@ extension BLEBridge: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral,
                     didDiscoverCharacteristicsFor service: CBService,
                     error: Error?) {
-        guard error == nil, let chars = service.characteristics else { return }
+        guard isCurrentPeripheral(peripheral) else { return }
+        guard error == nil, let chars = service.characteristics else {
+            connectionSetupFailed("characteristic-discovery-failed")
+            return
+        }
         for c in chars {
             let props = describeProperties(c.properties)
             let isATVV = service.uuid == Self.serviceUUID
             print("[BLE]   char \(c.uuid.uuidString.prefix(8)) [\(props)]")
+            if isATVV,
+               c.uuid == Self.audioUUID
+                || c.uuid == Self.commandUUID
+                || c.uuid == Self.controlUUID {
+                discoveredATVVCharacteristics.insert(c.uuid)
+            }
             switch c.uuid {
             case Self.audioUUID:
                 audioChar = c
                 peripheral.setNotifyValue(true, for: c)
                 print("[BLE]   → audio subscribed; isNotifying=\(c.isNotifying)")
-                if isATVV { atvvCharsComplete = true }
             case Self.commandUUID:
                 commandChar = c
                 print("[BLE]   → command stored")
@@ -294,7 +508,6 @@ extension BLEBridge: CBPeripheralDelegate {
                 controlChar = c
                 peripheral.setNotifyValue(true, for: c)
                 print("[BLE]   → control subscribed; isNotifying=\(c.isNotifying)")
-                if isATVV { atvvCharsComplete = true }
             default:
                 // Auto-subscribe to any notify-capable characteristic on this
                 // service — we may find button events on HOGP here.
@@ -304,11 +517,39 @@ extension BLEBridge: CBPeripheralDelegate {
                 }
             }
         }
-        if atvvCharsComplete {
+        let required = Set([Self.audioUUID, Self.commandUUID, Self.controlUUID])
+        if required.isSubset(of: discoveredATVVCharacteristics),
+           !capabilitiesRequested {
             // All three ATVV chars found: kick off capabilities handshake.
             writeCommand(protocolHandler.getCapabilitiesCommand)
             print("[BLE] TX getCapabilities")
-            atvvCharsComplete = false
+            capabilitiesRequested = true
+            handshakeTimeoutWorkItem?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, !self.atvvReady else { return }
+                self.connectionSetupFailed("capabilities-timeout")
+            }
+            handshakeTimeoutWorkItem = work
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + handshakeTimeout,
+                execute: work
+            )
+        }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral,
+                    didUpdateNotificationStateFor characteristic: CBCharacteristic,
+                    error: Error?) {
+        guard isCurrentPeripheral(peripheral) else { return }
+        guard characteristic.uuid == Self.audioUUID
+                || characteristic.uuid == Self.controlUUID
+        else { return }
+        if let error {
+            print("[BLE] 音频特征订阅失败: \(error.localizedDescription)")
+            connectionSetupFailed("notification-subscription-failed")
+        } else if !characteristic.isNotifying {
+            print("[BLE] 音频特征未进入通知状态")
+            connectionSetupFailed("notification-disabled")
         }
     }
 
@@ -325,8 +566,12 @@ extension BLEBridge: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral,
                     didUpdateValueFor characteristic: CBCharacteristic,
                     error: Error?) {
+        guard isCurrentPeripheral(peripheral) else { return }
         if let error {
             print("[BLE] char update error: \(error.localizedDescription)")
+            if characteristic.uuid == Self.audioUUID || characteristic.uuid == Self.controlUUID {
+                connectionSetupFailed("characteristic-update-failed")
+            }
             return
         }
         guard let data = characteristic.value else { return }
@@ -370,6 +615,7 @@ extension BLEBridge: CBPeripheralDelegate {
             do {
                 try protocolHandler.acceptCapabilities(caps)
                 print("[BLE] caps ok v\(caps.version) codec=\(protocolHandler.codec!)")
+                markATVVReady()
             } catch {
                 print("[BLE] caps error: \(error.localizedDescription)")
             }
@@ -451,6 +697,7 @@ extension BLEBridge: CBPeripheralDelegate {
                     do {
                         try protocolHandler.acceptCapabilities(caps)
                         print("[BLE] caps (fallback) v\(caps.version) codec=\(protocolHandler.codec!)")
+                        markATVVReady()
                     } catch {
                         print("[BLE] caps fallback error: \(error.localizedDescription)")
                     }
