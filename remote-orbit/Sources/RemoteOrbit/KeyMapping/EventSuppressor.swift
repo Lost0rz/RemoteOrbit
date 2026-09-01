@@ -33,8 +33,19 @@ final class EventSuppressor {
         let expiresAt: TimeInterval
     }
 
+    private static let pendingEventLifetime: TimeInterval = 0.18
+
     private let lock = NSLock()
     private var pendingEvents: [PendingEvent] = []
+    /// Native events belonging to a button that is currently down. In
+    /// compatibility/monitor mode macOS may generate autorepeat keyDown
+    /// events long after the first edge. A one-shot pending event cannot
+    /// suppress that stream, so the HID-held state remains authoritative
+    /// until the matching HID release arrives.
+    private var heldNativeEvents: Set<RemoteNativeEvent> = []
+    /// Short release fence for a keyboard autorepeat already in flight when
+    /// the HID release arrives.
+    private var recentlyReleasedNativeEvents: [RemoteNativeEvent: TimeInterval] = [:]
     private var remotePowerSuppressionEnabled = false
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -80,6 +91,8 @@ final class EventSuppressor {
     func stop() {
         lock.lock()
         pendingEvents.removeAll()
+        heldNativeEvents.removeAll()
+        recentlyReleasedNativeEvents.removeAll()
         remotePowerSuppressionEnabled = false
         lock.unlock()
         if let runLoopSource {
@@ -111,19 +124,49 @@ final class EventSuppressor {
             && event == .systemKey(type: powerSystemKeyType)
     }
 
-    /// 预设要压制的原生事件。HIDMonitor 在检测到按钮边沿时调用。
+    /// 更新 HID 的权威按下状态，并预置当前边沿。
+    /// held 状态会持续压制按住期间 macOS 产生的重复 keyDown；pending
+    /// 边沿则覆盖原生事件早于 HID 回调到达的竞态。
+    func updateHeld(button: RemoteButton, isDown: Bool) {
+        guard let nativeEvent = button.nativeEvent else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        lock.lock()
+        removeExpiredEvents(now: now)
+        if isDown {
+            heldNativeEvents.insert(nativeEvent)
+            recentlyReleasedNativeEvents.removeValue(forKey: nativeEvent)
+            appendPendingEventLocked(
+                event: nativeEvent,
+                edge: .down,
+                expiresAt: now + Self.pendingEventLifetime
+            )
+        } else {
+            heldNativeEvents.remove(nativeEvent)
+            recentlyReleasedNativeEvents[nativeEvent] =
+                now + Self.pendingEventLifetime
+            appendPendingEventLocked(
+                event: nativeEvent,
+                edge: .up,
+                expiresAt: now + Self.pendingEventLifetime
+            )
+        }
+        lock.unlock()
+    }
+
+    /// 预设要压制的原生事件。HIDMonitor 在重复触发时调用。
+    /// 已处于 held 状态的按下事件由 heldNativeEvents 持续压制，避免
+    /// 每 100ms 额外堆积一个 pending 项。
     func arm(button: RemoteButton, edge: RemoteEventEdge) {
         guard let nativeEvent = button.nativeEvent else { return }
         let now = ProcessInfo.processInfo.systemUptime
         lock.lock()
-        pendingEvents.removeAll { $0.expiresAt <= now }
-        pendingEvents.append(PendingEvent(
-            event: nativeEvent,
-            edge: edge,
-            expiresAt: now + 0.18
-        ))
-        if pendingEvents.count > 32 {
-            pendingEvents.removeFirst(pendingEvents.count - 32)
+        removeExpiredEvents(now: now)
+        if !(edge == .down && heldNativeEvents.contains(nativeEvent)) {
+            appendPendingEventLocked(
+                event: nativeEvent,
+                edge: edge,
+                expiresAt: now + Self.pendingEventLifetime
+            )
         }
         lock.unlock()
     }
@@ -154,7 +197,33 @@ final class EventSuppressor {
 
         let now = ProcessInfo.processInfo.systemUptime
         lock.lock()
-        pendingEvents.removeAll { $0.expiresAt <= now }
+        removeExpiredEvents(now: now)
+
+        // Once the HID edge says the remote button is down, every matching
+        // native keyDown is part of that remote gesture. This blocks macOS's
+        // own autorepeat in compatibility mode while keeping RemoteOrbit's
+        // explicit repeat policy in control.
+        if descriptor.edge == .down,
+           heldNativeEvents.contains(descriptor.event) {
+            if let pendingIndex = pendingEvents.firstIndex(where: {
+                $0.event == descriptor.event && $0.edge == .down
+            }) {
+                pendingEvents.remove(at: pendingIndex)
+            }
+            lock.unlock()
+            return true
+        }
+
+        // A keyboard repeat can arrive just after the HID release but before
+        // the native keyUp. Consume only events marked as autorepeat so an
+        // unrelated physical key press is not swallowed by this short fence.
+        if descriptor.edge == .down,
+           descriptor.isKeyboardAutorepeat,
+           recentlyReleasedNativeEvents[descriptor.event] != nil {
+            lock.unlock()
+            return true
+        }
+
         guard let matchIndex = pendingEvents.firstIndex(where: {
             $0.event == descriptor.event && $0.edge == descriptor.edge
         }) else {
@@ -169,7 +238,11 @@ final class EventSuppressor {
     private func descriptor(
         type: CGEventType,
         event: CGEvent
-    ) -> (event: RemoteNativeEvent, edge: RemoteEventEdge)? {
+    ) -> (
+        event: RemoteNativeEvent,
+        edge: RemoteEventEdge,
+        isKeyboardAutorepeat: Bool
+    )? {
         // 系统事件（音量、电源等）
         if type.rawValue == Self.systemDefinedEventTypeRawValue {
             guard let nsEvent = NSEvent(cgEvent: event) else { return nil }
@@ -181,16 +254,48 @@ final class EventSuppressor {
             case 0xB: edge = .up
             default: return nil
             }
-            return (.systemKey(type: systemKeyType), edge)
+            return (
+                event: .systemKey(type: systemKeyType),
+                edge: edge,
+                isKeyboardAutorepeat: false
+            )
         }
 
         // 键盘事件
         switch type {
         case .keyDown, .keyUp:
             let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-            return (.keyboard(keyCode: keyCode), type == .keyDown ? .down : .up)
+            return (
+                event: .keyboard(keyCode: keyCode),
+                edge: type == .keyDown ? .down : .up,
+                isKeyboardAutorepeat: event.getIntegerValueField(
+                    .keyboardEventAutorepeat
+                ) != 0
+            )
         default:
             return nil
+        }
+    }
+
+    private func removeExpiredEvents(now: TimeInterval) {
+        pendingEvents.removeAll { $0.expiresAt <= now }
+        recentlyReleasedNativeEvents = recentlyReleasedNativeEvents.filter {
+            $0.value > now
+        }
+    }
+
+    private func appendPendingEventLocked(
+        event: RemoteNativeEvent,
+        edge: RemoteEventEdge,
+        expiresAt: TimeInterval
+    ) {
+        pendingEvents.append(PendingEvent(
+            event: event,
+            edge: edge,
+            expiresAt: expiresAt
+        ))
+        if pendingEvents.count > 32 {
+            pendingEvents.removeFirst(pendingEvents.count - 32)
         }
     }
 }

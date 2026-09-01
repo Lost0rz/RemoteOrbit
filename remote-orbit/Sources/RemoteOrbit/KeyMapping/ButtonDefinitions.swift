@@ -115,7 +115,7 @@ enum RemoteButton: String, CaseIterable, Codable, Identifiable {
 // MARK: - 原生事件类型
 
 /// macOS 为遥控器按钮生成的原生事件类型。
-enum RemoteNativeEvent: Equatable {
+enum RemoteNativeEvent: Equatable, Hashable {
     case keyboard(keyCode: UInt16)
     case systemKey(type: Int32)
 }

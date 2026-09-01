@@ -983,16 +983,37 @@ enum KeyInjector {
         location: CGPoint? = nil,
         targetBundleIdentifier: String? = nil
     ) -> Bool {
-        guard let source = CGEventSource(stateID: .hidSystemState),
-              let event = CGEvent(
-                  scrollWheelEvent2Source: source,
-                  units: .line,
-                  wheelCount: 1,
-                  wheel1: lines,
-                  wheel2: 0,
-                  wheel3: 0
-              )
-        else { return false }
+        let isCodex = targetBundleIdentifier == CodexCommandAdapter.bundleIdentifier
+
+        // Codex is a Chromium surface. Its renderer can ignore a scroll event
+        // that still carries the HID source used for ordinary system input.
+        // FloatTabs already uses this source-free construction successfully;
+        // use the same event shape for Codex, while keeping the HID-source
+        // path for ordinary native applications unchanged.
+        let event: CGEvent?
+        if isCodex {
+            event = CGEvent(
+                scrollWheelEvent2Source: nil,
+                units: .line,
+                wheelCount: 1,
+                wheel1: lines,
+                wheel2: 0,
+                wheel3: 0
+            )
+        } else {
+            guard let source = CGEventSource(stateID: .hidSystemState) else {
+                return false
+            }
+            event = CGEvent(
+                scrollWheelEvent2Source: source,
+                units: .line,
+                wheelCount: 1,
+                wheel1: lines,
+                wheel2: 0,
+                wheel3: 0
+            )
+        }
+        guard let event else { return false }
 
         // CGEvent.location uses Quartz's top-left global coordinate system,
         // while NSEvent.mouseLocation is AppKit's bottom-left coordinate
@@ -1003,8 +1024,18 @@ enum KeyInjector {
         let resolvedLocation = location ?? quartzMouseLocation()
         event.location = resolvedLocation
         event.setIntegerValueField(.eventSourceUserData, value: syntheticMarker)
-        event.post(tap: .cghidEventTap)
-        let mode = location == nil ? "pointer" : "codex-content"
+        // Chromium/Codex receives application-session events more reliably
+        // than events re-entered at the HID tap. The target app is activated
+        // by prepareTargetApplication before this method is reached.
+        event.post(tap: isCodex ? .cgSessionEventTap : .cghidEventTap)
+        let mode: String
+        if isCodex {
+            mode = "codex-session"
+        } else if location == nil {
+            mode = "pointer"
+        } else {
+            mode = "native-content"
+        }
         print(
             "[SCROLL] target=\(targetBundleIdentifier ?? "frontmost") "
                 + "mode=\(mode) lines=\(lines) "

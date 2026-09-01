@@ -68,6 +68,9 @@ final class HIDMonitor {
     /// 按钮边沿回调：(button, isDown)。
     var onButtonEdge: ((RemoteButton, Bool) -> Void)?
 
+    /// 被输入层防抖丢弃的边沿，仅用于诊断。
+    var onButtonEdgeSuppressed: ((RemoteButton, Bool) -> Void)?
+
     /// 可重复按钮的后续重复回调。与真实按下边沿分开，便于上层根据映射
     /// 决定是保留一次点击，还是在按住时持续触发。
     var onButtonRepeat: ((RemoteButton) -> Void)?
@@ -91,6 +94,8 @@ final class HIDMonitor {
     private var activeDeviceIsSeized = false
     private var activeUsages = Set<UInt16>()
     private var repeatTimers: [UInt16: DispatchSourceTimer] = [:]
+    private var debouncedUsages = Set<UInt16>()
+    private var edgeDebouncer = ButtonEdgeDebouncer()
     private(set) var status = "按键映射未启用"
     private(set) var isRunning = false
 
@@ -183,6 +188,8 @@ final class HIDMonitor {
         repeatTimers.values.forEach { $0.cancel() }
         repeatTimers.removeAll()
         activeUsages.removeAll()
+        debouncedUsages.removeAll()
+        edgeDebouncer.reset()
         eventSuppressor.stop()
         if let activeDevice {
             IOHIDDeviceClose(activeDevice, IOOptionBits(kIOHIDOptionsTypeNone))
@@ -253,6 +260,8 @@ final class HIDMonitor {
         activeUsages.removeAll()
         repeatTimers.values.forEach { $0.cancel() }
         repeatTimers.removeAll()
+        debouncedUsages.removeAll()
+        edgeDebouncer.reset()
         updateStatus("遥控器已断开")
         print("[HID] disconnected")
         onDeviceChange?(false)
@@ -267,15 +276,40 @@ final class HIDMonitor {
         let pressed = usages.subtracting(activeUsages)
         let released = activeUsages.subtracting(usages)
         activeUsages = usages
+        let now = ProcessInfo.processInfo.systemUptime
 
         for usage in pressed.sorted() {
             guard let button = RemoteButton.usageMap[usage] else { continue }
             let isDown = true
             if !activeDeviceIsSeized {
-                eventSuppressor.arm(button: button, edge: .down)
+                eventSuppressor.updateHeld(button: button, isDown: true)
             }
+
+            // Repeatable mappings retain their existing HID repeat behavior.
+            // Atomic/single-shot mappings get a short edge fence so a remote
+            // report sequence like down-up-down-up cannot toggle an app twice.
+            let shouldRepeat = shouldRepeatButton?(button)
+                ?? RemoteButton.repeatable.contains(button)
+            let shouldDebounce = !shouldRepeat
+            if shouldDebounce {
+                debouncedUsages.insert(usage)
+            }
+            guard edgeDebouncer.shouldEmit(
+                button: button,
+                isDown: isDown,
+                at: now,
+                debouncing: shouldDebounce
+            ) else {
+                onButtonEdgeSuppressed?(button, isDown)
+                continue
+            }
+
             onButtonEdge?(button, isDown)
-            startRepeatIfNeeded(usage: usage, button: button)
+            startRepeatIfNeeded(
+                usage: usage,
+                button: button,
+                shouldRepeat: shouldRepeat
+            )
             print("[HID] button down: \(button.displayName)")
         }
 
@@ -283,8 +317,21 @@ final class HIDMonitor {
             guard let button = RemoteButton.usageMap[usage] else { continue }
             let isDown = false
             if !activeDeviceIsSeized {
-                eventSuppressor.arm(button: button, edge: .up)
+                eventSuppressor.updateHeld(button: button, isDown: false)
             }
+
+            let shouldDebounce = debouncedUsages.remove(usage) != nil
+            guard edgeDebouncer.shouldEmit(
+                button: button,
+                isDown: isDown,
+                at: now,
+                debouncing: shouldDebounce
+            ) else {
+                onButtonEdgeSuppressed?(button, isDown)
+                repeatTimers.removeValue(forKey: usage)?.cancel()
+                continue
+            }
+
             onButtonEdge?(button, isDown)
             repeatTimers.removeValue(forKey: usage)?.cancel()
             print("[HID] button up: \(button.displayName)")
@@ -313,12 +360,18 @@ final class HIDMonitor {
 
     // MARK: - 按键重复
 
-    private func startRepeatIfNeeded(usage: UInt16, button: RemoteButton) {
+    private func startRepeatIfNeeded(
+        usage: UInt16,
+        button: RemoteButton,
+        shouldRepeat: Bool? = nil
+    ) {
         // Clear any stale timer before evaluating the new mapping. This also
         // covers a missed release followed by a fresh down edge whose current
         // app template has changed from repeatable to single-shot.
         repeatTimers.removeValue(forKey: usage)?.cancel()
-        let shouldRepeat = shouldRepeatButton?(button) ?? RemoteButton.repeatable.contains(button)
+        let shouldRepeat = shouldRepeat
+            ?? shouldRepeatButton?(button)
+            ?? RemoteButton.repeatable.contains(button)
         guard shouldRepeat else { return }
 
         // A few remotes can emit a second down edge while a held key is being

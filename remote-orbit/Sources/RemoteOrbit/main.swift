@@ -18,6 +18,7 @@
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
+import CoreAudio
 import CoreGraphics
 import Darwin
 import IOKit.hid
@@ -439,6 +440,13 @@ final class VoiceKeyFilter {
         optionDeferralGestureID != nil
     }
 
+    /// Whether a specific voice gesture is currently holding the remapped
+    /// Option edge. Focus preparation is advisory now, so callers must not
+    /// release or replay an Option pair unless this returns true.
+    func isOptionDeferralActive(for gestureID: UUID) -> Bool {
+        optionDeferralGestureID == gestureID
+    }
+
     /// HIDMonitor 活跃时跳过语音键处理（防止双重触发）。
     var skipVoiceKey = false
 
@@ -639,6 +647,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusLabel: NSMenuItem!
     private var remoteStatusItem: NSMenuItem!
     private var audioStatusItem: NSMenuItem!
+    private var audioInputMenu: NSMenu!
+    private var audioOutputMenu: NSMenu!
 
     private var hidConnected = false
     private var bleConnected = false
@@ -666,7 +676,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
         let needsCodexFocus = !needsFloatTabsFocus
             && CodexCommandAdapter.shouldPrepareInputFocus(for: target)
-        let needsFocusGate = needsFloatTabsFocus || needsCodexFocus
+        // Focus repair is useful for the text insertion target, but it must
+        // never gate the physical Option edge or remote audio. AX/WebKit can
+        // be slow or unavailable even while the receiver is already working.
+        let needsFocusPreparation = needsFloatTabsFocus || needsCodexFocus
         let gestureID = UUID()
 
         if let previousGestureID = voiceFocusTransactions.activeGestureID {
@@ -679,21 +692,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             _ = voiceFocusTransactions.cancel(previousGestureID)
         }
 
-        if needsFocusGate {
-            filter.beginOptionDeferral(gestureID: gestureID)
-        }
-
         guard voicePress.keyDown() else {
-            if needsFocusGate {
-                filter.cancelDeferredOption(
-                    gestureID: gestureID,
-                    reason: "press-rejected"
-                )
-            }
             return
         }
 
-        guard needsFocusGate else { return }
+        guard needsFocusPreparation else { return }
         voiceFocusTransactions.begin(gestureID)
         armVoiceFocusSafetyTimeout(gestureID: gestureID)
         print(
@@ -769,10 +772,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "[VOICE] focus transaction completed gesture=\(gestureID.uuidString) "
                 + "source=\(source) ready=\(ready) reason=\(reason)"
         )
-        filter.releaseDeferredOption(
-            gestureID: gestureID,
-            reason: ready ? "focus-ready" : "focus-failed-\(reason)"
-        )
+        if filter.isOptionDeferralActive(for: gestureID) {
+            filter.releaseDeferredOption(
+                gestureID: gestureID,
+                reason: ready ? "focus-ready" : "focus-failed-\(reason)"
+            )
+        } else {
+            print(
+                "[VOICE] focus result is advisory; Option/audio path was not gated "
+                    + "gesture=\(gestureID.uuidString)"
+            )
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -814,6 +824,24 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(audioStatus)
         audioStatusItem = audioStatus
 
+        let inputItem = NSMenuItem(title: "输入设备", action: nil, keyEquivalent: "")
+        let outputItem = NSMenuItem(title: "输出设备", action: nil, keyEquivalent: "")
+        audioInputMenu = NSMenu()
+        audioOutputMenu = NSMenu()
+        inputItem.submenu = audioInputMenu
+        outputItem.submenu = audioOutputMenu
+        menu.addItem(inputItem)
+        menu.addItem(outputItem)
+        menu.addItem(.separator())
+
+        let refreshAudioDevices = NSMenuItem(
+            title: "刷新设备列表",
+            action: #selector(refreshAudioDeviceMenus),
+            keyEquivalent: ""
+        )
+        refreshAudioDevices.target = self
+        menu.addItem(refreshAudioDevices)
+
         menu.addItem(.separator())
 
         let controlCenter = NSMenuItem(
@@ -832,6 +860,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         quit.target = self
         menu.addItem(quit)
         statusItem.menu = menu
+        refreshAudioDeviceMenus()
         updateStatus()
 
         // HID connection (status icon).
@@ -880,6 +909,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else {
                 print("[HID] monitor inactive → VoiceKeyFilter 处理语音键")
             }
+        }
+        hidMonitor.onButtonEdgeSuppressed = { button, isDown in
+            print(
+                "[HID] debounce suppressed: \(button.displayName) "
+                    + (isDown ? "down" : "up")
+            )
         }
         hidMonitor.onButtonEdge = { [weak self] button, isDown in
             guard let self else { return }
@@ -1007,6 +1042,65 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        refreshAudioDeviceMenus()
+        updateStatus()
+    }
+
+    @objc private func refreshAudioDeviceMenus() {
+        rebuildAudioMenu(
+            audioInputMenu,
+            devices: SystemAudioDeviceManager.inputDevices(),
+            selectedID: SystemAudioDeviceManager.defaultInputDevice?.id,
+            action: #selector(selectAudioInput(_:))
+        )
+        rebuildAudioMenu(
+            audioOutputMenu,
+            devices: SystemAudioDeviceManager.outputDevices(),
+            selectedID: SystemAudioDeviceManager.defaultOutputDevice?.id,
+            action: #selector(selectAudioOutput(_:))
+        )
+    }
+
+    private func rebuildAudioMenu(
+        _ menu: NSMenu?,
+        devices: [SystemAudioDevice],
+        selectedID: AudioDeviceID?,
+        action: Selector
+    ) {
+        guard let menu else { return }
+        menu.removeAllItems()
+
+        if devices.isEmpty {
+            let unavailable = NSMenuItem(title: "未检测到可用设备", action: nil, keyEquivalent: "")
+            unavailable.isEnabled = false
+            menu.addItem(unavailable)
+            return
+        }
+
+        for device in devices {
+            let item = NSMenuItem(
+                title: SystemAudioDeviceManager.displayName(for: device),
+                action: action,
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = device.stableIdentifier
+            item.state = device.id == selectedID ? .on : .off
+            menu.addItem(item)
+        }
+    }
+
+    @objc private func selectAudioInput(_ sender: NSMenuItem) {
+        guard let identifier = sender.representedObject as? String else { return }
+        _ = SystemAudioDeviceManager.selectInput(identifier: identifier)
+        refreshAudioDeviceMenus()
+        updateStatus()
+    }
+
+    @objc private func selectAudioOutput(_ sender: NSMenuItem) {
+        guard let identifier = sender.representedObject as? String else { return }
+        _ = SystemAudioDeviceManager.selectOutput(identifier: identifier)
+        refreshAudioDeviceMenus()
         updateStatus()
     }
 

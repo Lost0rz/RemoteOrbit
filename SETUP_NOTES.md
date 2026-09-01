@@ -2,13 +2,14 @@
 
 ## 当前基线
 
-- RemoteOrbit 当前版本为 `0.2.3 (Build 5)`；当前 `main` 在本次整理前包含 10 个历史提交。
+- RemoteOrbit 当前版本为 `0.2.4 (Build 7)`；当前 `main` 已将本次音频设备切换整理为清晰基线。
 - 当前主线覆盖独立产品改名、DMG/组件安装、Control Center、通用映射与 App 模板、Codex/FloatTabs/Ghostty/Obsidian 预设、音频链路和语音焦点修复。
+- 当前整理后的音频设备基线还包含菜单栏输入/输出切换、物理麦克风保留选择和虚拟回环设备过滤。
 - FloatTabs 是独立仓库和独立应用；RemoteOrbit 只通过本机语义命令协议与它对接，两个仓库需要分别记录基线。
 
 ### 历史提交进度
 
-以下 10 个提交已经全部位于 `main` 和 `origin/main`，不存在等待合并的 RemoteOrbit 分支：
+此前 11 个提交已经全部位于 `main` 和 `origin/main`，不存在等待合并的 RemoteOrbit 分支；本次音频设备切换已纳入当前基线提交：
 
 1. `f96291a`：建立独立项目基线，包含 BLE/ATVV 音频、HID、按键映射、日志和安装脚本。
 2. `26eeec5`：从旧项目重命名为 VoiceRemoteBridge，并切换源码与启动入口。
@@ -20,9 +21,11 @@
 8. `4552b4c`：升级时补齐 Codex 默认模板且不覆盖用户配置。
 9. `1072ca0`：迁移旧版音量键的上下一个对话绑定。
 10. `bfbac6f`：扩展 Obsidian 标准动作和默认模板。
+11. `ed02b7b`：建立 RemoteOrbit 0.2.3 的清晰基线，纳入语音焦点、按键注入、滚动释放和刷新协议修复。
+12. 当前基线提交：增加菜单栏输入/输出设备切换、输入选择持久化、虚拟回环过滤和音频设备测试。
 
-本次基线把此前未提交的语音焦点事务、App 实际焦点路由、快捷键异步发送、滚动释放保护、
-电源原生事件拦截、FloatTabs 语义刷新协议和回归测试一并纳入。这样后续从个人仓库安装时，
+当前基线把语音焦点事务、App 实际焦点路由、快捷键异步发送、滚动释放保护、电源原生事件拦截、
+FloatTabs 语义刷新协议、音频设备切换和回归测试一并纳入。这样后续从个人仓库安装时，
 可以直接以本次基线提交为起点，不需要从旧的 VoiceRemoteBridge 文件名或旧安装路径恢复。
 
 这份文档记录本次在 Apple Silicon Mac + 豆包输入法上的最终可用配置，方便以后从个人仓库重新安装时直接复现。
@@ -52,6 +55,19 @@ Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建�
 输入监控权限。安装器不能绕过这些系统授权。
 
 ## 最终工作方式
+
+### 菜单栏音频切换
+
+菜单栏一级菜单直接提供两个独立子菜单：
+
+- **输入设备**：`RemoteOrbit Mic 2ch（遥控器/自动）`、内置麦克风和已连接的外接麦克风。
+- **输出设备**：扬声器、显示器音频、耳机等真实输出设备。
+
+输入设备按当前系统默认设备显示勾选；选择物理麦克风后会写入 macOS 默认输入，并在 RemoteOrbit
+重启或驱动重载后恢复该选择。重新选择 `RemoteOrbit Mic 2ch（遥控器/自动）`，即可恢复豆包使用
+遥控器短按/长按的自动音频链路。输出设备选择立即切换系统默认输出；BlackHole、RemoteOrbit
+等虚拟回环设备不会显示在输出列表中。菜单每次打开都会重新扫描设备，插拔外接设备后可点击
+“刷新设备列表”。
 
 ### 短按
 
@@ -370,7 +386,8 @@ defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool false
 ## 本次代码修改位置
 
 - `remote-orbit/Sources/RemoteOrbit/main.swift`：短按/长按状态机、立即物理 Option、设备级映射。
-- `remote-orbit/Sources/RemoteOrbit/AudioPipe.swift`：自动选择物理麦克风、遥控器增益、预缓冲和虚拟设备输出诊断。
+- `remote-orbit/Sources/RemoteOrbit/AudioPipe.swift`：自动选择物理麦克风、遥控器增益、预缓冲和虚拟设备输出诊断；启动时恢复菜单选择的输入设备。
+- `remote-orbit/Sources/RemoteOrbit/AudioDeviceManager.swift`：CoreAudio 输入/输出设备枚举、系统默认设备切换和虚拟回环过滤。
 - `remote-orbit/Sources/RemoteOrbit/KeyMapping/MappingStore.swift`：全局映射、App 模板、持久化迁移和按下时目标快照。
 - `remote-orbit/Sources/RemoteOrbit/KeyMapping/SettingsView.swift`：RemoteOrbit Control Center、按键 Profile、预设导入和全局按键锁定。
 - `remote-orbit/Sources/RemoteOrbit/ProductBranding.swift`：独立产品标题栏、版本信息和统一品牌文案。
