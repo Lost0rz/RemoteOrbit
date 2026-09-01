@@ -758,6 +758,21 @@ final class MappingStore: ObservableObject {
         var updatedTemplates = appTemplates
         var didMigrate = false
 
+        // A previous FloatTabs template could persist the vertical actions in
+        // the opposite direction. Repair only the exact swapped pair so a
+        // user's other custom buttons (for example power or menu) stay intact.
+        if let index = updatedTemplates.firstIndex(where: {
+            $0.appBundleIdentifier == "com.lost0rz.FloatTabs" &&
+            $0.templateName == "FloatTabs 默认"
+        }),
+           updatedTemplates[index].bindings[.up] == .preset(.pageDown),
+           updatedTemplates[index].bindings[.down] == .preset(.pageUp) {
+            updatedTemplates[index].bindings[.up] = .preset(.pageUp)
+            updatedTemplates[index].bindings[.down] = .preset(.pageDown)
+            didMigrate = true
+            print("[MappingStore] repaired reversed FloatTabs vertical mappings")
+        }
+
         // Some upgraded installations have a customized ChatGPT template but
         // still carry the old, incorrect system-volume bindings. Migrate only
         // those two untouched legacy fields and preserve every other button.
