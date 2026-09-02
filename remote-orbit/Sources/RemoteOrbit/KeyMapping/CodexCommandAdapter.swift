@@ -19,13 +19,11 @@ enum CodexCommandAdapter {
         targetBundleIdentifier == bundleIdentifier
     }
 
-    /// Focuses Codex's current text input. A focused text element is accepted
-    /// immediately; otherwise the accessibility tree is searched for the most
-    /// likely composer. Codex's current Chromium surface often exposes only an
-    /// AXWebArea, not an AXTextArea, so the final bounded fallback clicks the
-    /// lower composer region of the active Codex window. This is the same
-    /// visible action a user takes and avoids relying on an unreliable Tab
-    /// cycle.
+    /// Focuses Codex's current text input. Codex's current Chromium surface
+    /// exposes only an AXWebArea, not an AXTextArea, so an AX tree walk cannot
+    /// verify the composer and only adds latency. Use a direct, window-relative
+    /// composer click as the primary path; retain the AX path only as a fast
+    /// compatibility fallback for a future Codex build that exposes text roles.
     static func prepareInputFocusForVoice(
         completion: @escaping (Bool, String) -> Void
     ) {
@@ -45,44 +43,36 @@ enum CodexCommandAdapter {
             )
         }
 
-        Task { @MainActor in
-            let axApplication = AXUIElementCreateApplication(
-                application.processIdentifier
-            )
-            for attempt in 0..<4 {
-                if attemptFocus(
-                    in: axApplication,
-                    allowShallowSearch: attempt == 0
-                ),
-                   verifyInputFocus(
-                       in: axApplication,
-                       application: application
-                   ) {
-                    // AX focus can report success before AppKit has attached
-                    // the text input client. Verify it once more on a later
-                    // run-loop turn before releasing the mapped Option edge.
-                    try? await Task.sleep(nanoseconds: 20_000_000)
-                    if verifyInputFocus(
-                        in: axApplication,
-                        application: application
-                    ) {
-                        completion(true, attempt == 0 ? "already-ready" : "focused")
-                        return
-                    }
-                }
-                try? await Task.sleep(nanoseconds: 20_000_000)
-            }
+        // A future Codex build may expose a real text role. Check only the
+        // currently focused element; never recursively walk the tree here.
+        let axApplication = AXUIElementCreateApplication(
+            application.processIdentifier
+        )
+        if let focused = attributeElement(
+            axApplication,
+            kAXFocusedUIElementAttribute as CFString
+        ), isTextInput(focused), focus(focused), isFrontmost(application) {
+            completion(true, "already-ready")
+            return
+        }
 
-            // The Codex editor is rendered by Chromium and is not currently
-            // represented as an AX text role. Do not fail the voice gesture
-            // after the AX search; click the stable composer area instead and
-            // give the renderer one turn to attach its text input client.
-            if isFrontmost(application), clickConversationComposer() {
-                try? await Task.sleep(nanoseconds: 35_000_000)
-                completion(true, "composer-clicked")
+        // The common case is Codex already being frontmost. Complete this
+        // synchronously so the mapped Option edge is released before the user
+        // starts speaking. The previous AX retry loop could overrun the
+        // 360-ms safety fence and make its eventual click stale.
+        if isFrontmost(application), clickConversationComposer() {
+            completion(true, "composer-clicked")
+            return
+        }
+
+        // If activation was required, allow AppKit a short handoff window,
+        // without scanning or blocking on the accessibility tree.
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(20)) {
+            guard isFrontmost(application), clickConversationComposer() else {
+                completion(false, "composer-unavailable-after-activation")
                 return
             }
-            completion(false, "verified-input-and-composer-unavailable")
+            completion(true, "composer-clicked-after-activation")
         }
     }
 
