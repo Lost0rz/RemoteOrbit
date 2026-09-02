@@ -163,8 +163,8 @@ enum AppTemplatePresetLibrary {
 
     private static let chatGPTBindings = overlay([
         .power: .preset(.disabled),
-        .up: .preset(.pageUp),
-        .down: .preset(.pageDown),
+        .up: .preset(.pageDown),
+        .down: .preset(.pageUp),
         .left: .preset(.chatGPTToggleSidebar),
         .right: .preset(.chatGPTToggleBottomPanel),
         .ok: .preset(.returnKey),
@@ -178,8 +178,8 @@ enum AppTemplatePresetLibrary {
 
     private static let codexBindings = overlay([
         .power: .preset(.disabled),
-        .up: .preset(.pageUp),
-        .down: .preset(.pageDown),
+        .up: .preset(.pageDown),
+        .down: .preset(.pageUp),
         .left: .preset(.arrowLeft),
         .right: .preset(.arrowRight),
         .ok: .preset(.returnKey),
@@ -193,8 +193,8 @@ enum AppTemplatePresetLibrary {
 
     private static let floatTabsBindings = overlay([
         .power: .preset(.disabled),
-        .up: .preset(.pageUp),
-        .down: .preset(.pageDown),
+        .up: .preset(.pageDown),
+        .down: .preset(.pageUp),
         .left: .preset(.floatTabsToggleFocus),
         .right: .preset(.paste),
         .ok: .preset(.returnKey),
@@ -212,8 +212,8 @@ enum AppTemplatePresetLibrary {
     /// Command-R shortcut.
     private static let floatTabsBrowseBindings = overlay([
         .power: .preset(.disabled),
-        .up: .preset(.pageUp),
-        .down: .preset(.pageDown),
+        .up: .preset(.pageDown),
+        .down: .preset(.pageUp),
         .left: .preset(.floatTabsToggleFocus),
         .right: .preset(.paste),
         .ok: .preset(.returnKey),
@@ -227,8 +227,8 @@ enum AppTemplatePresetLibrary {
 
     private static let ghosttyBindings = overlay([
         .power: .preset(.disabled),
-        .up: .preset(.pageUp),
-        .down: .preset(.pageDown),
+        .up: .preset(.pageDown),
+        .down: .preset(.pageUp),
         .left: .preset(.ghosttyPreviousTab),
         .right: .preset(.ghosttyNextTab),
         .ok: .preset(.returnKey),
@@ -255,8 +255,8 @@ enum AppTemplatePresetLibrary {
 
     private static let obsidianBindings = overlay([
         .power: .preset(.disabled),
-        .up: .preset(.pageUp),
-        .down: .preset(.pageDown),
+        .up: .preset(.pageDown),
+        .down: .preset(.pageUp),
         .left: .preset(.obsidianToggleLeftSidebar),
         .right: .preset(.obsidianToggleRightSidebar),
         .ok: .preset(.returnKey),

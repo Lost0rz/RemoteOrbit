@@ -924,12 +924,13 @@ enum DefaultBindings {
 
     /// ChatGPT/Codex 桌面端默认模板（Bundle ID: com.openai.codex）。
     /// 预设动作保留语义名称，实际快捷键由RemoteOrbit统一发送；菜单键保留为空，
-    /// 方便用户自行录制。
+    /// 方便用户自行录制。物理方向遵循“按下方向键后看到对应方向内容”的体感：
+    /// 上键发送向下滚屏、下键发送向上滚屏。
     static let chatGPT: [RemoteButton: ButtonBinding] = [
         .microphone:  .voiceKeyDefault,
         .power:       .preset(.disabled),
-        .up:          .preset(.pageUp),
-        .down:        .preset(.pageDown),
+        .up:          .preset(.pageDown),
+        .down:        .preset(.pageUp),
         .left:        .preset(.chatGPTToggleSidebar),
         .ok:          .preset(.returnKey),
         .right:       .preset(.chatGPTToggleBottomPanel),

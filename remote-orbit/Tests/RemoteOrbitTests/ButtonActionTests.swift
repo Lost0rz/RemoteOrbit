@@ -214,4 +214,49 @@ final class ButtonActionTests: XCTestCase {
         XCTAssertFalse(obsidianCategories.contains(.floatTabs))
         XCTAssertFalse(obsidianCategories.contains(.chatGPTChats))
     }
+
+    func testCodexAndFloatTabsBuiltInPresetsUseTheCurrentDefaultLayout() {
+        guard let codex = AppTemplatePresetLibrary.preset(id: "codex.default"),
+              let floatTabs = AppTemplatePresetLibrary.preset(id: "floatTabs.default")
+        else {
+            return XCTFail("Codex and FloatTabs default presets must be provisioned")
+        }
+
+        XCTAssertEqual(Set(codex.bindings.keys), Set(RemoteButton.allCases))
+        XCTAssertEqual(Set(floatTabs.bindings.keys), Set(RemoteButton.allCases))
+
+        assertPreset(codex, button: .up, equals: .pageDown)
+        assertPreset(codex, button: .down, equals: .pageUp)
+        assertPreset(codex, button: .left, equals: .arrowLeft)
+        assertPreset(codex, button: .right, equals: .arrowRight)
+        assertPreset(codex, button: .back, equals: .deleteBackward)
+        assertPreset(codex, button: .volumeUp, equals: .chatGPTPreviousChat)
+        assertPreset(codex, button: .volumeDown, equals: .chatGPTNextChat)
+        assertPreset(codex, button: .menu, equals: .chatGPTToggleSidebar)
+
+        assertPreset(floatTabs, button: .up, equals: .pageDown)
+        assertPreset(floatTabs, button: .down, equals: .pageUp)
+        assertPreset(floatTabs, button: .left, equals: .floatTabsToggleFocus)
+        assertPreset(floatTabs, button: .right, equals: .paste)
+        assertPreset(floatTabs, button: .home, equals: .floatTabsToggleVisibility)
+        assertPreset(floatTabs, button: .menu, equals: .floatTabsToggleAlwaysOnTop)
+        assertPreset(floatTabs, button: .volumeUp, equals: .floatTabsPreviousTab)
+        assertPreset(floatTabs, button: .volumeDown, equals: .floatTabsNextTab)
+    }
+
+    private func assertPreset(
+        _ preset: AppTemplatePreset,
+        button: RemoteButton,
+        equals expected: ButtonAction,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let binding = preset.bindings[button] else {
+            return XCTFail("Missing \(button.rawValue) in \(preset.id)", file: file, line: line)
+        }
+        guard case let .preset(actual) = binding else {
+            return XCTFail("Expected preset binding for \(button.rawValue) in \(preset.id)", file: file, line: line)
+        }
+        XCTAssertEqual(actual, expected, "Unexpected \(button.rawValue) in \(preset.id)", file: file, line: line)
+    }
 }

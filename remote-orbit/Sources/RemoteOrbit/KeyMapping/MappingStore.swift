@@ -758,21 +758,6 @@ final class MappingStore: ObservableObject {
         var updatedTemplates = appTemplates
         var didMigrate = false
 
-        // A previous FloatTabs template could persist the vertical actions in
-        // the opposite direction. Repair only the exact swapped pair so a
-        // user's other custom buttons (for example power or menu) stay intact.
-        if let index = updatedTemplates.firstIndex(where: {
-            $0.appBundleIdentifier == "com.lost0rz.FloatTabs" &&
-            $0.templateName == "FloatTabs 默认"
-        }),
-           updatedTemplates[index].bindings[.up] == .preset(.pageDown),
-           updatedTemplates[index].bindings[.down] == .preset(.pageUp) {
-            updatedTemplates[index].bindings[.up] = .preset(.pageUp)
-            updatedTemplates[index].bindings[.down] = .preset(.pageDown)
-            didMigrate = true
-            print("[MappingStore] repaired reversed FloatTabs vertical mappings")
-        }
-
         // Some upgraded installations have a customized ChatGPT template but
         // still carry the old, incorrect system-volume bindings. Migrate only
         // those two untouched legacy fields and preserve every other button.
@@ -816,6 +801,31 @@ final class MappingStore: ObservableObject {
             updatedTemplates[index].bindings = preset.bindings
             didMigrate = true
             print("[MappingStore] migrated built-in template: \(updatedTemplates[index].displayName)")
+        }
+
+        // Page navigation is named from the content's movement rather than
+        // the remote button's physical direction: pressing the remote's down
+        // button should reveal content below, so it uses the semantic
+        // "向上滚屏" action. Repair only untouched vertical pairs in built-in
+        // templates; all other user mappings remain unchanged.
+        let builtInTemplateKeys = Set(AppTemplatePresetLibrary.all.map {
+            "\($0.appBundleIdentifier)\u{0}\($0.templateName)"
+        })
+        for index in updatedTemplates.indices {
+            let template = updatedTemplates[index]
+            let key = "\(template.appBundleIdentifier)\u{0}\(template.templateName)"
+            guard builtInTemplateKeys.contains(key),
+                  template.bindings[.up] == .preset(.pageUp),
+                  template.bindings[.down] == .preset(.pageDown) else {
+                continue
+            }
+            updatedTemplates[index].bindings[.up] = .preset(.pageDown)
+            updatedTemplates[index].bindings[.down] = .preset(.pageUp)
+            didMigrate = true
+            print(
+                "[MappingStore] repaired reversed vertical mappings: "
+                    + "\(updatedTemplates[index].displayName)"
+            )
         }
 
         guard didMigrate else { return }
@@ -868,6 +878,11 @@ final class MappingStore: ObservableObject {
     /// DefaultBindings.chatGPT 只有这两个字段不同，用于安全迁移旧安装。
     private static func legacyAutoChatGPTBindings() -> [RemoteButton: ButtonBinding] {
         var bindings = DefaultBindings.chatGPT
+        // Keep the historical vertical pair here as part of the migration
+        // snapshot. The current physical-button convention is intentionally
+        // the opposite pair.
+        bindings[.up] = .preset(.pageUp)
+        bindings[.down] = .preset(.pageDown)
         bindings[.volumeUp] = .preset(.volumeUp)
         bindings[.volumeDown] = .preset(.volumeDown)
         return bindings

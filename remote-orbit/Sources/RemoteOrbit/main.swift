@@ -624,7 +624,7 @@ final class VoiceKeyFilter {
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
-        print("[FILTER] tap enabled; voice key 0x60 (F5) is suppressed; hidutil supplies left Option (FloatTabs handoff is non-blocking)")
+        print("[FILTER] tap enabled; voice key 0x60 (F5) is suppressed; hidutil supplies left Option (focus gate is narrow and audio remains non-blocking)")
     }
 
     func stop() {
@@ -682,6 +682,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // be slow or unavailable even while the receiver is already working.
         let needsFocusPreparation = needsFloatTabsFocus || needsCodexFocus
         let gestureID = UUID()
+        let shouldGateMappedOption = RemoteVoiceKeyMapping.isEnabled
+            && needsFocusPreparation
 
         if let previousGestureID = voiceFocusTransactions.activeGestureID {
             voiceFocusSafetyWorkItem?.cancel()
@@ -693,11 +695,34 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             _ = voiceFocusTransactions.cancel(previousGestureID)
         }
 
+        // The remote's HID mapping produces a real left-Option edge which can
+        // beat the asynchronous FloatTabs/Codex focus handoff. Arm the gate
+        // before starting the voice transaction so the first edge is not
+        // delivered to a stale text client. Audio routing remains immediate
+        // inside VoicePressCoordinator and is never held behind focus work.
+        if shouldGateMappedOption {
+            filter.beginOptionDeferral(gestureID: gestureID)
+        }
+
         guard voicePress.keyDown() else {
+            if shouldGateMappedOption {
+                filter.cancelDeferredOption(
+                    gestureID: gestureID,
+                    reason: "voice-press-rejected"
+                )
+            }
             return
         }
 
-        guard needsFocusPreparation else { return }
+        guard needsFocusPreparation else {
+            if shouldGateMappedOption {
+                filter.cancelDeferredOption(
+                    gestureID: gestureID,
+                    reason: "focus-not-needed"
+                )
+            }
+            return
+        }
         voiceFocusTransactions.begin(gestureID)
         armVoiceFocusSafetyTimeout(gestureID: gestureID)
         print(
