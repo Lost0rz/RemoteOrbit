@@ -6,6 +6,7 @@
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject var store: MappingStore
@@ -27,6 +28,9 @@ struct SettingsView: View {
     @State private var isRepairingInstallation = false
     @State private var installationMessage: String?
     @State private var installationRefreshID = UUID()
+    @State private var configurationMessage: String?
+    @State private var backupToRestore: MappingBackup?
+    @State private var showRestoreBackupConfirm = false
 
     private enum MappingScope: Hashable {
         case global
@@ -96,6 +100,9 @@ struct SettingsView: View {
     var body: some View {
         workspace
         .frame(minWidth: 980, minHeight: 660)
+        .onAppear {
+            synchronizeMappingScopeToEffectiveTarget()
+        }
         // 用 sheet(item:) 直接以按钮作为展示状态，避免第一次点击时
         // showRecorder 已变成 true、recorderButton 仍是 nil，导致空 sheet。
         .sheet(item: $recorderButton) { button in
@@ -191,6 +198,23 @@ struct SettingsView: View {
             }
         } message: {
             Text("删除后该 App 将使用通用映射，其他模板不受影响。")
+        }
+        .alert("确认恢复按键配置", isPresented: $showRestoreBackupConfirm) {
+            Button("取消", role: .cancel) {
+                backupToRestore = nil
+            }
+            Button("恢复", role: .destructive) {
+                guard let backup = backupToRestore else { return }
+                do {
+                    try store.restoreMappingBackup(backup)
+                    configurationMessage = "已恢复：\(backup.fileName)"
+                } catch {
+                    configurationMessage = "恢复失败：\(error.localizedDescription)"
+                }
+                backupToRestore = nil
+            }
+        } message: {
+            Text("恢复前会自动备份当前配置，恢复后按键模板和 Active 选择都会切换到这份备份。")
         }
     }
 
@@ -387,6 +411,15 @@ struct SettingsView: View {
                     .frame(width: 150)
                 }
             }
+
+            Label(
+                mappingScope == .global
+                    ? "当前编辑：通用映射"
+                    : "当前编辑：该程序的 Active 模板",
+                systemImage: mappingScope == .global ? "globe" : "checkmark.circle"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
 
             if case let .app(bundleID) = mappingScope {
                 HStack(spacing: 10) {
@@ -1021,7 +1054,7 @@ struct SettingsView: View {
                 Text("语音键的独立逻辑")
                     .font(.subheadline.weight(.semibold))
                 if case .voiceKeyDefault = binding {
-                    Text("短按使用本机物理麦克风，长按切换到遥控器麦克风，并由 RemoteOrbit 统一处理。")
+                    Text("仅长按使用遥控器麦克风；短按不触发本机或外部麦克风，也不会切换语音输入。")
                 } else {
                     Text("当前已改为自定义动作，短按/长按语音桥接行为不会执行。")
                         .foregroundStyle(.orange)
@@ -1045,6 +1078,8 @@ struct SettingsView: View {
                 )
 
                 installationCard
+
+                mappingConfigurationCard
 
                 workspaceCard(title: "应用设置", symbolName: "gearshape") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -1122,6 +1157,112 @@ struct SettingsView: View {
 
             }
             .padding(28)
+        }
+    }
+
+    private var mappingConfigurationCard: some View {
+        let backups = store.mappingBackups()
+        return workspaceCard(title: "按键配置备份", symbolName: "externaldrive.badge.timemachine") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("配置保存在本机。每次替换配置前会自动保留上一份，损坏配置也会单独备份。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let warning = store.configurationWarning {
+                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                HStack(spacing: 10) {
+                    Button("导出当前配置…", action: exportMappingConfiguration)
+                        .buttonStyle(.bordered)
+                    Button("导入配置…", action: importMappingConfiguration)
+                        .buttonStyle(.bordered)
+                    Button("打开备份文件夹") {
+                        AppStorage.ensureDirectory(AppStorage.mappingBackupsDirectory)
+                        NSWorkspace.shared.open(AppStorage.mappingBackupsDirectory)
+                    }
+                    .buttonStyle(.borderless)
+                }
+
+                if let configurationMessage {
+                    Text(configurationMessage)
+                        .font(.caption)
+                        .foregroundStyle(
+                            configurationMessage.contains("失败") ? .red : .green
+                        )
+                }
+
+                Divider()
+
+                if backups.isEmpty {
+                    Text("目前还没有自动备份。修改或导入配置后会在这里显示。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("最近备份")
+                        .font(.caption.weight(.medium))
+                    ForEach(Array(backups.prefix(5))) { backup in
+                        HStack(spacing: 8) {
+                            Image(systemName: "doc.circle")
+                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(backup.fileName)
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                Text(Self.configurationBackupDateFormatter.string(from: backup.modifiedAt))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("恢复") {
+                                backupToRestore = backup
+                                showRestoreBackupConfirm = true
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static let configurationBackupDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private func exportMappingConfiguration() {
+        let panel = NSSavePanel()
+        panel.title = "导出 Remote Orbit 按键配置"
+        panel.nameFieldStringValue = "RemoteOrbit-mapping.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            try store.exportCurrentConfiguration(to: url)
+            configurationMessage = "配置已导出：\(url.lastPathComponent)"
+        } catch {
+            configurationMessage = "导出失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func importMappingConfiguration() {
+        let panel = NSOpenPanel()
+        panel.title = "导入 Remote Orbit 按键配置"
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            try store.importConfiguration(from: url)
+            configurationMessage = "配置已导入：\(url.lastPathComponent)"
+        } catch {
+            configurationMessage = "导入失败：\(error.localizedDescription)"
         }
     }
 
@@ -1453,13 +1594,20 @@ struct SettingsView: View {
     }
 
     private func resetSelectedButtonToDefault() {
-        let defaultBinding = DefaultBindings.all[selectedButton] ?? .preset(.disabled)
         if case let .template(id) = selectedTemplateTarget,
            selectedEditorTemplate != nil,
            !store.isGloballyPinned(selectedButton) {
+            let template = selectedEditorTemplate
+            let defaultBinding = AppTemplatePresetLibrary.all.first(where: {
+                $0.appBundleIdentifier == template?.appBundleIdentifier &&
+                $0.templateName == template?.templateName
+            })?.bindings[selectedButton]
+                ?? DefaultBindings.all[selectedButton]
+                ?? .preset(.disabled)
             store.setBinding(defaultBinding, for: selectedButton, templateID: id)
             store.setGestureProfile(.disabled, for: selectedButton, templateID: id)
         } else {
+            let defaultBinding = DefaultBindings.all[selectedButton] ?? .preset(.disabled)
             store.setBinding(defaultBinding, for: selectedButton)
             store.setGestureProfile(.disabled, for: selectedButton)
         }
@@ -1677,6 +1825,20 @@ struct SettingsView: View {
                 selectedTemplateTarget = .none
             }
         }
+    }
+
+    /// Settings is hosted by RemoteOrbit itself, so the window becoming
+    /// frontmost must not make the editor default to the global scope. Use the
+    /// same cached external target as runtime routing and select its Active
+    /// template before the user edits a button.
+    private func synchronizeMappingScopeToEffectiveTarget() {
+        guard let bundleID = MappingStore.preferredApplicationBundleIdentifier(),
+              store.activeTemplate(for: bundleID) != nil
+        else {
+            selectMappingScope(.global)
+            return
+        }
+        selectMappingScope(.app(bundleID))
     }
 
     private func selectTemplate(_ target: TemplateTarget, for bundleID: String) {

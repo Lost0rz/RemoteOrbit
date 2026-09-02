@@ -11,6 +11,25 @@ struct AppTemplatePreset: Identifiable {
     let templateName: String
     let summary: String
     let bindings: [RemoteButton: ButtonBinding]
+    let gestureProfiles: [RemoteButton: ButtonGestureProfile]?
+
+    init(
+        id: String,
+        appBundleIdentifier: String,
+        appName: String,
+        templateName: String,
+        summary: String,
+        bindings: [RemoteButton: ButtonBinding],
+        gestureProfiles: [RemoteButton: ButtonGestureProfile]? = nil
+    ) {
+        self.id = id
+        self.appBundleIdentifier = appBundleIdentifier
+        self.appName = appName
+        self.templateName = templateName
+        self.summary = summary
+        self.bindings = bindings
+        self.gestureProfiles = gestureProfiles
+    }
 
     var displayName: String {
         "\(appName) · \(templateName)"
@@ -29,7 +48,7 @@ enum AppTemplatePresetLibrary {
     static let knownApps: [PresetApplication] = [
         PresetApplication(
             bundleIdentifier: "com.openai.codex",
-            displayName: "ChatGPT / Codex"
+            displayName: "Codex"
         ),
         PresetApplication(
             bundleIdentifier: "com.lost0rz.FloatTabs",
@@ -50,9 +69,8 @@ enum AppTemplatePresetLibrary {
     ]
 
     /// 首次启动时，只对本机已安装且尚未配置模板的 App 自动添加这些默认模板。
-    /// ChatGPT/Codex 共用 com.openai.codex，由 MappingStore 分别维护两个模板。
     static let defaultPresetIDs = [
-        "chatgpt.default",
+        "codex.default",
         "floatTabs.default",
         "ghostty.default",
         "netease.default",
@@ -61,20 +79,13 @@ enum AppTemplatePresetLibrary {
 
     static let all: [AppTemplatePreset] = [
         AppTemplatePreset(
-            id: "chatgpt.default",
-            appBundleIdentifier: "com.openai.codex",
-            appName: "ChatGPT",
-            templateName: "ChatGPT 默认",
-            summary: "内置官方 ChatGPT / Codex 全量快捷动作分类；侧边栏、底部面板、需要注意的对话、滚屏和编辑动作。菜单键留空。",
-            bindings: chatGPTBindings
-        ),
-        AppTemplatePreset(
             id: "codex.default",
             appBundleIdentifier: "com.openai.codex",
             appName: "Codex",
             templateName: "Codex 默认",
             summary: "侧边栏显示/隐藏、输入栏左右移动、上/下一个对话和需要注意的对话。",
-            bindings: codexBindings
+            bindings: codexBindings,
+            gestureProfiles: codexGestureProfiles
         ),
         AppTemplatePreset(
             id: "floatTabs.default",
@@ -82,7 +93,8 @@ enum AppTemplatePresetLibrary {
             appName: "FloatTabs",
             templateName: "FloatTabs 默认",
             summary: "标签切换、对话框/网页焦点切换、滚屏和设置。音量键切换标签。",
-            bindings: floatTabsBindings
+            bindings: floatTabsBindings,
+            gestureProfiles: floatTabsGestureProfiles
         ),
         AppTemplatePreset(
             id: "floatTabs.browse",
@@ -90,7 +102,8 @@ enum AppTemplatePresetLibrary {
             appName: "FloatTabs",
             templateName: "FloatTabs 浏览增强",
             summary: "滚屏、刷新、焦点切换、显示/隐藏和标签切换；菜单键直接刷新当前页面。",
-            bindings: floatTabsBrowseBindings
+            bindings: floatTabsBrowseBindings,
+            gestureProfiles: floatTabsBrowseGestureProfiles
         ),
         AppTemplatePreset(
             id: "ghostty.default",
@@ -146,7 +159,7 @@ enum AppTemplatePresetLibrary {
             // to the 13 physical buttons in a default template. Keep all four
             // app categories available so every command can be selected from
             // the per-button preset picker.
-            allowed.formUnion(ButtonActionCategory.chatGPTCategories)
+            allowed.formUnion(ButtonActionCategory.codexCategories)
         }
         return ButtonActionCategory.allCases.filter { allowed.contains($0) }
     }
@@ -161,25 +174,10 @@ enum AppTemplatePresetLibrary {
         return bindings
     }
 
-    private static let chatGPTBindings = overlay([
-        .power: .preset(.disabled),
-        .up: .preset(.pageDown),
-        .down: .preset(.pageUp),
-        .left: .preset(.chatGPTToggleSidebar),
-        .right: .preset(.chatGPTToggleBottomPanel),
-        .ok: .preset(.returnKey),
-        .back: .preset(.deleteBackward),
-        .volumeUp: .preset(.chatGPTPreviousChat),
-        .home: .preset(.chatGPTNextAttention),
-        .volumeDown: .preset(.chatGPTNextChat),
-        .menu: .preset(.disabled),
-        .tv: .preset(.appSwitcher),
-    ])
-
     private static let codexBindings = overlay([
         .power: .preset(.disabled),
-        .up: .preset(.pageDown),
-        .down: .preset(.pageUp),
+        .up: .preset(.pageUp),
+        .down: .preset(.pageDown),
         .left: .preset(.arrowLeft),
         .right: .preset(.arrowRight),
         .ok: .preset(.returnKey),
@@ -193,12 +191,12 @@ enum AppTemplatePresetLibrary {
 
     private static let floatTabsBindings = overlay([
         .power: .preset(.disabled),
-        .up: .preset(.pageDown),
-        .down: .preset(.pageUp),
-        .left: .preset(.floatTabsToggleFocus),
-        .right: .preset(.paste),
+        .up: .preset(.pageUp),
+        .down: .preset(.pageDown),
+        .left: .preset(.arrowLeft),
+        .right: .preset(.arrowRight),
         .ok: .preset(.returnKey),
-        .back: .preset(.escape),
+        .back: .preset(.deleteBackward),
         .home: .preset(.floatTabsToggleVisibility),
         .menu: .preset(.floatTabsToggleAlwaysOnTop),
         .tv: .preset(.appSwitcher),
@@ -212,18 +210,51 @@ enum AppTemplatePresetLibrary {
     /// Command-R shortcut.
     private static let floatTabsBrowseBindings = overlay([
         .power: .preset(.disabled),
-        .up: .preset(.pageDown),
-        .down: .preset(.pageUp),
-        .left: .preset(.floatTabsToggleFocus),
-        .right: .preset(.paste),
+        .up: .preset(.pageUp),
+        .down: .preset(.pageDown),
+        .left: .preset(.arrowLeft),
+        .right: .preset(.arrowRight),
         .ok: .preset(.returnKey),
-        .back: .preset(.escape),
+        .back: .preset(.deleteBackward),
         .home: .preset(.floatTabsToggleVisibility),
         .menu: .preset(.reloadPage),
         .tv: .preset(.appSwitcher),
         .volumeUp: .preset(.floatTabsPreviousTab),
         .volumeDown: .preset(.floatTabsNextTab),
     ])
+
+    private static let codexGestureProfiles: [RemoteButton: ButtonGestureProfile] = [
+        .ok: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.paste),
+            longPressBehavior: .triggerOnce
+        ),
+        .back: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.deleteBackward),
+            longPressBehavior: .repeatWhileHeld
+        ),
+    ]
+
+    private static let floatTabsGestureProfiles: [RemoteButton: ButtonGestureProfile] = [
+        .back: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.deleteBackward),
+            longPressBehavior: .repeatWhileHeld
+        ),
+        .ok: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.paste),
+            longPressBehavior: .triggerOnce
+        ),
+        .menu: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.reloadPage),
+            longPressBehavior: .triggerOnce
+        ),
+    ]
+
+    private static let floatTabsBrowseGestureProfiles = floatTabsGestureProfiles
 
     private static let ghosttyBindings = overlay([
         .power: .preset(.disabled),

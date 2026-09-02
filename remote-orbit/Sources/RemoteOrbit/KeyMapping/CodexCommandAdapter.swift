@@ -12,18 +12,19 @@ enum CodexCommandAdapter {
     static let bundleIdentifier = "com.openai.codex"
 
     /// Codex is a native app rather than FloatTabs' WebKit surface, so it
-    /// cannot participate in the FloatTabs DOM-focus handshake. Before the
-    /// voice gesture reaches macOS dictation, use Accessibility to make the
-    /// best available Codex composer the focused element.
+    /// cannot participate in the FloatTabs DOM-focus handshake. The voice
+    /// path must preserve Codex's current insertion target: Codex may have a
+    /// bottom composer and a separate inline edit composer at the same time.
     static func shouldPrepareInputFocus(for targetBundleIdentifier: String?) -> Bool {
         targetBundleIdentifier == bundleIdentifier
     }
 
-    /// Focuses Codex's current text input. Codex's current Chromium surface
-    /// exposes only an AXWebArea, not an AXTextArea, so an AX tree walk cannot
-    /// verify the composer and only adds latency. Use a direct, window-relative
-    /// composer click as the primary path; retain the AX path only as a fast
-    /// compatibility fallback for a future Codex build that exposes text roles.
+    /// Prepares Codex for voice without changing an already active focus.
+    /// Codex's current Chromium surface exposes only an AXWebArea, not an
+    /// AXTextArea. Clicking a fixed window-relative composer here therefore
+    /// steals focus from an inline editor and makes voice input land in the
+    /// wrong place. An explicit “focus composer” mapping still uses that
+    /// click; the voice gesture itself is fail-open and focus-preserving.
     static func prepareInputFocusForVoice(
         completion: @escaping (Bool, String) -> Void
     ) {
@@ -36,30 +37,42 @@ enum CodexCommandAdapter {
             return
         }
 
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier
-            != application.processIdentifier {
-            _ = application.activate(
-                options: [.activateAllWindows, .activateIgnoringOtherApps]
+        let wasFrontmost = isFrontmost(application)
+        if wasFrontmost {
+            // If Codex is already frontmost, do not write any AX attributes
+            // and do not synthesize a click. This preserves either the bottom
+            // composer or an inline edit field selected by the user. The
+            // focused role is only diagnostic because Chromium commonly
+            // reports AXWebArea.
+            let axApplication = AXUIElementCreateApplication(
+                application.processIdentifier
             )
-        }
+            if let focused = attributeElement(
+                axApplication,
+                kAXFocusedUIElementAttribute as CFString
+            ) {
+                completion(
+                    true,
+                    isTextInput(focused) ? "focus-preserved-text-input" : "focus-preserved"
+                )
+                return
+            }
 
-        // A future Codex build may expose a real text role. Check only the
-        // currently focused element; never recursively walk the tree here.
-        let axApplication = AXUIElementCreateApplication(
-            application.processIdentifier
-        )
-        if let focused = attributeElement(
-            axApplication,
-            kAXFocusedUIElementAttribute as CFString
-        ), isTextInput(focused), focus(focused), isFrontmost(application) {
-            completion(true, "already-ready")
+            // AX can briefly return no focused element during a renderer
+            // transition. The correct behavior is still to preserve focus,
+            // not to click a guessed composer and destroy the user's target.
+            completion(true, "focus-preserved-during-transition")
             return
         }
 
-        // The common case is Codex already being frontmost. Complete this
-        // synchronously so the mapped Option edge is released before the user
-        // starts speaking. The previous AX retry loop could overrun the
-        // 360-ms safety fence and make its eventual click stale.
+        _ = application.activate(
+            options: [.activateAllWindows, .activateIgnoringOtherApps]
+        )
+
+        // Codex was activated from another app. Complete the handoff with the
+        // existing window-relative composer fallback only when AX did not
+        // expose a focused element after activation. The frontmost path above
+        // never reaches this click, so inline editing remains untouched.
         if isFrontmost(application), clickConversationComposer() {
             completion(true, "composer-clicked")
             return

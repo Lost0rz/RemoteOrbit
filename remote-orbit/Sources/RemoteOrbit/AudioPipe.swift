@@ -1,9 +1,8 @@
-// AudioPipe: selects a local physical mic or decoded ATVV PCM and plays
-// that source into RemoteOrbit Mic 2ch. Doubao sees one stable USB microphone.
+// AudioPipe sends decoded ATVV PCM into RemoteOrbit Mic 2ch. Doubao sees one
+// stable USB microphone; the current voice-key policy is remote-only while
+// held, with no local-microphone fallback.
 //
-// Local physical mic → AVCaptureSession ─┐
-//                                        ├→ CoreAudio IOProc → RemoteOrbit Mic 2ch
-// ATVV Int16 PCM ────────────────────────┘   (remote wins while key is held)
+// ATVV Int16 PCM → CoreAudio IOProc → RemoteOrbit Mic 2ch
 
 import AVFoundation
 import AudioToolbox
@@ -44,6 +43,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var outputDeviceID: AudioDeviceID?
     private var outputIOProcID: AudioDeviceIOProcID?
     private var outputDeviceName: String?
+    private var outputDeviceReady = false
     private var pendingOutput: [Float] = []
     private var pendingOutputIndex = 0
     private var scheduledMacBuffers = 0
@@ -85,6 +85,15 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         findOutputDevice()?.name
     }
 
+    /// A device can exist in CoreAudio while this process has failed to
+    /// create/start its IOProc. Expose the process-level readiness separately
+    /// so the menu bar does not report a green voice path in that state.
+    var isOutputReady: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return outputDeviceReady
+    }
+
     func restartOutputDevice() {
         stop()
         if let output = Self.findOutputDevice() {
@@ -93,6 +102,17 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         } else {
             print("[AUDIO] 补装后仍未发现语音输出设备")
         }
+    }
+
+    /// Re-open the virtual microphone only when the process is currently not
+    /// ready. This is intentionally a no-op during normal operation, but lets
+    /// the menu's “刷新设备列表” action recover a driver that appeared after
+    /// launch without rebuilding the app or restarting CoreAudio again.
+    func recoverOutputDeviceIfNeeded() {
+        guard !isOutputReady,
+              let output = Self.findOutputDevice() else { return }
+        startOutputDevice(output.id, name: output.name)
+        SystemAudioDeviceManager.applyPreferredInputSelection()
     }
 
     func beginRemoteCandidate() {
@@ -191,6 +211,11 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         outputIOProcID = nil
         outputDeviceID = nil
         outputDeviceName = nil
+        stateLock.lock()
+        outputDeviceReady = false
+        pendingOutput.removeAll(keepingCapacity: true)
+        pendingOutputIndex = 0
+        stateLock.unlock()
         endRemoteCandidate()
     }
 
@@ -418,9 +443,12 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             return
         }
 
+        stateLock.lock()
         outputDeviceID = deviceID
         outputIOProcID = ioProcID
         outputDeviceName = name
+        outputDeviceReady = true
+        stateLock.unlock()
         print("[AUDIO] \(name) IOProc 已启动: id=\(deviceID), 48000 Hz stereo")
 
     }

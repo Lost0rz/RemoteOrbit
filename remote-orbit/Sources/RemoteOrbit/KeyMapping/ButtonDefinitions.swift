@@ -530,68 +530,68 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .floatTabsToggleFocus:      return "FloatTabs：切换对话框 / 网页焦点"
         case .floatTabsSettings:         return "FloatTabs：打开设置"
         case .floatTabsToggleAlwaysOnTop: return "FloatTabs：开启 / 关闭置顶"
-        case .chatGPTOpenCommandMenu:       return "ChatGPT / Codex：命令菜单（Command-Shift-P）"
-        case .chatGPTOpenSettings:          return "ChatGPT / Codex：设置（Command-逗号）"
-        case .chatGPTOpenKeyboardShortcuts: return "ChatGPT / Codex：键盘快捷键（Command-/）"
+        case .chatGPTOpenCommandMenu:       return "Codex：命令菜单（Command-Shift-P）"
+        case .chatGPTOpenSettings:          return "Codex：设置（Command-逗号）"
+        case .chatGPTOpenKeyboardShortcuts: return "Codex：键盘快捷键（Command-/）"
         case .chatGPTOpenFolder:            return "Codex：打开文件夹（Command-O）"
-        case .chatGPTNavigateBack:          return "ChatGPT / Codex：返回（Command-[）"
-        case .chatGPTNavigateForward:       return "ChatGPT / Codex：前进（Command-]）"
-        case .chatGPTIncreaseFontSize:      return "ChatGPT / Codex：增大字体（Command-加号）"
-        case .chatGPTDecreaseFontSize:      return "ChatGPT / Codex：减小字体（Command-减号）"
-        case .chatGPTResetFontSize:         return "ChatGPT / Codex：重置字体（Command-0）"
-        case .chatGPTToggleSidebar:         return "ChatGPT / Codex：显示 / 隐藏侧边栏（Command-B）"
+        case .chatGPTNavigateBack:          return "Codex：返回（Command-[）"
+        case .chatGPTNavigateForward:       return "Codex：前进（Command-]）"
+        case .chatGPTIncreaseFontSize:      return "Codex：增大字体（Command-加号）"
+        case .chatGPTDecreaseFontSize:      return "Codex：减小字体（Command-减号）"
+        case .chatGPTResetFontSize:         return "Codex：重置字体（Command-0）"
+        case .chatGPTToggleSidebar:         return "Codex：显示 / 隐藏侧边栏（Command-B）"
         case .chatGPTToggleBottomPanel:     return "Codex：显示 / 隐藏底部面板（Command-J）"
         case .chatGPTOpenTerminal:          return "Codex：打开 / 关闭 Terminal（Control-反引号）"
         case .chatGPTClearTerminal:         return "Codex：清空 Terminal（Control-L）"
         case .chatGPTClearUnread:           return "Codex：清除需要注意标记（Shift-Esc）"
-        case .chatGPTUndo:                  return "ChatGPT / Codex：撤销上次动作（Command-Z）"
-        case .chatGPTRedo:                  return "ChatGPT / Codex：重做上次动作（Command-Shift-Z）"
-        case .chatGPTCloseWindow:           return "ChatGPT / Codex：关闭当前标签 / 窗口（Command-W）"
-        case .chatGPTToggleFullScreen:      return "ChatGPT / Codex：切换全屏（Command-Control-F）"
-        case .chatGPTQuit:                  return "ChatGPT / Codex：退出程序（Command-Q）"
-        case .chatGPTNewChat:               return "ChatGPT / Codex：新建对话（Command-N）"
+        case .chatGPTUndo:                  return "Codex：撤销上次动作（Command-Z）"
+        case .chatGPTRedo:                  return "Codex：重做上次动作（Command-Shift-Z）"
+        case .chatGPTCloseWindow:           return "Codex：关闭当前标签 / 窗口（Command-W）"
+        case .chatGPTToggleFullScreen:      return "Codex：切换全屏（Command-Control-F）"
+        case .chatGPTQuit:                  return "Codex：退出程序（Command-Q）"
+        case .chatGPTNewChat:               return "Codex：新建对话（Command-N）"
         case .chatGPTNewStandaloneChat:     return "Codex：新建独立对话（Command-Option-O）"
-        case .chatGPTQuickChat:             return "ChatGPT：快速对话（Command-Option-N）"
-        case .chatGPTNewTemporaryChat:      return "ChatGPT：新建临时对话（Command-Shift-N）"
-        case .chatGPTArchiveChat:           return "ChatGPT / Codex：归档当前对话（Command-Shift-A）"
-        case .chatGPTMarkChatUnread:        return "ChatGPT / Codex：标记当前对话未读（Command-Shift-U）"
-        case .chatGPTPinChat:               return "ChatGPT / Codex：置顶 / 取消置顶（Command-Option-P）"
-        case .chatGPTRenameChat:            return "ChatGPT / Codex：重命名当前对话（Command-Option-R）"
+        case .chatGPTQuickChat:             return "Codex：快速对话（Command-Option-N）"
+        case .chatGPTNewTemporaryChat:      return "Codex：新建临时对话（Command-Shift-N）"
+        case .chatGPTArchiveChat:           return "Codex：归档当前对话（Command-Shift-A）"
+        case .chatGPTMarkChatUnread:        return "Codex：标记当前对话未读（Command-Shift-U）"
+        case .chatGPTPinChat:               return "Codex：置顶 / 取消置顶（Command-Option-P）"
+        case .chatGPTRenameChat:            return "Codex：重命名当前对话（Command-Option-R）"
         case .chatGPTOpenSideChat:          return "Codex：打开侧边对话（Command-Option-S）"
-        case .chatGPTSearchChats:           return "ChatGPT / Codex：搜索对话（需在应用中分配快捷键）"
-        case .chatGPTFindInChat:            return "ChatGPT / Codex：在对话中查找（Command-F）"
-        case .chatGPTFindNext:              return "ChatGPT / Codex：查找下一个（Command-G）"
-        case .chatGPTFindPrevious:          return "ChatGPT / Codex：查找上一个（Command-Shift-G）"
-        case .chatGPTPreviousChat:          return "ChatGPT / Codex：上一个对话 / 标签（Command-Option-左，直接切换）"
-        case .chatGPTNextChat:              return "ChatGPT / Codex：下一个对话 / 标签（Command-Option-右，直接切换）"
+        case .chatGPTSearchChats:           return "Codex：搜索对话（需在应用中分配快捷键）"
+        case .chatGPTFindInChat:            return "Codex：在对话中查找（Command-F）"
+        case .chatGPTFindNext:              return "Codex：查找下一个（Command-G）"
+        case .chatGPTFindPrevious:          return "Codex：查找上一个（Command-Shift-G）"
+        case .chatGPTPreviousChat:          return "Codex：上一个对话 / 标签（Command-Option-左，直接切换）"
+        case .chatGPTNextChat:              return "Codex：下一个对话 / 标签（Command-Option-右，直接切换）"
         case .chatGPTNextAttention:         return "Codex：下一个需要注意的对话（Command-Option-A）"
-        case .chatGPTOpenRecentChat1:       return "ChatGPT / Codex：打开最近对话 1（Command-Option-1）"
-        case .chatGPTOpenRecentChat2:       return "ChatGPT / Codex：打开最近对话 2（Command-Option-2）"
-        case .chatGPTOpenRecentChat3:       return "ChatGPT / Codex：打开最近对话 3（Command-Option-3）"
-        case .chatGPTOpenRecentChat4:       return "ChatGPT / Codex：打开最近对话 4（Command-Option-4）"
-        case .chatGPTOpenRecentChat5:       return "ChatGPT / Codex：打开最近对话 5（Command-Option-5）"
-        case .chatGPTOpenRecentChat6:       return "ChatGPT / Codex：打开最近对话 6（Command-Option-6）"
-        case .chatGPTGoToChat1:             return "ChatGPT / Codex：跳转对话 1（Command-1）"
-        case .chatGPTGoToChat2:             return "ChatGPT / Codex：跳转对话 2（Command-2）"
-        case .chatGPTGoToChat3:             return "ChatGPT / Codex：跳转对话 3（Command-3）"
-        case .chatGPTGoToChat4:             return "ChatGPT / Codex：跳转对话 4（Command-4）"
-        case .chatGPTGoToChat5:             return "ChatGPT / Codex：跳转对话 5（Command-5）"
-        case .chatGPTGoToChat6:             return "ChatGPT / Codex：跳转对话 6（Command-6）"
-        case .chatGPTGoToChat7:             return "ChatGPT / Codex：跳转对话 7（Command-7）"
-        case .chatGPTGoToChat8:             return "ChatGPT / Codex：跳转对话 8（Command-8）"
-        case .chatGPTGoToChat9:             return "ChatGPT / Codex：跳转对话 9（Command-9）"
-        case .chatGPTModelPicker:           return "ChatGPT / Codex：模型选择（Control-Shift-M）"
-        case .chatGPTProjectPicker:         return "ChatGPT / Codex：项目选择（Command-Option-Shift-O）"
-        case .chatGPTStartVoiceChat:        return "ChatGPT / Codex：开始语音对话（Control-Shift-V）"
-        case .chatGPTStartDictation:        return "ChatGPT / Codex：开始听写（Control-Shift-D）"
+        case .chatGPTOpenRecentChat1:       return "Codex：打开最近对话 1（Command-Option-1）"
+        case .chatGPTOpenRecentChat2:       return "Codex：打开最近对话 2（Command-Option-2）"
+        case .chatGPTOpenRecentChat3:       return "Codex：打开最近对话 3（Command-Option-3）"
+        case .chatGPTOpenRecentChat4:       return "Codex：打开最近对话 4（Command-Option-4）"
+        case .chatGPTOpenRecentChat5:       return "Codex：打开最近对话 5（Command-Option-5）"
+        case .chatGPTOpenRecentChat6:       return "Codex：打开最近对话 6（Command-Option-6）"
+        case .chatGPTGoToChat1:             return "Codex：跳转对话 1（Command-1）"
+        case .chatGPTGoToChat2:             return "Codex：跳转对话 2（Command-2）"
+        case .chatGPTGoToChat3:             return "Codex：跳转对话 3（Command-3）"
+        case .chatGPTGoToChat4:             return "Codex：跳转对话 4（Command-4）"
+        case .chatGPTGoToChat5:             return "Codex：跳转对话 5（Command-5）"
+        case .chatGPTGoToChat6:             return "Codex：跳转对话 6（Command-6）"
+        case .chatGPTGoToChat7:             return "Codex：跳转对话 7（Command-7）"
+        case .chatGPTGoToChat8:             return "Codex：跳转对话 8（Command-8）"
+        case .chatGPTGoToChat9:             return "Codex：跳转对话 9（Command-9）"
+        case .chatGPTModelPicker:           return "Codex：模型选择（Control-Shift-M）"
+        case .chatGPTProjectPicker:         return "Codex：项目选择（Command-Option-Shift-O）"
+        case .chatGPTStartVoiceChat:        return "Codex：开始语音对话（Control-Shift-V）"
+        case .chatGPTStartDictation:        return "Codex：开始听写（Control-Shift-D）"
         case .chatGPTFocusConversationInput: return "Codex：聚焦对话输入框（辅助功能点击）"
-        case .chatGPTRestorePreviousPrompt: return "ChatGPT / Codex：恢复上一次输入（方向上）"
-        case .chatGPTApproveRequest:        return "ChatGPT / Codex：批准请求（Return）"
-        case .chatGPTDeclineRequest:        return "ChatGPT / Codex：拒绝请求（Esc）"
-        case .chatGPTSwitchToChat:          return "ChatGPT / Codex：切换到 Chat（Control-1）"
-        case .chatGPTSwitchToWork:          return "ChatGPT / Codex：切换到 Work（Control-2）"
-        case .chatGPTSwitchToCodex:         return "ChatGPT / Codex：切换到 Codex（Control-3）"
-        case .chatGPTToggleActivity:        return "ChatGPT / Codex：显示 / 隐藏 Activity（Command-Option-U）"
+        case .chatGPTRestorePreviousPrompt: return "Codex：恢复上一次输入（方向上）"
+        case .chatGPTApproveRequest:        return "Codex：批准请求（Return）"
+        case .chatGPTDeclineRequest:        return "Codex：拒绝请求（Esc）"
+        case .chatGPTSwitchToChat:          return "Codex：切换到 Chat（Control-1）"
+        case .chatGPTSwitchToWork:          return "Codex：切换到 Work（Control-2）"
+        case .chatGPTSwitchToCodex:         return "Codex：切换到 Codex（Control-3）"
+        case .chatGPTToggleActivity:        return "Codex：显示 / 隐藏 Activity（Command-Option-U）"
         case .chatGPTRunEnvironmentAction:  return "Codex：运行环境主操作（Command-Shift-D）"
         case .chatGPTSearchFiles:            return "Codex：搜索文件（Command-P）"
         case .chatGPTToggleFileTree:         return "Codex：显示 / 隐藏文件树（Command-Shift-E）"
@@ -607,8 +607,8 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .chatGPTCopyBrowserURL:         return "Codex：复制浏览器网址（Command-Shift-C）"
         case .chatGPTToggleBrowserMode:      return "Codex：切换浏览 / 评论模式（Command-句号）"
         case .chatGPTCopyConversationPath:   return "Codex：复制对话路径（Command-Option-Shift-C）"
-        case .chatGPTCopyChatDeepLink:       return "ChatGPT / Codex：复制对话链接（Command-Option-L）"
-        case .chatGPTCopySessionID:          return "ChatGPT / Codex：复制会话 ID（Command-Option-C）"
+        case .chatGPTCopyChatDeepLink:       return "Codex：复制对话链接（Command-Option-L）"
+        case .chatGPTCopySessionID:          return "Codex：复制会话 ID（Command-Option-C）"
         case .chatGPTCopyWorkingDirectory:   return "Codex：复制工作目录（Command-Shift-C）"
         case .chatGPTTakeAppshot:            return "Codex：截取 Appshot（双 Command 同时按下）"
         case .ghosttyNewTab:            return "Ghostty：新建标签"
@@ -695,17 +695,17 @@ enum ButtonActionCategory: String, CaseIterable, Hashable, Identifiable {
         case .editing:   return "复制与编辑"
         case .media:     return "媒体控制"
         case .floatTabs: return "FloatTabs"
-        case .chatGPTGeneral:          return "ChatGPT / Codex · 通用"
-        case .chatGPTChats:            return "ChatGPT / Codex · 对话"
-        case .chatGPTInputModes:       return "ChatGPT / Codex · 输入与模式"
-        case .chatGPTWorkspaceBrowser: return "ChatGPT / Codex · 工作区与浏览器"
+        case .chatGPTGeneral:          return "Codex · 通用"
+        case .chatGPTChats:            return "Codex · 对话"
+        case .chatGPTInputModes:       return "Codex · 输入与模式"
+        case .chatGPTWorkspaceBrowser: return "Codex · 工作区与浏览器"
         case .ghostty:   return "Ghostty"
         case .obsidian:  return "Obsidian"
         case .netease:   return "网易云音乐"
         }
     }
 
-    static let chatGPTCategories: Set<ButtonActionCategory> = [
+    static let codexCategories: Set<ButtonActionCategory> = [
         .chatGPTGeneral,
         .chatGPTChats,
         .chatGPTInputModes,
@@ -846,7 +846,22 @@ enum ButtonBinding: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(Kind.self, forKey: .type) {
         case .preset:
-            self = .preset(try container.decode(ButtonAction.self, forKey: .action))
+            let rawAction = try container.decode(String.self, forKey: .action)
+            if let action = ButtonAction(rawValue: rawAction) {
+                self = .preset(action)
+            } else if rawAction == "codexCopyLatestResponse" {
+                // This experimental action was removed because Codex does not
+                // expose its reply-level Copy control through Accessibility.
+                // Keep old v3 configurations loadable and disable only this
+                // stale binding instead of discarding every user mapping.
+                self = .preset(.disabled)
+            } else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .action,
+                    in: container,
+                    debugDescription: "Unknown ButtonAction: \(rawAction)"
+                )
+            }
         case .shortcut:
             let chord = try container.decode(KeyChord.self, forKey: .chord)
             let trigger = try container.decodeIfPresent(
@@ -879,7 +894,23 @@ enum ButtonBinding: Codable, Equatable {
         switch self {
         case let .preset(action):  return action.displayName
         case let .shortcut(chord, _): return chord.displayName
-        case .voiceKeyDefault:     return "语音键默认（短按自动物理麦克风 / 长按遥控器）"
+        case .voiceKeyDefault:     return "语音键默认（仅长按遥控器麦克风）"
+        }
+    }
+
+    /// Compact label used by the transient action HUD. Preset actions already
+    /// carry their semantic name; shortcut hints in parentheses belong in the
+    /// settings picker, not in the small runtime confirmation overlay.
+    var hudDisplayName: String {
+        switch self {
+        case let .preset(action):
+            let name = action.displayName
+            guard let separator = name.firstIndex(of: "（") else { return name }
+            return String(name[..<separator])
+        case let .shortcut(chord, _):
+            return chord.displayName
+        case .voiceKeyDefault:
+            return "遥控器语音输入"
         }
     }
 
@@ -927,15 +958,15 @@ enum DefaultBindings {
         .volumeDown:  .preset(.chatGPTNextChat),
     ]
 
-    /// ChatGPT/Codex 桌面端默认模板（Bundle ID: com.openai.codex）。
+    /// Codex 桌面端默认模板（Bundle ID: com.openai.codex）。
     /// 预设动作保留语义名称，实际快捷键由RemoteOrbit统一发送；菜单键保留为空，
-    /// 方便用户自行录制。物理方向遵循“按下方向键后看到对应方向内容”的体感：
-    /// 上键发送向下滚屏、下键发送向上滚屏。
-    static let chatGPT: [RemoteButton: ButtonBinding] = [
+    /// 方便用户自行录制。物理方向遵循直觉：上键看到上面的内容，
+    /// 下键看到下面的内容。
+    static let codex: [RemoteButton: ButtonBinding] = [
         .microphone:  .voiceKeyDefault,
         .power:       .preset(.disabled),
-        .up:          .preset(.pageDown),
-        .down:        .preset(.pageUp),
+        .up:          .preset(.pageUp),
+        .down:        .preset(.pageDown),
         .left:        .preset(.chatGPTToggleSidebar),
         .ok:          .preset(.returnKey),
         .right:       .preset(.chatGPTToggleBottomPanel),

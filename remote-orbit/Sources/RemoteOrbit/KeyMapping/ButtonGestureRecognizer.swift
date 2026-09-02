@@ -163,6 +163,19 @@ final class ButtonGestureRecognizer {
         state.cancelTimers()
 
         let duration = max(0, now - state.downAt)
+
+        // The HID monitor normally lets the main-queue deadline fire at
+        // `longPressThreshold`. If the main run loop is briefly occupied by a
+        // native HID/AppKit callback, that deadline can be delayed until after
+        // the release edge. Recover from that case here so a 4-second hold
+        // cannot fall through as a single tap and trigger the base action.
+        if !state.longPressFired,
+           duration >= Self.longPressThreshold,
+           state.context.profile.longPress?.isUsableGestureAction == true,
+           state.context.profile.longPressBehavior != .none {
+            fireLongPress(state, duration: duration)
+        }
+
         if state.longPressFired {
             return
         }
@@ -255,10 +268,13 @@ final class ButtonGestureRecognizer {
         )
     }
 
-    private func fireLongPress(_ state: PressState) {
+    private func fireLongPress(
+        _ state: PressState,
+        duration overrideDuration: TimeInterval? = nil
+    ) {
         guard !state.longPressFired else { return }
         state.longPressFired = true
-        let duration = max(
+        let duration = overrideDuration ?? max(
             0,
             ProcessInfo.processInfo.systemUptime - state.downAt
         )

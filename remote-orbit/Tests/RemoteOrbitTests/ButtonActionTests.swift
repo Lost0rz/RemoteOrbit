@@ -167,6 +167,23 @@ final class ButtonActionTests: XCTestCase {
         XCTAssertFalse(ButtonAction.floatTabsPreviousTab.repeatsWhenHeld)
     }
 
+    func testActionFeedbackDistinguishesQueuedAndSynchronousBindings() {
+        let commandR = ButtonBinding.shortcut(
+            KeyChord(keyCode: 15, keyLabel: "R", modifiers: .command),
+            trigger: .single
+        )
+        let optionR = ButtonBinding.shortcut(
+            KeyChord(keyCode: 15, keyLabel: "R", modifiers: .option),
+            trigger: .single
+        )
+
+        XCTAssertTrue(KeyInjector.isAsynchronous(commandR))
+        XCTAssertFalse(KeyInjector.isAsynchronous(optionR))
+        XCTAssertTrue(KeyInjector.isAsynchronous(.preset(.floatTabsNextTab)))
+        XCTAssertTrue(KeyInjector.isAsynchronous(.preset(.obsidianOpenDailyNote)))
+        XCTAssertFalse(KeyInjector.isAsynchronous(.preset(.chatGPTToggleSidebar)))
+    }
+
     func testCodexConversationFocusIsAnAtomicInputAction() {
         XCTAssertEqual(
             ButtonAction.chatGPTFocusConversationInput.category,
@@ -176,6 +193,13 @@ final class ButtonActionTests: XCTestCase {
         XCTAssertTrue(
             ButtonAction.chatGPTFocusConversationInput.displayName.contains("聚焦对话输入框")
         )
+    }
+
+    func testRemovedCodexCopyActionDoesNotDiscardExistingConfiguration() throws {
+        let data = Data(#"{"type":"preset","action":"codexCopyLatestResponse"}"#.utf8)
+        let binding = try JSONDecoder().decode(ButtonBinding.self, from: data)
+
+        XCTAssertEqual(binding, .preset(.disabled))
     }
 
     func testFloatTabsFullCatalogIsAvailableAsSemanticActions() {
@@ -247,6 +271,19 @@ final class ButtonActionTests: XCTestCase {
         XCTAssertFalse(obsidianCategories.contains(.chatGPTChats))
     }
 
+    func testOpenAIPresetLibraryExposesCodexOnly() {
+        let presets = AppTemplatePresetLibrary.presets(for: "com.openai.codex")
+
+        XCTAssertEqual(presets.map(\.id), ["codex.default"])
+        XCTAssertTrue(presets.allSatisfy { $0.appName == "Codex" })
+        XCTAssertEqual(
+            AppTemplatePresetLibrary.knownApps.first(where: {
+                $0.bundleIdentifier == "com.openai.codex"
+            })?.displayName,
+            "Codex"
+        )
+    }
+
     func testCodexAndFloatTabsBuiltInPresetsUseTheCurrentDefaultLayout() {
         guard let codex = AppTemplatePresetLibrary.preset(id: "codex.default"),
               let floatTabs = AppTemplatePresetLibrary.preset(id: "floatTabs.default")
@@ -257,8 +294,8 @@ final class ButtonActionTests: XCTestCase {
         XCTAssertEqual(Set(codex.bindings.keys), Set(RemoteButton.allCases))
         XCTAssertEqual(Set(floatTabs.bindings.keys), Set(RemoteButton.allCases))
 
-        assertPreset(codex, button: .up, equals: .pageDown)
-        assertPreset(codex, button: .down, equals: .pageUp)
+        assertPreset(codex, button: .up, equals: .pageUp)
+        assertPreset(codex, button: .down, equals: .pageDown)
         assertPreset(codex, button: .left, equals: .arrowLeft)
         assertPreset(codex, button: .right, equals: .arrowRight)
         assertPreset(codex, button: .back, equals: .deleteBackward)
@@ -266,14 +303,57 @@ final class ButtonActionTests: XCTestCase {
         assertPreset(codex, button: .volumeDown, equals: .chatGPTNextChat)
         assertPreset(codex, button: .menu, equals: .chatGPTToggleSidebar)
 
-        assertPreset(floatTabs, button: .up, equals: .pageDown)
-        assertPreset(floatTabs, button: .down, equals: .pageUp)
-        assertPreset(floatTabs, button: .left, equals: .floatTabsToggleFocus)
-        assertPreset(floatTabs, button: .right, equals: .paste)
+        assertPreset(floatTabs, button: .up, equals: .pageUp)
+        assertPreset(floatTabs, button: .down, equals: .pageDown)
+        assertPreset(floatTabs, button: .left, equals: .arrowLeft)
+        assertPreset(floatTabs, button: .right, equals: .arrowRight)
+        assertPreset(floatTabs, button: .back, equals: .deleteBackward)
         assertPreset(floatTabs, button: .home, equals: .floatTabsToggleVisibility)
         assertPreset(floatTabs, button: .menu, equals: .floatTabsToggleAlwaysOnTop)
         assertPreset(floatTabs, button: .volumeUp, equals: .floatTabsPreviousTab)
         assertPreset(floatTabs, button: .volumeDown, equals: .floatTabsNextTab)
+
+        XCTAssertEqual(
+            codex.gestureProfiles?[.ok]?.longPress,
+            .preset(.paste)
+        )
+        XCTAssertEqual(
+            codex.gestureProfiles?[.back]?.longPressBehavior,
+            .repeatWhileHeld
+        )
+        XCTAssertEqual(
+            floatTabs.gestureProfiles?[.menu]?.longPress,
+            .preset(.reloadPage)
+        )
+    }
+
+    func testHUDActionNameRemovesShortcutDescriptionButKeepsRecordedShortcut() {
+        XCTAssertEqual(
+            ButtonBinding.preset(.reloadPage).hudDisplayName,
+            "刷新当前页面"
+        )
+        XCTAssertEqual(
+            ButtonBinding.preset(.copy).hudDisplayName,
+            "复制"
+        )
+        XCTAssertEqual(
+            ButtonBinding.shortcut(
+                KeyChord(keyCode: 15, keyLabel: "R", modifiers: .command),
+                trigger: .single
+            ).hudDisplayName,
+            "⌘R"
+        )
+    }
+
+    func testFloatTabsDirectScrollCommandUsesTheSameVisibleDirectionAsCodex() {
+        XCTAssertEqual(
+            KeyInjector.directFloatTabsScrollCommand(for: .up),
+            .scrollDown
+        )
+        XCTAssertEqual(
+            KeyInjector.directFloatTabsScrollCommand(for: .down),
+            .scrollUp
+        )
     }
 
     private func assertPreset(

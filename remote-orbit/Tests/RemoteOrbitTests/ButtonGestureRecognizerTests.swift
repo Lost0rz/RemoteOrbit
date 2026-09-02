@@ -78,6 +78,28 @@ final class ButtonGestureRecognizerTests: XCTestCase {
         XCTAssertEqual(received, [.longPress])
     }
 
+    func testLongPressFallsBackToReleaseWhenItsTimerWasDelayed() {
+        let recognizer = ButtonGestureRecognizer()
+        var received: [ButtonGestureEventKind] = []
+        recognizer.onEvent = { received.append($0.kind) }
+
+        let profile = ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.reloadPage),
+            longPressBehavior: .triggerOnce
+        )
+        recognizer.handleDown(
+            button: .menu,
+            context: context(profile: profile),
+            at: 10.0
+        )
+        // Do not wait for the scheduled timer. This simulates a main-run-loop
+        // delay and verifies that release classification still prefers long.
+        recognizer.handleUp(button: .menu, at: 10.5)
+
+        XCTAssertEqual(received, [.longPress])
+    }
+
     func testRepeatStopsAfterRelease() {
         let recognizer = ButtonGestureRecognizer()
         let repeatExpectation = expectation(description: "repeat steps")

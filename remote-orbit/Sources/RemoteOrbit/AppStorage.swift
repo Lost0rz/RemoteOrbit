@@ -19,6 +19,17 @@ enum AppStorage {
             )
     }()
 
+    /// Mapping snapshots are kept outside UserDefaults so a failed decode or
+    /// an accidental reset cannot make the only copy of a user's templates
+    /// unrecoverable.
+    static let mappingBackupsDirectory: URL = {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(
+                "Library/Application Support/RemoteOrbit/Backups/Mappings",
+                isDirectory: true
+            )
+    }()
+
     static func prepare() {
         UserDefaults.standard.register(defaults: [
             loggingEnabledKey: false,
@@ -26,6 +37,7 @@ enum AppStorage {
         ])
         ensureDirectory(logsDirectory)
         ensureDirectory(recordingsDirectory)
+        ensureDirectory(mappingBackupsDirectory)
 
         // The app uses ~/Library/Logs as its single persistent log location.
         try? FileManager.default.removeItem(

@@ -3,7 +3,7 @@ import Foundation
 
 /// FloatTabs 的本地语义命令。它和 FloatTabs 端的枚举保持同名与同值，
 /// 但两个工程不共享源码，避免 RemoteOrbit 必须依赖 FloatTabs 的构建产物。
-enum FloatTabsDirectCommand: String {
+enum FloatTabsDirectCommand: String, Equatable {
     case show = "show"
     case toggleVisibility = "toggleVisibility"
     case selectSlot = "selectSlot"

@@ -9,6 +9,15 @@ import IOKit.hidsystem
 import Foundation
 import Dispatch
 
+/// All input policy decisions for one physical button-down edge.
+/// Keeping the routing-dependent decisions together prevents the target
+/// application from being resolved separately for gesture detection and
+/// action dispatch.
+struct HIDButtonDownPolicy {
+    let shouldDebounce: Bool
+    let shouldRepeat: Bool
+}
+
 // MARK: - C 回调函数（IOHIDManager 需要顶层函数指针）
 
 private func hidDeviceMatched(
@@ -87,6 +96,10 @@ final class HIDMonitor {
     /// the recognizer can distinguish a double tap from a bounce. Their
     /// repeat timer is owned by ButtonGestureRecognizer instead.
     var shouldUseAdvancedGestures: ((RemoteButton) -> Bool)?
+
+    /// Resolve and snapshot the policy for one physical button-down edge.
+    /// This callback runs before debouncing and before the edge is delivered.
+    var onButtonDownPolicy: ((RemoteButton) -> HIDButtonDownPolicy)?
 
     /// 状态变化回调。
     var onStatusChange: ((String) -> Void)?
@@ -296,13 +309,24 @@ final class HIDMonitor {
                 eventSuppressor.updateHeld(button: button, isDown: true)
             }
 
-            // Repeatable mappings retain their existing HID repeat behavior.
-            // Atomic/single-shot mappings get a short edge fence so a remote
-            // report sequence like down-up-down-up cannot toggle an app twice.
-            let shouldRepeat = shouldRepeatButton?(button)
-                ?? RemoteButton.repeatable.contains(button)
-            let shouldDebounce = !shouldRepeat
-                && !(shouldUseAdvancedGestures?(button) ?? false)
+            // Resolve routing, gesture mode and repeat behavior together. The
+            // legacy callbacks remain as a compatibility fallback for callers
+            // that construct HIDMonitor directly.
+            let policy: HIDButtonDownPolicy
+            if let onButtonDownPolicy {
+                policy = onButtonDownPolicy(button)
+            } else {
+                let shouldRepeat = shouldRepeatButton?(button)
+                    ?? RemoteButton.repeatable.contains(button)
+                let shouldDebounce = !shouldRepeat
+                    && !(shouldUseAdvancedGestures?(button) ?? false)
+                policy = HIDButtonDownPolicy(
+                    shouldDebounce: shouldDebounce,
+                    shouldRepeat: shouldRepeat
+                )
+            }
+            let shouldRepeat = policy.shouldRepeat
+            let shouldDebounce = policy.shouldDebounce
             if shouldDebounce {
                 debouncedUsages.insert(usage)
             }

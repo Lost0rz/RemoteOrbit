@@ -70,28 +70,22 @@ Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建�
 
 输入设备按当前系统默认设备显示勾选；选择物理麦克风后会写入 macOS 默认输入，并在 RemoteOrbit
 重启或驱动重载后恢复该选择。重新选择 `RemoteOrbit Mic 2ch（遥控器/自动）`，即可恢复豆包使用
-遥控器短按/长按的自动音频链路。输出设备选择立即切换系统默认输出；BlackHole、RemoteOrbit
+遥控器长按语音链路。输出设备选择立即切换系统默认输出；BlackHole、RemoteOrbit
 等虚拟回环设备不会显示在输出列表中。菜单每次打开都会重新扫描设备，插拔外接设备后可点击
 “刷新设备列表”。
 
 ### 短按
 
-短按遥控器语音键时：
-
-1. 遥控器的 HID 语音键由设备级映射转换为豆包能识别的真实左 Option，并立即发送，不等待语音键握手。
-2. FloatTabs 在显示和激活流程中主动预热原生/WebKit 输入焦点；其他程序直接沿用原路径。
-3. RemoteOrbit 自动从可用的本机物理麦克风中选择输入，并写入 `RemoteOrbit Mic 2ch`。
-
-本机麦克风不会写死为 MacBook、Mac mini 或 `External Microphone`。程序会优先使用当前默认的非回环设备；如果默认设备是 `RemoteOrbit Mic 2ch` 或 BlackHole，则自动跳过它，选择其他可用物理麦克风。
+短按遥控器语音键会被忽略：不调用本机或外接麦克风、不发送语音输入，也不切换系统音频设备。这样可以避免短按/长按识别竞态和第一次输入丢失。
 
 ### 长按
 
-长按超过约 300 ms 时：
+长按超过约 120 ms 时：
 
 1. 真实左 Option 立即保持按下状态，所以豆包能显示按住说话浮窗；FloatTabs 的焦点预热不插入语音键延迟。
-2. RemoteOrbit 停止把本机麦克风送入虚拟设备。
-3. 遥控器 ATVV 解码后的音频被送入 `RemoteOrbit Mic 2ch`，豆包从同一个默认输入读取。
-4. 松开遥控器后立即释放 Option、停止遥控器音频，并切回自动选择的本机物理麦克风。
+2. RemoteOrbit 只把遥控器 ATVV 解码后的音频送入 `RemoteOrbit Mic 2ch`，不回退到本机麦克风。
+3. 豆包从同一个默认输入读取遥控器音频。
+4. 松开遥控器后立即释放 Option、停止遥控器音频，并清空本次语音的预缓冲。
 
 遥控器音频当前使用约 20 倍增益，并使用软限幅，解决遥控器距离较远时声音过小的问题；如果近距离说话出现失真，可以调低 `AudioPipe.swift` 中的 `remoteGain`。
 
@@ -346,7 +340,7 @@ ChatGPT 默认：左键打开侧边栏，右键用 ⌘J 开关终端底部面板
 - 辅助功能：开启 RemoteOrbit；
 - 输入监控：开启 RemoteOrbit；
 - 蓝牙：允许 RemoteOrbit 连接遥控器；
-- 麦克风：允许 RemoteOrbit 使用本机麦克风。
+- 麦克风：如果 macOS 显示该权限请求，允许 RemoteOrbit；当前语音键只使用遥控器麦克风，不会回退到本机麦克风。
 
 如果刚更新过 App，退出旧的 RemoteOrbit 进程后重新打开；如果刚更新过驱动，先在设置中
 重新检测并等待 CoreAudio 重载，设备仍未出现时再重启整台 Mac。
@@ -373,7 +367,7 @@ defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool true
 [PRESS] LONG start → Option DOWN
 [AUDIO-METER] remoteBuffers=... renderedFrames=...
 [PRESS] LONG end → Option UP
-[AUDIO] 输入切换 → 本机物理麦克风
+[AUDIO] 输入切换 → 无输入（等待下一次遥控器长按）
 ```
 
 需要确认遥控器原始音频时，可以在菜单中打开调试录音。录音目录为：
@@ -390,8 +384,8 @@ defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool false
 
 ## 本次代码修改位置
 
-- `remote-orbit/Sources/RemoteOrbit/main.swift`：短按/长按状态机、立即物理 Option、设备级映射。
-- `remote-orbit/Sources/RemoteOrbit/AudioPipe.swift`：自动选择物理麦克风、遥控器增益、预缓冲和虚拟设备输出诊断；启动时恢复菜单选择的输入设备。
+- `remote-orbit/Sources/RemoteOrbit/main.swift`：短按忽略/长按状态机、立即物理 Option、设备级映射。
+- `remote-orbit/Sources/RemoteOrbit/AudioPipe.swift`：遥控器增益、预缓冲和虚拟设备输出诊断；启动时恢复菜单选择的输入设备。
 - `remote-orbit/Sources/RemoteOrbit/AudioDeviceManager.swift`：CoreAudio 输入/输出设备枚举、系统默认设备切换和虚拟回环过滤。
 - `remote-orbit/Sources/RemoteOrbit/KeyMapping/MappingStore.swift`：全局映射、App 模板、持久化迁移和按下时目标快照。
 - `remote-orbit/Sources/RemoteOrbit/KeyMapping/SettingsView.swift`：RemoteOrbit Control Center、按键 Profile、预设导入和全局按键锁定。

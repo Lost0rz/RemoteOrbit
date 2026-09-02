@@ -96,6 +96,61 @@ enum KeyInjector {
         }
     }
 
+    /// Returns true when the action only has an enqueue/dispatch guarantee at
+    /// this layer. The HUD must not call that state "已执行" because the
+    /// receiving app or System Events process can complete later.
+    static func isAsynchronous(
+        _ binding: ButtonBinding,
+        targetApplicationBundleIdentifier: String? = nil
+    ) -> Bool {
+        switch binding {
+        case let .shortcut(chord, _):
+            return chord.modifiers.contains(.command)
+                || chord.modifiers.contains(.control)
+        case let .preset(action):
+            switch action {
+            case .openFloatTabs, .openCodex,
+                 .floatTabsSelectSlot1, .floatTabsSelectSlot2,
+                 .floatTabsSelectSlot3, .floatTabsSelectSlot4,
+                 .floatTabsSelectSlot5, .floatTabsSelectSlot6,
+                 .floatTabsSelectSlot7, .floatTabsSelectSlot8,
+                 .floatTabsSelectSlot9, .floatTabsNextTab,
+                 .floatTabsPreviousTab, .floatTabsAddWebApp,
+                 .floatTabsZoomIn, .floatTabsZoomOut,
+                 .floatTabsResetZoom, .floatTabsAddressBar,
+                 .floatTabsReturnHome, .floatTabsToggleVisibility,
+                 .floatTabsSettings, .floatTabsToggleAlwaysOnTop,
+                 .floatTabsTogglePin, .floatTabsSetHotResidency,
+                 .floatTabsSetWarmResidency, .floatTabsSetColdResidency:
+                return true
+            case .floatTabsToggleFocus:
+                return targetApplicationBundleIdentifier
+                    != CodexCommandAdapter.bundleIdentifier
+            case .pageUp, .pageDown:
+                return targetApplicationBundleIdentifier
+                    == FloatTabsCommandClient.bundleIdentifier
+            case .reloadPage:
+                // FloatTabs handles this through its distributed command;
+                // every other target falls back to Command-R, which uses the
+                // asynchronous System Events path.
+                return true
+            case .obsidianToggleLeftSidebar, .obsidianToggleRightSidebar,
+                 .obsidianCloseOtherTabs, .obsidianSplitDown,
+                 .obsidianShowBacklinks, .obsidianShowOutgoingLinks,
+                 .obsidianShowTags, .obsidianShowAllProperties,
+                 .obsidianShowFileProperties, .obsidianOpenDailyNote,
+                 .obsidianInsertTemplate, .obsidianOpenFileExplorer,
+                 .obsidianMoveTabToNewWindow, .obsidianOpenTabInNewWindow,
+                 .obsidianCreateNewCanvas:
+                return true
+            default:
+                return false
+            }
+        case .voiceKeyDefault:
+            return false
+        }
+    }
+
     // MARK: - 预设动作
 
     @discardableResult
@@ -1067,9 +1122,19 @@ enum KeyInjector {
         return true
     }
 
-    private enum PageNavigationDirection {
+    enum PageNavigationDirection {
         case up
         case down
+    }
+
+    /// FloatTabs receives semantic commands and converts its line value into
+    /// the native WebKit wheel sign. Its `scrollUp` command therefore needs
+    /// the opposite command name from the system/Codex path to produce the
+    /// same visible direction.
+    static func directFloatTabsScrollCommand(
+        for direction: PageNavigationDirection
+    ) -> FloatTabsDirectCommand {
+        direction == .up ? .scrollDown : .scrollUp
     }
 
     /// 将滚动送到正确的目标。
@@ -1086,7 +1151,7 @@ enum KeyInjector {
         let targetBundleIdentifier = targetApplicationBundleIdentifier
             ?? MappingStore.preferredApplicationBundleIdentifier()
         if targetBundleIdentifier == "com.lost0rz.FloatTabs" {
-            let command: FloatTabsDirectCommand = direction == .up ? .scrollUp : .scrollDown
+            let command = directFloatTabsScrollCommand(for: direction)
             if FloatTabsCommandClient.send(
                 command,
                 scrollLines: clampedScrollLinesPerStep(scrollLinesPerStep)

@@ -348,6 +348,10 @@ final class HIDWatcher {
     private var manager: IOHIDManager?
 
     func start() {
+        guard manager == nil else {
+            print("[HID] watcher already running")
+            return
+        }
         let m = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         IOHIDManagerSetDeviceMatching(m, [
             kIOHIDVendorIDKey: Self.vendorID,
@@ -361,6 +365,12 @@ final class HIDWatcher {
         let r = IOHIDManagerOpen(m, IOOptionBits(kIOHIDOptionsTypeNone))
         guard r == kIOReturnSuccess else {
             print("[HID] IOHIDManagerOpen failed: \(r)")
+            IOHIDManagerUnscheduleFromRunLoop(
+                m,
+                CFRunLoopGetMain(),
+                CFRunLoopMode.defaultMode.rawValue
+            )
+            IOHIDManagerClose(m, IOOptionBits(kIOHIDOptionsTypeNone))
             return
         }
         manager = m
@@ -368,6 +378,11 @@ final class HIDWatcher {
 
     func stop() {
         if let m = manager {
+            IOHIDManagerUnscheduleFromRunLoop(
+                m,
+                CFRunLoopGetMain(),
+                CFRunLoopMode.defaultMode.rawValue
+            )
             IOHIDManagerClose(m, IOOptionBits(kIOHIDOptionsTypeNone))
         }
         manager = nil
@@ -419,6 +434,7 @@ final class VoiceKeyFilter {
     }
 
     private var tapPort: CFMachPort?
+    private var tapSource: CFRunLoopSource?
     private var voiceKeyIsDown = false
     private var optionDeferralGestureID: UUID?
     private var deferredOptionDownSeen = false
@@ -510,6 +526,11 @@ final class VoiceKeyFilter {
     }
 
     func start() throws {
+        guard tapPort == nil else {
+            print("[FILTER] event tap already running")
+            return
+        }
+
         // Don't prompt user each time — check if already trusted.
         let trusted = AXIsProcessTrusted()
         let opts: CFDictionary = [
@@ -528,14 +549,14 @@ final class VoiceKeyFilter {
             (1 << CGEventType.keyUp.rawValue) |
             (1 << CGEventType.flagsChanged.rawValue)
         let callback: CGEventTapCallBack = { (_, type, event, userInfo) -> Unmanaged<CGEvent>? in
-            guard let userInfo else { return Unmanaged.passRetained(event) }
+            guard let userInfo else { return Unmanaged.passUnretained(event) }
             let filter = Unmanaged<VoiceKeyFilter>.fromOpaque(userInfo).takeUnretainedValue()
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let tap = filter.tapPort {
                     CGEvent.tapEnable(tap: tap, enable: true)
                     print("[FILTER] event tap was disabled; re-enabled")
                 }
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             }
             let keyCode = CGKeyCode(
                 event.getIntegerValueField(.keyboardEventKeycode)
@@ -544,7 +565,7 @@ final class VoiceKeyFilter {
             // 跳过 App 自身合成的事件（防止递归拦截）
             let userData = event.getIntegerValueField(.eventSourceUserData)
             if userData == Key.syntheticMarker {
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             }
 
             // hidutil converts the remote's F5 usage into left Option. When a
@@ -566,7 +587,7 @@ final class VoiceKeyFilter {
                     if filter.deferredOptionDownSeen {
                         filter.deferredOptionUpSeen = true
                     } else {
-                        return Unmanaged.passRetained(event)
+                        return Unmanaged.passUnretained(event)
                     }
                 default:
                     break
@@ -576,7 +597,7 @@ final class VoiceKeyFilter {
 
             if keyCode == VK.voiceKey {
                 if filter.skipVoiceKey {
-                    return Unmanaged.passRetained(event)
+                    return Unmanaged.passUnretained(event)
                 }
                 if type == .keyDown {
                     let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
@@ -596,7 +617,7 @@ final class VoiceKeyFilter {
                 }
             }
 
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
         guard let tap = CGEvent.tapCreate(
             tap: .cghidEventTap,
@@ -610,9 +631,12 @@ final class VoiceKeyFilter {
         }
         tapPort = tap
         guard let src = CFMachPortCreateRunLoopSource(nil, tap, 0) else {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            tapPort = nil
             throw FilterError.tapCreationFailed
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
+        tapSource = src
         CGEvent.tapEnable(tap: tap, enable: true)
         print("[FILTER] tap enabled; voice key 0x60 (F5) is suppressed; RemoteOrbit supplies a balanced synthetic left Option hold")
     }
@@ -625,7 +649,11 @@ final class VoiceKeyFilter {
             voiceKeyIsDown = false
             onVoiceKeyUp?()
         }
+        if let source = tapSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        }
         if let t = tapPort { CGEvent.tapEnable(tap: t, enable: false) }
+        tapSource = nil
         tapPort = nil
     }
 }
@@ -653,6 +681,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let mappingStore = MappingStore()
     private let hidMonitor = HIDMonitor()
     private let buttonGestureRecognizer = ButtonGestureRecognizer()
+    private let actionHUD = RemoteActionHUD()
+    private var repeatGestureHUDButtons: Set<RemoteButton> = []
     private let voiceFocusTransactions = VoiceFocusTransactionTracker()
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
@@ -891,6 +921,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         watcher.onDisconnect = { [weak self] _ in
             RemoteVoiceKeyMapping.setEnabled(false)
+            self?.voicePress.stop()
             self?.hidConnected = false
             self?.updateStatus()
         }
@@ -905,7 +936,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         ble.onConnectionChanged = { [weak self] connected in
             self?.bleConnected = connected
-            if !connected { self?.remoteStreaming = false }
+            if !connected {
+                self?.remoteStreaming = false
+                // A BLE loss can happen before HID emits the matching key-up.
+                // Release the gesture and any synthetic modifier immediately;
+                // reconnecting the audio link must never leave a stale hold.
+                self?.voicePress.stop()
+            }
             self?.updateStatus()
         }
         ble.onStreamingChanged = { [weak self] streaming, _ in
@@ -927,8 +964,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hidMonitor.onDeviceChange = { [weak self] active in
             self?.filter.skipVoiceKey = active
             if !active {
+                // Device removal does not guarantee a final HID report. Stop
+                // voice and advanced gestures explicitly so a lost release
+                // cannot leave Option held or a repeat stream alive.
+                self?.voicePress.stop()
                 self?.mappingStore.clearPressedBindings()
                 self?.buttonGestureRecognizer.cancelAll()
+                self?.repeatGestureHUDButtons.removeAll()
+                self?.actionHUD.dismiss()
             }
             if active {
                 print("[HID] monitor active → VoiceKeyFilter 跳过语音键")
@@ -936,7 +979,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 print("[HID] monitor inactive → VoiceKeyFilter 处理语音键")
             }
         }
-        hidMonitor.onButtonEdgeSuppressed = { button, isDown in
+        hidMonitor.onButtonEdgeSuppressed = { [weak self] button, isDown in
+            if isDown {
+                self?.mappingStore.cancelPress(for: button)
+            }
             print(
                 "[HID] debounce suppressed: \(button.displayName) "
                     + (isDown ? "down" : "up")
@@ -961,6 +1007,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     )
                 }
                 if button != .microphone, profile.usesAdvancedGestures {
+                    self.actionHUD.show(
+                        button: button,
+                        gesture: "识别中",
+                        action: "等待确认",
+                        state: .pending,
+                        keepsPendingVisible: true
+                    )
                     self.buttonGestureRecognizer.handleDown(
                         button: button,
                         context: ButtonGestureContext(
@@ -999,6 +1052,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     }
                     self.buttonGestureRecognizer.handleUp(button: button, at: timestamp)
                     _ = self.mappingStore.endPress(for: button)
+                    self.repeatGestureHUDButtons.remove(button)
                     return
                 }
                 binding = self.mappingStore.endPress(for: button)
@@ -1008,6 +1062,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if button == .microphone {
                 if case .voiceKeyDefault = binding {
                     if isDown {
+                        self.actionHUD.show(
+                            button: button,
+                            gesture: "按住",
+                            action: "遥控器语音输入",
+                            state: .pending
+                        )
                         self.beginVoicePress(
                             targetApplicationBundleIdentifier: self.mappingStore
                                 .activePressApplicationBundleIdentifier(for: button)
@@ -1027,6 +1087,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         scrollLinesPerStep: self.mappingStore.scrollLinesPerStep
                     )
                     print("[KEY] \(button.displayName) down → \(binding.displayName); sent=\(sent)")
+                    self.actionHUD.show(
+                        button: button,
+                        gesture: "按下",
+                        action: binding.hudDisplayName,
+                        state: self.actionHUDState(
+                            for: binding,
+                            targetApplicationBundleIdentifier: self.mappingStore
+                                .activePressApplicationBundleIdentifier(for: button),
+                            sent: sent
+                        )
+                    )
                 } else {
                     let sent = KeyInjector.sendUp(binding)
                     print("[KEY] \(button.displayName) up → \(binding.displayName); sent=\(sent)")
@@ -1044,6 +1115,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     scrollLinesPerStep: self.mappingStore.scrollLinesPerStep
                 )
                 print("[KEY] \(button.displayName) down → \(binding.displayName); sent=\(sent)")
+                self.actionHUD.show(
+                    button: button,
+                    gesture: "按下",
+                    action: binding.hudDisplayName,
+                    state: self.actionHUDState(
+                        for: binding,
+                        targetApplicationBundleIdentifier: self.mappingStore
+                            .activePressApplicationBundleIdentifier(for: button),
+                        sent: sent
+                    )
+                )
             } else {
                 if self.shouldCancelFloatTabsScroll(
                     binding: binding,
@@ -1059,34 +1141,37 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 print("[KEY] \(button.displayName) up → \(binding.displayName); sent=\(sent)")
             }
         }
-        hidMonitor.shouldUseAdvancedGestures = { [weak self] button in
-            guard let self, button != .microphone else { return false }
-            let profile = self.mappingStore.gestureProfile(
-                for: button,
-                appBundleIdentifier: MappingStore.preferredApplicationBundleIdentifier()
-            )
-            return profile.usesAdvancedGestures
-        }
-        hidMonitor.shouldRepeatButton = { [weak self] button in
-            guard let self else { return RemoteButton.repeatable.contains(button) }
-            if button != .microphone {
-                let profile = self.mappingStore.gestureProfile(
-                    for: button,
-                    appBundleIdentifier: MappingStore.preferredApplicationBundleIdentifier()
+        hidMonitor.onButtonDownPolicy = { [weak self] button in
+            guard let self else {
+                let repeatable = RemoteButton.repeatable.contains(button)
+                return HIDButtonDownPolicy(
+                    shouldDebounce: !repeatable,
+                    shouldRepeat: repeatable
                 )
-                if profile.usesAdvancedGestures {
-                    return false
+            }
+
+            // This prepares the app target, base binding and gesture profile
+            // together. The edge callback below reuses that exact snapshot.
+            let binding = self.mappingStore.preparePress(for: button)
+            let profile = self.mappingStore.activePressGestureProfile(for: button)
+            let advanced = button != .microphone && profile.usesAdvancedGestures
+            let shouldRepeat: Bool
+            if advanced {
+                shouldRepeat = false
+            } else {
+                switch binding {
+                case let .shortcut(_, trigger):
+                    shouldRepeat = trigger == .repeatWhileHeld
+                case let .preset(action):
+                    shouldRepeat = action.repeatsWhenHeld
+                case .voiceKeyDefault:
+                    shouldRepeat = false
                 }
             }
-            let binding = self.mappingStore.activePressBinding(for: button)
-            switch binding {
-            case let .shortcut(_, trigger):
-                return trigger == .repeatWhileHeld
-            case let .preset(action):
-                return action.repeatsWhenHeld
-            case .voiceKeyDefault:
-                return false
-            }
+            return HIDButtonDownPolicy(
+                shouldDebounce: !shouldRepeat && !advanced,
+                shouldRepeat: shouldRepeat
+            )
         }
         hidMonitor.onButtonRepeat = { [weak self] button in
             guard let self else { return }
@@ -1145,6 +1230,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     + "duration=\(String(format: "%.3f", event.duration))s "
                     + "clicks=\(event.clickCount) → disabled"
             )
+            actionHUD.show(
+                button: event.button,
+                gesture: event.kind.displayName,
+                action: "未配置动作",
+                state: .failure
+            )
             return
         }
 
@@ -1159,6 +1250,42 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 + "duration=\(String(format: "%.3f", event.duration))s "
                 + "clicks=\(event.clickCount) → \(binding.displayName); sent=\(sent)"
         )
+        // Repeat gestures can arrive every 100 ms. Show the resolved
+        // “按住重复” result once, on the first confirmed repeat action, then
+        // let the normal result timeout remove it. Rebuilding an AppKit view
+        // for every repeat would add flicker and unnecessary work.
+        let shouldShowRepeatResult: Bool
+        if event.kind == .repeatStep {
+            shouldShowRepeatResult = !repeatGestureHUDButtons.contains(event.button)
+            repeatGestureHUDButtons.insert(event.button)
+        } else {
+            shouldShowRepeatResult = false
+        }
+        if event.kind != .repeatStep || shouldShowRepeatResult {
+            actionHUD.show(
+                button: event.button,
+                gesture: event.kind.displayName,
+                action: binding.hudDisplayName,
+                state: actionHUDState(
+                    for: binding,
+                    targetApplicationBundleIdentifier: event.context
+                        .targetApplicationBundleIdentifier,
+                    sent: sent
+                )
+            )
+        }
+    }
+
+    private func actionHUDState(
+        for binding: ButtonBinding,
+        targetApplicationBundleIdentifier: String?,
+        sent: Bool
+    ) -> RemoteActionHUDState {
+        guard sent else { return .failure }
+        return KeyInjector.isAsynchronous(
+            binding,
+            targetApplicationBundleIdentifier: targetApplicationBundleIdentifier
+        ) ? .queued : .success
     }
 
     private func shouldCancelFloatTabsScroll(
@@ -1179,6 +1306,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func refreshAudioDeviceMenus() {
+        AudioPipe.shared.recoverOutputDeviceIfNeeded()
         rebuildAudioMenu(
             audioInputMenu,
             devices: SystemAudioDeviceManager.inputDevices(),
@@ -1239,8 +1367,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateStatus() {
         let inputMonitoringGranted = HIDMonitor.isInputMonitoringGranted
         let accessibilityGranted = KeyInjector.isAccessibilityTrusted
+        let audioOutputReady = AudioPipe.shared.isOutputReady
 
-        if remoteStreaming {
+        if remoteStreaming, audioOutputReady {
             setStatusSummary("状态 · 遥控器录音中", color: .systemGreen)
             startRecordingStatusPulse()
         } else if !inputMonitoringGranted || !accessibilityGranted {
@@ -1250,10 +1379,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 : !inputMonitoringGranted ? "输入监控" : "辅助功能"
             setStatusSummary("状态 · 需要授权 \(missing)", color: .systemOrange)
             setStatusIcon(systemName: "exclamationmark.triangle", color: .systemOrange)
-        } else if hidConnected && bleConnected {
+        } else if remoteStreaming {
+            stopRecordingStatusPulse()
+            setStatusSummary("状态 · 录音中但音频设备未就绪", color: .systemRed)
+            setStatusIcon(systemName: "waveform.slash", color: .systemRed)
+        } else if hidConnected && bleConnected && audioOutputReady {
             stopRecordingStatusPulse()
             setStatusSummary("状态 · 已就绪", color: .systemGreen)
             setStatusIcon(systemName: "circle.dotted.and.circle", color: .white)
+        } else if hidConnected && bleConnected {
+            stopRecordingStatusPulse()
+            setStatusSummary("状态 · 音频设备未就绪", color: .systemRed)
+            setStatusIcon(systemName: "waveform.slash", color: .systemRed)
         } else if hidConnected || bleConnected {
             stopRecordingStatusPulse()
             setStatusSummary("状态 · 正在连接", color: .systemOrange)
@@ -1267,12 +1404,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setMenuStatus(remoteStatusItem, title: "遥控器 · " + (hidConnected ? "HID 已连接" : "未连接"), color: hidConnected ? .systemGreen : .systemRed)
         let audioTitle: String
         let audioColor: NSColor
-        if remoteStreaming {
+        if remoteStreaming, audioOutputReady {
             audioTitle = "语音链路 · 遥控器录音中"
             audioColor = .systemGreen
-        } else if bleConnected {
+        } else if remoteStreaming {
+            audioTitle = "语音链路 · 音频设备未就绪"
+            audioColor = .systemRed
+        } else if bleConnected, audioOutputReady {
             audioTitle = "语音链路 · BLE 已连接"
             audioColor = .systemGreen
+        } else if bleConnected {
+            audioTitle = "语音链路 · BLE 已连接 / 音频未就绪"
+            audioColor = .systemRed
         } else {
             audioTitle = "语音链路 · 未连接"
             audioColor = .systemRed
@@ -1379,6 +1522,30 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 }
 
 // MARK: - Entry
+
+/// LaunchAtLogin uses `open`, and users can also start the app manually. Keep
+/// the product to one process so two HID monitors, event taps, BLE clients,
+/// or CoreAudio IOProcs cannot compete for the same remote.
+private func terminateDuplicateInstanceIfNeeded() -> Bool {
+    guard let bundleIdentifier = Bundle.main.bundleIdentifier,
+          bundleIdentifier == ProductIdentity.bundleIdentifier
+    else { return false }
+
+    let currentPID = ProcessInfo.processInfo.processIdentifier
+    guard let existing = NSRunningApplication.runningApplications(
+        withBundleIdentifier: bundleIdentifier
+    ).first(where: { $0.processIdentifier != currentPID }) else {
+        return false
+    }
+
+    _ = existing.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+    Swift.print("[APP] duplicate launch ignored; existing pid=\(existing.processIdentifier)")
+    return true
+}
+
+if terminateDuplicateInstanceIfNeeded() {
+    exit(0)
+}
 
 let app = NSApplication.shared
 let delegate = AppController()

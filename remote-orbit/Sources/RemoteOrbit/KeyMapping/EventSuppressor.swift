@@ -83,6 +83,7 @@ final class EventSuppressor {
             eventTap,
             0
         ) else {
+            CGEvent.tapEnable(tap: eventTap, enable: false)
             return false
         }
 

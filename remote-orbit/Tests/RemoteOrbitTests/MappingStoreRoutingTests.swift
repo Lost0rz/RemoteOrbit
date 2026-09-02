@@ -48,6 +48,17 @@ final class MappingStoreRoutingTests: XCTestCase {
         XCTAssertEqual(resolved, "com.mitchellh.ghostty")
     }
 
+    func testFrontmostExternalAppWinsOverStaleAccessibilityFocus() {
+        let resolved = MappingStore.resolvedApplicationBundleIdentifier(
+            focused: MappingStore.floatTabsBundleIdentifier,
+            frontmost: MappingStore.codexBundleIdentifier,
+            cachedExternal: "com.mitchellh.ghostty",
+            ownBundleIdentifier: ownBundleIdentifier
+        )
+
+        XCTAssertEqual(resolved, MappingStore.codexBundleIdentifier)
+    }
+
     func testFloatTabsFrontmostWinsOverWebKitChildFocus() {
         let resolved = MappingStore.resolvedApplicationBundleIdentifier(
             focused: "com.apple.WebKit.WebContent",
@@ -75,5 +86,51 @@ final class MappingStoreRoutingTests: XCTestCase {
                 frontmostBundleIdentifier: "com.apple.Safari"
             )
         )
+    }
+
+    func testMissingActiveTemplateIsRepairedToFirstTemplateForThatApp() {
+        let firstID = UUID()
+        let secondID = UUID()
+        let templates = [
+            AppMappingTemplate(
+                id: firstID,
+                appBundleIdentifier: MappingStore.codexBundleIdentifier,
+                appName: "Codex",
+                templateName: "默认"
+            ),
+            AppMappingTemplate(
+                id: secondID,
+                appBundleIdentifier: MappingStore.codexBundleIdentifier,
+                appName: "Codex",
+                templateName: "编辑"
+            )
+        ]
+
+        let repaired = MappingStore.repairedActiveTemplateIDs(
+            ["com.example.deleted": UUID()],
+            templates: templates
+        )
+
+        XCTAssertEqual(repaired[MappingStore.codexBundleIdentifier], firstID)
+        XCTAssertNil(repaired["com.example.deleted"])
+    }
+
+    func testValidActiveTemplateIsPreservedDuringRepair() {
+        let activeID = UUID()
+        let templates = [
+            AppMappingTemplate(
+                id: activeID,
+                appBundleIdentifier: MappingStore.floatTabsBundleIdentifier,
+                appName: "FloatTabs",
+                templateName: "浏览"
+            )
+        ]
+
+        let repaired = MappingStore.repairedActiveTemplateIDs(
+            [MappingStore.floatTabsBundleIdentifier: activeID],
+            templates: templates
+        )
+
+        XCTAssertEqual(repaired[MappingStore.floatTabsBundleIdentifier], activeID)
     }
 }
