@@ -1,6 +1,6 @@
 // RemoteOrbit: a multi-mode control surface for the Xiaomi Bluetooth Voice Remote 2 Pro.
 //
-// 1. Voice key (HID F5) → suppressed → bridge-generated Option semantics
+// 1. Voice key (HID F5) → suppressed → bridge-generated Option hold semantics
 // 2. ATVV voice stream over BLE → decoded ADPCM → RemoteOrbit Mic 2ch
 //    → macOS audio input → Doubao hears the selected source
 //
@@ -165,15 +165,14 @@ enum RemoteVoiceKeyMapping {
 
 // MARK: - Voice-button gesture state machine
 
-/// Separates the remote's one physical voice button into two mutually
-/// exclusive Doubao gestures:
+/// Remote voice input is intentionally hold-only:
 ///
-/// * short press: Option tap + automatically selected physical microphone
-/// * long press:  Option hold + remote ATVV microphone
+/// * short tap: ignored; no local microphone and no external voice input
+/// * hold: remote ATVV microphone + Option hold
 ///
-/// We cannot know which gesture the user intends on the initial key-down, so
-/// the event is held for a short classification window. Crucially, BLE
-/// AUDIO_START alone never changes the routed microphone.
+/// Audio is armed on the first edge so the remote pre-roll is available while
+/// the small hold threshold is being crossed. There is no short-press action
+/// and no local-microphone fallback in this path.
 final class VoicePressCoordinator {
     private enum Mode {
         case idle
@@ -181,7 +180,10 @@ final class VoicePressCoordinator {
         case holding
     }
 
-    private let longPressThreshold: TimeInterval = 0.30
+    /// This is only an activation guard, not a short-vs-long classifier. A
+    /// quick tap is a no-op; a hold starts remote dictation after 120 ms so
+    /// the first spoken syllable is not lost behind the old 300 ms window.
+    private let holdActivationThreshold: TimeInterval = 0.12
     // The remote sends AUDIO_STOP before the HID key-up, so there is no BLE
     // tail left to wait for here. Keeping this delay near zero makes Doubao
     // leave its recording UI as soon as the user releases the button.
@@ -204,9 +206,9 @@ final class VoicePressCoordinator {
         AudioPipe.shared.beginRemoteCandidate()
         mode = .pending
 
-        // Keep remote audio routed from the first edge. The short/long
-        // classifier is independent from FloatTabs focus and must never wait
-        // for another process before the remote microphone is armed.
+        // Keep remote audio routed from the first edge. The hold-only guard
+        // must never wait for another process before the remote microphone is
+        // armed, so the first decoded frames remain available.
         setRemoteRouted(true)
 
         let work = DispatchWorkItem { [weak self] in
@@ -214,10 +216,10 @@ final class VoicePressCoordinator {
         }
         holdWorkItem = work
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + longPressThreshold,
+            deadline: .now() + holdActivationThreshold,
             execute: work
         )
-        print("[PRESS] pending; waiting 300 ms to classify tap vs hold")
+        print("[PRESS] pending; hold-only activation in 120 ms; short tap is ignored")
         return true
     }
 
@@ -232,7 +234,7 @@ final class VoicePressCoordinator {
             mode = .idle
             setRemoteRouted(false)
             AudioPipe.shared.endRemoteCandidate()
-            emitShortPress()
+            print("[PRESS] SHORT ignored; remote voice is hold-only")
         case .holding:
             mode = .idle
             suppressNewPressUntil = Date().addingTimeInterval(
@@ -266,18 +268,6 @@ final class VoicePressCoordinator {
         mode = .idle
         setRemoteRouted(false)
         AudioPipe.shared.endRemoteCandidate()
-    }
-
-    private func emitShortPress() {
-        if RemoteVoiceKeyMapping.isEnabled {
-            // The mapped physical Option tap is intercepted/released by
-            // VoiceKeyFilter only while FloatTabs is repairing focus.
-            print("[PRESS] SHORT → hardware Option tap; source=Doubao auto-selected microphone")
-        } else {
-            // Fallback for systems where hidutil could not be applied.
-            print("[PRESS] SHORT → synthetic Option tap; source=Doubao auto-selected microphone")
-            Key.optionTap()
-        }
     }
 
     private func promoteToLongPress() {
@@ -891,9 +881,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // HID connection (status icon).
         watcher.onConnect = { [weak self] _ in
-            // Keep Doubao's reliable physical Option path. Focus warming is
-            // handled by FloatTabs presentation, not by delaying this key.
-            RemoteVoiceKeyMapping.setEnabled(true)
+            // The voice key is intercepted as the remote's F5 event and the
+            // coordinator emits a balanced synthetic Option hold after the
+            // hold guard. Do not enable hidutil's second Option event: it
+            // races the focus handoff and can make a short tap reach macOS.
+            RemoteVoiceKeyMapping.setEnabled(false)
             self?.hidConnected = true
             self?.updateStatus()
         }
