@@ -58,4 +58,22 @@ final class MappingStoreRoutingTests: XCTestCase {
 
         XCTAssertEqual(resolved, MappingStore.floatTabsBundleIdentifier)
     }
+
+    func testFloatTabsSummonOnlyTogglesWhenFloatTabsIsFrontmost() {
+        XCTAssertTrue(
+            FloatTabsCommandClient.shouldToggleVisibility(
+                frontmostBundleIdentifier: FloatTabsCommandClient.bundleIdentifier
+            )
+        )
+        XCTAssertFalse(
+            FloatTabsCommandClient.shouldToggleVisibility(
+                frontmostBundleIdentifier: "com.apple.WebKit.WebContent"
+            )
+        )
+        XCTAssertFalse(
+            FloatTabsCommandClient.shouldToggleVisibility(
+                frontmostBundleIdentifier: "com.apple.Safari"
+            )
+        )
+    }
 }

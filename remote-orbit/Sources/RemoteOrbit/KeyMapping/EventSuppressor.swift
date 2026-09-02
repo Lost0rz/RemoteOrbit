@@ -46,6 +46,11 @@ final class EventSuppressor {
     /// Short release fence for a keyboard autorepeat already in flight when
     /// the HID release arrives.
     private var recentlyReleasedNativeEvents: [RemoteNativeEvent: TimeInterval] = [:]
+    /// Tracks native keyDown events that this tap actually swallowed. A
+    /// matching keyUp may be swallowed only for those events; otherwise an
+    /// early native keyDown can leak through while its keyUp is accidentally
+    /// filtered, leaving macOS in a stuck autorepeat state.
+    private var suppressedNativeKeyDowns: Set<RemoteNativeEvent> = []
     private var remotePowerSuppressionEnabled = false
     private var remoteMediaSuppressionEnabled = false
     private var eventTap: CFMachPort?
@@ -94,6 +99,7 @@ final class EventSuppressor {
         pendingEvents.removeAll()
         heldNativeEvents.removeAll()
         recentlyReleasedNativeEvents.removeAll()
+        suppressedNativeKeyDowns.removeAll()
         remotePowerSuppressionEnabled = false
         remoteMediaSuppressionEnabled = false
         lock.unlock()
@@ -150,6 +156,8 @@ final class EventSuppressor {
         if isDown {
             heldNativeEvents.insert(nativeEvent)
             recentlyReleasedNativeEvents.removeValue(forKey: nativeEvent)
+            // Recover if the previous native keyUp was never observed.
+            suppressedNativeKeyDowns.remove(nativeEvent)
             appendPendingEventLocked(
                 event: nativeEvent,
                 edge: .down,
@@ -232,6 +240,7 @@ final class EventSuppressor {
             }) {
                 pendingEvents.remove(at: pendingIndex)
             }
+            suppressedNativeKeyDowns.insert(descriptor.event)
             lock.unlock()
             return true
         }
@@ -246,6 +255,26 @@ final class EventSuppressor {
             return true
         }
 
+        // Do not consume a native keyUp unless this suppressor consumed the
+        // corresponding native keyDown. If keyDown raced ahead of the HID
+        // report and was delivered to macOS, its keyUp must also be delivered
+        // or macOS will continue generating autorepeat events forever.
+        if descriptor.edge == .up {
+            guard let matchIndex = pendingEvents.firstIndex(where: {
+                $0.event == descriptor.event && $0.edge == .up
+            }) else {
+                lock.unlock()
+                return false
+            }
+            pendingEvents.remove(at: matchIndex)
+            let shouldSuppress = Self.shouldSuppressRemoteKeyUp(
+                hasPendingRelease: true,
+                nativeKeyDownWasSuppressed: suppressedNativeKeyDowns.remove(descriptor.event) != nil
+            )
+            lock.unlock()
+            return shouldSuppress
+        }
+
         guard let matchIndex = pendingEvents.firstIndex(where: {
             $0.event == descriptor.event && $0.edge == descriptor.edge
         }) else {
@@ -253,8 +282,16 @@ final class EventSuppressor {
             return false
         }
         pendingEvents.remove(at: matchIndex)
+        suppressedNativeKeyDowns.insert(descriptor.event)
         lock.unlock()
         return true
+    }
+
+    static func shouldSuppressRemoteKeyUp(
+        hasPendingRelease: Bool,
+        nativeKeyDownWasSuppressed: Bool
+    ) -> Bool {
+        hasPendingRelease && nativeKeyDownWasSuppressed
     }
 
     static func shouldSuppressRemoteMediaEvent(

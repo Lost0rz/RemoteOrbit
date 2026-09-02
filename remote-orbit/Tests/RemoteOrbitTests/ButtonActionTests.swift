@@ -141,6 +141,27 @@ final class ButtonActionTests: XCTestCase {
         )
     }
 
+    func testLeakedNativeKeyDownMustAllowItsKeyUpThrough() {
+        XCTAssertFalse(
+            EventSuppressor.shouldSuppressRemoteKeyUp(
+                hasPendingRelease: true,
+                nativeKeyDownWasSuppressed: false
+            )
+        )
+        XCTAssertTrue(
+            EventSuppressor.shouldSuppressRemoteKeyUp(
+                hasPendingRelease: true,
+                nativeKeyDownWasSuppressed: true
+            )
+        )
+        XCTAssertFalse(
+            EventSuppressor.shouldSuppressRemoteKeyUp(
+                hasPendingRelease: false,
+                nativeKeyDownWasSuppressed: true
+            )
+        )
+    }
+
     func testFloatTabsTabActionsAreSingleShot() {
         XCTAssertFalse(ButtonAction.floatTabsNextTab.repeatsWhenHeld)
         XCTAssertFalse(ButtonAction.floatTabsPreviousTab.repeatsWhenHeld)

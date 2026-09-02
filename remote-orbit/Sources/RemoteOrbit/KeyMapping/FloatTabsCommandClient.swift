@@ -64,8 +64,9 @@ enum FloatTabsCommandClient {
         return true
     }
 
-    /// 全局“打开 / 显示 / 隐藏 FloatTabs”动作：目标不在前台时显示并激活，
-    /// 目标已经在前台时隐藏；未运行时先启动，再补发 show 命令。
+    /// 全局“打开 / 显示 / 隐藏 FloatTabs”动作：只有 FloatTabs 确实是
+    /// macOS 当前前台应用时才隐藏；其他应用或跨屏切换场景一律走 show，
+    /// 让 FloatTabs 重新根据当前调用位置定位。
     @discardableResult
     static func show() -> Bool {
         markShowRequested()
@@ -90,11 +91,24 @@ enum FloatTabsCommandClient {
 
     @discardableResult
     static func toggleOrShow() -> Bool {
+        let frontmostBundleIdentifier = NSWorkspace.shared.frontmostApplication?
+            .bundleIdentifier
         if isRunning,
-           MappingStore.isApplicationActuallyFocused(bundleIdentifier) {
+           shouldToggleVisibility(
+               frontmostBundleIdentifier: frontmostBundleIdentifier
+           ) {
             return send(.toggleVisibility)
         }
         return show()
+    }
+
+    /// Accessibility focus can remain attached to a stale WebKit element for
+    /// one or more run-loop turns after a Space/display change. It is suitable
+    /// for routing app commands, but not for deciding whether a summon should
+    /// hide FloatTabs. Hiding is allowed only when WindowServer reports the
+    /// FloatTabs application itself as frontmost.
+    static func shouldToggleVisibility(frontmostBundleIdentifier: String?) -> Bool {
+        frontmostBundleIdentifier == bundleIdentifier
     }
 
     /// Whether the next voice gesture should use the FloatTabs focus handoff.
