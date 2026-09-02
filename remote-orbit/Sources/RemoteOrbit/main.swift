@@ -614,7 +614,7 @@ final class VoiceKeyFilter {
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
-        print("[FILTER] tap enabled; voice key 0x60 (F5) is suppressed; hidutil supplies left Option (focus gate is narrow and audio remains non-blocking)")
+        print("[FILTER] tap enabled; voice key 0x60 (F5) is suppressed; RemoteOrbit supplies a balanced synthetic left Option hold")
     }
 
     func stop() {

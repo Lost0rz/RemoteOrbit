@@ -20,6 +20,10 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private static let targetDeviceNames = ["RemoteOrbit Mic 2ch"]
     private static let outputSampleRate: Double = 48_000
     private static let outputChannels: AVAudioChannelCount = 2
+    /// RemoteOrbit voice input is remote-only. Keep the virtual microphone
+    /// silent while idle or after a short tap; never fall back to the Mac's
+    /// built-in or external microphone.
+    private static let localMicrophoneEnabled = false
     /// The remote's decoded ATVV signal is intentionally quiet. Add roughly
     /// +26 dB and use a soft limiter so a nearby speaker does not hard-clip.
     private static let remoteGain: Float = 20.0
@@ -33,9 +37,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let stateLock = NSLock()
     private var remoteActive = false
     private var remoteCandidateActive = false
-    // ATVV starts sending PCM before VoicePressCoordinator can classify a
-    // hold. Keep only a short pre-roll so the first syllable is not lost while
-    // preserving the short-press local-microphone behavior.
+    // ATVV starts sending PCM before VoicePressCoordinator crosses the hold
+    // guard. Keep only a short pre-roll so the first syllable is not lost.
     private var pendingRemotePrebuffer: [Int16] = []
     private let remotePrebufferLimit = 16_000 / 2
     private var outputDeviceID: AudioDeviceID?
@@ -69,7 +72,11 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             AppStorage.loggingEnabled {
             startDiagnosticsTimer()
         }
-        requestLocalMicAccess()
+        if Self.localMicrophoneEnabled {
+            requestLocalMicAccess()
+        } else {
+            print("[AUDIO] 本机物理麦克风采集已关闭；仅接收遥控器麦克风")
+        }
     }
 
     // MARK: - public
@@ -150,7 +157,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         stateLock.unlock()
         print(active
             ? "[AUDIO] 输入切换 → 遥控器麦克风"
-            : "[AUDIO] 输入切换 → 本机物理麦克风")
+            : "[AUDIO] 输入切换 → 无输入（等待遥控器）")
 
         if active, !prebuffer.isEmpty {
             print("[AUDIO] 远程语音预缓冲已补入: \(prebuffer.count) samples")
@@ -279,7 +286,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        guard !isRemoteActive,
+        guard Self.localMicrophoneEnabled,
+              !isRemoteActive,
               let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
               let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(
                 formatDescription
