@@ -1007,6 +1007,12 @@ final class MappingStore: ObservableObject {
                 "floatTabs.browse",
                 Self.legacyFloatTabsBrowseBindings()
             ),
+            (
+                "md.obsidian",
+                "Obsidian 默认",
+                "obsidian.default",
+                Self.legacyObsidianBindings()
+            ),
         ]
 
         var updatedTemplates = appTemplates
@@ -1161,6 +1167,27 @@ final class MappingStore: ObservableObject {
     private static func legacyFloatTabsBrowseBindings() -> [RemoteButton: ButtonBinding] {
         var bindings = legacyFloatTabsCurrentBindings()
         bindings[.menu] = .preset(.reloadPage)
+        return bindings
+    }
+
+    /// Snapshot of the preceding Obsidian template. It used the two sidebars
+    /// as left/right actions and reversed the vertical scroll pair. Migrate
+    /// only an untouched built-in template; any user-edited Obsidian mapping
+    /// remains intact.
+    private static func legacyObsidianBindings() -> [RemoteButton: ButtonBinding] {
+        var bindings = DefaultBindings.all
+        bindings[.power] = .preset(.disabled)
+        bindings[.up] = .preset(.pageDown)
+        bindings[.down] = .preset(.pageUp)
+        bindings[.left] = .preset(.obsidianToggleLeftSidebar)
+        bindings[.right] = .preset(.obsidianToggleRightSidebar)
+        bindings[.ok] = .preset(.returnKey)
+        bindings[.back] = .preset(.obsidianCloseTab)
+        bindings[.home] = .preset(.obsidianQuickSwitcher)
+        bindings[.menu] = .preset(.obsidianCommandPalette)
+        bindings[.tv] = .preset(.obsidianNewNote)
+        bindings[.volumeUp] = .preset(.obsidianNextTab)
+        bindings[.volumeDown] = .preset(.obsidianPreviousTab)
         return bindings
     }
 

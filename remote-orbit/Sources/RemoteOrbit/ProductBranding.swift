@@ -7,8 +7,8 @@ enum ProductIdentity {
     static let name = "RemoteOrbit"
     static let shortName = "RemoteOrbit"
     static let tagline = "Your remote. Your actions. Your Mac."
-    static let defaultVersion = "0.2.5"
-    static let defaultBuild = "10"
+    static let defaultVersion = "0.2.7"
+    static let defaultBuild = "18"
     static let bundleIdentifier = "com.lost0rz.RemoteOrbit"
 
     static var version: String {

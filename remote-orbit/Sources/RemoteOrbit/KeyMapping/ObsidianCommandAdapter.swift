@@ -38,13 +38,22 @@ enum ObsidianCommandAdapter {
 
     private static func commandName(for action: ButtonAction) -> String? {
         switch action {
+        case .obsidianFocusEditor: return "Focus on editor"
+        case .obsidianFocusTabGroupLeft: return "Focus on tab group to the left"
+        case .obsidianFocusTabGroupRight: return "Focus on tab group to the right"
+        case .obsidianFocusTabGroupAbove: return "Focus on tab group above"
+        case .obsidianFocusTabGroupBelow: return "Focus on tab group below"
         case .obsidianToggleLeftSidebar: return "Toggle left sidebar"
         case .obsidianToggleRightSidebar: return "Toggle right sidebar"
         case .obsidianCloseOtherTabs: return "Close all other tabs"
+        case .obsidianSplitRight: return "Split right"
         case .obsidianSplitDown: return "Split down"
+        case .obsidianToggleStackedTabs: return "Toggle stacked tabs"
         case .obsidianShowBacklinks: return "Show backlinks"
         case .obsidianShowOutgoingLinks: return "Show outgoing links"
         case .obsidianShowTags: return "Show tags"
+        case .obsidianShowOutline: return "Show outline"
+        case .obsidianShowBookmarks: return "Show bookmarks"
         case .obsidianShowAllProperties: return "Show all properties"
         case .obsidianShowFileProperties: return "Show file properties"
         case .obsidianOpenDailyNote: return "Open today's daily note"

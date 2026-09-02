@@ -232,6 +232,11 @@ final class ButtonActionTests: XCTestCase {
         let actions: [ButtonAction] = [
             .obsidianToggleLeftSidebar,
             .obsidianToggleRightSidebar,
+            .obsidianFocusEditor,
+            .obsidianFocusTabGroupLeft,
+            .obsidianFocusTabGroupRight,
+            .obsidianFocusTabGroupAbove,
+            .obsidianFocusTabGroupBelow,
             .obsidianPreviousTab,
             .obsidianNextTab,
             .obsidianGoToTab1,
@@ -243,9 +248,14 @@ final class ButtonActionTests: XCTestCase {
             .obsidianOpenGraphView,
             .obsidianOpenSettings,
             .obsidianCloseOtherTabs,
+            .obsidianSplitRight,
+            .obsidianSplitDown,
+            .obsidianToggleStackedTabs,
             .obsidianShowBacklinks,
             .obsidianShowOutgoingLinks,
             .obsidianShowTags,
+            .obsidianShowOutline,
+            .obsidianShowBookmarks,
             .obsidianOpenDailyNote,
             .obsidianInsertTemplate,
             .obsidianOpenFileExplorer,
@@ -256,6 +266,11 @@ final class ButtonActionTests: XCTestCase {
         XCTAssertTrue(actions.allSatisfy { $0.category == .obsidian })
         XCTAssertTrue(actions.allSatisfy { !$0.repeatsWhenHeld })
         XCTAssertTrue(actions.allSatisfy { !$0.displayName.isEmpty })
+        XCTAssertTrue(actions.allSatisfy { $0.obsidianGroup != nil })
+        XCTAssertEqual(
+            Set(actions.compactMap(\.obsidianGroup)),
+            Set(ObsidianActionGroup.allCases)
+        )
     }
 
     func testAppPresetCategoriesStayScopedToTheSelectedApplication() {
@@ -325,6 +340,22 @@ final class ButtonActionTests: XCTestCase {
             floatTabs.gestureProfiles?[.menu]?.longPress,
             .preset(.reloadPage)
         )
+    }
+
+    func testObsidianBuiltInPresetUsesFocusAndScrollLayout() {
+        guard let obsidian = AppTemplatePresetLibrary.preset(id: "obsidian.default")
+        else {
+            return XCTFail("Obsidian default preset must be provisioned")
+        }
+
+        XCTAssertEqual(Set(obsidian.bindings.keys), Set(RemoteButton.allCases))
+        assertPreset(obsidian, button: .up, equals: .pageUp)
+        assertPreset(obsidian, button: .down, equals: .pageDown)
+        assertPreset(obsidian, button: .left, equals: .obsidianFocusTabGroupLeft)
+        assertPreset(obsidian, button: .right, equals: .obsidianFocusTabGroupRight)
+        assertPreset(obsidian, button: .back, equals: .deleteBackward)
+        assertPreset(obsidian, button: .volumeUp, equals: .obsidianPreviousTab)
+        assertPreset(obsidian, button: .volumeDown, equals: .obsidianNextTab)
     }
 
     func testHUDActionNameRemovesShortcutDescriptionButKeepsRecordedShortcut() {

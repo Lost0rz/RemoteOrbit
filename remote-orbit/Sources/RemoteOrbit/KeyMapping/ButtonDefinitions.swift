@@ -322,6 +322,11 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
     case obsidianSearch
     case obsidianToggleEditMode
     case obsidianAddProperty
+    case obsidianFocusEditor
+    case obsidianFocusTabGroupLeft
+    case obsidianFocusTabGroupRight
+    case obsidianFocusTabGroupAbove
+    case obsidianFocusTabGroupBelow
     case obsidianPreviousTab
     case obsidianNextTab
     case obsidianToggleLeftSidebar
@@ -340,10 +345,14 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
     case obsidianOpenGraphView
     case obsidianOpenSettings
     case obsidianCloseOtherTabs
+    case obsidianSplitRight
     case obsidianSplitDown
+    case obsidianToggleStackedTabs
     case obsidianShowBacklinks
     case obsidianShowOutgoingLinks
     case obsidianShowTags
+    case obsidianShowOutline
+    case obsidianShowBookmarks
     case obsidianShowAllProperties
     case obsidianShowFileProperties
     case obsidianOpenDailyNote
@@ -458,6 +467,9 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .obsidianCommandPalette, .obsidianQuickSwitcher, .obsidianNewNote,
              .obsidianNewTab, .obsidianReopenClosedTab, .obsidianCloseTab,
              .obsidianSearch, .obsidianToggleEditMode, .obsidianAddProperty,
+             .obsidianFocusEditor, .obsidianFocusTabGroupLeft,
+             .obsidianFocusTabGroupRight, .obsidianFocusTabGroupAbove,
+             .obsidianFocusTabGroupBelow,
              .obsidianPreviousTab, .obsidianNextTab,
              .obsidianToggleLeftSidebar, .obsidianToggleRightSidebar,
              .obsidianGoToTab1, .obsidianGoToTab2, .obsidianGoToTab3,
@@ -465,9 +477,11 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
              .obsidianGoToTab7, .obsidianGoToTab8, .obsidianGoToTab9,
              .obsidianNewNoteToRight, .obsidianSearchCurrentFile,
              .obsidianOpenGraphView, .obsidianOpenSettings,
-             .obsidianCloseOtherTabs, .obsidianSplitDown,
+             .obsidianCloseOtherTabs, .obsidianSplitRight, .obsidianSplitDown,
+             .obsidianToggleStackedTabs,
              .obsidianShowBacklinks, .obsidianShowOutgoingLinks,
-             .obsidianShowTags, .obsidianShowAllProperties,
+             .obsidianShowTags, .obsidianShowOutline, .obsidianShowBookmarks,
+             .obsidianShowAllProperties,
              .obsidianShowFileProperties, .obsidianOpenDailyNote,
              .obsidianInsertTemplate, .obsidianOpenFileExplorer,
              .obsidianMoveTabToNewWindow, .obsidianOpenTabInNewWindow,
@@ -629,6 +643,11 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .obsidianSearch:           return "Obsidian：全库搜索"
         case .obsidianToggleEditMode:   return "Obsidian：切换编辑 / 阅读模式"
         case .obsidianAddProperty:      return "Obsidian：添加属性"
+        case .obsidianFocusEditor:      return "Obsidian：聚焦编辑器"
+        case .obsidianFocusTabGroupLeft:return "Obsidian：聚焦左侧分栏"
+        case .obsidianFocusTabGroupRight:return "Obsidian：聚焦右侧分栏"
+        case .obsidianFocusTabGroupAbove:return "Obsidian：聚焦上方分栏"
+        case .obsidianFocusTabGroupBelow:return "Obsidian：聚焦下方分栏"
         case .obsidianPreviousTab:      return "Obsidian：上一个标签"
         case .obsidianNextTab:          return "Obsidian：下一个标签"
         case .obsidianToggleLeftSidebar:  return "Obsidian：显示 / 隐藏左侧边栏"
@@ -647,10 +666,14 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .obsidianOpenGraphView:    return "Obsidian：打开关系图谱"
         case .obsidianOpenSettings:     return "Obsidian：打开设置"
         case .obsidianCloseOtherTabs:  return "Obsidian：关闭其他标签"
+        case .obsidianSplitRight:      return "Obsidian：向右分屏"
         case .obsidianSplitDown:       return "Obsidian：向下分屏"
+        case .obsidianToggleStackedTabs:return "Obsidian：切换堆叠标签"
         case .obsidianShowBacklinks:   return "Obsidian：显示反向链接"
         case .obsidianShowOutgoingLinks:return "Obsidian：显示出链"
         case .obsidianShowTags:        return "Obsidian：显示标签视图"
+        case .obsidianShowOutline:     return "Obsidian：显示大纲"
+        case .obsidianShowBookmarks:   return "Obsidian：显示书签"
         case .obsidianShowAllProperties:return "Obsidian：显示全部属性"
         case .obsidianShowFileProperties:return "Obsidian：显示文件属性"
         case .obsidianOpenDailyNote:   return "Obsidian：打开今日日记"
@@ -666,6 +689,45 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .volumeDown:      return "系统音量 -"
         case .volumeMute:      return "系统静音"
         case .playPause:       return "播放 / 暂停"
+        }
+    }
+
+    /// Obsidian 动作在设置选择器中的二级分组。顶层仍统一归入
+    /// ``ButtonActionCategory.obsidian``，因此不会污染其他 App 的动作列表。
+    var obsidianGroup: ObsidianActionGroup? {
+        switch self {
+        case .obsidianFocusEditor, .obsidianFocusTabGroupLeft,
+             .obsidianFocusTabGroupRight, .obsidianFocusTabGroupAbove,
+             .obsidianFocusTabGroupBelow, .obsidianToggleLeftSidebar,
+             .obsidianToggleRightSidebar, .obsidianOpenFileExplorer,
+             .obsidianSplitRight, .obsidianSplitDown,
+             .obsidianToggleStackedTabs:
+            return .focusAndLayout
+        case .obsidianPreviousTab, .obsidianNextTab,
+             .obsidianGoToTab1, .obsidianGoToTab2, .obsidianGoToTab3,
+             .obsidianGoToTab4, .obsidianGoToTab5, .obsidianGoToTab6,
+             .obsidianGoToTab7, .obsidianGoToTab8, .obsidianGoToTab9,
+             .obsidianNewTab, .obsidianReopenClosedTab, .obsidianCloseTab,
+             .obsidianCloseOtherTabs, .obsidianMoveTabToNewWindow,
+             .obsidianOpenTabInNewWindow:
+            return .tabsAndWindows
+        case .obsidianNewNote, .obsidianNewNoteToRight,
+             .obsidianToggleEditMode, .obsidianAddProperty,
+             .obsidianOpenDailyNote, .obsidianInsertTemplate,
+             .obsidianCreateNewCanvas:
+            return .notesAndEditing
+        case .obsidianCommandPalette, .obsidianQuickSwitcher,
+             .obsidianSearch, .obsidianSearchCurrentFile:
+            return .searchAndCommands
+        case .obsidianOpenGraphView, .obsidianShowBacklinks,
+             .obsidianShowOutgoingLinks, .obsidianShowTags,
+             .obsidianShowOutline, .obsidianShowBookmarks,
+             .obsidianShowAllProperties, .obsidianShowFileProperties:
+            return .viewsAndProperties
+        case .obsidianOpenSettings:
+            return .settings
+        default:
+            return nil
         }
     }
 }
@@ -711,6 +773,30 @@ enum ButtonActionCategory: String, CaseIterable, Hashable, Identifiable {
         .chatGPTInputModes,
         .chatGPTWorkspaceBrowser,
     ]
+}
+
+/// Obsidian 专属动作的二级分类。它只影响设置页的展示，不改变动作的
+/// 顶层 App 作用域判断。
+enum ObsidianActionGroup: String, CaseIterable, Hashable, Identifiable {
+    case focusAndLayout
+    case tabsAndWindows
+    case notesAndEditing
+    case searchAndCommands
+    case viewsAndProperties
+    case settings
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .focusAndLayout:      return "焦点与布局"
+        case .tabsAndWindows:      return "标签与窗口"
+        case .notesAndEditing:     return "笔记与编辑"
+        case .searchAndCommands:   return "搜索与命令"
+        case .viewsAndProperties:  return "视图与属性"
+        case .settings:            return "设置"
+        }
+    }
 }
 
 // MARK: - ButtonBinding（按钮绑定）

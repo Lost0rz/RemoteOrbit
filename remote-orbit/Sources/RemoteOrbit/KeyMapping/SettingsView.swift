@@ -679,11 +679,7 @@ struct SettingsView: View {
                     set: { setCurrentBinding(.preset($0), for: selectedButton) }
                 )) {
                     ForEach(availableActionCategories) { category in
-                        Section(category.displayName) {
-                            ForEach(actions(in: category)) { action in
-                                Text(action.displayName).tag(action)
-                            }
-                        }
+                        actionPickerSections(for: category)
                     }
                 }
                 .labelsHidden()
@@ -863,11 +859,7 @@ struct SettingsView: View {
                 )
             ) {
                 ForEach(availableGestureActionCategories) { category in
-                    Section(category.displayName) {
-                        ForEach(actions(in: category)) { action in
-                            Text(action.displayName).tag(action)
-                        }
-                    }
+                    actionPickerSections(for: category)
                 }
             }
             .labelsHidden()
@@ -1738,6 +1730,28 @@ struct SettingsView: View {
 
     private func actions(in category: ButtonActionCategory) -> [ButtonAction] {
         ButtonAction.allCases.filter { $0.category == category }
+    }
+
+    /// Obsidian 的动作数量较多：保留一个 App 作用域，并在选择器里按
+    /// 工作区、标签、笔记、命令和视图继续分组，避免和其他程序的动作混在一起。
+    @ViewBuilder
+    private func actionPickerSections(for category: ButtonActionCategory) -> some View {
+        if category == .obsidian {
+            ForEach(ObsidianActionGroup.allCases) { group in
+                Section(group.displayName) {
+                    ForEach(actions(in: category).filter { $0.obsidianGroup == group }) {
+                        action in
+                        Text(action.displayName).tag(action)
+                    }
+                }
+            }
+        } else {
+            Section(category.displayName) {
+                ForEach(actions(in: category)) { action in
+                    Text(action.displayName).tag(action)
+                }
+            }
+        }
     }
 
     private var configuredAppChoices: [AppTemplateChoice] {

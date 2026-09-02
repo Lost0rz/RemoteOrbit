@@ -126,7 +126,7 @@ enum AppTemplatePresetLibrary {
             appBundleIdentifier: "md.obsidian",
             appName: "Obsidian",
             templateName: "Obsidian 默认",
-            summary: "左右侧边栏、滚屏、标签切换、快速切换文件、命令面板、新建/恢复标签、新建笔记、编辑模式、搜索、图谱和设置；其他核心命令通过命令面板直连。",
+            summary: "焦点与分栏、滚屏、标签与窗口、笔记编辑、快速切换、命令面板、搜索、侧边栏、图谱和属性；Obsidian 核心命令按类别直连。",
             bindings: obsidianBindings
         ),
     ]
@@ -286,16 +286,16 @@ enum AppTemplatePresetLibrary {
 
     private static let obsidianBindings = overlay([
         .power: .preset(.disabled),
-        .up: .preset(.pageDown),
-        .down: .preset(.pageUp),
-        .left: .preset(.obsidianToggleLeftSidebar),
-        .right: .preset(.obsidianToggleRightSidebar),
+        .up: .preset(.pageUp),
+        .down: .preset(.pageDown),
+        .left: .preset(.obsidianFocusTabGroupLeft),
+        .right: .preset(.obsidianFocusTabGroupRight),
         .ok: .preset(.returnKey),
-        .back: .preset(.obsidianCloseTab),
+        .back: .preset(.deleteBackward),
         .home: .preset(.obsidianQuickSwitcher),
         .menu: .preset(.obsidianCommandPalette),
         .tv: .preset(.obsidianNewNote),
-        .volumeUp: .preset(.obsidianNextTab),
-        .volumeDown: .preset(.obsidianPreviousTab),
+        .volumeUp: .preset(.obsidianPreviousTab),
+        .volumeDown: .preset(.obsidianNextTab),
     ])
 }
