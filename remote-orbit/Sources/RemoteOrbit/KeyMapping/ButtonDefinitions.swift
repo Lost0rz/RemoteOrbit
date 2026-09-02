@@ -274,6 +274,9 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
     case chatGPTProjectPicker
     case chatGPTStartVoiceChat
     case chatGPTStartDictation
+    /// Focuses the Codex conversation composer when its Chromium surface does
+    /// not expose an AX text input element.
+    case chatGPTFocusConversationInput
     case chatGPTRestorePreviousPrompt
     case chatGPTApproveRequest
     case chatGPTDeclineRequest
@@ -431,6 +434,7 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
             return .chatGPTChats
         case .chatGPTModelPicker, .chatGPTProjectPicker,
              .chatGPTStartVoiceChat, .chatGPTStartDictation,
+             .chatGPTFocusConversationInput,
              .chatGPTRestorePreviousPrompt, .chatGPTApproveRequest,
              .chatGPTDeclineRequest, .chatGPTSwitchToChat,
              .chatGPTSwitchToWork, .chatGPTSwitchToCodex,
@@ -580,6 +584,7 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .chatGPTProjectPicker:         return "ChatGPT / Codex：项目选择（Command-Option-Shift-O）"
         case .chatGPTStartVoiceChat:        return "ChatGPT / Codex：开始语音对话（Control-Shift-V）"
         case .chatGPTStartDictation:        return "ChatGPT / Codex：开始听写（Control-Shift-D）"
+        case .chatGPTFocusConversationInput: return "Codex：聚焦对话输入框（辅助功能点击）"
         case .chatGPTRestorePreviousPrompt: return "ChatGPT / Codex：恢复上一次输入（方向上）"
         case .chatGPTApproveRequest:        return "ChatGPT / Codex：批准请求（Return）"
         case .chatGPTDeclineRequest:        return "ChatGPT / Codex：拒绝请求（Esc）"

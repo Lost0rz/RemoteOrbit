@@ -19,12 +19,13 @@ enum CodexCommandAdapter {
         targetBundleIdentifier == bundleIdentifier
     }
 
-    /// Focuses Codex's current text input without synthesizing Tab or a mouse
-    /// click. A focused text element is accepted immediately; otherwise the
-    /// accessibility tree is searched for the most likely composer. This is a
-    /// bounded asynchronous preparation step. The caller keeps the mapped
-    /// Option edge gated until Codex focus has remained valid across two
-    /// run-loop turns, so dictation cannot race a queued focus change.
+    /// Focuses Codex's current text input. A focused text element is accepted
+    /// immediately; otherwise the accessibility tree is searched for the most
+    /// likely composer. Codex's current Chromium surface often exposes only an
+    /// AXWebArea, not an AXTextArea, so the final bounded fallback clicks the
+    /// lower composer region of the active Codex window. This is the same
+    /// visible action a user takes and avoids relying on an unreliable Tab
+    /// cycle.
     static func prepareInputFocusForVoice(
         completion: @escaping (Bool, String) -> Void
     ) {
@@ -71,8 +72,34 @@ enum CodexCommandAdapter {
                 }
                 try? await Task.sleep(nanoseconds: 20_000_000)
             }
-            completion(false, "verified-input-unavailable")
+
+            // The Codex editor is rendered by Chromium and is not currently
+            // represented as an AX text role. Do not fail the voice gesture
+            // after the AX search; click the stable composer area instead and
+            // give the renderer one turn to attach its text input client.
+            if isFrontmost(application), clickConversationComposer() {
+                try? await Task.sleep(nanoseconds: 35_000_000)
+                completion(true, "composer-clicked")
+                return
+            }
+            completion(false, "verified-input-and-composer-unavailable")
         }
+    }
+
+    /// Explicit semantic action for a Codex mapping. Unlike a synthetic Tab,
+    /// this directly focuses the composer and therefore works when the AX
+    /// tree contains only a Chromium web area.
+    @discardableResult
+    static func focusConversationInput() -> Bool {
+        guard let application = runningApplication(), AXIsProcessTrusted() else {
+            return false
+        }
+        activateIfNeeded(application)
+        guard isFrontmost(application), clickConversationComposer() else {
+            return false
+        }
+        print("[CODEX] focus composer → clicked fallback input region")
+        return true
     }
 
     private static func attemptFocus(
@@ -152,10 +179,86 @@ enum CodexCommandAdapter {
     /// be used directly by CGEvent without changing focus or sending a second
     /// synthetic click.
     static func conversationScrollLocation() -> CGPoint? {
-        guard let application = NSWorkspace.shared.runningApplications.first(where: {
-            $0.bundleIdentifier == bundleIdentifier
-        }) else { return nil }
+        guard let window = mainWindowBounds() else { return nil }
 
+        // Codex normally reserves the left side for navigation. A point in
+        // the right-hand content area remains valid whether the sidebar is
+        // expanded or collapsed.
+        let xFraction: CGFloat = window.width >= 900 ? 0.70 : 0.55
+        let point = CGPoint(
+            x: window.minX + window.width * xFraction,
+            y: window.minY + window.height * 0.55
+        )
+        let inset: CGFloat = 20
+        return CGPoint(
+            x: min(max(point.x, window.minX + inset), window.maxX - inset),
+            y: min(max(point.y, window.minY + inset), window.maxY - inset)
+        )
+    }
+
+    // MARK: - Focus fallback
+
+    private static func runningApplication() -> NSRunningApplication? {
+        NSWorkspace.shared.runningApplications.first {
+            $0.bundleIdentifier == bundleIdentifier
+        }
+    }
+
+    private static func activateIfNeeded(_ application: NSRunningApplication) {
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier
+            != application.processIdentifier {
+            _ = application.activate(
+                options: [.activateAllWindows, .activateIgnoringOtherApps]
+            )
+        }
+    }
+
+    private static func isFrontmost(_ application: NSRunningApplication) -> Bool {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier
+            == application.processIdentifier
+    }
+
+    /// The current Codex layout keeps the composer near the bottom of the
+    /// main window and the conversation pane on the right. Keep the point
+    /// window-relative so this works across displays and window sizes.
+    private static func conversationInputLocation() -> CGPoint? {
+        guard let window = mainWindowBounds() else { return nil }
+        let xFraction: CGFloat = window.width >= 900 ? 0.70 : 0.55
+        let point = CGPoint(
+            x: window.minX + window.width * xFraction,
+            y: window.minY + window.height * 0.88
+        )
+        let inset: CGFloat = 24
+        return CGPoint(
+            x: min(max(point.x, window.minX + inset), window.maxX - inset),
+            y: min(max(point.y, window.minY + inset), window.maxY - inset)
+        )
+    }
+
+    private static func clickConversationComposer() -> Bool {
+        guard let point = conversationInputLocation(),
+              let down = CGEvent(
+                  mouseEventSource: nil,
+                  mouseType: .leftMouseDown,
+                  mouseCursorPosition: point,
+                  mouseButton: .left
+              ),
+              let up = CGEvent(
+                  mouseEventSource: nil,
+                  mouseType: .leftMouseUp,
+                  mouseCursorPosition: point,
+                  mouseButton: .left
+              ) else { return false }
+
+        down.setIntegerValueField(.eventSourceUserData, value: KeyInjector.syntheticMarker)
+        up.setIntegerValueField(.eventSourceUserData, value: KeyInjector.syntheticMarker)
+        down.post(tap: .cgSessionEventTap)
+        up.post(tap: .cgSessionEventTap)
+        return true
+    }
+
+    private static func mainWindowBounds() -> CGRect? {
+        guard let application = runningApplication() else { return nil }
         let windowInfo = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
@@ -177,23 +280,7 @@ enum CodexCommandAdapter {
             return rect
         } ?? []
 
-        guard let window = candidates.max(by: { $0.width * $0.height < $1.width * $1.height }) else {
-            return nil
-        }
-
-        // Codex normally reserves the left side for navigation. A point in
-        // the right-hand content area remains valid whether the sidebar is
-        // expanded or collapsed.
-        let xFraction: CGFloat = window.width >= 900 ? 0.70 : 0.55
-        let point = CGPoint(
-            x: window.minX + window.width * xFraction,
-            y: window.minY + window.height * 0.55
-        )
-        let inset: CGFloat = 20
-        return CGPoint(
-            x: min(max(point.x, window.minX + inset), window.maxX - inset),
-            y: min(max(point.y, window.minY + inset), window.maxY - inset)
-        )
+        return candidates.max(by: { $0.width * $0.height < $1.width * $1.height })
     }
 
     @discardableResult

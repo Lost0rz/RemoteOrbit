@@ -167,6 +167,17 @@ final class ButtonActionTests: XCTestCase {
         XCTAssertFalse(ButtonAction.floatTabsPreviousTab.repeatsWhenHeld)
     }
 
+    func testCodexConversationFocusIsAnAtomicInputAction() {
+        XCTAssertEqual(
+            ButtonAction.chatGPTFocusConversationInput.category,
+            .chatGPTInputModes
+        )
+        XCTAssertFalse(ButtonAction.chatGPTFocusConversationInput.repeatsWhenHeld)
+        XCTAssertTrue(
+            ButtonAction.chatGPTFocusConversationInput.displayName.contains("聚焦对话输入框")
+        )
+    }
+
     func testFloatTabsFullCatalogIsAvailableAsSemanticActions() {
         let actions: [ButtonAction] = [
             .floatTabsSelectSlot1,

@@ -186,6 +186,8 @@ enum KeyInjector {
                 keyLabel: "F",
                 modifiers: [.control, .option]
             )
+        case .chatGPTFocusConversationInput:
+            return false // handled by the Codex semantic adapter above
         case .floatTabsSettings:
             return sendPresetShortcut(keyCode: 43, keyLabel: ",", modifiers: .command)
         case .floatTabsToggleAlwaysOnTop:
@@ -957,6 +959,14 @@ enum KeyInjector {
         case .floatTabsToggleVisibility:
             return FloatTabsCommandClient.send(.toggleVisibility)
         case .floatTabsToggleFocus:
+            let effectiveTarget = targetApplicationBundleIdentifier
+                ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            if effectiveTarget == CodexCommandAdapter.bundleIdentifier {
+                // Keep older mappings that used the generic focus action
+                // functional after Codex stopped exposing its composer as an
+                // AXTextArea.
+                return CodexCommandAdapter.focusConversationInput()
+            }
             return FloatTabsCommandClient.send(.togglePrimaryFocus)
         case .floatTabsSettings:
             return FloatTabsCommandClient.send(.settings)
@@ -985,6 +995,13 @@ enum KeyInjector {
             guard targetApplicationBundleIdentifier == FloatTabsCommandClient.bundleIdentifier
             else { return nil }
             return FloatTabsCommandClient.send(.reload)
+        case .chatGPTFocusConversationInput:
+            guard targetApplicationBundleIdentifier == CodexCommandAdapter.bundleIdentifier
+                    || (targetApplicationBundleIdentifier == nil
+                        && NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                            == CodexCommandAdapter.bundleIdentifier)
+            else { return false }
+            return CodexCommandAdapter.focusConversationInput()
         case .ghosttyNewTab, .ghosttyNewWindow, .ghosttyPreviousTab,
              .ghosttyNextTab, .ghosttyCloseSurface, .ghosttyNewSplitRight,
              .ghosttyNewSplitDown, .ghosttyCommandPalette, .ghosttySearch:
