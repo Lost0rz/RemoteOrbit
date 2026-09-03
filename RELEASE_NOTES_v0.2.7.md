@@ -1,16 +1,17 @@
 # RemoteOrbit v0.2.7
 
-Obsidian 模板与语义动作增强版本，Build 18。
+当前 main 基线的覆盖发布版本。应用内部构建标识为 0.2.8（Build 19），Release 名称仍保持 v0.2.7。
 
 ## Obsidian 优化
 
 - 新增“聚焦编辑器”。
-- 新增聚焦左、右、上、下分栏。
+- 新增通过 Obsidian CLI 工作区模型聚焦左、右、上、下分栏，支持跨主编辑区和侧边栏文档切换。
 - 新增向右分屏和堆叠标签切换。
 - 新增大纲、书签视图动作。
 - 继续支持命令面板、快速切换文件、新建笔记、新建标签、恢复/关闭标签、搜索、模板、日记、图谱、反向链接、出链、标签和属性等核心动作。
-- Obsidian 动作在设置页分为：焦点与布局、标签与窗口、笔记与编辑、搜索与命令、视图与属性、设置。
-- Obsidian 语义动作通过命令面板执行，不需要用户为每个动作手动录制快捷键；需要 macOS 辅助功能权限。
+- Obsidian 动作在设置页按 CLI 文档与分栏、焦点与布局、标签与窗口、笔记与编辑、搜索与命令、视图与属性、设置分组。
+- CLI 文档与分栏动作可直接在 Obsidian 设置中选择，不需要为每个动作手动录制快捷键。
+- CLI 使用 Obsidian 应用内置的 `obsidian-cli`；首次使用需在 Obsidian“设置 → 通用 → 高级”启用 Command line interface。
 
 ## 默认模板
 
@@ -28,6 +29,6 @@ Obsidian 模板与语义动作增强版本，Build 18。
 
 ## 验证
 
-- RemoteOrbit Swift 测试：40 项通过，0 失败。
-- App：Universal 2，RemoteOrbit 0.2.7（Build 18）。
+- RemoteOrbit Swift 测试：41 项通过，0 失败。
+- App：Universal 2，RemoteOrbit 0.2.8（Build 19）；GitHub Release 仍为 v0.2.7。
 - 安装包：本地 ad-hoc 签名，macOS 隐私权限仍需用户手动授予。
