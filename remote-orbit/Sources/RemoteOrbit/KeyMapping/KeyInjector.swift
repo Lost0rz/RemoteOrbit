@@ -230,6 +230,46 @@ enum KeyInjector {
                 keyLabel: "Z",
                 modifiers: [.command, .shift]
             )
+        case .moveToLineStart:
+            return sendPresetShortcut(keyCode: 123, keyLabel: "←", modifiers: .command)
+        case .moveToLineEnd:
+            return sendPresetShortcut(keyCode: 124, keyLabel: "→", modifiers: .command)
+        case .moveToDocumentStart:
+            return sendPresetShortcut(keyCode: 126, keyLabel: "↑", modifiers: .command)
+        case .moveToDocumentEnd:
+            return sendPresetShortcut(keyCode: 125, keyLabel: "↓", modifiers: .command)
+        case .extendSelectionLeft:
+            return sendPresetShortcut(keyCode: 123, keyLabel: "←", modifiers: .shift)
+        case .extendSelectionRight:
+            return sendPresetShortcut(keyCode: 124, keyLabel: "→", modifiers: .shift)
+        case .extendSelectionUp:
+            return sendPresetShortcut(keyCode: 126, keyLabel: "↑", modifiers: .shift)
+        case .extendSelectionDown:
+            return sendPresetShortcut(keyCode: 125, keyLabel: "↓", modifiers: .shift)
+        case .extendSelectionToLineStart:
+            return sendPresetShortcut(
+                keyCode: 123,
+                keyLabel: "←",
+                modifiers: [.command, .shift]
+            )
+        case .extendSelectionToLineEnd:
+            return sendPresetShortcut(
+                keyCode: 124,
+                keyLabel: "→",
+                modifiers: [.command, .shift]
+            )
+        case .extendSelectionToDocumentStart:
+            return sendPresetShortcut(
+                keyCode: 126,
+                keyLabel: "↑",
+                modifiers: [.command, .shift]
+            )
+        case .extendSelectionToDocumentEnd:
+            return sendPresetShortcut(
+                keyCode: 125,
+                keyLabel: "↓",
+                modifiers: [.command, .shift]
+            )
         case .floatTabsNextTab:
             return sendPresetShortcut(keyCode: 48, keyLabel: "Tab", modifiers: .control)
         case .floatTabsPreviousTab:
@@ -607,6 +647,12 @@ enum KeyInjector {
             return sendPresetShortcut(keyCode: 14, keyLabel: "E", modifiers: .command)
         case .obsidianAddProperty:
             return sendPresetShortcut(keyCode: 41, keyLabel: ";", modifiers: .command)
+        case .obsidianIncreaseFontSize:
+            return sendPresetShortcut(keyCode: 24, keyLabel: "+", modifiers: [.command, .shift])
+        case .obsidianDecreaseFontSize:
+            return sendPresetShortcut(keyCode: 27, keyLabel: "-", modifiers: .command)
+        case .obsidianResetFontSize:
+            return sendPresetShortcut(keyCode: 29, keyLabel: "0", modifiers: .command)
         case .obsidianPreviousTab:
             return sendPresetShortcut(
                 keyCode: 48,
@@ -1180,6 +1226,11 @@ enum KeyInjector {
         let location: CGPoint?
         if targetBundleIdentifier == CodexCommandAdapter.bundleIdentifier {
             location = CodexCommandAdapter.conversationScrollLocation()
+        } else if targetBundleIdentifier == ObsidianCommandAdapter.bundleIdentifier {
+            // Obsidian can keep multiple editable files in the main pane and
+            // the right sidebar. Follow the current AX editor focus so a
+            // scroll action never falls back to the old mouse location.
+            location = ObsidianCommandAdapter.activeEditorScrollLocation()
         } else {
             location = nil
         }

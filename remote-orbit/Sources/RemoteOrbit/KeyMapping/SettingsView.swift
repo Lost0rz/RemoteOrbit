@@ -360,7 +360,7 @@ struct SettingsView: View {
 
                 workspaceCard(title: "首次使用建议", symbolName: "sparkles") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("先在“按键映射”顶部选择通用或程序范围；程序专属模板统一在右下角创建和套用。")
+                        Text("先在“按键映射”顶部选择通用或程序范围；选择程序后，在顶部直接选择 Active 模板并管理模板。")
                         Text("修改会立即保存到本机；按键按下后会锁定当时的目标 App，避免切换窗口时误发到别的程序。")
                     }
                     .font(.callout)
@@ -389,7 +389,7 @@ struct SettingsView: View {
             HStack(alignment: .top, spacing: 16) {
                 pageHeader(
                     title: "按键映射",
-                    description: "先确定映射范围，再为每个按键定义动作。模板只在下方管理。",
+                    description: "选择范围与模板",
                     symbolName: "slider.horizontal.3"
                 )
 
@@ -412,28 +412,19 @@ struct SettingsView: View {
                 }
             }
 
-            Label(
-                mappingScope == .global
-                    ? "当前编辑：通用映射"
-                    : "当前编辑：该程序的 Active 模板",
-                systemImage: mappingScope == .global ? "globe" : "checkmark.circle"
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
             if case let .app(bundleID) = mappingScope {
                 HStack(spacing: 10) {
-                    Label("当前程序", systemImage: "app.badge")
+                    Label("程序", systemImage: "app.badge")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                     programScopeMenu(bundleID: bundleID)
+                    Divider()
+                        .frame(height: 20)
+                    templateControlPanel
                     Spacer(minLength: 0)
-                    Text("模板在右下角选择和管理")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             } else {
-                Label("通用映射 · 对所有没有独立程序模板的场景生效", systemImage: "globe")
+                Label("通用映射", systemImage: "globe")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -592,7 +583,11 @@ struct SettingsView: View {
                         .controlSize(.small)
                 }
 
-                bindingSummaryCard(currentBinding(for: selectedButton))
+                if selectedButton == .microphone {
+                    bindingSummaryCard(currentBinding(for: selectedButton))
+                } else {
+                    bindingActionCard(currentBinding(for: selectedButton))
+                }
 
                 if case .global = mappingScope {
                     globalBehaviorCard
@@ -603,10 +598,6 @@ struct SettingsView: View {
                 if hasEditableScope {
                     VStack(alignment: .leading, spacing: 14) {
                         if selectedButton != .microphone {
-                            presetActionCard
-                        }
-                        customShortcutCard
-                        if selectedButton != .microphone {
                             advancedGestureCard
                         }
                     }
@@ -614,7 +605,7 @@ struct SettingsView: View {
                     .opacity(isAppMappingLocked ? 0.55 : 1)
                 } else {
                     workspaceCard(title: "等待选择模板", symbolName: "square.stack.3d.up") {
-                        Text("这是程序范围。请在右下角的“模板”模块中新建、导入或选择一个模板后，再编辑按键。")
+                        Text("这是程序范围。请先在顶部的“当前模板”中选择、导入或新建模板后，再编辑按键。")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
@@ -628,10 +619,6 @@ struct SettingsView: View {
                     workspaceCard(title: "滚动速度", symbolName: "arrow.up.and.down") {
                         scrollSpeedControl
                     }
-                }
-
-                if case .app = mappingScope {
-                    templateControlPanel
                 }
 
                 Spacer(minLength: 20)
@@ -665,40 +652,48 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var presetActionCard: some View {
-        workspaceCard(title: "预设动作", symbolName: "bolt.circle") {
+    private func bindingActionCard(_ binding: ButtonBinding) -> some View {
+        workspaceCard(title: "当前生效", symbolName: "checkmark.circle.fill") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("使用有语义的动作，RemoteOrbit 会负责向当前 App 发送对应事件。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Picker("预设动作", selection: Binding(
-                    get: {
-                        if case let .preset(action) = currentBinding(for: selectedButton) { return action }
-                        return ButtonAction.disabled
-                    },
-                    set: { setCurrentBinding(.preset($0), for: selectedButton) }
-                )) {
-                    ForEach(availableActionCategories) { category in
-                        actionPickerSections(for: category)
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: binding.isDisabled ? "minus.circle" : "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(binding.isDisabled ? Color.secondary : Color.green)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(currentBindingLabel(for: binding))
+                            .font(.body.weight(.semibold))
+                            .lineLimit(2)
                     }
+                    Spacer(minLength: 8)
+                    Picker("切换为预设动作", selection: Binding(
+                        get: {
+                            if case let .preset(action) = currentBinding(for: selectedButton) {
+                                return action
+                            }
+                            return ButtonAction.disabled
+                        },
+                        set: { setCurrentBinding(.preset($0), for: selectedButton) }
+                    )) {
+                        ForEach(availableActionCategories) { category in
+                            actionPickerSections(for: category)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 360)
                 }
-                .labelsHidden()
-                .frame(maxWidth: 480)
-            }
-        }
-    }
 
-    private var customShortcutCard: some View {
-        workspaceCard(title: "自定义快捷键", symbolName: "command") {
-            VStack(alignment: .leading, spacing: 12) {
-                if case let .shortcut(chord, trigger) = currentBinding(for: selectedButton) {
+                Divider()
+
+                if case let .shortcut(chord, trigger) = binding {
                     HStack(spacing: 10) {
+                        Label("自定义快捷键", systemImage: "command")
+                            .font(.subheadline.weight(.medium))
                         Text(chord.displayName)
                             .font(.system(.body, design: .monospaced).weight(.semibold))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
                             .background(Color.accentColor.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                         Picker("触发方式", selection: Binding(
                             get: { trigger },
                             set: { setCurrentBinding(.shortcut(chord, trigger: $0), for: selectedButton) }
@@ -709,20 +704,27 @@ struct SettingsView: View {
                         }
                         .labelsHidden()
                         .pickerStyle(.segmented)
-                        .frame(width: 180)
-                        Spacer()
+                        .frame(width: 170)
+                        Spacer(minLength: 0)
                         Button("重新录制") { recorderButton = selectedButton }
                             .buttonStyle(.bordered)
+                            .controlSize(.small)
                     }
                     Text(trigger.helpText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("还没有自定义快捷键。录制后会覆盖当前按钮的预设动作。")
-                        .font(.callout)
+                    HStack(spacing: 10) {
+                        Label("自定义快捷键", systemImage: "command")
+                            .font(.subheadline.weight(.medium))
+                        Spacer()
+                        Button("录制快捷键…") { recorderButton = selectedButton }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                    Text("录制后会替换当前预设动作；如需恢复预设，直接从上方选择即可。")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                    Button("录制快捷键…") { recorderButton = selectedButton }
-                        .buttonStyle(.bordered)
                 }
             }
         }
@@ -885,89 +887,54 @@ struct SettingsView: View {
         if case let .app(bundleID) = mappingScope {
             let templates = store.templates(for: bundleID)
             return AnyView(
-                workspaceCard(title: "模板", symbolName: "square.stack.3d.up") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("当前程序")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Text(mappingScopeDisplayName)
-                                    .font(.subheadline.weight(.semibold))
-                            }
-                            Spacer()
-                            if let selected = selectedEditorTemplate {
-                                Label(
-                                    store.isActiveTemplate(selected.id) ? "Active" : "未激活",
-                                    systemImage: store.isActiveTemplate(selected.id)
-                                        ? "checkmark.circle.fill"
-                                        : "circle"
-                                )
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(
-                                    store.isActiveTemplate(selected.id) ? .green : .orange
-                                )
-                            }
-                        }
+                HStack(spacing: 8) {
+                    Text("模板")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Image(systemName: selectedEditorTemplate == nil
+                          ? "circle.dashed"
+                          : "checkmark.circle.fill")
+                        .foregroundStyle(selectedEditorTemplate == nil ? Color.secondary : Color.green)
+                        .help("绿色对勾表示 Active 模板")
 
-                        if templates.isEmpty {
-                            Text("当前程序还没有模板。可以新建空白模板，或从下方导入一个预设模板。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Picker("编辑模板", selection: Binding(
-                                get: { selectedTemplateTarget },
-                                set: { selectTemplate($0, for: bundleID) }
-                            )) {
-                                ForEach(templates) { template in
-                                    Text(template.templateName + (store.isActiveTemplate(template.id) ? " · Active" : ""))
-                                        .tag(TemplateTarget.template(template.id))
-                                }
-                            }
-                            .labelsHidden()
-                            .frame(maxWidth: 420)
-
-                            HStack(spacing: 10) {
-                                if let selected = selectedEditorTemplate,
-                                   !store.isActiveTemplate(selected.id) {
-                                    Button("设为 Active") {
-                                        store.setActiveTemplate(selected.id)
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                    .controlSize(.small)
-                                }
-
-                                if selectedEditorTemplate != nil {
-                                    Button("删除模板", role: .destructive) {
-                                        templateToDelete = selectedEditorTemplate?.id
-                                        showDeleteTemplateConfirm = true
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .controlSize(.small)
-                                }
-                            }
-                        }
-
-                        Divider()
-
-                        HStack(spacing: 10) {
-                            Button("套用预设模板") {
-                                showTemplatePresetImporter = true
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .disabled(store.templatePresets(for: bundleID).isEmpty)
-
-                            Button("新建空白模板") {
-                                showTemplateCreator = true
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
-
-                        Text("选择模板后在上方编辑按键；Active 模板才会在该程序运行时生效。")
+                    if templates.isEmpty {
+                        Text("无")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Active 模板", selection: Binding(
+                            get: { selectedTemplateTarget },
+                            set: { selectTemplate($0, for: bundleID) }
+                        )) {
+                            ForEach(templates) { template in
+                                Text(template.templateName)
+                                    .tag(TemplateTarget.template(template.id))
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 260)
+                    }
+
+                    Button("套用") {
+                        showTemplatePresetImporter = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(store.templatePresets(for: bundleID).isEmpty)
+
+                    Button("新建") {
+                        showTemplateCreator = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    if selectedEditorTemplate != nil {
+                        Button("删除", role: .destructive) {
+                            templateToDelete = selectedEditorTemplate?.id
+                            showDeleteTemplateConfirm = true
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
                     }
                 }
             )
@@ -1695,6 +1662,7 @@ struct SettingsView: View {
             .system,
             .navigation,
             .editing,
+            .selection,
             .media,
         ]
         if case .global = mappingScope {
@@ -1711,6 +1679,7 @@ struct SettingsView: View {
             .system,
             .navigation,
             .editing,
+            .selection,
             .media,
         ]
         switch mappingScope {

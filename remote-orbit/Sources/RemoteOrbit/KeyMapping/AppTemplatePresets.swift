@@ -126,7 +126,7 @@ enum AppTemplatePresetLibrary {
             appBundleIdentifier: "md.obsidian",
             appName: "Obsidian",
             templateName: "Obsidian 默认",
-            summary: "焦点与分栏、滚屏、标签与窗口、笔记编辑、快速切换、命令面板、搜索、侧边栏、图谱和属性；Obsidian 核心命令按类别直连。",
+            summary: "CLI 文档分栏聚焦、滚屏、标签与窗口、笔记编辑、快速切换、命令面板、搜索、侧边栏、图谱和属性。",
             bindings: obsidianBindings
         ),
     ]
@@ -145,6 +145,7 @@ enum AppTemplatePresetLibrary {
             .system,
             .navigation,
             .editing,
+            .selection,
             .media,
         ]
         for preset in presets(for: bundleIdentifier) {

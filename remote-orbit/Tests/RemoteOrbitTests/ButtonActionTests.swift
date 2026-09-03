@@ -245,6 +245,9 @@ final class ButtonActionTests: XCTestCase {
             .obsidianNewNoteToRight,
             .obsidianSearchCurrentFile,
             .obsidianSearch,
+            .obsidianIncreaseFontSize,
+            .obsidianDecreaseFontSize,
+            .obsidianResetFontSize,
             .obsidianOpenGraphView,
             .obsidianOpenSettings,
             .obsidianCloseOtherTabs,
@@ -267,10 +270,39 @@ final class ButtonActionTests: XCTestCase {
         XCTAssertTrue(actions.allSatisfy { !$0.repeatsWhenHeld })
         XCTAssertTrue(actions.allSatisfy { !$0.displayName.isEmpty })
         XCTAssertTrue(actions.allSatisfy { $0.obsidianGroup != nil })
+        XCTAssertTrue([
+            ButtonAction.obsidianFocusEditor,
+            .obsidianFocusTabGroupLeft,
+            .obsidianFocusTabGroupRight,
+            .obsidianFocusTabGroupAbove,
+            .obsidianFocusTabGroupBelow,
+        ].allSatisfy { $0.obsidianGroup == .cliWorkspace })
         XCTAssertEqual(
             Set(actions.compactMap(\.obsidianGroup)),
             Set(ObsidianActionGroup.allCases)
         )
+    }
+
+    func testSystemCaretAndSelectionActionsStayAtomicAndScoped() {
+        let actions: [ButtonAction] = [
+            .moveToLineStart,
+            .moveToLineEnd,
+            .moveToDocumentStart,
+            .moveToDocumentEnd,
+            .extendSelectionLeft,
+            .extendSelectionRight,
+            .extendSelectionUp,
+            .extendSelectionDown,
+            .extendSelectionToLineStart,
+            .extendSelectionToLineEnd,
+            .extendSelectionToDocumentStart,
+            .extendSelectionToDocumentEnd,
+        ]
+
+        XCTAssertTrue(actions.allSatisfy { $0.category == .selection })
+        XCTAssertTrue(actions.allSatisfy { !$0.repeatsWhenHeld })
+        XCTAssertTrue(actions.allSatisfy { !$0.displayName.isEmpty })
+        XCTAssertTrue(AppTemplatePresetLibrary.categories(for: "md.obsidian").contains(.selection))
     }
 
     func testAppPresetCategoriesStayScopedToTheSelectedApplication() {

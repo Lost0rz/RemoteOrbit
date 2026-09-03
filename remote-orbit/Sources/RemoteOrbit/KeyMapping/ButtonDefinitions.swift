@@ -191,6 +191,21 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
     case selectAll
     case undo
     case redo
+    // System-level caret and range selection actions. They operate on the
+    // text control that already owns the insertion point; Remote Orbit does
+    // not inspect or change the receiving app's document contents.
+    case moveToLineStart
+    case moveToLineEnd
+    case moveToDocumentStart
+    case moveToDocumentEnd
+    case extendSelectionLeft
+    case extendSelectionRight
+    case extendSelectionUp
+    case extendSelectionDown
+    case extendSelectionToLineStart
+    case extendSelectionToLineEnd
+    case extendSelectionToDocumentStart
+    case extendSelectionToDocumentEnd
     /// FloatTabs' app-local tab navigation shortcuts.
     case floatTabsSelectSlot1
     case floatTabsSelectSlot2
@@ -322,6 +337,9 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
     case obsidianSearch
     case obsidianToggleEditMode
     case obsidianAddProperty
+    case obsidianIncreaseFontSize
+    case obsidianDecreaseFontSize
+    case obsidianResetFontSize
     case obsidianFocusEditor
     case obsidianFocusTabGroupLeft
     case obsidianFocusTabGroupRight
@@ -398,6 +416,12 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
             return .navigation
         case .copy, .paste, .cut, .selectAll, .deleteBackward, .undo, .redo:
             return .editing
+        case .moveToLineStart, .moveToLineEnd, .moveToDocumentStart,
+             .moveToDocumentEnd, .extendSelectionLeft, .extendSelectionRight,
+             .extendSelectionUp, .extendSelectionDown,
+             .extendSelectionToLineStart, .extendSelectionToLineEnd,
+             .extendSelectionToDocumentStart, .extendSelectionToDocumentEnd:
+            return .selection
         case .volumeUp, .volumeDown, .volumeMute, .playPause:
             return .media
         case .floatTabsSelectSlot1, .floatTabsSelectSlot2,
@@ -467,6 +491,8 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .obsidianCommandPalette, .obsidianQuickSwitcher, .obsidianNewNote,
              .obsidianNewTab, .obsidianReopenClosedTab, .obsidianCloseTab,
              .obsidianSearch, .obsidianToggleEditMode, .obsidianAddProperty,
+             .obsidianIncreaseFontSize, .obsidianDecreaseFontSize,
+             .obsidianResetFontSize,
              .obsidianFocusEditor, .obsidianFocusTabGroupLeft,
              .obsidianFocusTabGroupRight, .obsidianFocusTabGroupAbove,
              .obsidianFocusTabGroupBelow,
@@ -519,6 +545,18 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .selectAll:       return "全选（Command-A）"
         case .undo:            return "撤销（Command-Z）"
         case .redo:            return "重做（Command-Shift-Z）"
+        case .moveToLineStart:             return "光标移到行首（Command-左方向）"
+        case .moveToLineEnd:               return "光标移到行尾（Command-右方向）"
+        case .moveToDocumentStart:         return "光标移到文档开头（Command-上方向）"
+        case .moveToDocumentEnd:           return "光标移到文档末尾（Command-下方向）"
+        case .extendSelectionLeft:         return "向左扩展选择（Shift-左方向）"
+        case .extendSelectionRight:        return "向右扩展选择（Shift-右方向）"
+        case .extendSelectionUp:           return "向上扩展选择（Shift-上方向）"
+        case .extendSelectionDown:         return "向下扩展选择（Shift-下方向）"
+        case .extendSelectionToLineStart:  return "选择到行首（Command-Shift-左方向）"
+        case .extendSelectionToLineEnd:    return "选择到行尾（Command-Shift-右方向）"
+        case .extendSelectionToDocumentStart:return "选择到文档开头（Command-Shift-上方向）"
+        case .extendSelectionToDocumentEnd:  return "选择到文档末尾（Command-Shift-下方向）"
         case .floatTabsSelectSlot1: return "FloatTabs：直达标签 1"
         case .floatTabsSelectSlot2: return "FloatTabs：直达标签 2"
         case .floatTabsSelectSlot3: return "FloatTabs：直达标签 3"
@@ -643,6 +681,9 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .obsidianSearch:           return "Obsidian：全库搜索"
         case .obsidianToggleEditMode:   return "Obsidian：切换编辑 / 阅读模式"
         case .obsidianAddProperty:      return "Obsidian：添加属性"
+        case .obsidianIncreaseFontSize: return "Obsidian：增大字体（Command-加号）"
+        case .obsidianDecreaseFontSize: return "Obsidian：减小字体（Command-减号）"
+        case .obsidianResetFontSize:    return "Obsidian：重置字体（Command-0）"
         case .obsidianFocusEditor:      return "Obsidian：聚焦编辑器"
         case .obsidianFocusTabGroupLeft:return "Obsidian：聚焦左侧分栏"
         case .obsidianFocusTabGroupRight:return "Obsidian：聚焦右侧分栏"
@@ -698,7 +739,9 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .obsidianFocusEditor, .obsidianFocusTabGroupLeft,
              .obsidianFocusTabGroupRight, .obsidianFocusTabGroupAbove,
-             .obsidianFocusTabGroupBelow, .obsidianToggleLeftSidebar,
+             .obsidianFocusTabGroupBelow:
+            return .cliWorkspace
+        case .obsidianToggleLeftSidebar,
              .obsidianToggleRightSidebar, .obsidianOpenFileExplorer,
              .obsidianSplitRight, .obsidianSplitDown,
              .obsidianToggleStackedTabs:
@@ -713,6 +756,8 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
             return .tabsAndWindows
         case .obsidianNewNote, .obsidianNewNoteToRight,
              .obsidianToggleEditMode, .obsidianAddProperty,
+             .obsidianIncreaseFontSize, .obsidianDecreaseFontSize,
+             .obsidianResetFontSize,
              .obsidianOpenDailyNote, .obsidianInsertTemplate,
              .obsidianCreateNewCanvas:
             return .notesAndEditing
@@ -737,6 +782,7 @@ enum ButtonActionCategory: String, CaseIterable, Hashable, Identifiable {
     case applications
     case navigation
     case editing
+    case selection
     case media
     case floatTabs
     case chatGPTGeneral
@@ -755,6 +801,7 @@ enum ButtonActionCategory: String, CaseIterable, Hashable, Identifiable {
         case .applications: return "程序启动"
         case .navigation:return "方向与滚动"
         case .editing:   return "复制与编辑"
+        case .selection: return "光标与选择"
         case .media:     return "媒体控制"
         case .floatTabs: return "FloatTabs"
         case .chatGPTGeneral:          return "Codex · 通用"
@@ -778,6 +825,7 @@ enum ButtonActionCategory: String, CaseIterable, Hashable, Identifiable {
 /// Obsidian 专属动作的二级分类。它只影响设置页的展示，不改变动作的
 /// 顶层 App 作用域判断。
 enum ObsidianActionGroup: String, CaseIterable, Hashable, Identifiable {
+    case cliWorkspace
     case focusAndLayout
     case tabsAndWindows
     case notesAndEditing
@@ -789,6 +837,7 @@ enum ObsidianActionGroup: String, CaseIterable, Hashable, Identifiable {
 
     var displayName: String {
         switch self {
+        case .cliWorkspace:         return "CLI 文档与分栏"
         case .focusAndLayout:      return "焦点与布局"
         case .tabsAndWindows:      return "标签与窗口"
         case .notesAndEditing:     return "笔记与编辑"
