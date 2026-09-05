@@ -680,25 +680,37 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             filter.beginOptionDeferral(gestureID: gestureID)
         }
 
+        // VoiceKeyFilter is the fallback path used while the HID monitor is
+        // unavailable. It used to pass nil here, which accidentally meant
+        // “use the Doubao default” even when the user disabled the single-tap
+        // slot. Resolve the same app-scoped binding used by HID before
+        // deciding the short action.
+        let resolvedShortBinding = shortBinding
+            ?? mappingStore.binding(for: .microphone, appBundleIdentifier: target)
+        print(
+            "[VOICE] short input binding → (resolvedShortBinding.displayName); "
+                + "target=\(target ?? "global")"
+        )
+
         let shortTapAction: (() -> Void)?
-        switch shortBinding {
-        case .none, .some(.voiceKeyDefault):
+        switch resolvedShortBinding {
+        case .voiceKeyDefault:
             // nil deliberately selects VoicePressCoordinator's original
             // Doubao Option-tap path: one tap, computer/external microphone.
             shortTapAction = nil
-        case let .some(binding) where binding.isDisabled:
+        case let binding where binding.isDisabled:
             // A disabled short slot must not fall through to the Doubao
             // default. The long remote-mic slot remains fully independent.
             shortTapAction = {
                 print("[PRESS] SHORT release → disabled by microphone mapping")
             }
-        case let .some(binding):
+        default:
             // Codex voice chat is an optional short behavior, but it still
             // goes through this classifier so a long hold always remains the
             // remote ATVV microphone path.
             shortTapAction = { [weak self] in
                 self?.handleVoiceShortTap(
-                    binding,
+                    resolvedShortBinding,
                     targetApplicationBundleIdentifier: target
                 )
             }

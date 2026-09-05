@@ -76,6 +76,17 @@ final class KeymapOverlayTests: XCTestCase {
         )
     }
 
+    func testDisabledMicrophoneShortInputKeepsRemoteLongInput() {
+        let lines = KeymapPresentation.actionLines(
+            for: .microphone,
+            binding: .preset(.disabled),
+            profile: MappingStore.defaultMicrophoneGestureProfile
+        )
+
+        XCTAssertEqual(lines.map(\.gesture), ["单击", "长按"])
+        XCTAssertEqual(lines.map(\.action), ["禁用", "遥控器语音输入"])
+    }
+
     func testTVLongPressDefaultsToCurrentKeymapInspection() {
         let profile = AppTemplatePresetLibrary.defaultKeymapInspectionProfile
 
