@@ -209,6 +209,20 @@ final class VoicePressCoordinator {
     private var suppressNewPressUntil = Date.distantPast
     private var shortTapAction: (() -> Void)?
 
+    /// Only these short actions need RemoteOrbit to capture the Mac's
+    /// physical/external microphone. The remote-microphone long press is
+    /// independent and must never inherit this requirement.
+    static func usesLocalMicrophone(forShortBinding binding: ButtonBinding) -> Bool {
+        switch binding {
+        case .voiceKeyDefault:
+            return true
+        case .preset(.chatGPTStartVoiceChat), .preset(.chatGPTStartDictation):
+            return true
+        default:
+            return false
+        }
+    }
+
     var hasRemoteAudio: Bool {
         remoteAudioAvailable
     }
@@ -763,6 +777,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         print(
             "[VOICE] short input binding → \(resolvedShortBinding.displayName); "
                 + "target=\(target ?? "global")"
+        )
+        let usesLocalMicrophone = VoicePressCoordinator.usesLocalMicrophone(
+            forShortBinding: resolvedShortBinding
+        )
+        AudioPipe.shared.setLocalMicrophoneCaptureEnabled(usesLocalMicrophone)
+        print(
+            "[VOICE] 本机麦克风采集 → "
+                + (usesLocalMicrophone ? "启用（单击语音输入）" : "关闭（单击未启用）")
         )
 
         let shortTapAction: (() -> Void)?

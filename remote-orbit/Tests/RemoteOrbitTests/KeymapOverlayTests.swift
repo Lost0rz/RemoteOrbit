@@ -91,6 +91,34 @@ final class KeymapOverlayTests: XCTestCase {
         XCTAssertEqual(lines.map(\.action), ["禁用", "遥控器语音输入"])
     }
 
+    func testOnlyShortVoiceInputsRequestTheLocalMicrophone() {
+        XCTAssertTrue(
+            VoicePressCoordinator.usesLocalMicrophone(
+                forShortBinding: .voiceKeyDefault
+            )
+        )
+        XCTAssertTrue(
+            VoicePressCoordinator.usesLocalMicrophone(
+                forShortBinding: .preset(.chatGPTStartVoiceChat)
+            )
+        )
+        XCTAssertTrue(
+            VoicePressCoordinator.usesLocalMicrophone(
+                forShortBinding: .preset(.chatGPTStartDictation)
+            )
+        )
+        XCTAssertFalse(
+            VoicePressCoordinator.usesLocalMicrophone(
+                forShortBinding: .preset(.disabled)
+            )
+        )
+        XCTAssertFalse(
+            VoicePressCoordinator.usesLocalMicrophone(
+                forShortBinding: .preset(.returnKey)
+            )
+        )
+    }
+
     func testTVLongPressDefaultsToCurrentKeymapInspection() {
         let profile = AppTemplatePresetLibrary.defaultKeymapInspectionProfile
 

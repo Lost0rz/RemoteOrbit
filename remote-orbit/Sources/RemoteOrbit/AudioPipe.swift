@@ -1,7 +1,7 @@
 // AudioPipe sends decoded ATVV PCM into RemoteOrbit Mic 2ch. Doubao sees one
-// stable USB microphone: the Mac/external microphone is fed while idle and
-// during a short voice-key tap, while the remote microphone takes over only
-// during a classified long press.
+// stable USB microphone: the Mac/external microphone is opened only when the
+// configured short voice input needs it, while the remote microphone takes
+// over exclusively during a classified long press.
 //
 // ATVV Int16 PCM → CoreAudio IOProc → RemoteOrbit Mic 2ch
 
@@ -20,10 +20,6 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private static let targetDeviceNames = ["RemoteOrbit Mic 2ch"]
     private static let outputSampleRate: Double = 48_000
     private static let outputChannels: AVAudioChannelCount = 2
-    /// The short voice-key path is Doubao input from the Mac's selected
-    /// physical/external microphone. Keep that feed alive while no remote
-    /// long-press is active; the remote PCM path takes over in setRemoteActive.
-    private static let localMicrophoneEnabled = true
     /// The remote's decoded ATVV signal is intentionally quiet. Add roughly
     /// +26 dB and use a soft limiter so a nearby speaker does not hard-clip.
     private static let remoteGain: Float = 20.0
@@ -37,6 +33,11 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let stateLock = NSLock()
     private var remoteActive = false
     private var remoteCandidateActive = false
+    /// This is a demand signal, not a permanent app capability. A disabled
+    /// short slot must not even open AVCapture, and a remote long press stops
+    /// the running session before accepting ATVV samples.
+    private var localMicrophoneCaptureRequested = false
+    private var localMicrophonePermissionRequestInFlight = false
     // ATVV starts sending PCM before VoicePressCoordinator crosses the hold
     // guard. Keep only a short pre-roll so the first syllable is not lost.
     private var pendingRemotePrebuffer: [Int16] = []
@@ -73,7 +74,6 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             AppStorage.loggingEnabled {
             startDiagnosticsTimer()
         }
-        requestLocalMicAccess()
     }
 
     // MARK: - public
@@ -172,9 +172,15 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             pendingRemotePrebuffer.removeAll(keepingCapacity: true)
         }
         stateLock.unlock()
+        if active {
+            // The remote-only path must not leave the physical microphone
+            // open. `captureOutput` also rejects late callbacks, but stopping
+            // the session is required to release the device privacy claim.
+            stopLocalMicCapture()
+        }
         print(active
             ? "[AUDIO] 输入切换 → 遥控器麦克风"
-            : "[AUDIO] 输入切换 → 本机物理麦克风（豆包输入）")
+            : "[AUDIO] 输入切换 → 等待下一次外部语音输入")
 
         if active, !prebuffer.isEmpty {
             print("[AUDIO] 远程语音预缓冲已补入: \(prebuffer.count) samples")
@@ -187,6 +193,25 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 sampleRate: 16_000,
                 expectedRemoteMode: true
             )
+        }
+    }
+
+    /// Enable or disable the physical/external microphone path used by the
+    /// short voice action. This deliberately does not follow `remoteActive`:
+    /// a configured short action may keep the local capture session ready
+    /// between taps, but a long press always stops it through setRemoteActive.
+    func setLocalMicrophoneCaptureEnabled(_ enabled: Bool) {
+        stateLock.lock()
+        localMicrophoneCaptureRequested = enabled
+        if !enabled {
+            localMicrophonePermissionRequestInFlight = false
+        }
+        stateLock.unlock()
+
+        if enabled {
+            requestLocalMicAccess()
+        } else {
+            stopLocalMicCapture()
         }
     }
 
@@ -212,26 +237,43 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         outputDeviceReady = false
         pendingOutput.removeAll(keepingCapacity: true)
         pendingOutputIndex = 0
+        localMicrophoneCaptureRequested = false
+        localMicrophonePermissionRequestInFlight = false
         stateLock.unlock()
+        stopLocalMicCapture()
         endRemoteCandidate()
     }
 
     // MARK: - local physical microphone capture
 
     private func requestLocalMicAccess() {
+        guard isLocalMicrophoneCaptureRequested, !isRemoteActive else { return }
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             startLocalMicCapture()
         case .notDetermined:
+            stateLock.lock()
+            guard !localMicrophonePermissionRequestInFlight,
+                  localMicrophoneCaptureRequested else {
+                stateLock.unlock()
+                return
+            }
+            localMicrophonePermissionRequestInFlight = true
+            stateLock.unlock()
             print("[AUDIO] 请求本机麦克风权限…")
             AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-                DispatchQueue.main.async {
-                    if granted {
-                        self?.startLocalMicCapture()
-                    } else {
+                guard let self else { return }
+                self.stateLock.lock()
+                self.localMicrophonePermissionRequestInFlight = false
+                let shouldStart = granted && self.localMicrophoneCaptureRequested
+                self.stateLock.unlock()
+                guard shouldStart else {
+                    if !granted {
                         print("[AUDIO] ⚠️ 本机麦克风权限被拒绝")
                     }
+                    return
                 }
+                self.startLocalMicCapture()
             }
         default:
             print("[AUDIO] ⚠️ 没有本机麦克风权限；遥控器麦克风仍可使用")
@@ -239,6 +281,26 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 
     private func startLocalMicCapture() {
+        guard isLocalMicrophoneCaptureRequested, !isRemoteActive else { return }
+        captureQueue.async { [weak self] in
+            self?.configureAndStartLocalMicCaptureOnQueue()
+        }
+    }
+
+    /// AVCaptureSession start/stop/configuration all run on captureQueue. This
+    /// prevents a long-press transition from racing a pending session start.
+    private func configureAndStartLocalMicCaptureOnQueue() {
+        guard isLocalMicrophoneCaptureRequested, !isRemoteActive else { return }
+        if captureSession.isRunning {
+            return
+        }
+
+        if !captureSession.inputs.isEmpty {
+            captureSession.startRunning()
+            print("[AUDIO] 本机麦克风采集已恢复, running=\(captureSession.isRunning)")
+            return
+        }
+
         var deviceTypes: [AVCaptureDevice.DeviceType] = [.builtInMicrophone]
         if #available(macOS 14.0, *) {
             deviceTypes.append(.external)
@@ -290,17 +352,50 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             captureSession.addOutput(output)
             captureSession.commitConfiguration()
 
-            captureQueue.async { [weak self] in
-                guard let self else { return }
-                self.captureSession.startRunning()
-                print(
-                    "[AUDIO] 本机麦克风采集已启动: " +
-                    "\(device.localizedName), running=\(self.captureSession.isRunning)"
-                )
+            guard isLocalMicrophoneCaptureRequested, !isRemoteActive else {
+                removeLocalMicCaptureConfigurationOnQueue()
+                return
             }
+            captureSession.startRunning()
+            print(
+                "[AUDIO] 本机麦克风采集已启动: " +
+                "\(device.localizedName), running=\(captureSession.isRunning)"
+            )
         } catch {
             print("[AUDIO] ⚠️ 本机麦克风采集失败: \(error.localizedDescription)")
         }
+    }
+
+    private func stopLocalMicCapture() {
+        captureQueue.async { [weak self] in
+            guard let self else { return }
+            guard self.captureSession.isRunning
+                || !self.captureSession.inputs.isEmpty
+                || !self.captureSession.outputs.isEmpty else { return }
+            if self.captureSession.isRunning {
+                self.captureSession.stopRunning()
+            }
+            self.removeLocalMicCaptureConfigurationOnQueue()
+            print("[AUDIO] 本机麦克风采集已停止")
+        }
+    }
+
+    private func removeLocalMicCaptureConfigurationOnQueue() {
+        guard !captureSession.inputs.isEmpty || !captureSession.outputs.isEmpty else { return }
+        captureSession.beginConfiguration()
+        for input in captureSession.inputs {
+            captureSession.removeInput(input)
+        }
+        for output in captureSession.outputs {
+            captureSession.removeOutput(output)
+        }
+        captureSession.commitConfiguration()
+    }
+
+    private var isLocalMicrophoneCaptureRequested: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return localMicrophoneCaptureRequested
     }
 
     func captureOutput(
@@ -308,7 +403,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        guard Self.localMicrophoneEnabled,
+        guard isLocalMicrophoneCaptureRequested,
               !isRemoteActive,
               let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
               let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(
@@ -574,7 +669,14 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             [weak self] _ in
             guard let self else { return }
             self.stateLock.lock()
-            let mode = self.remoteActive ? "remote" : "mac"
+            let mode: String
+            if self.remoteActive {
+                mode = "remote"
+            } else if self.localMicrophoneCaptureRequested {
+                mode = "mac"
+            } else {
+                mode = "idle"
+            }
             let macBuffers = self.scheduledMacBuffers
             let remoteBuffers = self.scheduledRemoteBuffers
             let peak = self.scheduledPeak
