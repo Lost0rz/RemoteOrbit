@@ -185,9 +185,12 @@ final class VoicePressCoordinator {
 
     /// This is the short-vs-long classifier. A quick tap invokes Doubao's
     /// computer/external-microphone input (or the optional Codex short action);
-    /// a hold starts remote dictation after 120 ms so the first spoken syllable
-    /// is not lost behind the old window.
-    private let holdActivationThreshold: TimeInterval = 0.12
+    /// a hold starts remote dictation after the original 300 ms window.
+    ///
+    /// Keep this at 300 ms: the old hold-only experiment lowered it to 120 ms,
+    /// but once short-press behavior was restored that made an ordinary tap
+    /// look like a long press and opened Doubao unexpectedly.
+    static let holdActivationThreshold: TimeInterval = 0.30
     // The remote sends AUDIO_STOP before the HID key-up, so there is no BLE
     // tail left to wait for here. Keeping this delay near zero makes Doubao
     // leave its recording UI as soon as the user releases the button.
@@ -217,10 +220,10 @@ final class VoicePressCoordinator {
         }
         holdWorkItem = work
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + holdActivationThreshold,
+            deadline: .now() + Self.holdActivationThreshold,
             execute: work
         )
-        print("[PRESS] pending; classifying Doubao short tap vs remote-mic hold in 120 ms")
+        print("[PRESS] pending; classifying short tap vs remote-mic hold in 300 ms")
         return true
     }
 

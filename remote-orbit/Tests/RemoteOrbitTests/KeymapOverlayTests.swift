@@ -2,6 +2,10 @@ import XCTest
 @testable import RemoteOrbit
 
 final class KeymapOverlayTests: XCTestCase {
+    func testVoicePressUsesTheOriginalTapClassificationWindow() {
+        XCTAssertEqual(VoicePressCoordinator.holdActivationThreshold, 0.30)
+    }
+
     func testInspectCurrentKeymapIsSystemAction() {
         let action = ButtonAction.inspectCurrentKeymap
 
