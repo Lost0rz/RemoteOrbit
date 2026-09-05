@@ -54,6 +54,7 @@ final class BLEBridge: NSObject {
     private var scanTimeoutWorkItem: DispatchWorkItem?
     private var connectTimeoutWorkItem: DispatchWorkItem?
     private var handshakeTimeoutWorkItem: DispatchWorkItem?
+    private var stopAfterVoiceWorkItem: DispatchWorkItem?
     private let reconnectDelays: [TimeInterval] = [1, 2, 4, 8, 15, 30]
     private let scanTimeout: TimeInterval = 8
     private let connectTimeout: TimeInterval = 12
@@ -61,6 +62,8 @@ final class BLEBridge: NSObject {
 
     private let protocolHandler = ATVVProtocol()
     private var streamID: UInt8 = 0
+    private var voiceInputRequested = false
+    private var micOpenRequested = false
     private var isStreaming = false
     private var levelSumSq: Int64 = 0
     private var levelCount: Int = 0
@@ -98,6 +101,10 @@ final class BLEBridge: NSObject {
 
     func stop() {
         isStarted = false
+        voiceInputRequested = false
+        micOpenRequested = false
+        stopAfterVoiceWorkItem?.cancel()
+        stopAfterVoiceWorkItem = nil
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
         scanTimeoutWorkItem?.cancel()
@@ -113,6 +120,56 @@ final class BLEBridge: NSObject {
         }
         clearTransportState(notify: true)
         peripheral = nil
+    }
+
+    /// ATVV must not be kept connected while the remote is idle. On this
+    /// remote the idle ATVV link eventually takes over the same radio session
+    /// used by HID, which makes ordinary buttons disappear during reconnects.
+    /// Open the voice transport only for the lifetime of a voice-key hold.
+    func startVoiceInput() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.startVoiceInput()
+            }
+            return
+        }
+        voiceInputRequested = true
+        micOpenRequested = false
+        stopAfterVoiceWorkItem?.cancel()
+        stopAfterVoiceWorkItem = nil
+        start()
+        requestMicOpenIfReady()
+    }
+
+    /// Release the ATVV transport shortly after the physical voice key is
+    /// released. The small drain window lets the remote deliver AUDIO_STOP,
+    /// then returns the radio to HID-only operation.
+    func stopVoiceInput() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.stopVoiceInput()
+            }
+            return
+        }
+        voiceInputRequested = false
+        if micOpenRequested, atvvReady {
+            do {
+                let command = try protocolHandler.micCloseCommand(streamID: streamID)
+                writeCommand(command)
+                print("[BLE] TX micClose")
+            } catch {
+                print("[BLE] micClose error: \(error.localizedDescription)")
+            }
+        }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.stopAfterVoiceWorkItem = nil
+            self.stop()
+            print("[BLE] 语音释放，ATVV 链路已关闭（恢复 HID-only）")
+        }
+        stopAfterVoiceWorkItem?.cancel()
+        stopAfterVoiceWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
     }
 
     func setRecordingEnabled(_ enabled: Bool) {
@@ -263,7 +320,7 @@ final class BLEBridge: NSObject {
     }
 
     private func scheduleReconnect(reason: String, immediate: Bool = false) {
-        guard isStarted, central.state == .poweredOn else { return }
+        guard isStarted, voiceInputRequested, central.state == .poweredOn else { return }
         guard reconnectWorkItem == nil else { return }
 
         let index = min(reconnectAttempt, reconnectDelays.count - 1)
@@ -293,6 +350,7 @@ final class BLEBridge: NSObject {
         reconnectAttempt = 0
         print("[BLE] ATVV 语音链路已就绪")
         onConnectionChanged?(true)
+        requestMicOpenIfReady()
     }
 
     private func clearTransportState(notify: Bool) {
@@ -314,6 +372,7 @@ final class BLEBridge: NSObject {
         controlChar = nil
         discoveredATVVCharacteristics.removeAll()
         capabilitiesRequested = false
+        micOpenRequested = false
         let wasReady = atvvReady
         atvvReady = false
         if wasStreaming || notify {
@@ -342,6 +401,19 @@ final class BLEBridge: NSObject {
     private func writeCommand(_ data: Data) {
         guard let p = peripheral, let c = commandChar else { return }
         p.writeValue(data, for: c, type: .withResponse)
+    }
+
+    private func requestMicOpenIfReady() {
+        guard voiceInputRequested, atvvReady, !micOpenRequested else { return }
+        do {
+            protocolHandler.prepareForAudioStream()
+            pendingAudioSyncCount = 0
+            writeCommand(try protocolHandler.micOpenCommand())
+            micOpenRequested = true
+            print("[BLE] TX micOpen (voice hold)")
+        } catch {
+            print("[BLE] micOpen error: \(error.localizedDescription)")
+        }
     }
 
     /// Send an ATVV keep-alive. Should be called every ~4 seconds while
@@ -389,7 +461,9 @@ extension BLEBridge: CBCentralManagerDelegate {
         switch central.state {
         case .poweredOn:
             print("[BLE] 蓝牙已就绪")
-            scheduleReconnect(reason: "bluetooth-ready", immediate: true)
+            if voiceInputRequested {
+                scheduleReconnect(reason: "bluetooth-ready", immediate: true)
+            }
         case .poweredOff:
             print("[BLE] 蓝牙未开启")
             reconnectWorkItem?.cancel()
@@ -601,16 +675,7 @@ extension BLEBridge: CBPeripheralDelegate {
             // guaranteed ordering. Arm the short PCM pre-roll here so the
             // first decoded frames survive until the gesture is classified.
             AudioPipe.shared.beginRemoteCandidate()
-            do {
-                // Reset before MIC_OPEN so a subsequent AUDIO_SYNC remains
-                // authoritative even when it arrives before AUDIO_START.
-                protocolHandler.prepareForAudioStream()
-                pendingAudioSyncCount = 0
-                writeCommand(try protocolHandler.micOpenCommand())
-                print("[BLE] TX micOpen (debounced)")
-            } catch {
-                print("[BLE] micOpen error: \(error.localizedDescription)")
-            }
+            requestMicOpenIfReady()
         case .capabilities(let caps):
             do {
                 try protocolHandler.acceptCapabilities(caps)

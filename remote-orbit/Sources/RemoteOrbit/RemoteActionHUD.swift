@@ -5,6 +5,7 @@ import AppKit
 /// loop, so the current text field or web page keeps focus.
 enum RemoteActionHUDState: Equatable {
     case pending
+    case recording
     case queued
     case success
     case failure
@@ -12,6 +13,7 @@ enum RemoteActionHUDState: Equatable {
     var title: String {
         switch self {
         case .pending: return "识别中"
+        case .recording: return "正在语音中"
         case .queued: return "已排队"
         case .success: return "已执行"
         case .failure: return "执行失败"
@@ -21,6 +23,7 @@ enum RemoteActionHUDState: Equatable {
     var color: NSColor {
         switch self {
         case .pending: return .systemYellow
+        case .recording: return .systemGreen
         case .queued: return .systemBlue
         case .success: return .systemGreen
         case .failure: return .systemRed
@@ -38,7 +41,7 @@ final class RemoteActionHUD {
         gesture: String,
         action: String,
         state: RemoteActionHUDState,
-        keepsPendingVisible: Bool = false
+        keepsVisible: Bool = false
     ) {
         if Thread.isMainThread {
             present(
@@ -46,7 +49,7 @@ final class RemoteActionHUD {
                 gesture: gesture,
                 action: action,
                 state: state,
-                keepsPendingVisible: keepsPendingVisible
+                keepsVisible: keepsVisible
             )
         } else {
             DispatchQueue.main.async { [weak self] in
@@ -55,7 +58,7 @@ final class RemoteActionHUD {
                     gesture: gesture,
                     action: action,
                     state: state,
-                    keepsPendingVisible: keepsPendingVisible
+                    keepsVisible: keepsVisible
                 )
             }
         }
@@ -78,7 +81,7 @@ final class RemoteActionHUD {
         gesture: String,
         action: String,
         state: RemoteActionHUDState,
-        keepsPendingVisible: Bool
+        keepsVisible: Bool
     ) {
         let panel = panel ?? makePanel()
         self.panel = panel
@@ -141,9 +144,9 @@ final class RemoteActionHUD {
         // A gesture-enabled button is undecided between single, double, and
         // long press at the first down edge. Keep that pending state visible
         // until the recognizer emits a result and the action is dispatched.
-        // Voice input uses the default (false) so its transient “按住” hint
-        // retains the old automatic timeout.
-        guard !(state == .pending && keepsPendingVisible) else { return }
+        // Recording voice input is also persistent and is dismissed by the
+        // voice state machine when the physical hold ends.
+        guard !keepsVisible else { return }
 
         let work = DispatchWorkItem { [weak self, weak panel] in
             panel?.orderOut(nil)
@@ -165,6 +168,7 @@ final class RemoteActionHUD {
         let symbolName: String
         switch state {
         case .pending: symbolName = "waveform"
+        case .recording: symbolName = "waveform"
         case .queued: symbolName = "clock"
         case .success: symbolName = "checkmark"
         case .failure: symbolName = "exclamationmark"

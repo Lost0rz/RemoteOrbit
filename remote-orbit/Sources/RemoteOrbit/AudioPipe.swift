@@ -1,6 +1,7 @@
 // AudioPipe sends decoded ATVV PCM into RemoteOrbit Mic 2ch. Doubao sees one
-// stable USB microphone; the current voice-key policy is remote-only while
-// held, with no local-microphone fallback.
+// stable USB microphone: the Mac/external microphone is fed while idle and
+// during a short voice-key tap, while the remote microphone takes over only
+// during a classified long press.
 //
 // ATVV Int16 PCM → CoreAudio IOProc → RemoteOrbit Mic 2ch
 
@@ -19,10 +20,10 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private static let targetDeviceNames = ["RemoteOrbit Mic 2ch"]
     private static let outputSampleRate: Double = 48_000
     private static let outputChannels: AVAudioChannelCount = 2
-    /// RemoteOrbit voice input is remote-only. Keep the virtual microphone
-    /// silent while idle or after a short tap; never fall back to the Mac's
-    /// built-in or external microphone.
-    private static let localMicrophoneEnabled = false
+    /// The short voice-key path is Doubao input from the Mac's selected
+    /// physical/external microphone. Keep that feed alive while no remote
+    /// long-press is active; the remote PCM path takes over in setRemoteActive.
+    private static let localMicrophoneEnabled = true
     /// The remote's decoded ATVV signal is intentionally quiet. Add roughly
     /// +26 dB and use a soft limiter so a nearby speaker does not hard-clip.
     private static let remoteGain: Float = 20.0
@@ -72,11 +73,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             AppStorage.loggingEnabled {
             startDiagnosticsTimer()
         }
-        if Self.localMicrophoneEnabled {
-            requestLocalMicAccess()
-        } else {
-            print("[AUDIO] 本机物理麦克风采集已关闭；仅接收遥控器麦克风")
-        }
+        requestLocalMicAccess()
     }
 
     // MARK: - public
@@ -177,7 +174,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         stateLock.unlock()
         print(active
             ? "[AUDIO] 输入切换 → 遥控器麦克风"
-            : "[AUDIO] 输入切换 → 无输入（等待遥控器）")
+            : "[AUDIO] 输入切换 → 本机物理麦克风（豆包输入）")
 
         if active, !prebuffer.isEmpty {
             print("[AUDIO] 远程语音预缓冲已补入: \(prebuffer.count) samples")

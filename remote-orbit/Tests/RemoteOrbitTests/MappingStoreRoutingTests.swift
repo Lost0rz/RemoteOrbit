@@ -133,4 +133,32 @@ final class MappingStoreRoutingTests: XCTestCase {
 
         XCTAssertEqual(repaired[MappingStore.floatTabsBundleIdentifier], activeID)
     }
+
+    func testGlobalGesturePinningOnlyOverridesTheSelectedBehavior() {
+        let global = ButtonGestureProfile(
+            isEnabled: true,
+            doubleTap: .preset(.copy),
+            longPress: .preset(.deleteBackward),
+            longPressBehavior: .repeatWhileHeld
+        )
+        let template = ButtonGestureProfile(
+            isEnabled: true,
+            doubleTap: .preset(.paste),
+            longPress: .preset(.reloadPage),
+            longPressBehavior: .triggerOnce
+        )
+
+        let merged = MappingStore.mergedGestureProfile(
+            global: global,
+            template: template,
+            button: .ok,
+            globallyPinnedSlots: [
+                GlobalMappingKey(button: .ok, slot: .longPress)
+            ]
+        )
+
+        XCTAssertEqual(merged.doubleTap, .preset(.paste))
+        XCTAssertEqual(merged.longPress, .preset(.deleteBackward))
+        XCTAssertEqual(merged.longPressBehavior, .repeatWhileHeld)
+    }
 }

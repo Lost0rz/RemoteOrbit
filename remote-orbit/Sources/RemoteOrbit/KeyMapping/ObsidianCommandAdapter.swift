@@ -82,10 +82,12 @@ enum ObsidianCommandAdapter {
         }
     }
 
-    /// The evaluated code intentionally works with visible markdown leaves,
+    /// The evaluated code intentionally works with visible content leaves,
     /// rather than Obsidian's `getAdjacentLeafInDirection`, because that
     /// built-in helper stays inside the current workspace root and does not
-    /// cross from the center editor to the right sidebar.
+    /// cross from the center editor to the right sidebar. Content leaves are
+    /// identified by a backing file, with markdown/PDF/canvas kept as known
+    /// document types so an unsaved new note can still be focused.
     private static func focusJavaScript(for command: FocusCommand) -> String {
         let direction: String
         switch command {
@@ -97,7 +99,36 @@ enum ObsidianCommandAdapter {
         }
 
         return """
-        (()=>{const w=app.workspace,a=w.activeLeaf;if(!a)return "__RO_FOCUS__|no-active";if("\(direction)"==="current"){a.getContainer?.().focus?.();return "__RO_FOCUS__|current"}const f=a.containerEl?.getBoundingClientRect();if(!f)return "__RO_FOCUS__|no-active-rect";const d="\(direction)";const c=w.getLeavesOfType("markdown").map(l=>({l,r:l.containerEl?.getBoundingClientRect()})).filter(x=>x.l!==a&&x.r&&x.r.width>0&&x.r.height>0&&((d==="right"&&x.r.left>=f.right-4)||(d==="left"&&x.r.right<=f.left+4)||(d==="above"&&x.r.bottom<=f.top+4)||(d==="below"&&x.r.top>=f.bottom-4))).sort((x,y)=>{const p=z=>{const q=d==="left"||d==="right"?Math.abs((z.r?.left||0)-f.left):Math.abs((z.r?.top||0)-f.top);const s=d==="left"||d==="right"?Math.abs((z.r?.top||0)-f.top):Math.abs((z.r?.left||0)-f.left);return q+s*.75};return p(x)-p(y)})[0];if(!c)return "__RO_FOCUS__|none";w.setActiveLeaf(c.l,{focus:true});const r=c.r;return "__RO_FOCUS__|ok|"+(c.l.view?.file?.path||"")+"|"+r.left+"|"+r.top+"|"+r.width+"|"+r.height})()
+        (()=>{
+            const w=app.workspace,a=w.activeLeaf;
+            if(!a)return "__RO_FOCUS__|no-active";
+            if("\(direction)"==="current"){
+                a.getContainer?.().focus?.();
+                return "__RO_FOCUS__|current";
+            }
+            const f=a.containerEl?.getBoundingClientRect();
+            if(!f)return "__RO_FOCUS__|no-active-rect";
+            const d="\(direction)",candidates=[];
+            w.iterateAllLeaves(l=>{
+                const type=l.view?.getViewType?.(),hasFile=!!l.view?.file;
+                if(!hasFile&&type!=="markdown"&&type!=="pdf"&&type!=="canvas")return;
+                const r=l.containerEl?.getBoundingClientRect();
+                if(!r||r.width<=0||r.height<=0)return;
+                candidates.push({l,r});
+            });
+            const c=candidates.filter(x=>x.l!==a&&((d==="right"&&x.r.left>=f.right-4)||(d==="left"&&x.r.right<=f.left+4)||(d==="above"&&x.r.bottom<=f.top+4)||(d==="below"&&x.r.top>=f.bottom-4))).sort((x,y)=>{
+                const p=z=>{
+                    const q=d==="left"||d==="right"?Math.abs(z.r.left-f.left):Math.abs(z.r.top-f.top);
+                    const s=d==="left"||d==="right"?Math.abs(z.r.top-f.top):Math.abs(z.r.left-f.left);
+                    return q+s*.75;
+                };
+                return p(x)-p(y);
+            })[0];
+            if(!c)return "__RO_FOCUS__|none";
+            w.setActiveLeaf(c.l,{focus:true});
+            const r=c.r;
+            return "__RO_FOCUS__|ok|"+(c.l.view?.file?.path||"")+"|"+r.left+"|"+r.top+"|"+r.width+"|"+r.height;
+        })()
         """
     }
 

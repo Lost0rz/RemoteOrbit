@@ -46,7 +46,7 @@ FloatTabs/Codex/Ghostty/Obsidian 等应用适配，以及按键注入、语音�
 菜单栏中的“打开控制中心…”现在是本项目自己的统一设置入口，包含：
 
 - **概览**：查看按钮数量、应用 Profile 数量和当前滚动速度。
-- **按键映射**：先选“默认 · 所有 App”或某个 App，再编辑具体按钮。
+- **按键映射**：先选“默认 · 所有 App”或某个 App，再编辑具体按钮；“系统控制”中可把“检查当前快捷映射”绑定到单击、双击或长按。
 - **应用配置**：为不同 App 建立独立 Profile，并明确选择 Active Profile。
 - **诊断与日志**：集中打开或清理日志、调试录音，并查看本机配置摘要。
 - **关于**：展示独立产品名、Bundle ID、版本和音频设备信息。
@@ -189,7 +189,7 @@ DMG 安装的应用位于：
 ```
 
 该命令会下载固定版本的 BlackHole 源码、构建独立驱动、打包 App，并生成
-`dist/RemoteOrbit-0.2.7.dmg`。如果已经有本地构建好的驱动，可以使用：
+`dist/RemoteOrbit-0.2.8.dmg`。如果已经有本地构建好的驱动，可以使用：
 
 ```bash
 ./package-dmg.sh --reuse-driver
@@ -202,7 +202,7 @@ DMG 安装的应用位于：
 - 提供 Developer ID 签名、Hardened Runtime 和 Apple 公证的正式安装包。
 - 增加 GitHub Actions、更多自动测试和干净 Mac 安装验证。
 
-当前 `0.2.7` 是 RemoteOrbit 的正式独立产品基线；安装包使用本地 ad-hoc 签名，仍需用户按
+当前 `0.2.8` 是 RemoteOrbit 的正式独立产品基线；安装包使用本地 ad-hoc 签名，仍需用户按
 macOS 提示授予蓝牙、麦克风、辅助功能和输入监控权限。Developer ID 签名和 Apple 公证仍是后续
 发布工作，不影响本机测试和安装。
 

@@ -75,6 +75,9 @@ private struct PersistedMappingConfiguration: Codable {
     // Optional so configurations created before per-button global pinning was
     // added can still be decoded.
     var globallyPinnedButtons: Set<RemoteButton>?
+    // Optional so v3 configurations written before per-gesture global
+    // inheritance was introduced can still be decoded.
+    var globallyPinnedSlots: Set<GlobalMappingKey>?
     var appTemplates: [AppMappingTemplate]
     var activeTemplateIDs: [String: UUID]
     // Optional so configurations created before the scroll setting was added
@@ -97,6 +100,18 @@ final class MappingStore: ObservableObject {
     static let defaultScrollLinesPerStep = 6
     static let scrollLinesPerStepRange = 1...40
     static let defaultGloballyPinnedButtons: Set<RemoteButton> = [.home]
+    static let defaultGloballyPinnedSlots: Set<GlobalMappingKey> = Set(
+        defaultGloballyPinnedButtons.flatMap { button in
+            GlobalMappingSlot.allCases.map { GlobalMappingKey(button: button, slot: $0) }
+        }
+    )
+    /// The remote microphone is a dedicated long-press behavior. Keep this
+    /// fallback available for old templates that have no gesture profile yet.
+    static let defaultMicrophoneGestureProfile = ButtonGestureProfile(
+        longPress: .voiceKeyDefault,
+        longPressBehavior: .triggerOnce,
+        longPressEnabled: true
+    )
     private static let routingLock = NSLock()
     private static var lastExternalApplicationBundleIdentifier: String?
 
@@ -112,9 +127,11 @@ final class MappingStore: ObservableObject {
         didSet { save() }
     }
 
-    /// These buttons always use the corresponding global binding, even when
-    /// the foreground App has an active template.
-    @Published private(set) var globallyPinnedButtons: Set<RemoteButton> = [.home]
+    /// Individual behaviors can inherit the corresponding global mapping even
+    /// when the foreground App has an active template. This is intentionally
+    /// finer grained than the old whole-button pinning set.
+    @Published private(set) var globallyPinnedSlots: Set<GlobalMappingKey> =
+        MappingStore.defaultGloballyPinnedSlots
 
     /// 所有 App 模板。一个 App 可以有多个模板。
     @Published private(set) var appTemplates: [AppMappingTemplate] = [] {
@@ -184,7 +201,7 @@ final class MappingStore: ObservableObject {
 
     /// 根据前台 App 选择实际生效的映射；没有激活模板时回退到通用映射。
     func binding(for button: RemoteButton, appBundleIdentifier: String?) -> ButtonBinding {
-        if globallyPinnedButtons.contains(button) {
+        if isGloballyPinned(button, slot: .single) {
             return binding(for: button)
         }
         guard let template = activeTemplate(for: appBundleIdentifier) else {
@@ -197,7 +214,12 @@ final class MappingStore: ObservableObject {
 
     /// Get the global-scope gesture profile for a button.
     func gestureProfile(for button: RemoteButton) -> ButtonGestureProfile {
-        globalGestureProfiles[button] ?? .disabled
+        if let profile = globalGestureProfiles[button] {
+            return profile
+        }
+        return button == .microphone
+            ? Self.defaultMicrophoneGestureProfile
+            : .disabled
     }
 
     /// Get the gesture profile in a specific template. A configured App
@@ -207,7 +229,10 @@ final class MappingStore: ObservableObject {
         guard let template = template(withID: templateID) else {
             return gestureProfile(for: button)
         }
-        return template.gestureProfiles?[button] ?? .disabled
+        return template.gestureProfiles?[button]
+            ?? (button == .microphone
+                ? Self.defaultMicrophoneGestureProfile
+                : .disabled)
     }
 
     /// Resolve the active profile using the same App-template precedence as
@@ -216,13 +241,54 @@ final class MappingStore: ObservableObject {
         for button: RemoteButton,
         appBundleIdentifier: String?
     ) -> ButtonGestureProfile {
-        if globallyPinnedButtons.contains(button) {
-            return gestureProfile(for: button)
-        }
         guard let template = activeTemplate(for: appBundleIdentifier) else {
             return gestureProfile(for: button)
         }
-        return template.gestureProfiles?[button] ?? .disabled
+        let templateProfile = template.gestureProfiles?[button]
+            ?? (button == .microphone
+                ? Self.defaultMicrophoneGestureProfile
+                : .disabled)
+        return mergedGestureProfile(
+            global: gestureProfile(for: button),
+            template: templateProfile,
+            button: button
+        )
+    }
+
+    private func mergedGestureProfile(
+        global: ButtonGestureProfile,
+        template: ButtonGestureProfile,
+        button: RemoteButton
+    ) -> ButtonGestureProfile {
+        Self.mergedGestureProfile(
+            global: global,
+            template: template,
+            button: button,
+            globallyPinnedSlots: globallyPinnedSlots
+        )
+    }
+
+    static func mergedGestureProfile(
+        global: ButtonGestureProfile,
+        template: ButtonGestureProfile,
+        button: RemoteButton,
+        globallyPinnedSlots: Set<GlobalMappingKey>
+    ) -> ButtonGestureProfile {
+        var merged = template
+        if globallyPinnedSlots.contains(
+            GlobalMappingKey(button: button, slot: .doubleTap)
+        ) {
+            merged.doubleTapEnabled = global.doubleTapEnabled
+            merged.doubleTap = global.doubleTap
+        }
+        if globallyPinnedSlots.contains(
+            GlobalMappingKey(button: button, slot: .longPress)
+        ) {
+            merged.longPressEnabled = global.longPressEnabled
+            merged.longPress = global.longPress
+            merged.longPressBehavior = global.longPressBehavior
+        }
+        return merged
     }
 
     func template(withID id: UUID) -> AppMappingTemplate? {
@@ -503,25 +569,52 @@ final class MappingStore: ObservableObject {
     func resetAll() {
         bindings = DefaultBindings.all
         globalGestureProfiles.removeAll()
-        globallyPinnedButtons.removeAll()
+        globallyPinnedSlots.removeAll()
         save()
     }
 
-    /// 设置某个按钮是否由通用映射接管所有 App 场景。
+    /// Set whether every behavior of a button inherits the global mapping.
     func setGlobalPinning(_ isPinned: Bool, for button: RemoteButton) {
-        var updated = globallyPinnedButtons
-        if isPinned {
-            updated.insert(button)
-        } else {
-            updated.remove(button)
+        var updated = globallyPinnedSlots
+        for slot in GlobalMappingSlot.allCases {
+            let key = GlobalMappingKey(button: button, slot: slot)
+            if isPinned {
+                updated.insert(key)
+            } else {
+                updated.remove(key)
+            }
         }
-        guard updated != globallyPinnedButtons else { return }
-        globallyPinnedButtons = updated
+        guard updated != globallyPinnedSlots else { return }
+        globallyPinnedSlots = updated
+        save()
+    }
+
+    /// Set whether one behavior of a button inherits the global mapping.
+    func setGlobalPinning(
+        _ isPinned: Bool,
+        for button: RemoteButton,
+        slot: GlobalMappingSlot
+    ) {
+        var updated = globallyPinnedSlots
+        let key = GlobalMappingKey(button: button, slot: slot)
+        if isPinned {
+            updated.insert(key)
+        } else {
+            updated.remove(key)
+        }
+        guard updated != globallyPinnedSlots else { return }
+        globallyPinnedSlots = updated
         save()
     }
 
     func isGloballyPinned(_ button: RemoteButton) -> Bool {
-        globallyPinnedButtons.contains(button)
+        GlobalMappingSlot.allCases.allSatisfy {
+            isGloballyPinned(button, slot: $0)
+        }
+    }
+
+    func isGloballyPinned(_ button: RemoteButton, slot: GlobalMappingSlot) -> Bool {
+        globallyPinnedSlots.contains(GlobalMappingKey(button: button, slot: slot))
     }
 
     // MARK: - App 模板修改
@@ -767,8 +860,19 @@ final class MappingStore: ObservableObject {
     private func apply(_ decoded: PersistedMappingConfiguration) {
         bindings = Self.mergedBindings(decoded.globalBindings)
         globalGestureProfiles = decoded.globalGestureProfiles ?? [:]
-        globallyPinnedButtons = decoded.globallyPinnedButtons
-            ?? Self.defaultGloballyPinnedButtons
+        if let slots = decoded.globallyPinnedSlots {
+            globallyPinnedSlots = slots
+        } else if let buttons = decoded.globallyPinnedButtons {
+            globallyPinnedSlots = Set(
+                buttons.flatMap { button in
+                    GlobalMappingSlot.allCases.map {
+                        GlobalMappingKey(button: button, slot: $0)
+                    }
+                }
+            )
+        } else {
+            globallyPinnedSlots = Self.defaultGloballyPinnedSlots
+        }
         appTemplates = decoded.appTemplates.map { template in
             var merged = template
             merged.bindings = Self.mergedBindings(template.bindings)
@@ -806,8 +910,10 @@ final class MappingStore: ObservableObject {
     /// 已有任意模板的 App 完全保留用户配置，不会被自动覆盖。
     private func ensureBuiltInTemplates() {
         consolidateLegacyChatGPTTemplates()
+        restoreMicrophoneInputSemantics()
         ensureBuiltInCodexTemplate()
         migrateBuiltInTemplateMappings()
+        ensureDefaultKeymapInspection()
 
         for presetID in AppTemplatePresetLibrary.defaultPresetIDs {
             guard let preset = AppTemplatePresetLibrary.preset(id: presetID),
@@ -827,6 +933,35 @@ final class MappingStore: ObservableObject {
         }
 
         repairActiveTemplateIDs()
+    }
+
+    /// The previous experimental voice build incorrectly persisted the
+    /// microphone button as `Codex：开始语音对话` for every scope. Restore the
+    /// original semantic binding: short tap is Doubao's computer/external
+    /// microphone path, while the independent long-press profile owns the
+    /// remote microphone. A user can still explicitly choose Codex from the
+    /// microphone-specific settings card after this one-time repair.
+    private func restoreMicrophoneInputSemantics() {
+        var didChange = false
+        if bindings[.microphone] == .preset(.chatGPTStartVoiceChat) {
+            bindings[.microphone] = .voiceKeyDefault
+            didChange = true
+            print("[MappingStore] restored global microphone short input to Doubao")
+        }
+
+        var updatedTemplates = appTemplates
+        for index in updatedTemplates.indices where
+            updatedTemplates[index].bindings[.microphone] == .preset(.chatGPTStartVoiceChat) {
+            updatedTemplates[index].bindings[.microphone] = .voiceKeyDefault
+            didChange = true
+            print(
+                "[MappingStore] restored template microphone short input to Doubao: "
+                    + updatedTemplates[index].displayName
+            )
+        }
+
+        guard didChange else { return }
+        appTemplates = updatedTemplates
     }
 
     /// 将旧版“ChatGPT”命名收敛到唯一的 Codex 模板入口。
@@ -908,6 +1043,45 @@ final class MappingStore: ObservableObject {
         )
         appTemplates.append(template)
         print("[MappingStore] added built-in template: \(template.displayName)")
+    }
+
+    /// Install the Orbit-owned TV long-press map action for the global scope
+    /// and existing built-in app templates that predate this default. A
+    /// custom template is left untouched so a user's explicit layout remains
+    /// authoritative.
+    private func ensureDefaultKeymapInspection() {
+        let defaultProfile = AppTemplatePresetLibrary.defaultKeymapInspectionProfile
+        var globalProfiles = globalGestureProfiles
+        var updatedTemplates = appTemplates
+        var didChange = false
+
+        if globalProfiles[.tv] == nil {
+            globalProfiles[.tv] = defaultProfile
+            didChange = true
+            print("[MappingStore] added global TV long-press keymap inspection")
+        }
+
+        let builtInScopes = Set(
+            AppTemplatePresetLibrary.all.map {
+                "\($0.appBundleIdentifier)\u{0}\($0.templateName)"
+            }
+        )
+        for index in updatedTemplates.indices {
+            let template = updatedTemplates[index]
+            let scope = "\(template.appBundleIdentifier)\u{0}\(template.templateName)"
+            guard builtInScopes.contains(scope),
+                  template.gestureProfiles?[.tv] == nil else { continue }
+            var profiles = template.gestureProfiles ?? [:]
+            profiles[.tv] = defaultProfile
+            updatedTemplates[index].gestureProfiles = profiles
+            didChange = true
+            print("[MappingStore] added TV long-press keymap inspection: \(template.displayName)")
+        }
+
+        guard didChange else { return }
+        globalGestureProfiles = globalProfiles
+        appTemplates = updatedTemplates
+        save()
     }
 
     /// A template can survive a partial/older configuration migration while
@@ -1006,6 +1180,12 @@ final class MappingStore: ObservableObject {
                 "FloatTabs 浏览增强",
                 "floatTabs.browse",
                 Self.legacyFloatTabsBrowseBindings()
+            ),
+            (
+                "com.netease.163music",
+                "网易云音乐 默认",
+                "netease.default",
+                Self.legacyNeteaseBindings()
             ),
             (
                 "md.obsidian",
@@ -1170,6 +1350,27 @@ final class MappingStore: ObservableObject {
         return bindings
     }
 
+    /// Snapshot of the previous built-in Netease template. It left the
+    /// dedicated volume buttons inherited from DefaultBindings, which meant
+    /// Codex previous/next chat. Migrate only an untouched built-in template
+    /// so a user-customized Netease layout is not overwritten.
+    private static func legacyNeteaseBindings() -> [RemoteButton: ButtonBinding] {
+        var bindings = DefaultBindings.all
+        bindings[.power] = .preset(.disabled)
+        bindings[.up] = .preset(.volumeUp)
+        bindings[.down] = .preset(.volumeDown)
+        bindings[.left] = .preset(.neteasePreviousTrack)
+        bindings[.right] = .preset(.neteaseNextTrack)
+        bindings[.ok] = .preset(.playPause)
+        bindings[.back] = .preset(.escape)
+        bindings[.home] = .preset(.appSwitcher)
+        bindings[.menu] = .preset(.disabled)
+        bindings[.tv] = .preset(.appSwitcher)
+        bindings[.volumeUp] = .preset(.chatGPTPreviousChat)
+        bindings[.volumeDown] = .preset(.chatGPTNextChat)
+        return bindings
+    }
+
     /// Snapshot of the preceding Obsidian template. It used the two sidebars
     /// as left/right actions and reversed the vertical scroll pair. Migrate
     /// only an untouched built-in template; any user-edited Obsidian mapping
@@ -1223,7 +1424,8 @@ final class MappingStore: ObservableObject {
     private func encodedCurrentConfiguration() throws -> Data {
         let configuration = PersistedMappingConfiguration(
             globalBindings: bindings,
-            globallyPinnedButtons: globallyPinnedButtons,
+            globallyPinnedButtons: legacyGloballyPinnedButtons,
+            globallyPinnedSlots: globallyPinnedSlots,
             appTemplates: appTemplates,
             activeTemplateIDs: activeTemplateIDs,
             scrollLinesPerStep: scrollLinesPerStep,
@@ -1232,6 +1434,10 @@ final class MappingStore: ObservableObject {
                 : globalGestureProfiles
         )
         return try JSONEncoder().encode(configuration)
+    }
+
+    private var legacyGloballyPinnedButtons: Set<RemoteButton> {
+        Set(RemoteButton.allCases.filter { isGloballyPinned($0) })
     }
 
     private func timestamp() -> String {

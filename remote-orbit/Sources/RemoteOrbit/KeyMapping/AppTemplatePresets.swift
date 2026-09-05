@@ -45,6 +45,15 @@ struct PresetApplication: Identifiable, Hashable {
 
 /// 内置模板库。
 enum AppTemplatePresetLibrary {
+    /// Every built-in app template exposes the same Orbit-owned contextual
+    /// map on TV long press. The action resolves the foreground app at the
+    /// moment it is shown, so the display remains app-specific.
+    static let defaultKeymapInspectionProfile = ButtonGestureProfile(
+        isEnabled: true,
+        longPress: .preset(.inspectCurrentKeymap),
+        longPressBehavior: .triggerOnce
+    )
+
     static let knownApps: [PresetApplication] = [
         PresetApplication(
             bundleIdentifier: "com.openai.codex",
@@ -111,7 +120,8 @@ enum AppTemplatePresetLibrary {
             appName: "Ghostty",
             templateName: "Ghostty 默认",
             summary: "新标签、新窗口、标签切换、分屏、搜索、命令面板和关闭当前 surface。",
-            bindings: ghosttyBindings
+            bindings: ghosttyBindings,
+            gestureProfiles: defaultKeymapGestureProfiles
         ),
         AppTemplatePreset(
             id: "netease.default",
@@ -119,7 +129,8 @@ enum AppTemplatePresetLibrary {
             appName: "网易云音乐",
             templateName: "网易云音乐 默认",
             summary: "上一首、下一首、播放暂停和系统音量。",
-            bindings: neteaseBindings
+            bindings: neteaseBindings,
+            gestureProfiles: defaultKeymapGestureProfiles
         ),
         AppTemplatePreset(
             id: "obsidian.default",
@@ -127,7 +138,8 @@ enum AppTemplatePresetLibrary {
             appName: "Obsidian",
             templateName: "Obsidian 默认",
             summary: "CLI 文档分栏聚焦、滚屏、标签与窗口、笔记编辑、快速切换、命令面板、搜索、侧边栏、图谱和属性。",
-            bindings: obsidianBindings
+            bindings: obsidianBindings,
+            gestureProfiles: defaultKeymapGestureProfiles
         ),
     ]
 
@@ -235,6 +247,7 @@ enum AppTemplatePresetLibrary {
             longPress: .preset(.deleteBackward),
             longPressBehavior: .repeatWhileHeld
         ),
+        .tv: defaultKeymapInspectionProfile,
     ]
 
     private static let floatTabsGestureProfiles: [RemoteButton: ButtonGestureProfile] = [
@@ -253,9 +266,13 @@ enum AppTemplatePresetLibrary {
             longPress: .preset(.reloadPage),
             longPressBehavior: .triggerOnce
         ),
+        .tv: defaultKeymapInspectionProfile,
     ]
 
     private static let floatTabsBrowseGestureProfiles = floatTabsGestureProfiles
+    private static let defaultKeymapGestureProfiles: [RemoteButton: ButtonGestureProfile] = [
+        .tv: defaultKeymapInspectionProfile,
+    ]
 
     private static let ghosttyBindings = overlay([
         .power: .preset(.disabled),
@@ -283,6 +300,11 @@ enum AppTemplatePresetLibrary {
         .home: .preset(.appSwitcher),
         .menu: .preset(.disabled),
         .tv: .preset(.appSwitcher),
+        // Keep the remote's dedicated volume buttons as system volume too.
+        // Otherwise overlay() inherits Codex chat navigation from
+        // DefaultBindings and the HUD reports the wrong action.
+        .volumeUp: .preset(.volumeUp),
+        .volumeDown: .preset(.volumeDown),
     ])
 
     private static let obsidianBindings = overlay([

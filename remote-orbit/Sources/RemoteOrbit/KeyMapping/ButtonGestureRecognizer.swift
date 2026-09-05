@@ -118,6 +118,7 @@ final class ButtonGestureRecognizer {
         var isSecondTap = false
         if let pending = pendingTaps[button] {
             if now - pending.upAt <= Self.doubleTapWindow,
+               pending.context.profile.doubleTapEnabled,
                pending.context.profile.doubleTap?.isUsableGestureAction == true {
                 isSecondTap = true
                 pending.cancel()
@@ -171,6 +172,7 @@ final class ButtonGestureRecognizer {
         // cannot fall through as a single tap and trigger the base action.
         if !state.longPressFired,
            duration >= Self.longPressThreshold,
+           state.context.profile.longPressEnabled,
            state.context.profile.longPress?.isUsableGestureAction == true,
            state.context.profile.longPressBehavior != .none {
             fireLongPress(state, duration: duration)
@@ -202,7 +204,8 @@ final class ButtonGestureRecognizer {
             return
         }
 
-        if let doubleTap = state.context.profile.doubleTap,
+        if state.context.profile.doubleTapEnabled,
+           let doubleTap = state.context.profile.doubleTap,
            doubleTap.isUsableGestureAction {
             let pending = PendingTap(
                 context: state.context,
@@ -251,7 +254,8 @@ final class ButtonGestureRecognizer {
 
     private func scheduleLongPressIfNeeded(_ state: PressState) {
         let profile = state.context.profile
-        guard profile.longPress?.isUsableGestureAction == true,
+        guard profile.longPressEnabled,
+              profile.longPress?.isUsableGestureAction == true,
               profile.longPressBehavior != .none
         else { return }
 

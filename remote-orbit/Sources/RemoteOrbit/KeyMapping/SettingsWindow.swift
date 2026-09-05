@@ -34,7 +34,7 @@ final class SettingsWindow {
             defer: false
         )
         win.title = "\(ProductIdentity.name) · Control Center"
-        win.minSize = NSSize(width: 980, height: 660)
+        win.minSize = NSSize(width: 1_020, height: 660)
         win.contentViewController = hostingController
         win.center()
         win.makeKeyAndOrderFront(nil)

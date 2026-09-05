@@ -210,6 +210,8 @@ enum KeyInjector {
             postKey(code: 109, flags: .maskShift)
         case .appSwitcher:
             postKey(code: 48, flags: .maskCommand)
+        case .inspectCurrentKeymap:
+            return false // handled by AppController's contextual overlay
         case .openFloatTabs:
             return FloatTabsCommandClient.show()
         case .openCodex:

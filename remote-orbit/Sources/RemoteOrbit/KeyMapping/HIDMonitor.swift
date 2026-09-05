@@ -115,6 +115,10 @@ final class HIDMonitor {
     private var activeDevice: IOHIDDevice?
     private var activeDeviceIsSeized = false
     private var activeUsages = Set<UInt16>()
+    /// Usages that were physically down when HID disappeared. Keep them
+    /// across a reconnect so the first report after reconnect can distinguish
+    /// “still held” from “released while the link was away”.
+    private var pendingReconnectUsages = Set<UInt16>()
     private var repeatTimers: [UInt16: DispatchSourceTimer] = [:]
     private var debouncedUsages = Set<UInt16>()
     private var edgeDebouncer = ButtonEdgeDebouncer()
@@ -210,6 +214,7 @@ final class HIDMonitor {
         repeatTimers.values.forEach { $0.cancel() }
         repeatTimers.removeAll()
         activeUsages.removeAll()
+        pendingReconnectUsages.removeAll()
         debouncedUsages.removeAll()
         edgeDebouncer.reset()
         eventSuppressor.stop()
@@ -228,6 +233,14 @@ final class HIDMonitor {
             self.manager = nil
         }
         isRunning = false
+    }
+
+    /// Whether a physical button is still considered held while HID is
+    /// reconnecting. The app uses this to keep hold-only UI tied to the
+    /// physical key state rather than to the transport callback alone.
+    func isButtonDown(_ button: RemoteButton) -> Bool {
+        activeUsages.contains(button.hidUsage)
+            || pendingReconnectUsages.contains(button.hidUsage)
     }
 
     // MARK: - 设备匹配/断开
@@ -281,13 +294,19 @@ final class HIDMonitor {
         activeDeviceIsSeized = false
         eventSuppressor.setRemotePowerSuppressionEnabled(false)
         eventSuppressor.setRemoteMediaSuppressionEnabled(false)
+        pendingReconnectUsages.formUnion(activeUsages)
         activeUsages.removeAll()
         repeatTimers.values.forEach { $0.cancel() }
         repeatTimers.removeAll()
         debouncedUsages.removeAll()
         edgeDebouncer.reset()
         updateStatus("遥控器已断开")
-        print("[HID] disconnected")
+        if !pendingReconnectUsages.isEmpty {
+            let names = pendingReconnectUsages.compactMap { RemoteButton.usageMap[$0]?.displayName }
+            print("[HID] disconnected; preserving held buttons: \(names.joined(separator: ", "))")
+        } else {
+            print("[HID] disconnected")
+        }
         onDeviceChange?(false)
     }
 
@@ -299,6 +318,8 @@ final class HIDMonitor {
 
         let pressed = usages.subtracting(activeUsages)
         let released = activeUsages.subtracting(usages)
+            .union(pendingReconnectUsages.subtracting(usages))
+        pendingReconnectUsages.subtract(usages)
         activeUsages = usages
         let now = ProcessInfo.processInfo.systemUptime
 

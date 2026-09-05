@@ -390,6 +390,34 @@ final class ButtonActionTests: XCTestCase {
         assertPreset(obsidian, button: .volumeDown, equals: .obsidianNextTab)
     }
 
+    func testNeteaseBuiltInPresetUsesSystemVolumeForDedicatedVolumeButtons() {
+        guard let netease = AppTemplatePresetLibrary.preset(id: "netease.default")
+        else {
+            return XCTFail("Netease default preset must be provisioned")
+        }
+
+        XCTAssertEqual(Set(netease.bindings.keys), Set(RemoteButton.allCases))
+        assertPreset(netease, button: .up, equals: .volumeUp)
+        assertPreset(netease, button: .down, equals: .volumeDown)
+        assertPreset(netease, button: .left, equals: .neteasePreviousTrack)
+        assertPreset(netease, button: .right, equals: .neteaseNextTrack)
+        assertPreset(netease, button: .volumeUp, equals: .volumeUp)
+        assertPreset(netease, button: .volumeDown, equals: .volumeDown)
+        XCTAssertEqual(
+            netease.bindings[.volumeUp]?.hudDisplayName,
+            "系统音量 +"
+        )
+        XCTAssertEqual(
+            netease.bindings[.volumeDown]?.hudDisplayName,
+            "系统音量 -"
+        )
+    }
+
+    func testRecordingHUDStateUsesAnExplicitPersistentState() {
+        XCTAssertEqual(RemoteActionHUDState.recording.title, "正在语音中")
+        XCTAssertEqual(RemoteActionHUDState.recording.color, .systemGreen)
+    }
+
     func testHUDActionNameRemovesShortcutDescriptionButKeepsRecordedShortcut() {
         XCTAssertEqual(
             ButtonBinding.preset(.reloadPage).hudDisplayName,

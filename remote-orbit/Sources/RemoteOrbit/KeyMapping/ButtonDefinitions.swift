@@ -183,6 +183,9 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
     case showDesktop
     case contextMenu
     case appSwitcher
+    /// Opens a read-only controller-shaped view of the mappings that are
+    /// active for the current foreground application.
+    case inspectCurrentKeymap
     case openFloatTabs
     case openCodex
     case copy
@@ -407,7 +410,8 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
 
     var category: ButtonActionCategory {
         switch self {
-        case .disabled, .showDesktop, .contextMenu, .appSwitcher:
+        case .disabled, .showDesktop, .contextMenu, .appSwitcher,
+             .inspectCurrentKeymap:
             return .system
         case .openFloatTabs, .openCodex:
             return .applications
@@ -537,6 +541,7 @@ enum ButtonAction: String, CaseIterable, Codable, Identifiable {
         case .showDesktop:     return "显示桌面"
         case .contextMenu:     return "上下文菜单（Shift-F10）"
         case .appSwitcher:     return "切换应用（Command-Tab）"
+        case .inspectCurrentKeymap: return "检查当前快捷映射"
         case .openFloatTabs:   return "打开 / 显示 / 隐藏 FloatTabs"
         case .openCodex:       return "打开 / 显示 / 隐藏 Codex"
         case .copy:            return "复制（Command-C）"
@@ -901,6 +906,35 @@ enum ButtonGestureSlot: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// A behavior that may independently inherit the global mapping while an App
+/// template is active. Long press is one slot because its execution mode
+/// (once or repeat) is mutually exclusive.
+enum GlobalMappingSlot: String, Codable, CaseIterable, Identifiable {
+    case single
+    case doubleTap
+    case longPress
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .single: return "单击"
+        case .doubleTap: return "双击"
+        case .longPress: return "长按"
+        }
+    }
+}
+
+struct GlobalMappingKey: Codable, Hashable {
+    let button: RemoteButton
+    let slot: GlobalMappingSlot
+
+    init(button: RemoteButton, slot: GlobalMappingSlot) {
+        self.button = button
+        self.slot = slot
+    }
+}
+
 /// The long-press slot can either fire once or become a controlled repeat
 /// stream. Keeping this mutually exclusive prevents a long press from
 /// triggering two different actions at the same threshold.
@@ -924,7 +958,11 @@ enum ButtonLongPressBehavior: String, Codable, CaseIterable, Identifiable {
 /// `ButtonBinding` so old configurations remain byte-for-byte compatible and
 /// an unchecked button follows the existing edge/repeat path exactly.
 struct ButtonGestureProfile: Codable, Equatable {
-    var isEnabled: Bool
+    /// These flags are independent so a button can expose only double-click,
+    /// only long press, or both. `isEnabled` remains as a compatibility
+    /// facade for older callers and stored v3 profiles.
+    var doubleTapEnabled: Bool
+    var longPressEnabled: Bool
     var doubleTap: ButtonBinding?
     var longPress: ButtonBinding?
     var longPressBehavior: ButtonLongPressBehavior
@@ -933,24 +971,53 @@ struct ButtonGestureProfile: Codable, Equatable {
         isEnabled: Bool = false,
         doubleTap: ButtonBinding? = nil,
         longPress: ButtonBinding? = nil,
-        longPressBehavior: ButtonLongPressBehavior = .none
+        longPressBehavior: ButtonLongPressBehavior = .none,
+        doubleTapEnabled: Bool? = nil,
+        longPressEnabled: Bool? = nil
     ) {
-        self.isEnabled = isEnabled
         self.doubleTap = doubleTap
         self.longPress = longPress
         self.longPressBehavior = longPressBehavior
+        self.doubleTapEnabled = doubleTapEnabled
+            ?? (isEnabled && doubleTap?.isUsableGestureAction == true)
+        self.longPressEnabled = longPressEnabled
+            ?? (isEnabled && longPress?.isUsableGestureAction == true
+                && longPressBehavior != .none)
     }
 
     static let disabled = ButtonGestureProfile()
 
+    /// Compatibility facade for code and configurations written before each
+    /// gesture had its own enable switch.
+    var isEnabled: Bool {
+        get { doubleTapEnabled || longPressEnabled }
+        set {
+            doubleTapEnabled = newValue
+            longPressEnabled = newValue
+        }
+    }
+
     /// Whether this profile should take the raw edge away from the legacy
     /// immediate-send/repeat path.
     var usesAdvancedGestures: Bool {
-        guard isEnabled else { return false }
-        let hasDoubleTap = doubleTap?.isUsableGestureAction == true
-        let hasLongPress = longPress?.isUsableGestureAction == true
+        let hasDoubleTap = doubleTapEnabled && doubleTap?.isUsableGestureAction == true
+        let hasLongPress = longPressEnabled && longPress?.isUsableGestureAction == true
             && longPressBehavior != .none
         return hasDoubleTap || hasLongPress
+    }
+
+    func isEnabled(for slot: ButtonGestureSlot) -> Bool {
+        switch slot {
+        case .doubleTap: return doubleTapEnabled
+        case .longPress: return longPressEnabled
+        }
+    }
+
+    mutating func setEnabled(_ enabled: Bool, for slot: ButtonGestureSlot) {
+        switch slot {
+        case .doubleTap: doubleTapEnabled = enabled
+        case .longPress: longPressEnabled = enabled
+        }
     }
 
     func binding(for slot: ButtonGestureSlot) -> ButtonBinding? {
@@ -965,6 +1032,55 @@ struct ButtonGestureProfile: Codable, Equatable {
         case .doubleTap: doubleTap = binding
         case .longPress: longPress = binding
         }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case isEnabled
+        case doubleTapEnabled
+        case longPressEnabled
+        case doubleTap
+        case longPress
+        case longPressBehavior
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let legacyEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false
+        let decodedDoubleTap = try container.decodeIfPresent(
+            ButtonBinding.self,
+            forKey: .doubleTap
+        )
+        let decodedLongPress = try container.decodeIfPresent(
+            ButtonBinding.self,
+            forKey: .longPress
+        )
+        let decodedBehavior = try container.decodeIfPresent(
+            ButtonLongPressBehavior.self,
+            forKey: .longPressBehavior
+        ) ?? .none
+
+        doubleTap = decodedDoubleTap
+        longPress = decodedLongPress
+        longPressBehavior = decodedBehavior
+        doubleTapEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .doubleTapEnabled
+        ) ?? (legacyEnabled && decodedDoubleTap?.isUsableGestureAction == true)
+        longPressEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .longPressEnabled
+        ) ?? (legacyEnabled && decodedLongPress?.isUsableGestureAction == true
+            && decodedBehavior != .none)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(doubleTapEnabled, forKey: .doubleTapEnabled)
+        try container.encode(longPressEnabled, forKey: .longPressEnabled)
+        try container.encodeIfPresent(doubleTap, forKey: .doubleTap)
+        try container.encodeIfPresent(longPress, forKey: .longPress)
+        try container.encode(longPressBehavior, forKey: .longPressBehavior)
     }
 }
 
@@ -1029,7 +1145,7 @@ enum ButtonBinding: Codable, Equatable {
         switch self {
         case let .preset(action):  return action.displayName
         case let .shortcut(chord, _): return chord.displayName
-        case .voiceKeyDefault:     return "语音键默认（仅长按遥控器麦克风）"
+        case .voiceKeyDefault:     return "语音键默认（短按豆包外部麦克风，长按遥控器麦克风）"
         }
     }
 
@@ -1078,6 +1194,9 @@ enum ButtonBinding: Codable, Equatable {
 /// 所有按钮的默认绑定。
 enum DefaultBindings {
     static let all: [RemoteButton: ButtonBinding] = [
+        // The microphone key is a special two-mode gesture: a short press
+        // sends one Option tap for Doubao's physical/external microphone;
+        // VoicePressCoordinator owns the remote microphone long press.
         .microphone:  .voiceKeyDefault,
         .power:       .preset(.disabled),
         .up:          .preset(.arrowUp),

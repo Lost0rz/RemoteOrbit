@@ -22,8 +22,8 @@
     <string>RemoteOrbit</string>
     <key>CFBundleShortVersionString</key>
     <string>0.2.8</string>
-    <key>CFBundleVersion</key>
-    <string>19</string>
+	<key>CFBundleVersion</key>
+	<string>30</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>

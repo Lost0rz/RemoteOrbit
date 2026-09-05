@@ -165,51 +165,52 @@ enum RemoteVoiceKeyMapping {
 
 // MARK: - Voice-button gesture state machine
 
-/// Remote voice input is intentionally hold-only:
+/// The physical voice button exposes two independent input paths:
 ///
-/// * short tap: ignored; no local microphone and no external voice input
+/// * short tap: one Doubao Option tap, using the Mac/external microphone
 /// * hold: remote ATVV microphone + Option hold
 ///
-/// Audio is armed on the first edge so the remote pre-roll is available while
-/// the small hold threshold is being crossed. There is no short-press action
-/// and no local-microphone fallback in this path.
+/// The remote transport is opened only after the hold threshold, so a short
+/// tap never selects the RemoteOrbit virtual microphone. A configured Codex
+/// voice action may replace the short tap, but it remains inside this
+/// classifier rather than becoming a normal one-button injection.
 final class VoicePressCoordinator {
-    private enum Mode {
+    enum State: Equatable {
         case idle
         case pending
         case holding
     }
 
-    /// This is only an activation guard, not a short-vs-long classifier. A
-    /// quick tap is a no-op; a hold starts remote dictation after 120 ms so
-    /// the first spoken syllable is not lost behind the old 300 ms window.
+    var onStateChanged: ((State) -> Void)?
+
+    /// This is the short-vs-long classifier. A quick tap invokes Doubao's
+    /// computer/external-microphone input (or the optional Codex short action);
+    /// a hold starts remote dictation after 120 ms so the first spoken syllable
+    /// is not lost behind the old window.
     private let holdActivationThreshold: TimeInterval = 0.12
     // The remote sends AUDIO_STOP before the HID key-up, so there is no BLE
     // tail left to wait for here. Keeping this delay near zero makes Doubao
     // leave its recording UI as soon as the user releases the button.
     private let tailDrainDelay: TimeInterval = 0.02
-    private var mode: Mode = .idle
+    private var mode: State = .idle
     private var holdWorkItem: DispatchWorkItem?
     private var tailWorkItem: DispatchWorkItem?
     private var remoteStreaming = false
     private var remoteRouted = false
     private var optionIsHeld = false
     private var suppressNewPressUntil = Date.distantPast
+    private var shortTapAction: (() -> Void)?
 
     @discardableResult
-    func keyDown() -> Bool {
+    func keyDown(onShortTap: (() -> Void)? = nil) -> Bool {
         guard Date() >= suppressNewPressUntil else {
             print("[PRESS] ignored release bounce")
             return false
         }
         guard mode == .idle else { return false }
+        shortTapAction = onShortTap
         AudioPipe.shared.beginRemoteCandidate()
-        mode = .pending
-
-        // Keep remote audio routed from the first edge. The hold-only guard
-        // must never wait for another process before the remote microphone is
-        // armed, so the first decoded frames remain available.
-        setRemoteRouted(true)
+        setMode(.pending)
 
         let work = DispatchWorkItem { [weak self] in
             self?.promoteToLongPress()
@@ -219,7 +220,7 @@ final class VoicePressCoordinator {
             deadline: .now() + holdActivationThreshold,
             execute: work
         )
-        print("[PRESS] pending; hold-only activation in 120 ms; short tap is ignored")
+        print("[PRESS] pending; classifying Doubao short tap vs remote-mic hold in 120 ms")
         return true
     }
 
@@ -231,12 +232,21 @@ final class VoicePressCoordinator {
         case .idle:
             return
         case .pending:
-            mode = .idle
+            let action = shortTapAction
+            shortTapAction = nil
+            setMode(.idle)
             setRemoteRouted(false)
             AudioPipe.shared.endRemoteCandidate()
-            print("[PRESS] SHORT ignored; remote voice is hold-only")
+            if let action {
+                print("[PRESS] SHORT release → configured Codex/external voice action")
+                action()
+            } else {
+                print("[PRESS] SHORT release → Doubao; source=Mac/external microphone")
+                emitShortPress()
+            }
         case .holding:
-            mode = .idle
+            shortTapAction = nil
+            setMode(.idle)
             suppressNewPressUntil = Date().addingTimeInterval(
                 tailDrainDelay + 0.10
             )
@@ -261,11 +271,12 @@ final class VoicePressCoordinator {
         holdWorkItem = nil
         tailWorkItem?.cancel()
         tailWorkItem = nil
+        shortTapAction = nil
         if optionIsHeld {
             optionIsHeld = false
             Key.optionUp()
         }
-        mode = .idle
+        setMode(.idle)
         setRemoteRouted(false)
         AudioPipe.shared.endRemoteCandidate()
     }
@@ -273,7 +284,7 @@ final class VoicePressCoordinator {
     private func promoteToLongPress() {
         guard mode == .pending else { return }
         holdWorkItem = nil
-        mode = .holding
+        setMode(.holding)
 
         // Route selection follows the physical HID hold, not BLE notifications.
         // If ATVV is late or briefly drops, emit silence rather than leaking
@@ -321,10 +332,28 @@ final class VoicePressCoordinator {
         AudioPipe.shared.endRemoteCandidate()
     }
 
+    /// Preserve the original Doubao integration: one short voice-key press
+    /// is a single Option tap, which lets Doubao use the physical microphone
+    /// selected by macOS/RemoteOrbit's stable virtual input path.
+    private func emitShortPress() {
+        if RemoteVoiceKeyMapping.isEnabled {
+            print("[PRESS] SHORT → hardware Option tap; source=Doubao Mac/external microphone")
+        } else {
+            print("[PRESS] SHORT → synthetic Option tap; source=Doubao Mac/external microphone")
+            Key.optionTap()
+        }
+    }
+
     private func setRemoteRouted(_ active: Bool) {
         guard remoteRouted != active else { return }
         remoteRouted = active
         AudioPipe.shared.setRemoteActive(active)
+    }
+
+    private func setMode(_ newMode: State) {
+        guard mode != newMode else { return }
+        mode = newMode
+        onStateChanged?(newMode)
     }
 
     private var modeName: String {
@@ -333,87 +362,6 @@ final class VoicePressCoordinator {
         case .pending: return "pending"
         case .holding: return "holding"
         }
-    }
-}
-
-// MARK: - HID watcher (2 Pro as keyboard, for connection status only)
-
-final class HIDWatcher {
-    static let vendorID  = 0x2717
-    static let productID = 0x32B8
-
-    var onConnect: ((String) -> Void)?
-    var onDisconnect: ((String) -> Void)?
-
-    private var manager: IOHIDManager?
-
-    func start() {
-        guard manager == nil else {
-            print("[HID] watcher already running")
-            return
-        }
-        let m = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        IOHIDManagerSetDeviceMatching(m, [
-            kIOHIDVendorIDKey: Self.vendorID,
-            kIOHIDProductIDKey: Self.productID,
-        ] as CFDictionary)
-
-        let ctx = Unmanaged.passUnretained(self).toOpaque()
-        IOHIDManagerRegisterDeviceMatchingCallback(m, HIDWatcher.deviceMatched, ctx)
-        IOHIDManagerRegisterDeviceRemovalCallback(m, HIDWatcher.deviceRemoved, ctx)
-        IOHIDManagerScheduleWithRunLoop(m, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-        let r = IOHIDManagerOpen(m, IOOptionBits(kIOHIDOptionsTypeNone))
-        guard r == kIOReturnSuccess else {
-            print("[HID] IOHIDManagerOpen failed: \(r)")
-            IOHIDManagerUnscheduleFromRunLoop(
-                m,
-                CFRunLoopGetMain(),
-                CFRunLoopMode.defaultMode.rawValue
-            )
-            IOHIDManagerClose(m, IOOptionBits(kIOHIDOptionsTypeNone))
-            return
-        }
-        manager = m
-    }
-
-    func stop() {
-        if let m = manager {
-            IOHIDManagerUnscheduleFromRunLoop(
-                m,
-                CFRunLoopGetMain(),
-                CFRunLoopMode.defaultMode.rawValue
-            )
-            IOHIDManagerClose(m, IOOptionBits(kIOHIDOptionsTypeNone))
-        }
-        manager = nil
-    }
-
-    fileprivate func matched(_ device: IOHIDDevice) {
-        let n = nameOf(device)
-        print("[HID] 已连接: \(n)")
-        onConnect?(n)
-    }
-
-    fileprivate func removed(_ device: IOHIDDevice) {
-        let n = nameOf(device)
-        print("[HID] 断开: \(n)")
-        onDisconnect?(n)
-    }
-
-    private func nameOf(_ device: IOHIDDevice) -> String {
-        if let n = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String { return n }
-        return "(unknown)"
-    }
-
-    private static let deviceMatched: IOHIDDeviceCallback = { ctx, _, _, device in
-        guard let ctx else { return }
-        let me = Unmanaged<HIDWatcher>.fromOpaque(ctx).takeUnretainedValue()
-        DispatchQueue.main.async { me.matched(device) }
-    }
-    private static let deviceRemoved: IOHIDDeviceCallback = { ctx, _, _, device in
-        guard let ctx else { return }
-        let me = Unmanaged<HIDWatcher>.fromOpaque(ctx).takeUnretainedValue()
-        DispatchQueue.main.async { me.removed(device) }
     }
 }
 
@@ -674,7 +622,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusPulseTimer: Timer?
     private var statusPulsePhase = false
 
-    private let watcher = HIDWatcher()
     private let filter = VoiceKeyFilter()
     private let voicePress = VoicePressCoordinator()
     private let ble = BLEBridge()
@@ -682,13 +629,22 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let hidMonitor = HIDMonitor()
     private let buttonGestureRecognizer = ButtonGestureRecognizer()
     private let actionHUD = RemoteActionHUD()
+    private let keymapOverlayController = KeymapOverlayController()
+    /// The contextual mapping overlay is a press-and-hold surface. Keep the
+    /// originating button so its release can dismiss only its own overlay.
+    private var contextualOverlayButton: RemoteButton?
+    /// Buttons that were physically held when HID disappeared. Their next
+    /// report is a transport re-announcement, not a new click; keep the
+    /// marker until the matching release arrives.
+    private var reconnectHeldButtons: Set<RemoteButton> = []
     private var repeatGestureHUDButtons: Set<RemoteButton> = []
     private let voiceFocusTransactions = VoiceFocusTransactionTracker()
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
 
     private func beginVoicePress(
-        targetApplicationBundleIdentifier lockedTarget: String? = nil
+        targetApplicationBundleIdentifier lockedTarget: String? = nil,
+        shortBinding: ButtonBinding? = nil
     ) {
         let target = lockedTarget
             ?? MappingStore.preferredApplicationBundleIdentifier()
@@ -724,7 +680,31 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             filter.beginOptionDeferral(gestureID: gestureID)
         }
 
-        guard voicePress.keyDown() else {
+        let shortTapAction: (() -> Void)?
+        switch shortBinding {
+        case .none, .some(.voiceKeyDefault):
+            // nil deliberately selects VoicePressCoordinator's original
+            // Doubao Option-tap path: one tap, computer/external microphone.
+            shortTapAction = nil
+        case let .some(binding) where binding.isDisabled:
+            // A disabled short slot must not fall through to the Doubao
+            // default. The long remote-mic slot remains fully independent.
+            shortTapAction = {
+                print("[PRESS] SHORT release → disabled by microphone mapping")
+            }
+        case let .some(binding):
+            // Codex voice chat is an optional short behavior, but it still
+            // goes through this classifier so a long hold always remains the
+            // remote ATVV microphone path.
+            shortTapAction = { [weak self] in
+                self?.handleVoiceShortTap(
+                    binding,
+                    targetApplicationBundleIdentifier: target
+                )
+            }
+        }
+
+        guard voicePress.keyDown(onShortTap: shortTapAction) else {
             if shouldGateMappedOption {
                 filter.cancelDeferredOption(
                     gestureID: gestureID,
@@ -782,6 +762,35 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    private func handleVoiceShortTap(
+        _ binding: ButtonBinding,
+        targetApplicationBundleIdentifier target: String?
+    ) {
+        if handleContextualAction(
+            binding,
+            button: .microphone,
+            gesture: "单击"
+        ) {
+            return
+        }
+        let sent = KeyInjector.send(
+            binding,
+            targetApplicationBundleIdentifier: target,
+            scrollLinesPerStep: mappingStore.scrollLinesPerStep
+        )
+        print("[KEY] 语音键 short → \(binding.displayName); sent=\(sent)")
+        actionHUD.show(
+            button: .microphone,
+            gesture: "单击",
+            action: binding.hudDisplayName,
+            state: actionHUDState(
+                for: binding,
+                targetApplicationBundleIdentifier: target,
+                sent: sent
+            )
+        )
+    }
+
     private func armVoiceFocusSafetyTimeout(gestureID: UUID) {
         voiceFocusSafetyWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -797,6 +806,29 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             deadline: .now() + voiceFocusSafetyTimeout,
             execute: work
         )
+    }
+
+    private func updateVoiceHUD(for state: VoicePressCoordinator.State) {
+        switch state {
+        case .idle:
+            actionHUD.dismiss()
+        case .pending:
+            actionHUD.show(
+                button: .microphone,
+                gesture: "按住",
+                action: "遥控器语音输入",
+                state: .pending,
+                keepsVisible: true
+            )
+        case .holding:
+            actionHUD.show(
+                button: .microphone,
+                gesture: "按住",
+                action: "遥控器语音输入",
+                state: .recording,
+                keepsVisible: true
+            )
+        }
     }
 
     private func completeVoiceFocus(
@@ -909,23 +941,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshAudioDeviceMenus()
         updateStatus()
 
-        // HID connection (status icon).
-        watcher.onConnect = { [weak self] _ in
-            // The voice key is intercepted as the remote's F5 event and the
-            // coordinator emits a balanced synthetic Option hold after the
-            // hold guard. Do not enable hidutil's second Option event: it
-            // races the focus handoff and can make a short tap reach macOS.
-            RemoteVoiceKeyMapping.setEnabled(false)
-            self?.hidConnected = true
-            self?.updateStatus()
+        voicePress.onStateChanged = { [weak self] state in
+            if state == .holding {
+                // Do not open ATVV for a short tap. The coordinator promotes
+                // only after the long-press threshold has been crossed.
+                self?.ble.startVoiceInput()
+            }
+            self?.updateVoiceHUD(for: state)
         }
-        watcher.onDisconnect = { [weak self] _ in
-            RemoteVoiceKeyMapping.setEnabled(false)
-            self?.voicePress.stop()
-            self?.hidConnected = false
-            self?.updateStatus()
-        }
-        watcher.start()
 
         // ATVV audio connection.
         filter.onVoiceKeyDown = { [weak self] in
@@ -933,6 +956,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         filter.onVoiceKeyUp = { [weak self] in
             self?.voicePress.keyUp()
+            self?.ble.stopVoiceInput()
         }
         ble.onConnectionChanged = { [weak self] connected in
             self?.bleConnected = connected
@@ -950,7 +974,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.remoteStreaming = streaming
             self?.updateStatus()
         }
-        ble.start()
 
         // Route recognized advanced gestures to the same binding injector as
         // ordinary button actions. Without this callback the recognizer can
@@ -961,17 +984,65 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // HID Monitor：读取遥控器所有按钮的原始 HID 报告
         // HID 设备连接/断开时切换语音键处理路径
+        // HIDMonitor is the single IOHIDManager owner. A second status-only
+        // manager used to observe the same BLE HID device and could race the
+        // real monitor during a supervision-timeout reconnect.
         hidMonitor.onDeviceChange = { [weak self] active in
-            self?.filter.skipVoiceKey = active
+            guard let self else { return }
+            self.filter.skipVoiceKey = active
+            self.hidConnected = active
+            // Keep the legacy hidutil mapping disabled; the app's own filter
+            // owns the voice-key event pair while HID is active.
+            RemoteVoiceKeyMapping.setEnabled(false)
+            self.updateStatus()
             if !active {
+                self.reconnectHeldButtons = Set(
+                    RemoteButton.allCases.filter {
+                        self.hidMonitor.isButtonDown($0)
+                    }
+                )
+                if !self.reconnectHeldButtons.isEmpty {
+                    let names = self.reconnectHeldButtons
+                        .map(\.displayName)
+                        .sorted()
+                    print(
+                        "[HID] reconnect hold snapshot: "
+                            + names.joined(separator: ", ")
+                    )
+                }
                 // Device removal does not guarantee a final HID report. Stop
                 // voice and advanced gestures explicitly so a lost release
                 // cannot leave Option held or a repeat stream alive.
-                self?.voicePress.stop()
-                self?.mappingStore.clearPressedBindings()
-                self?.buttonGestureRecognizer.cancelAll()
-                self?.repeatGestureHUDButtons.removeAll()
-                self?.actionHUD.dismiss()
+                self.voicePress.stop()
+                self.mappingStore.clearPressedBindings()
+                self.buttonGestureRecognizer.cancelAll()
+                self.repeatGestureHUDButtons.removeAll()
+                self.actionHUD.dismiss()
+                if let button = self.contextualOverlayButton {
+                    if self.reconnectHeldButtons.contains(button) {
+                        // A long-held button can outlive the BLE HID link's
+                        // supervision timeout. Keep the press-and-hold panel
+                        // alive and let the first post-reconnect report decide
+                        // whether the physical key was released.
+                        print(
+                            "[KEYMAP] HID 断开，保留 \(button.displayName) 浮层；"
+                                + "等待真实 button up，不合成释放"
+                        )
+                    } else {
+                        // If the panel's source button was not held at the
+                        // moment of removal, it is safe to close it. This is
+                        // the only disconnect path that dismisses the panel;
+                        // a held long press remains tied to release.
+                        self.keymapOverlayController.close()
+                        self.contextualOverlayButton = nil
+                        print(
+                            "[KEYMAP] HID 断开且 \(button.displayName) 未按下，"
+                                + "隐藏当前快捷映射浮层"
+                        )
+                    }
+                }
+            } else if !self.reconnectHeldButtons.isEmpty {
+                print("[HID] reconnected; waiting for held-button release")
             }
             if active {
                 print("[HID] monitor active → VoiceKeyFilter 跳过语音键")
@@ -990,6 +1061,25 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         hidMonitor.onButtonEdgeAt = { [weak self] button, isDown, timestamp in
             guard let self else { return }
+            // Dismiss before resolving the release mapping. The active
+            // template may have changed while the overlay was visible, and a
+            // disabled/re-routed release must never strand the panel.
+            if !isDown {
+                self.dismissContextualOverlay(for: button)
+            }
+            if self.reconnectHeldButtons.contains(button) {
+                if isDown {
+                    print(
+                        "[HID] \(button.displayName) reconnect re-announcement; "
+                            + "ignore as new click"
+                    )
+                    return
+                }
+                self.reconnectHeldButtons.remove(button)
+                self.dismissContextualOverlay(for: button)
+                print("[HID] \(button.displayName) reconnect release recovered")
+                return
+            }
             let binding: ButtonBinding
             let targetApplicationBundleIdentifier: String?
             if isDown {
@@ -1012,7 +1102,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         gesture: "识别中",
                         action: "等待确认",
                         state: .pending,
-                        keepsPendingVisible: true
+                        keepsVisible: true
                     )
                     self.buttonGestureRecognizer.handleDown(
                         button: button,
@@ -1053,33 +1143,41 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self.buttonGestureRecognizer.handleUp(button: button, at: timestamp)
                     _ = self.mappingStore.endPress(for: button)
                     self.repeatGestureHUDButtons.remove(button)
+                    self.dismissContextualOverlay(for: button)
                     return
                 }
                 binding = self.mappingStore.endPress(for: button)
             }
 
-            // 语音键：仅在绑定为 voiceKeyDefault 时走 VoicePressCoordinator
+            // 语音键：单击走电脑/外部麦克风动作，长按走遥控器麦克风。
             if button == .microphone {
-                if case .voiceKeyDefault = binding {
+                let profile = self.mappingStore.activePressGestureProfile(for: button)
+                let usesRemoteMicrophone = profile.longPressEnabled
+                    && profile.longPress == .voiceKeyDefault
+                    && profile.longPressBehavior != .none
+                if usesRemoteMicrophone {
                     if isDown {
-                        self.actionHUD.show(
-                            button: button,
-                            gesture: "按住",
-                            action: "遥控器语音输入",
-                            state: .pending
-                        )
                         self.beginVoicePress(
                             targetApplicationBundleIdentifier: self.mappingStore
-                                .activePressApplicationBundleIdentifier(for: button)
+                                .activePressApplicationBundleIdentifier(for: button),
+                            shortBinding: binding
                         )
                     } else {
                         self.voicePress.keyUp()
+                        self.ble.stopVoiceInput()
                     }
                     return
                 }
                 // 用户自定义了映射，走正常注入流程
                 guard !binding.isDisabled else { return }
                 if isDown {
+                    if self.handleContextualAction(
+                        binding,
+                        button: button,
+                        gesture: "按下"
+                    ) {
+                        return
+                    }
                     let sent = KeyInjector.send(
                         binding,
                         targetApplicationBundleIdentifier: self.mappingStore
@@ -1099,6 +1197,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         )
                     )
                 } else {
+                    self.dismissContextualOverlay(for: button)
                     let sent = KeyInjector.sendUp(binding)
                     print("[KEY] \(button.displayName) up → \(binding.displayName); sent=\(sent)")
                 }
@@ -1108,6 +1207,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // 其他按钮：使用按下时锁定的映射并注入
             guard !binding.isDisabled else { return }
             if isDown {
+                if self.handleContextualAction(
+                    binding,
+                    button: button,
+                    gesture: "按下"
+                ) {
+                    return
+                }
                 let sent = KeyInjector.send(
                     binding,
                     targetApplicationBundleIdentifier: self.mappingStore
@@ -1137,6 +1243,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         "[KEY] \(button.displayName) scroll cancel → \(binding.displayName); sent=\(sent)"
                     )
                 }
+                self.dismissContextualOverlay(for: button)
                 let sent = KeyInjector.sendUp(binding)
                 print("[KEY] \(button.displayName) up → \(binding.displayName); sent=\(sent)")
             }
@@ -1239,6 +1346,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
 
+        // This is an Orbit-owned semantic action, not a keyboard event. It
+        // resolves the current foreground app at the moment the gesture is
+        // confirmed, so the same TV/other button can show Codex, FloatTabs,
+        // Obsidian, or the global mapping without a separate Orbit hotkey.
+        if handleContextualAction(
+            binding,
+            button: event.button,
+            gesture: event.kind.displayName
+        ) {
+            return
+        }
+
         let sent = KeyInjector.send(
             binding,
             targetApplicationBundleIdentifier: event.context
@@ -1274,6 +1393,26 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 )
             )
         }
+    }
+
+    private func handleContextualAction(
+        _ binding: ButtonBinding,
+        button: RemoteButton,
+        gesture: String
+    ) -> Bool {
+        guard case .preset(.inspectCurrentKeymap) = binding else { return false }
+        actionHUD.dismiss()
+        keymapOverlayController.show(store: mappingStore)
+        contextualOverlayButton = button
+        print("[KEYMAP] \(button.displayName) \(gesture) → 显示当前快捷映射")
+        return true
+    }
+
+    private func dismissContextualOverlay(for button: RemoteButton) {
+        guard contextualOverlayButton == button else { return }
+        keymapOverlayController.close()
+        contextualOverlayButton = nil
+        print("[KEYMAP] \(button.displayName) 松开 → 隐藏当前快捷映射")
     }
 
     private func actionHUDState(
@@ -1383,15 +1522,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             stopRecordingStatusPulse()
             setStatusSummary("状态 · 录音中但音频设备未就绪", color: .systemRed)
             setStatusIcon(systemName: "waveform.slash", color: .systemRed)
-        } else if hidConnected && bleConnected && audioOutputReady {
+        } else if hidConnected && audioOutputReady {
             stopRecordingStatusPulse()
             setStatusSummary("状态 · 已就绪", color: .systemGreen)
             setStatusIcon(systemName: "circle.dotted.and.circle", color: .white)
-        } else if hidConnected && bleConnected {
+        } else if hidConnected {
             stopRecordingStatusPulse()
             setStatusSummary("状态 · 音频设备未就绪", color: .systemRed)
             setStatusIcon(systemName: "waveform.slash", color: .systemRed)
-        } else if hidConnected || bleConnected {
+        } else if bleConnected {
             stopRecordingStatusPulse()
             setStatusSummary("状态 · 正在连接", color: .systemOrange)
             setStatusIcon(systemName: "hourglass", color: .systemOrange)
@@ -1416,8 +1555,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else if bleConnected {
             audioTitle = "语音链路 · BLE 已连接 / 音频未就绪"
             audioColor = .systemRed
+        } else if hidConnected, audioOutputReady {
+            audioTitle = "语音检测 · 可用（按住语音键启动）"
+            audioColor = .systemGreen
+        } else if hidConnected {
+            audioTitle = "语音检测 · 音频设备未就绪"
+            audioColor = .systemOrange
         } else {
-            audioTitle = "语音链路 · 未连接"
+            audioTitle = "语音检测 · 等待遥控器"
             audioColor = .systemRed
         }
         setMenuStatus(audioStatusItem, title: audioTitle, color: audioColor)
@@ -1500,7 +1645,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         voiceFocusSafetyWorkItem?.cancel()
         voiceFocusSafetyWorkItem = nil
         voiceFocusTransactions.cancelAll()
-        watcher.stop()
+        keymapOverlayController.close()
+        contextualOverlayButton = nil
+        reconnectHeldButtons.removeAll()
         voicePress.stop()
         filter.stop()
         hidMonitor.stop()
@@ -1519,6 +1666,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         )
     }
+
 }
 
 // MARK: - Entry

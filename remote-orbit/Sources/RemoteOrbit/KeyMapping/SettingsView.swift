@@ -61,6 +61,16 @@ struct SettingsView: View {
         case template(UUID)
     }
 
+    /// The microphone key is a semantic two-mode control, not a generic
+    /// shortcut slot. Keep the small UI choice separate from ButtonAction so
+    /// the long-press remote microphone remains independent.
+    private enum MicrophoneShortInputMode: String, CaseIterable, Identifiable {
+        case doubao
+        case codexVoiceChat
+
+        var id: String { rawValue }
+    }
+
     private enum WorkspaceSection: String, CaseIterable, Identifiable {
         case overview
         case mappings
@@ -99,7 +109,7 @@ struct SettingsView: View {
 
     var body: some View {
         workspace
-        .frame(minWidth: 980, minHeight: 660)
+        .frame(minWidth: 1_020, minHeight: 660)
         .onAppear {
             synchronizeMappingScopeToEffectiveTarget()
         }
@@ -130,6 +140,7 @@ struct SettingsView: View {
                 onCancel: { gestureRecorderTarget = nil },
                 onClear: {
                     setCurrentGestureBinding(nil, for: target.button, slot: target.slot)
+                    setCurrentGestureEnabled(false, for: target.slot)
                     gestureRecorderTarget = nil
                 },
                 onRecord: { chord, _ in
@@ -138,6 +149,7 @@ struct SettingsView: View {
                         for: target.button,
                         slot: target.slot
                     )
+                    setCurrentGestureEnabled(true, for: target.slot)
                     gestureRecorderTarget = nil
                 }
             )
@@ -311,12 +323,6 @@ struct SettingsView: View {
     private var overviewPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                pageHeader(
-                    title: "概览",
-                    description: "RemoteOrbit 正在后台监听遥控器，并把按钮动作交给当前 App。",
-                    symbolName: "rectangle.grid.2x2"
-                )
-
                 HStack(spacing: 12) {
                     metricCard(
                         title: "遥控器按钮",
@@ -372,14 +378,529 @@ struct SettingsView: View {
     }
 
     private var mappingsPage: some View {
-        VStack(spacing: 0) {
-            mappingToolbar
-            Divider()
+        visualMappingEditor
+    }
 
-            HStack(spacing: 0) {
-                mappingButtonRail
+    private var visualMappingScopeMenu: some View {
+        Menu {
+            Button {
+                selectMappingScope(.global)
+            } label: {
+                Label("通用映射", systemImage: "globe")
+            }
+
+            if !configuredAppChoices.isEmpty {
                 Divider()
-                mappingEditor
+                Section("已配置程序") {
+                    ForEach(configuredAppChoices) { app in
+                        Button {
+                            selectMappingScope(.app(app.bundleIdentifier))
+                        } label: {
+                            Label(app.displayName, systemImage: appSymbolName(for: app.bundleIdentifier))
+                        }
+                    }
+                }
+            }
+
+            Divider()
+            Button {
+                showTemplateCreator = true
+            } label: {
+                Label("添加程序…", systemImage: "plus.circle")
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: mappingScope == .global ? "globe" : "app.badge")
+                    .foregroundStyle(Color.accentColor)
+                Text(mappingScopeDisplayName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.accentColor.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .menuStyle(.borderlessButton)
+        .help("切换通用映射或已配置的程序模板；也可以在菜单底部添加程序")
+    }
+
+    private var visualMappingEditor: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                visualMappingScopeBar
+
+                if case .app = mappingScope, !hasEditableScope {
+                    workspaceCard(title: "先创建一个程序模板", symbolName: "square.stack.3d.up.badge.plus") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("这个程序还没有可编辑的模板。可以直接套用内置预设，或者新建一个空模板。")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                Button("套用预设模板") {
+                                    showTemplatePresetImporter = true
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(templatePresetChoicesForCurrentScope.isEmpty)
+                                Button("新建空模板") {
+                                    showTemplateCreator = true
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: 14) {
+                        SettingsRemotePreview(
+                            selectedButton: selectedButton,
+                            bindingFor: { currentBinding(for: $0) },
+                            profileFor: { currentGestureProfile(for: $0) },
+                            onSelect: { selectedButton = $0 }
+                        )
+                        .frame(width: 270)
+
+                        visualButtonInspector
+                            .frame(minWidth: 430, maxWidth: 560, alignment: .topLeading)
+                    }
+                }
+            }
+            .padding(18)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var visualMappingScopeBar: some View {
+        HStack(spacing: 10) {
+            Label("映射范围", systemImage: "slider.horizontal.3")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+            visualMappingScopeMenu
+
+            Spacer(minLength: 12)
+
+            if case let .app(bundleID) = mappingScope {
+                let templates = store.templates(for: bundleID)
+                Text("模板")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                if templates.isEmpty {
+                    Text("暂无模板")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else {
+                    Picker("Active 模板", selection: Binding(
+                        get: { selectedTemplateTarget },
+                        set: { selectTemplate($0, for: bundleID) }
+                    )) {
+                        ForEach(templates) { template in
+                            Text(template.templateName)
+                                .tag(TemplateTarget.template(template.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 210)
+                }
+
+                if selectedEditorTemplate != nil {
+                    Button("删除", role: .destructive) {
+                        templateToDelete = selectedEditorTemplate?.id
+                        showDeleteTemplateConfirm = true
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                }
+            } else {
+                Text("通用映射会作为未配置程序的基础行为")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color.accentColor.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var visualButtonInspector: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: buttonSymbol(for: selectedButton))
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(selectedButton.displayName)
+                        .font(.title2.weight(.semibold))
+                    Text("点击左侧遥控器的其他按键即可切换编辑目标")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Button("恢复默认") {
+                    resetSelectedButtonToDefault()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            if selectedButton == .microphone {
+                microphoneSingleBehaviorCard
+                microphoneBehaviorCard(currentBinding(for: selectedButton))
+            } else if hasEditableScope {
+                visualSingleBehaviorCard
+                visualAdditionalBehaviorCard
+            }
+
+            if isScrollAction(currentBinding(for: selectedButton)) {
+                workspaceCard(title: "滚动速度", symbolName: "arrow.up.and.down") {
+                    scrollSpeedControl
+                }
+            }
+
+            HStack {
+                Button(role: .destructive) {
+                    showResetConfirm = true
+                } label: {
+                    Label("重置当前范围", systemImage: "arrow.counterclockwise")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .tint(.red)
+                Spacer()
+                Label("修改会自动保存", systemImage: "checkmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .alert("确认重置当前范围", isPresented: $showResetConfirm) {
+                Button("取消", role: .cancel) {}
+                Button("重置", role: .destructive) {
+                    resetCurrentMapping()
+                }
+            } message: {
+                Text(mappingScope == .global
+                     ? "这将恢复通用映射中的所有按钮。"
+                     : "这将恢复当前程序模板中的所有按钮。")
+            }
+        }
+    }
+
+    private var visualSingleBehaviorCard: some View {
+        let binding = currentBinding(for: selectedButton)
+        let isEnabled = !binding.isDisabled
+        let isGloballyPinned = mappingScope != .global &&
+            store.isGloballyPinned(selectedButton, slot: .single)
+
+        return workspaceCard(title: "单击", symbolName: "1.circle.fill") {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack {
+                    Toggle(
+                        "启用单击",
+                        isOn: Binding(
+                            get: { !currentBinding(for: selectedButton).isDisabled },
+                            set: { setCurrentSingleEnabled($0) }
+                        )
+                    )
+                    .toggleStyle(.checkbox)
+                    .disabled(isGloballyPinned)
+
+                    Spacer(minLength: 12)
+                    visualGlobalScopeControl(for: .single)
+                }
+
+                Picker(
+                    "单击功能",
+                    selection: Binding(
+                        get: {
+                            if case let .preset(action) = currentBinding(for: selectedButton) {
+                                return action
+                            }
+                            return ButtonAction.disabled
+                        },
+                        set: { setCurrentBinding(.preset($0), for: selectedButton) }
+                    )
+                ) {
+                    ForEach(availableActionCategories) { category in
+                        actionPickerSections(for: category)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(!isEnabled || isGloballyPinned)
+
+                if case let .shortcut(chord, trigger) = binding {
+                    HStack(spacing: 9) {
+                        Label("自定义快捷键", systemImage: "command")
+                            .font(.caption.weight(.medium))
+                        Text(chord.displayName)
+                            .font(.system(.caption, design: .monospaced).weight(.semibold))
+                        Picker("触发方式", selection: Binding(
+                            get: { trigger },
+                            set: { setCurrentBinding(.shortcut(chord, trigger: $0), for: selectedButton) }
+                        )) {
+                            ForEach(ShortcutTriggerMode.allCases) { mode in
+                                Text(mode.shortLabel).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 125)
+                        Button("重新录制") { recorderButton = selectedButton }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                    .disabled(isGloballyPinned)
+                } else {
+                    Button("录制自定义快捷键…") { recorderButton = selectedButton }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(!isEnabled || isGloballyPinned)
+                }
+
+                mappingBehaviorStatus(
+                    slot: .single,
+                    enabled: isEnabled,
+                    binding: binding
+                )
+            }
+        }
+    }
+
+    private var visualAdditionalBehaviorCard: some View {
+        let profile = currentGestureProfile(for: selectedButton)
+        return workspaceCard(title: "双击与长按", symbolName: "hand.tap") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("每种行为独立启用；长按一次和长按重复二选一。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                visualGestureBehaviorRow(
+                    slot: .doubleTap,
+                    profile: profile
+                )
+
+                Divider()
+
+                visualGestureBehaviorRow(
+                    slot: .longPress,
+                    profile: profile
+                )
+            }
+        }
+    }
+
+    private var microphoneSingleBehaviorCard: some View {
+        let binding = currentBinding(for: selectedButton)
+        let isEnabled = !binding.isDisabled
+        let isGloballyPinned = mappingScope != .global &&
+            store.isGloballyPinned(selectedButton, slot: .single)
+        return workspaceCard(title: "单击 · 外部语音输入", symbolName: "mic.circle.fill") {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack {
+                    Toggle(
+                        "启用单击（无需一直按住）",
+                        isOn: Binding(
+                            get: { !currentBinding(for: selectedButton).isDisabled },
+                            set: { setCurrentSingleEnabled($0) }
+                        )
+                    )
+                    .toggleStyle(.checkbox)
+                    .disabled(isGloballyPinned)
+
+                    Spacer(minLength: 12)
+                    visualGlobalScopeControl(for: .single)
+                }
+
+                Picker(
+                    "单击语音方式",
+                    selection: Binding<MicrophoneShortInputMode>(
+                        get: {
+                            switch currentBinding(for: selectedButton) {
+                            case .preset(.chatGPTStartVoiceChat):
+                                return MicrophoneShortInputMode.codexVoiceChat
+                            default:
+                                return MicrophoneShortInputMode.doubao
+                            }
+                        },
+                        set: { mode in
+                            setCurrentBinding(
+                                mode == .codexVoiceChat
+                                    ? .preset(.chatGPTStartVoiceChat)
+                                    : .voiceKeyDefault,
+                                for: selectedButton
+                            )
+                        }
+                    )
+                ) {
+                    Text("豆包 · 电脑/外部麦克风")
+                        .tag(MicrophoneShortInputMode.doubao)
+                    Text("Codex · 语音对话")
+                        .tag(MicrophoneShortInputMode.codexVoiceChat)
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(!isEnabled || isGloballyPinned)
+
+                Text(
+                    "豆包模式只发送一次 Option，由电脑/外部麦克风完成输入；" +
+                    "Codex 模式改为调用 Codex 语音对话。长按仍单独使用遥控器麦克风。"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                mappingBehaviorStatus(
+                    slot: .single,
+                    enabled: isEnabled,
+                    binding: binding
+                )
+            }
+        }
+    }
+
+    private func visualGestureBehaviorRow(
+        slot: ButtonGestureSlot,
+        profile: ButtonGestureProfile
+    ) -> some View {
+        let enabled = profile.isEnabled(for: slot)
+        let globalSlot: GlobalMappingSlot = slot == .doubleTap ? .doubleTap : .longPress
+        let isGloballyPinned = mappingScope != .global &&
+            store.isGloballyPinned(selectedButton, slot: globalSlot)
+
+        return VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Toggle(
+                    slot.displayName,
+                    isOn: Binding(
+                        get: { currentGestureProfile(for: selectedButton).isEnabled(for: slot) },
+                        set: { setCurrentGestureEnabled($0, for: slot) }
+                    )
+                )
+                .toggleStyle(.checkbox)
+                .disabled(isGloballyPinned)
+
+                Spacer(minLength: 12)
+                visualGlobalScopeControl(for: globalSlot)
+            }
+
+            if slot == .longPress {
+                HStack(spacing: 10) {
+                    Text("执行方式")
+                        .font(.caption.weight(.medium))
+                    Picker(
+                        "长按执行方式",
+                        selection: Binding(
+                            get: { currentGestureProfile(for: selectedButton).longPressBehavior },
+                            set: { behavior in
+                                var updated = currentGestureProfile(for: selectedButton)
+                                updated.longPressBehavior = behavior
+                                setCurrentGestureProfile(updated, for: selectedButton)
+                            }
+                        )
+                    ) {
+                        Text("长按一次").tag(ButtonLongPressBehavior.triggerOnce)
+                        Text("长按重复").tag(ButtonLongPressBehavior.repeatWhileHeld)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 190)
+                }
+                .disabled(!enabled || isGloballyPinned)
+            }
+
+            Picker(
+                "\(slot.displayName)功能",
+                selection: Binding(
+                    get: {
+                        guard case let .preset(action) = currentGestureProfile(
+                            for: selectedButton
+                        ).binding(for: slot) else { return ButtonAction.disabled }
+                        return action
+                    },
+                    set: { action in
+                        setCurrentGestureBinding(
+                            action == .disabled ? nil : .preset(action),
+                            for: selectedButton,
+                            slot: slot
+                        )
+                    }
+                )
+            ) {
+                ForEach(availableGestureActionCategories) { category in
+                    actionPickerSections(for: category)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(!enabled || isGloballyPinned)
+
+            HStack(spacing: 9) {
+                if let binding = profile.binding(for: slot) {
+                    Label(
+                        enabled && !binding.isDisabled
+                            ? "当前：\(binding.displayName)"
+                            : "未启用",
+                        systemImage: enabled && !binding.isDisabled
+                            ? "checkmark.circle"
+                            : "circle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(enabled && !binding.isDisabled ? .primary : .secondary)
+                } else {
+                    Text("未设置功能")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+                if !isGloballyPinned {
+                    Button("录制快捷键…") {
+                        gestureRecorderTarget = GestureRecorderTarget(
+                            button: selectedButton,
+                            slot: slot
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    private func visualGlobalScopeControl(for slot: GlobalMappingSlot) -> some View {
+        Toggle(
+            "应用全局",
+            isOn: Binding(
+                get: { store.isGloballyPinned(selectedButton, slot: slot) },
+                set: {
+                    store.setGlobalPinning($0, for: selectedButton, slot: slot)
+                }
+            )
+        )
+        .toggleStyle(.checkbox)
+        .font(.caption.weight(.medium))
+        .tint(.orange)
+        .help("勾选后，这个行为使用通用映射，不被当前程序模板覆盖")
+    }
+
+    private func mappingBehaviorStatus(
+        slot: GlobalMappingSlot,
+        enabled: Bool,
+        binding: ButtonBinding
+    ) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: enabled ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(enabled ? Color.green : Color.secondary)
+            Text(enabled ? "当前：\(currentBindingLabel(for: binding))" : "未启用")
+                .font(.caption)
+                .foregroundStyle(enabled ? .primary : .secondary)
+            Spacer()
+            if store.isGloballyPinned(selectedButton, slot: slot) {
+                Label("全局", systemImage: "globe")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.orange)
             }
         }
     }
@@ -732,10 +1253,10 @@ struct SettingsView: View {
 
     private var advancedGestureCard: some View {
         let profile = currentGestureProfile(for: selectedButton)
-        return workspaceCard(title: "额外按键手势", symbolName: "hand.tap") {
+        return workspaceCard(title: "复杂操作", symbolName: "hand.tap") {
             VStack(alignment: .leading, spacing: 12) {
                 Toggle(
-                    "启用额外按键手势",
+                    "使用复杂操作（双击 / 长按）",
                     isOn: Binding(
                         get: { currentGestureProfile(for: selectedButton).isEnabled },
                         set: {
@@ -758,7 +1279,7 @@ struct SettingsView: View {
                         }
                     )
                 )
-                Text("未启用时完全沿用上面的单击映射。启用后，单击仍执行基础动作；双击和长按使用下面的额外动作。")
+                Text("关闭时只使用单击映射；打开后，单击保留基础动作，并可分别设置双击与长按动作。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -1012,12 +1533,13 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("语音键的独立逻辑")
                     .font(.subheadline.weight(.semibold))
-                if case .voiceKeyDefault = binding {
-                    Text("仅长按使用遥控器麦克风；短按不触发本机或外部麦克风，也不会切换语音输入。")
-                } else {
-                    Text("当前已改为自定义动作，短按/长按语音桥接行为不会执行。")
-                        .foregroundStyle(.orange)
-                }
+                Text(
+                    binding.isDisabled
+                        ? "单击已关闭；长按仍使用遥控器麦克风。"
+                        : binding == .preset(.chatGPTStartVoiceChat)
+                            ? "单击调用 Codex 语音对话；长按使用遥控器麦克风。"
+                            : "单击调用豆包输入法并使用电脑/外部麦克风；长按使用遥控器麦克风。"
+                )
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -1030,12 +1552,6 @@ struct SettingsView: View {
     private var diagnosticsPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                pageHeader(
-                    title: "设置与诊断",
-                    description: "管理启动、日志、调试录音和系统权限。",
-                    symbolName: "gearshape.2"
-                )
-
                 installationCard
 
                 mappingConfigurationCard
@@ -1389,12 +1905,6 @@ struct SettingsView: View {
     private var aboutPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                pageHeader(
-                    title: "关于 RemoteOrbit",
-                    description: "独立的遥控器、语音和快捷键控制中心。",
-                    symbolName: "info.circle"
-                )
-
                 workspaceCard(title: "产品信息", symbolName: "waveform.circle") {
                     VStack(alignment: .leading, spacing: 10) {
                         aboutLine(label: "产品", value: ProductIdentity.name)
@@ -1555,7 +2065,7 @@ struct SettingsView: View {
     private func resetSelectedButtonToDefault() {
         if case let .template(id) = selectedTemplateTarget,
            selectedEditorTemplate != nil,
-           !store.isGloballyPinned(selectedButton) {
+           !store.isGloballyPinned(selectedButton, slot: .single) {
             let template = selectedEditorTemplate
             let defaultBinding = AppTemplatePresetLibrary.all.first(where: {
                 $0.appBundleIdentifier == template?.appBundleIdentifier &&
@@ -1723,6 +2233,24 @@ struct SettingsView: View {
         }
     }
 
+    private var templatePresetChoicesForCurrentScope: [AppTemplatePreset] {
+        guard case let .app(bundleID) = mappingScope else { return [] }
+        return store.templatePresets(for: bundleID)
+    }
+
+    private func appSymbolName(for bundleIdentifier: String) -> String {
+        switch bundleIdentifier {
+        case MappingStore.codexBundleIdentifier:
+            return "sparkles.rectangle.stack"
+        case "md.obsidian":
+            return "note.text"
+        case MappingStore.floatTabsBundleIdentifier:
+            return "rectangle.on.rectangle.angled"
+        default:
+            return "app"
+        }
+    }
+
     private var configuredAppChoices: [AppTemplateChoice] {
         // 已经建过模板的 App 固定显示在主菜单顶部；即使当前没有运行，
         // 也保留在这里，方便继续编辑已有模板。
@@ -1836,7 +2364,7 @@ struct SettingsView: View {
     }
 
     private func currentBinding(for button: RemoteButton) -> ButtonBinding {
-        if store.isGloballyPinned(button) {
+        if store.isGloballyPinned(button, slot: .single) {
             return store.binding(for: button)
         }
         guard case let .template(id) = selectedTemplateTarget,
@@ -1848,15 +2376,24 @@ struct SettingsView: View {
     }
 
     private func currentGestureProfile(for button: RemoteButton) -> ButtonGestureProfile {
-        if store.isGloballyPinned(button) {
-            return store.gestureProfile(for: button)
-        }
         guard case let .template(id) = selectedTemplateTarget,
               selectedEditorTemplate != nil
         else {
             return store.gestureProfile(for: button)
         }
-        return store.gestureProfile(for: button, templateID: id)
+        let templateProfile = store.gestureProfile(for: button, templateID: id)
+        var merged = templateProfile
+        let globalProfile = store.gestureProfile(for: button)
+        if store.isGloballyPinned(button, slot: .doubleTap) {
+            merged.doubleTapEnabled = globalProfile.doubleTapEnabled
+            merged.doubleTap = globalProfile.doubleTap
+        }
+        if store.isGloballyPinned(button, slot: .longPress) {
+            merged.longPressEnabled = globalProfile.longPressEnabled
+            merged.longPress = globalProfile.longPress
+            merged.longPressBehavior = globalProfile.longPressBehavior
+        }
+        return merged
     }
 
     private func isScrollAction(_ binding: ButtonBinding) -> Bool {
@@ -1875,7 +2412,7 @@ struct SettingsView: View {
 
     private func setCurrentBinding(_ binding: ButtonBinding, for button: RemoteButton) {
         guard hasEditableScope else { return }
-        if case .app = mappingScope, store.isGloballyPinned(button) {
+        if case .app = mappingScope, store.isGloballyPinned(button, slot: .single) {
             return
         }
         guard case let .template(id) = selectedTemplateTarget,
@@ -1892,16 +2429,62 @@ struct SettingsView: View {
         for button: RemoteButton
     ) {
         guard hasEditableScope else { return }
-        if case .app = mappingScope, store.isGloballyPinned(button) {
-            return
-        }
         guard case let .template(id) = selectedTemplateTarget,
               selectedEditorTemplate != nil
         else {
             store.setGestureProfile(profile, for: button)
             return
         }
-        store.setGestureProfile(profile, for: button, templateID: id)
+        var editableProfile = profile
+        let globalProfile = store.gestureProfile(for: button)
+        if store.isGloballyPinned(button, slot: .doubleTap) {
+            editableProfile.doubleTapEnabled = globalProfile.doubleTapEnabled
+            editableProfile.doubleTap = globalProfile.doubleTap
+        }
+        if store.isGloballyPinned(button, slot: .longPress) {
+            editableProfile.longPressEnabled = globalProfile.longPressEnabled
+            editableProfile.longPress = globalProfile.longPress
+            editableProfile.longPressBehavior = globalProfile.longPressBehavior
+        }
+        store.setGestureProfile(editableProfile, for: button, templateID: id)
+    }
+
+    private func setCurrentSingleEnabled(_ enabled: Bool) {
+        guard hasEditableScope else { return }
+        if case .app = mappingScope,
+           store.isGloballyPinned(selectedButton, slot: .single) {
+            return
+        }
+        let binding = currentBinding(for: selectedButton)
+        if enabled {
+            guard binding.isDisabled else { return }
+            setCurrentBinding(
+                DefaultBindings.all[selectedButton] ?? .preset(.disabled),
+                for: selectedButton
+            )
+        } else {
+            setCurrentBinding(.preset(.disabled), for: selectedButton)
+        }
+    }
+
+    private func setCurrentGestureEnabled(
+        _ enabled: Bool,
+        for slot: ButtonGestureSlot
+    ) {
+        guard hasEditableScope else { return }
+        let globalSlot: GlobalMappingSlot = slot == .doubleTap ? .doubleTap : .longPress
+        if case .app = mappingScope,
+           store.isGloballyPinned(selectedButton, slot: globalSlot) {
+            return
+        }
+        var profile = currentGestureProfile(for: selectedButton)
+        profile.setEnabled(enabled, for: slot)
+        if enabled,
+           slot == .longPress,
+           profile.longPressBehavior == .none {
+            profile.longPressBehavior = .triggerOnce
+        }
+        setCurrentGestureProfile(profile, for: selectedButton)
     }
 
     private func setCurrentGestureBinding(
@@ -1953,6 +2536,247 @@ struct SettingsView: View {
         }
         return byBundleID.values.sorted { lhs, rhs in
             lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
+    }
+}
+
+private struct SettingsRemotePreview: View {
+    let selectedButton: RemoteButton
+    let bindingFor: (RemoteButton) -> ButtonBinding
+    let profileFor: (RemoteButton) -> ButtonGestureProfile
+    let onSelect: (RemoteButton) -> Void
+
+    private let canvasSize = CGSize(width: 228, height: 555)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("遥控器布局", systemImage: "rectangle.portrait.and.arrow.forward")
+                    .font(.headline.weight(.semibold))
+                Spacer()
+                Text("13 键")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("点击任意实体按键，右侧编辑它的单击、双击和长按。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ZStack {
+                remoteShell
+
+                remoteButton(.power, size: 31)
+                    .position(x: 86, y: 48)
+                remoteButton(.microphone, size: 31)
+                    .position(x: 142, y: 48)
+
+                dPad
+                    .position(x: 114, y: 153)
+
+                remoteButton(.back, size: 34)
+                    .position(x: 86, y: 256)
+                volumeButtons
+                    .position(x: 144, y: 303)
+                remoteButton(.home, size: 34)
+                    .position(x: 86, y: 326)
+                remoteButton(.menu, size: 34)
+                    .position(x: 86, y: 397)
+                remoteButton(.tv, size: 34)
+                    .position(x: 142, y: 397)
+            }
+            .frame(width: canvasSize.width, height: canvasSize.height)
+
+            selectedMappingSummary
+        }
+        .padding(16)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var remoteShell: some View {
+        RoundedRectangle(cornerRadius: 42, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.98),
+                        Color.white.opacity(0.72),
+                        Color.gray.opacity(0.35),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: 150, height: 530)
+            .overlay(
+                RoundedRectangle(cornerRadius: 42, style: .continuous)
+                    .stroke(Color.white.opacity(0.95), lineWidth: 1.2)
+            )
+            .overlay(
+                LinearGradient(
+                    colors: [Color.white.opacity(0.32), .clear, Color.blue.opacity(0.06)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 42, style: .continuous))
+            )
+            .shadow(color: Color.black.opacity(0.18), radius: 14, y: 8)
+    }
+
+    private var dPad: some View {
+        ZStack {
+            Circle()
+                .fill(Color.black.opacity(0.72))
+                .frame(width: 116, height: 116)
+                .overlay(Circle().stroke(Color.white.opacity(0.28), lineWidth: 1))
+
+            Circle()
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                .frame(width: 76, height: 76)
+
+            remoteButton(.up, size: 32).position(x: 58, y: 17)
+            remoteButton(.left, size: 32).position(x: 17, y: 58)
+            remoteButton(.ok, size: 42).position(x: 58, y: 58)
+            remoteButton(.right, size: 32).position(x: 99, y: 58)
+            remoteButton(.down, size: 32).position(x: 58, y: 99)
+        }
+        .frame(width: 116, height: 116)
+    }
+
+    private var volumeButtons: some View {
+        VStack(spacing: 1) {
+            remoteButton(.volumeUp, size: 34)
+            Divider()
+                .overlay(Color.white.opacity(0.34))
+                .frame(width: 21)
+            remoteButton(.volumeDown, size: 34)
+        }
+        .padding(.vertical, 5)
+        .padding(.horizontal, 4)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(0.70))
+                .overlay(Capsule().stroke(Color.white.opacity(0.24), lineWidth: 1))
+        )
+    }
+
+    private func remoteButton(_ button: RemoteButton, size: CGFloat) -> some View {
+        Button {
+            onSelect(button)
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(
+                        selectedButton == button
+                            ? Color.accentColor.opacity(0.90)
+                            : Color.black.opacity(0.72)
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(
+                                selectedButton == button
+                                    ? Color.white
+                                    : Color.white.opacity(0.25),
+                                lineWidth: selectedButton == button ? 2 : 1
+                            )
+                    )
+
+                if button == .tv {
+                    Text("TV")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                } else if button == .ok {
+                    Text("OK")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                } else if button == .volumeUp {
+                    Text("+")
+                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                } else if button == .volumeDown {
+                    Text("−")
+                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                } else {
+                    Image(systemName: symbolName(for: button))
+                        .font(.system(size: max(11, size * 0.34), weight: .semibold))
+                }
+            }
+            .frame(width: size, height: size)
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.52), radius: 1.5, y: 1)
+        }
+        .buttonStyle(.plain)
+        .help(actionSummary(for: button))
+        .accessibilityLabel("\(button.displayName)：\(actionSummary(for: button))")
+    }
+
+    private var selectedMappingSummary: some View {
+        let lines = KeymapPresentation.actionLines(
+            for: selectedButton,
+            binding: bindingFor(selectedButton),
+            profile: profileFor(selectedButton)
+        )
+
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("当前按键")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(selectedButton.displayName)
+                    .font(.caption.weight(.bold))
+            }
+
+            ForEach(lines) { line in
+                HStack(alignment: .top, spacing: 7) {
+                    Circle()
+                        .fill(gestureColor(for: line.gesture))
+                        .frame(width: 6, height: 6)
+                        .padding(.top, 4)
+                    Text(line.gesture)
+                        .font(.caption2.weight(.semibold))
+                        .frame(width: 52, alignment: .leading)
+                    Text(line.action)
+                        .font(.caption2)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func actionSummary(for button: RemoteButton) -> String {
+        let lines = KeymapPresentation.actionLines(
+            for: button,
+            binding: bindingFor(button),
+            profile: profileFor(button)
+        )
+        return lines.map { "\($0.gesture)：\($0.action)" }.joined(separator: "；")
+    }
+
+    private func gestureColor(for gesture: String) -> Color {
+        if gesture.contains("双击") { return .mint }
+        if gesture.contains("长按") { return .orange }
+        return .cyan
+    }
+
+    private func symbolName(for button: RemoteButton) -> String {
+        switch button {
+        case .microphone: return "mic.fill"
+        case .power: return "power"
+        case .up: return "chevron.up"
+        case .left: return "chevron.left"
+        case .ok: return "checkmark"
+        case .right: return "chevron.right"
+        case .down: return "chevron.down"
+        case .back: return "arrow.uturn.backward"
+        case .volumeUp: return "speaker.plus"
+        case .home: return "house.fill"
+        case .volumeDown: return "speaker.minus"
+        case .menu: return "line.3.horizontal"
+        case .tv: return "rectangle.on.rectangle"
         }
     }
 }
