@@ -119,6 +119,24 @@ final class KeymapOverlayTests: XCTestCase {
         )
     }
 
+    func testOnlyDefaultDoubaoShortInputUsesToggleLifecycle() {
+        XCTAssertTrue(
+            VoicePressCoordinator.togglesLocalMicrophone(
+                forShortBinding: .voiceKeyDefault
+            )
+        )
+        XCTAssertFalse(
+            VoicePressCoordinator.togglesLocalMicrophone(
+                forShortBinding: .preset(.chatGPTStartVoiceChat)
+            )
+        )
+        XCTAssertFalse(
+            VoicePressCoordinator.togglesLocalMicrophone(
+                forShortBinding: .preset(.disabled)
+            )
+        )
+    }
+
     func testTVLongPressDefaultsToCurrentKeymapInspection() {
         let profile = AppTemplatePresetLibrary.defaultKeymapInspectionProfile
 

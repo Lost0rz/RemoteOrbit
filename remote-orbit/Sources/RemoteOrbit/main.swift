@@ -209,6 +209,13 @@ final class VoicePressCoordinator {
     private var suppressNewPressUntil = Date.distantPast
     private var shortTapAction: (() -> Void)?
     private var shortInputUsesLocalMicrophone = false
+    private var shortInputClosesLocalMicrophoneSession = false
+    private var shortInputTogglesLocalMicrophone = false
+    /// The default Doubao short action is a toggle: the first tap opens the
+    /// external-microphone input and the next tap closes it. Keep this state
+    /// separate from the current physical gesture so a closing tap never
+    /// starts AVCapture again while it is waiting to send Option-up.
+    private var localShortVoiceSessionActive = false
     private var gestureID: UUID?
     private var pendingShortPreparationID: UUID?
 
@@ -226,6 +233,10 @@ final class VoicePressCoordinator {
         }
     }
 
+    static func togglesLocalMicrophone(forShortBinding binding: ButtonBinding) -> Bool {
+        binding == .voiceKeyDefault
+    }
+
     var hasRemoteAudio: Bool {
         remoteAudioAvailable
     }
@@ -233,7 +244,8 @@ final class VoicePressCoordinator {
     @discardableResult
     func keyDown(
         onShortTap: (() -> Void)? = nil,
-        usesLocalMicrophone: Bool = false
+        usesLocalMicrophone: Bool = false,
+        togglesLocalMicrophone: Bool = false
     ) -> Bool {
         guard Date() >= suppressNewPressUntil else {
             print("[PRESS] ignored release bounce")
@@ -243,11 +255,18 @@ final class VoicePressCoordinator {
         // A new physical press owns the voice key now. Do not keep a local
         // session left by an earlier short tap alive during the classifier:
         // if this press becomes a hold, the physical mic must be closed from
-        // the first edge, not only after the 300 ms timer fires.
+        // the first edge, not only after the 300 ms timer fires. When the
+        // default Doubao toggle is already open, remember that this tap is a
+        // close operation so keyUp can send Option immediately without
+        // reopening AVCapture first.
         pendingShortPreparationID = nil
         AudioPipe.shared.setLocalMicrophoneCaptureEnabled(false)
         shortTapAction = onShortTap
-        shortInputUsesLocalMicrophone = usesLocalMicrophone
+        shortInputClosesLocalMicrophoneSession =
+            togglesLocalMicrophone && localShortVoiceSessionActive
+        shortInputTogglesLocalMicrophone = togglesLocalMicrophone
+        shortInputUsesLocalMicrophone =
+            usesLocalMicrophone && !shortInputClosesLocalMicrophoneSession
         let currentGestureID = UUID()
         gestureID = currentGestureID
         remoteAudioAvailable = false
@@ -279,18 +298,33 @@ final class VoicePressCoordinator {
             shortTapAction = nil
             let shouldPrepareLocalMicrophone = shortInputUsesLocalMicrophone
             shortInputUsesLocalMicrophone = false
+            let shouldCloseLocalMicrophoneSession = shortInputClosesLocalMicrophoneSession
+            shortInputClosesLocalMicrophoneSession = false
+            let shouldTrackLocalMicrophoneSession = shortInputTogglesLocalMicrophone
+            shortInputTogglesLocalMicrophone = false
             let currentGestureID = gestureID
             gestureID = nil
             setMode(.idle)
             setRemoteRouted(false)
             AudioPipe.shared.endRemoteCandidate()
-            if shouldPrepareLocalMicrophone, let currentGestureID {
+            if shouldCloseLocalMicrophoneSession {
+                // The default short action is a toggle. The local capture was
+                // already stopped at keyDown to keep a possible long hold
+                // isolated; do not start it again just to deliver the close
+                // click.
+                localShortVoiceSessionActive = false
+                print("[PRESS] SHORT release → closing Doubao without microphone restart")
+                emitShortPress()
+            } else if shouldPrepareLocalMicrophone, let currentGestureID {
                 pendingShortPreparationID = currentGestureID
                 print("[PRESS] SHORT release → preparing local microphone")
                 AudioPipe.shared.setLocalMicrophoneCaptureEnabled(true) { [weak self] in
                     guard let self,
                           self.pendingShortPreparationID == currentGestureID else { return }
                     self.pendingShortPreparationID = nil
+                    if shouldTrackLocalMicrophoneSession {
+                        self.localShortVoiceSessionActive = true
+                    }
                     if let action {
                         print("[PRESS] SHORT local microphone ready → configured voice action")
                         action()
@@ -367,6 +401,9 @@ final class VoicePressCoordinator {
         tailWorkItem = nil
         shortTapAction = nil
         shortInputUsesLocalMicrophone = false
+        shortInputClosesLocalMicrophoneSession = false
+        shortInputTogglesLocalMicrophone = false
+        localShortVoiceSessionActive = false
         gestureID = nil
         pendingShortPreparationID = nil
         AudioPipe.shared.setLocalMicrophoneCaptureEnabled(false)
@@ -821,6 +858,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let usesLocalMicrophone = VoicePressCoordinator.usesLocalMicrophone(
             forShortBinding: resolvedShortBinding
         )
+        let togglesLocalMicrophone = VoicePressCoordinator.togglesLocalMicrophone(
+            forShortBinding: resolvedShortBinding
+        )
         // Local capture is deliberately lazy. Starting it here would open the
         // physical microphone during the 300 ms short-vs-long classification
         // window, so a long hold would still briefly invoke the external mic.
@@ -857,7 +897,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         guard voicePress.keyDown(
             onShortTap: shortTapAction,
-            usesLocalMicrophone: usesLocalMicrophone
+            usesLocalMicrophone: usesLocalMicrophone,
+            togglesLocalMicrophone: togglesLocalMicrophone
         ) else {
             if shouldGateMappedOption {
                 filter.cancelDeferredOption(
