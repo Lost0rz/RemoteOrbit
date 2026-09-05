@@ -18,6 +18,6 @@
 
 ## 验证与安装
 
-- Swift 单元测试：51 项通过，0 失败。
-- App：Universal 2，RemoteOrbit 0.2.8（Build 32）。
+- Swift 单元测试：52 项通过，0 失败。
+- App：Universal 2，RemoteOrbit 0.2.8（Build 34）。
 - 安装包使用本地 ad-hoc 签名；首次运行仍需按 macOS 提示授予蓝牙、麦克风、辅助功能和输入监控权限。
