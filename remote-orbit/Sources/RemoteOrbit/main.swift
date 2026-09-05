@@ -182,6 +182,9 @@ final class VoicePressCoordinator {
     }
 
     var onStateChanged: ((State) -> Void)?
+    /// Lets the HUD update when a long press receives its first real remote
+    /// audio frame, without changing the gesture state itself.
+    var onRemoteAudioChanged: ((Bool) -> Void)?
 
     /// This is the short-vs-long classifier. A quick tap invokes Doubao's
     /// computer/external-microphone input (or the optional Codex short action);
@@ -199,10 +202,16 @@ final class VoicePressCoordinator {
     private var holdWorkItem: DispatchWorkItem?
     private var tailWorkItem: DispatchWorkItem?
     private var remoteStreaming = false
+    private var remoteAudioAvailable = false
     private var remoteRouted = false
     private var optionIsHeld = false
+    private var longInputStarted = false
     private var suppressNewPressUntil = Date.distantPast
     private var shortTapAction: (() -> Void)?
+
+    var hasRemoteAudio: Bool {
+        remoteAudioAvailable
+    }
 
     @discardableResult
     func keyDown(onShortTap: (() -> Void)? = nil) -> Bool {
@@ -212,6 +221,8 @@ final class VoicePressCoordinator {
         }
         guard mode == .idle else { return false }
         shortTapAction = onShortTap
+        remoteAudioAvailable = false
+        longInputStarted = false
         AudioPipe.shared.beginRemoteCandidate()
         setMode(.pending)
 
@@ -253,13 +264,30 @@ final class VoicePressCoordinator {
             suppressNewPressUntil = Date().addingTimeInterval(
                 tailDrainDelay + 0.10
             )
-            print("[PRESS] LONG release → finish immediately")
-            scheduleLongFinish()
+            if longInputStarted {
+                print("[PRESS] LONG release → finish immediately")
+                scheduleLongFinish()
+            } else {
+                print("[PRESS] LONG release → no remote audio; no Option dialog")
+                finishLongInput()
+            }
         }
     }
 
     func setRemoteStreaming(_ streaming: Bool) {
         remoteStreaming = streaming
+        if !streaming {
+            remoteAudioAvailable = false
+            onRemoteAudioChanged?(false)
+            if mode == .holding {
+                // AUDIO_STOP can arrive before HID button-up. If the remote
+                // stream has ended, release the synthetic Option immediately
+                // instead of leaving a voice dialog open until another event.
+                print("[PRESS] remote audio stopped while holding; closing voice input")
+                setMode(.idle)
+                finishLongInput()
+            }
+        }
         // BLE availability is informational only. HID owns gesture lifetime
         // and routing policy; transient ATVV stop/start events must never
         // toggle Doubao or fall back to the physical mic during a hold.
@@ -267,6 +295,19 @@ final class VoicePressCoordinator {
             "[PRESS] ATVV streaming=\(streaming); " +
             "gesture=\(modeName); routed=\(remoteRouted)"
         )
+    }
+
+    /// The BLE transport may announce AUDIO_START before delivering any PCM.
+    /// Only the first decoded frame authorizes the long-press Option hold.
+    func setRemoteAudioAvailable() {
+        guard mode == .pending || mode == .holding else { return }
+        guard !remoteAudioAvailable else { return }
+        remoteAudioAvailable = true
+        if mode == .holding {
+            onRemoteAudioChanged?(true)
+        }
+        guard mode == .holding else { return }
+        beginLongInput()
     }
 
     func stop() {
@@ -294,9 +335,18 @@ final class VoicePressCoordinator {
         // the physical microphone into a remote-only gesture.
         setRemoteRouted(true)
         print(
-            "[PRESS] LONG start → Option DOWN; source=" +
-            (remoteStreaming ? "remote ready" : "remote waiting")
+            "[PRESS] LONG start → waiting for remote audio; source=" +
+            (remoteStreaming ? "stream announced" : "remote waiting")
         )
+        if remoteAudioAvailable {
+            beginLongInput()
+        }
+    }
+
+    private func beginLongInput() {
+        guard mode == .holding, !longInputStarted else { return }
+        longInputStarted = true
+        print("[PRESS] LONG audio ready → Option DOWN; source=remote")
         if RemoteVoiceKeyMapping.isEnabled {
             print("[PRESS] LONG uses hardware-held left Option")
             optionIsHeld = false
@@ -312,6 +362,8 @@ final class VoicePressCoordinator {
         guard optionIsHeld else {
             setRemoteRouted(false)
             AudioPipe.shared.endRemoteCandidate()
+            longInputStarted = false
+            remoteAudioAvailable = false
             return
         }
         tailWorkItem?.cancel()
@@ -333,6 +385,24 @@ final class VoicePressCoordinator {
         Key.optionUp()
         setRemoteRouted(false)
         AudioPipe.shared.endRemoteCandidate()
+        longInputStarted = false
+        remoteAudioAvailable = false
+    }
+
+    private func finishLongInput() {
+        holdWorkItem?.cancel()
+        holdWorkItem = nil
+        tailWorkItem?.cancel()
+        tailWorkItem = nil
+        if optionIsHeld {
+            optionIsHeld = false
+            print("[PRESS] LONG end → Option UP")
+            Key.optionUp()
+        }
+        setRemoteRouted(false)
+        AudioPipe.shared.endRemoteCandidate()
+        longInputStarted = false
+        remoteAudioAvailable = false
     }
 
     /// Preserve the original Doubao integration: one short voice-key press
@@ -836,6 +906,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 keepsVisible: true
             )
         case .holding:
+            guard voicePress.hasRemoteAudio else {
+                actionHUD.dismiss()
+                return
+            }
             actionHUD.show(
                 button: .microphone,
                 gesture: "按住",
@@ -964,6 +1038,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             self?.updateVoiceHUD(for: state)
         }
+        voicePress.onRemoteAudioChanged = { [weak self] available in
+            guard let self else { return }
+            if available {
+                self.actionHUD.show(
+                    button: .microphone,
+                    gesture: "按住",
+                    action: "遥控器语音输入",
+                    state: .recording,
+                    keepsVisible: true
+                )
+            } else {
+                self.actionHUD.dismiss()
+            }
+        }
 
         // ATVV audio connection.
         filter.onVoiceKeyDown = { [weak self] in
@@ -988,6 +1076,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.voicePress.setRemoteStreaming(streaming)
             self?.remoteStreaming = streaming
             self?.updateStatus()
+        }
+        ble.onAudioFrame = { [weak self] in
+            self?.voicePress.setRemoteAudioAvailable()
         }
 
         // Route recognized advanced gestures to the same binding injector as

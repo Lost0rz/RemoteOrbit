@@ -30,6 +30,10 @@ final class BLEBridge: NSObject {
 
     /// Called whenever the bridge produces or stops producing audio (true = streaming).
     var onStreamingChanged: ((Bool, Int /* sampleRate */) -> Void)?
+    /// Called after a decoded remote audio frame is available. A stream can be
+    /// announced before its first frame; the voice UI waits for this callback
+    /// before opening the external voice dialog.
+    var onAudioFrame: (() -> Void)?
     /// Called when the device connection state changes.
     var onConnectionChanged: ((Bool) -> Void)?
     /// Audio level meter update; arg is dBFS in [-60, 0].
@@ -804,6 +808,10 @@ extension BLEBridge: CBPeripheralDelegate {
             w.appendRawBytes(data)
         }
 
+        // Do not let the voice-key coordinator open Option merely because
+        // AUDIO_START arrived. The first decoded frame is the reliable point
+        // at which a long press actually has remote microphone input.
+        onAudioFrame?()
         AudioPipe.shared.feed(samples: frame.samples)
         let needsLevel = onLevel != nil || Self.diagnosticsEnabled
         if needsLevel {
