@@ -173,6 +173,12 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         }
         stateLock.unlock()
         if active {
+            // A target app can cache the physical microphone selected in its
+            // own audio session. Re-assert the bridge as the app-facing input
+            // at the exact remote-voice transition, before the synthetic
+            // Option-down opens the speech UI. This does not change the
+            // user's saved preferred input and is restored for short input.
+            _ = SystemAudioDeviceManager.selectRemoteOrbitInputForVoice()
             // The remote-only path must not leave the physical microphone
             // open. `captureOutput` also rejects late callbacks, but stopping
             // the session is required to release the device privacy claim.
@@ -194,6 +200,12 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 expectedRemoteMode: true
             )
         }
+
+        if !active, isLocalMicrophoneCaptureRequested {
+            // Return to the input selected for the short external-mic action
+            // once a remote hold has ended.
+            SystemAudioDeviceManager.applyPreferredInputSelection()
+        }
     }
 
     /// Enable or disable the physical/external microphone path used by the
@@ -209,6 +221,10 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         stateLock.unlock()
 
         if enabled {
+            // The short action uses the user's selected physical source. If a
+            // previous long hold temporarily forced RemoteOrbit Mic 2ch,
+            // restore that preference before opening AVCapture.
+            SystemAudioDeviceManager.applyPreferredInputSelection()
             requestLocalMicAccess()
         } else {
             stopLocalMicCapture()

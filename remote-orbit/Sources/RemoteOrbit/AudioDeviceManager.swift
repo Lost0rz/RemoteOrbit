@@ -169,6 +169,23 @@ enum SystemAudioDeviceManager {
         }
     }
 
+    /// Makes the bridge endpoint the app-facing input for one remote-mic
+    /// gesture. Do not overwrite the user's preferred input setting: a short
+    /// external-mic action may need that choice restored after the gesture.
+    @discardableResult
+    static func selectRemoteOrbitInputForVoice() -> Bool {
+        guard let remoteOrbit = inputDevices().first(where: { $0.isRemoteOrbit }) else {
+            print("[AUDIO] ⚠️ 遥控器语音需要 RemoteOrbit Mic 2ch，但设备当前不可用")
+            return false
+        }
+        guard setDefaultDevice(
+            remoteOrbit.id,
+            selector: kAudioHardwarePropertyDefaultInputDevice
+        ) else { return false }
+        print("[AUDIO] 遥控器语音已强制使用系统输入: \(remoteOrbit.name)")
+        return true
+    }
+
     static func displayName(for device: SystemAudioDevice) -> String {
         device.isRemoteOrbit ? "\(device.name)（遥控器/自动）" : device.name
     }
