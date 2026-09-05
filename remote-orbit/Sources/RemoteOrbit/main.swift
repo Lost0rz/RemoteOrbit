@@ -688,7 +688,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let resolvedShortBinding = shortBinding
             ?? mappingStore.binding(for: .microphone, appBundleIdentifier: target)
         print(
-            "[VOICE] short input binding → (resolvedShortBinding.displayName); "
+            "[VOICE] short input binding → \(resolvedShortBinding.displayName); "
                 + "target=\(target ?? "global")"
         )
 
