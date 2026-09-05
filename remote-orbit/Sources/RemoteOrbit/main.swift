@@ -208,6 +208,9 @@ final class VoicePressCoordinator {
     private var longInputStarted = false
     private var suppressNewPressUntil = Date.distantPast
     private var shortTapAction: (() -> Void)?
+    private var shortInputUsesLocalMicrophone = false
+    private var gestureID: UUID?
+    private var pendingShortPreparationID: UUID?
 
     /// Only these short actions need RemoteOrbit to capture the Mac's
     /// physical/external microphone. The remote-microphone long press is
@@ -228,13 +231,25 @@ final class VoicePressCoordinator {
     }
 
     @discardableResult
-    func keyDown(onShortTap: (() -> Void)? = nil) -> Bool {
+    func keyDown(
+        onShortTap: (() -> Void)? = nil,
+        usesLocalMicrophone: Bool = false
+    ) -> Bool {
         guard Date() >= suppressNewPressUntil else {
             print("[PRESS] ignored release bounce")
             return false
         }
         guard mode == .idle else { return false }
+        // A new physical press owns the voice key now. Do not keep a local
+        // session left by an earlier short tap alive during the classifier:
+        // if this press becomes a hold, the physical mic must be closed from
+        // the first edge, not only after the 300 ms timer fires.
+        pendingShortPreparationID = nil
+        AudioPipe.shared.setLocalMicrophoneCaptureEnabled(false)
         shortTapAction = onShortTap
+        shortInputUsesLocalMicrophone = usesLocalMicrophone
+        let currentGestureID = UUID()
+        gestureID = currentGestureID
         remoteAudioAvailable = false
         longInputStarted = false
         AudioPipe.shared.beginRemoteCandidate()
@@ -262,18 +277,39 @@ final class VoicePressCoordinator {
         case .pending:
             let action = shortTapAction
             shortTapAction = nil
+            let shouldPrepareLocalMicrophone = shortInputUsesLocalMicrophone
+            shortInputUsesLocalMicrophone = false
+            let currentGestureID = gestureID
+            gestureID = nil
             setMode(.idle)
             setRemoteRouted(false)
             AudioPipe.shared.endRemoteCandidate()
-            if let action {
-                print("[PRESS] SHORT release → configured Codex/external voice action")
+            if shouldPrepareLocalMicrophone, let currentGestureID {
+                pendingShortPreparationID = currentGestureID
+                print("[PRESS] SHORT release → preparing local microphone")
+                AudioPipe.shared.setLocalMicrophoneCaptureEnabled(true) { [weak self] in
+                    guard let self,
+                          self.pendingShortPreparationID == currentGestureID else { return }
+                    self.pendingShortPreparationID = nil
+                    if let action {
+                        print("[PRESS] SHORT local microphone ready → configured voice action")
+                        action()
+                    } else {
+                        print("[PRESS] SHORT local microphone ready → Doubao")
+                        self.emitShortPress()
+                    }
+                }
+            } else if let action {
+                print("[PRESS] SHORT release → configured voice action")
                 action()
             } else {
-                print("[PRESS] SHORT release → Doubao; source=Mac/external microphone")
+                print("[PRESS] SHORT release → Doubao")
                 emitShortPress()
             }
         case .holding:
             shortTapAction = nil
+            shortInputUsesLocalMicrophone = false
+            gestureID = nil
             setMode(.idle)
             suppressNewPressUntil = Date().addingTimeInterval(
                 tailDrainDelay + 0.10
@@ -330,6 +366,10 @@ final class VoicePressCoordinator {
         tailWorkItem?.cancel()
         tailWorkItem = nil
         shortTapAction = nil
+        shortInputUsesLocalMicrophone = false
+        gestureID = nil
+        pendingShortPreparationID = nil
+        AudioPipe.shared.setLocalMicrophoneCaptureEnabled(false)
         if optionIsHeld {
             optionIsHeld = false
             Key.optionUp()
@@ -781,10 +821,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let usesLocalMicrophone = VoicePressCoordinator.usesLocalMicrophone(
             forShortBinding: resolvedShortBinding
         )
-        AudioPipe.shared.setLocalMicrophoneCaptureEnabled(usesLocalMicrophone)
+        // Local capture is deliberately lazy. Starting it here would open the
+        // physical microphone during the 300 ms short-vs-long classification
+        // window, so a long hold would still briefly invoke the external mic.
         print(
             "[VOICE] 本机麦克风采集 → "
-                + (usesLocalMicrophone ? "启用（单击语音输入）" : "关闭（单击未启用）")
+                + (usesLocalMicrophone
+                    ? "短按确认后启用（长按不启用）"
+                    : "关闭（单击未启用）")
         )
 
         let shortTapAction: (() -> Void)?
@@ -811,7 +855,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
-        guard voicePress.keyDown(onShortTap: shortTapAction) else {
+        guard voicePress.keyDown(
+            onShortTap: shortTapAction,
+            usesLocalMicrophone: usesLocalMicrophone
+        ) else {
             if shouldGateMappedOption {
                 filter.cancelDeferredOption(
                     gestureID: gestureID,
