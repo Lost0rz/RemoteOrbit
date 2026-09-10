@@ -71,13 +71,17 @@ enum MappingStoreError: LocalizedError {
 }
 
 private struct PersistedMappingConfiguration: Codable {
+    /// Added for the file-backed configuration. Missing in older v3
+    /// UserDefaults payloads, which decode as version 0 and are migrated
+    /// without changing their user-owned values.
+    var schemaVersion: Int?
     var globalBindings: [RemoteButton: ButtonBinding]
     // Optional so configurations created before per-button global pinning was
     // added can still be decoded.
-    var globallyPinnedButtons: Set<RemoteButton>?
+    var globallyPinnedButtons: [RemoteButton]?
     // Optional so v3 configurations written before per-gesture global
     // inheritance was introduced can still be decoded.
-    var globallyPinnedSlots: Set<GlobalMappingKey>?
+    var globallyPinnedSlots: [GlobalMappingKey]?
     var appTemplates: [AppMappingTemplate]
     var activeTemplateIDs: [String: UUID]
     // Optional so configurations created before the scroll setting was added
@@ -91,7 +95,7 @@ private struct PersistedMappingConfiguration: Codable {
 final class MappingStore: ObservableObject {
     private static let storageKey = "RemoteOrbit.mappingConfiguration.v3"
     private static let legacyStorageKey = "RemoteOrbit.buttonBindings.v2"
-    private static let previousBackupFileName = "mapping-v3.previous.json"
+    private static let currentConfigurationSchemaVersion = 1
     /// Codex 的 Bundle ID。保留旧常量名只用于读取旧版配置代码，设置界面
     /// 和新模板统一使用 Codex 命名。
     static let codexBundleIdentifier = "com.openai.codex"
@@ -777,7 +781,8 @@ final class MappingStore: ObservableObject {
 
         return urls.compactMap { url in
             guard url.pathExtension.lowercased() == "json",
-                  url.lastPathComponent.hasPrefix("mapping-v3-") else {
+                  (url.lastPathComponent.hasPrefix("mapping-v3-")
+                   || url.lastPathComponent == "mapping-v3.previous.json") else {
                 return nil
             }
             let modifiedAt = (try? url.resourceValues(
@@ -786,6 +791,21 @@ final class MappingStore: ObservableObject {
             return MappingBackup(url: url, modifiedAt: modifiedAt)
         }
         .sorted { $0.modifiedAt > $1.modifiedAt }
+    }
+
+    private func latestValidBackup() -> (
+        configuration: PersistedMappingConfiguration,
+        url: URL
+    )? {
+        for backup in mappingBackups() {
+            guard let data = try? Data(contentsOf: backup.url),
+                  let configuration = decodeConfiguration(
+                      data,
+                      source: "backup \(backup.fileName)"
+                  ) else { continue }
+            return (configuration, backup.url)
+        }
+        return nil
     }
 
     func exportCurrentConfiguration(to url: URL) throws {
@@ -816,52 +836,121 @@ final class MappingStore: ObservableObject {
         guard !hasLoaded else { return }
 
         isLoading = true
-        var shouldPersistAfterLoad = false
+        configurationWarning = nil
+
+        // The file is canonical. UserDefaults is consulted only as a one-time
+        // compatibility source for installations created before the file-backed
+        // store existed. Replacing the app bundle therefore cannot reset the
+        // active configuration.
+        if let data = try? Data(contentsOf: AppStorage.mappingConfigurationFile) {
+            if let decoded = decodeConfiguration(data, source: "file") {
+                finishLoad(decoded, source: "file-backed configuration")
+                return
+            }
+            backupInvalidConfiguration(data, source: "file")
+            configurationWarning = "配置文件无法读取，已保留损坏文件备份；正在尝试旧版配置或最近备份。"
+        }
 
         if let data = UserDefaults.standard.data(forKey: Self.storageKey) {
-            do {
-                let decoded = try JSONDecoder().decode(PersistedMappingConfiguration.self, from: data)
-                apply(decoded)
-                hasLoaded = true
-                ensureBuiltInTemplates()
-                isLoading = false
-                save()
-                print("[MappingStore] loaded v3: global=\(bindings.count), templates=\(appTemplates.count), scroll=\(scrollLinesPerStep) lines")
+            if let decoded = decodeConfiguration(data, source: "UserDefaults") {
+                _ = backupMappingData(
+                    data,
+                    fileName: "mapping-v3-before-file-migration-\(timestamp())-\(UUID().uuidString).json"
+                )
+                print("[MappingStore] migrating v3 UserDefaults payload to file-backed configuration")
+                finishLoad(decoded, source: "migrated UserDefaults configuration")
                 return
-            } catch {
-                print("[MappingStore] v3 load failed: \(error)")
-                backupInvalidConfiguration(data)
-                configurationWarning = "当前按键配置无法读取，已保留原始备份；本次仅使用内存中的默认配置。"
             }
+            backupInvalidConfiguration(data, source: "UserDefaults")
+            configurationWarning = "旧版配置也无法读取，正在尝试最近的配置备份。"
         }
 
         // 兼容之前只保存全局映射的 v2 数据。
-        if let data = UserDefaults.standard.data(forKey: Self.legacyStorageKey) {
-            do {
-                let decoded = try JSONDecoder().decode([RemoteButton: ButtonBinding].self, from: data)
-                bindings = Self.mergedBindings(decoded)
-                shouldPersistAfterLoad = true
-                print("[MappingStore] migrated v2 global bindings: \(decoded.count)")
-            } catch {
-                print("[MappingStore] v2 load failed: \(error)")
-            }
+        if let data = UserDefaults.standard.data(forKey: Self.legacyStorageKey),
+           let decoded = try? JSONDecoder().decode(
+               [RemoteButton: ButtonBinding].self,
+               from: data
+           ) {
+            print("[MappingStore] migrating v2 global bindings: \(decoded.count)")
+            let migrated = PersistedMappingConfiguration(
+                schemaVersion: Self.currentConfigurationSchemaVersion,
+                globalBindings: Self.mergedBindings(decoded),
+                globallyPinnedButtons: nil,
+                globallyPinnedSlots: nil,
+                appTemplates: [],
+                activeTemplateIDs: [:],
+                scrollLinesPerStep: Self.defaultScrollLinesPerStep,
+                globalGestureProfiles: nil
+            )
+            finishLoad(migrated, source: "migrated v2 configuration")
+            return
         }
 
+        if let backup = latestValidBackup() {
+            configurationWarning = "主配置不可用，已从最近的配置备份恢复。"
+            finishLoad(backup.configuration, source: "backup \(backup.url.lastPathComponent)")
+            return
+        }
+
+        let initial = PersistedMappingConfiguration(
+            schemaVersion: Self.currentConfigurationSchemaVersion,
+            globalBindings: DefaultBindings.all,
+            globallyPinnedButtons: nil,
+            globallyPinnedSlots: nil,
+            appTemplates: [],
+            activeTemplateIDs: [:],
+            scrollLinesPerStep: Self.defaultScrollLinesPerStep,
+            globalGestureProfiles: nil
+        )
+        finishLoad(initial, source: "new user configuration")
+    }
+
+    private func decodeConfiguration(
+        _ data: Data,
+        source: String
+    ) -> PersistedMappingConfiguration? {
+        do {
+            let configuration = try JSONDecoder().decode(
+                PersistedMappingConfiguration.self,
+                from: data
+            )
+            if let version = configuration.schemaVersion,
+               version > Self.currentConfigurationSchemaVersion {
+                print(
+                    "[MappingStore] \(source) uses newer schema v\(version); "
+                        + "current=\(Self.currentConfigurationSchemaVersion)"
+                )
+                return nil
+            }
+            return configuration
+        } catch {
+            print("[MappingStore] \(source) configuration decode failed: \(error)")
+            return nil
+        }
+    }
+
+    private func finishLoad(
+        _ decoded: PersistedMappingConfiguration,
+        source: String
+    ) {
+        apply(decoded)
         hasLoaded = true
+        // This routine is additive only. Existing templates and profiles are
+        // never rewritten as part of app launch or app-bundle replacement.
         ensureBuiltInTemplates()
         isLoading = false
-        if shouldPersistAfterLoad {
-            save()
-        } else {
-            print("[MappingStore] using in-memory defaults; existing v3 data was preserved in a backup")
-        }
+        save()
+        print(
+            "[MappingStore] loaded \(source): global=\(bindings.count), "
+                + "templates=\(appTemplates.count), scroll=\(scrollLinesPerStep) lines"
+        )
     }
 
     private func apply(_ decoded: PersistedMappingConfiguration) {
         bindings = Self.mergedBindings(decoded.globalBindings)
         globalGestureProfiles = decoded.globalGestureProfiles ?? [:]
         if let slots = decoded.globallyPinnedSlots {
-            globallyPinnedSlots = slots
+            globallyPinnedSlots = Set(slots)
         } else if let buttons = decoded.globallyPinnedButtons {
             globallyPinnedSlots = Set(
                 buttons.flatMap { button in
@@ -891,7 +980,7 @@ final class MappingStore: ObservableObject {
         let current = try encodedCurrentConfiguration()
         guard backupMappingData(
             current,
-            fileName: "mapping-v3-before-restore-\(timestamp()).json"
+            fileName: "mapping-v3-before-restore-\(timestamp())-\(UUID().uuidString).json"
         ) else {
             throw MappingStoreError.backupFailed
         }
@@ -907,13 +996,11 @@ final class MappingStore: ObservableObject {
     }
 
     /// 首次升级到模板库版本时，为当前机器已安装的常用 App 提供默认模板。
-    /// 已有任意模板的 App 完全保留用户配置，不会被自动覆盖。
+    /// Existing templates are never migrated or rewritten automatically.
+    /// This method is intentionally additive: it may provision a missing
+    /// built-in template, but it never changes a user's existing template.
     private func ensureBuiltInTemplates() {
-        consolidateLegacyChatGPTTemplates()
-        restoreMicrophoneInputSemantics()
         ensureBuiltInCodexTemplate()
-        migrateBuiltInTemplateMappings()
-        ensureDefaultKeymapInspection()
 
         for presetID in AppTemplatePresetLibrary.defaultPresetIDs {
             guard let preset = AppTemplatePresetLibrary.preset(id: presetID),
@@ -933,92 +1020,6 @@ final class MappingStore: ObservableObject {
         }
 
         repairActiveTemplateIDs()
-    }
-
-    /// The previous experimental voice build incorrectly persisted the
-    /// microphone button as `Codex：开始语音对话` for every scope. Restore the
-    /// original semantic binding: short tap is Doubao's computer/external
-    /// microphone path, while the independent long-press profile owns the
-    /// remote microphone. A user can still explicitly choose Codex from the
-    /// microphone-specific settings card after this one-time repair.
-    private func restoreMicrophoneInputSemantics() {
-        var didChange = false
-        if bindings[.microphone] == .preset(.chatGPTStartVoiceChat) {
-            bindings[.microphone] = .voiceKeyDefault
-            didChange = true
-            print("[MappingStore] restored global microphone short input to Doubao")
-        }
-
-        var updatedTemplates = appTemplates
-        for index in updatedTemplates.indices where
-            updatedTemplates[index].bindings[.microphone] == .preset(.chatGPTStartVoiceChat) {
-            updatedTemplates[index].bindings[.microphone] = .voiceKeyDefault
-            didChange = true
-            print(
-                "[MappingStore] restored template microphone short input to Doubao: "
-                    + updatedTemplates[index].displayName
-            )
-        }
-
-        guard didChange else { return }
-        appTemplates = updatedTemplates
-    }
-
-    /// 将旧版“ChatGPT”命名收敛到唯一的 Codex 模板入口。
-    ///
-    /// ChatGPT 与 Codex 历史上共用同一个 Bundle ID，旧版本因此可能在本机
-    /// 保存两个模板。新版本只暴露 Codex；如果只有旧默认模板则改名并保留
-    /// 用户的映射，如果两个默认模板同时存在则保留 Codex 默认并移除旧重复项。
-    private func consolidateLegacyChatGPTTemplates() {
-        let bundleID = Self.chatGPTBundleIdentifier
-        var updatedTemplates = appTemplates
-        var didChange = false
-
-        if !updatedTemplates.contains(where: {
-            $0.appBundleIdentifier == bundleID && $0.templateName == "Codex 默认"
-        }),
-           let legacyIndex = updatedTemplates.firstIndex(where: {
-               $0.appBundleIdentifier == bundleID && $0.templateName == "ChatGPT 默认"
-           }) {
-            updatedTemplates[legacyIndex].appName = "Codex"
-            updatedTemplates[legacyIndex].templateName = "Codex 默认"
-            didChange = true
-            print("[MappingStore] renamed legacy ChatGPT default template to Codex default")
-        }
-
-        // Custom templates are kept, but their old application label must not
-        // leak back into the Codex-only settings UI.
-        for index in updatedTemplates.indices where
-            updatedTemplates[index].appBundleIdentifier == bundleID &&
-            updatedTemplates[index].appName == "ChatGPT" {
-            updatedTemplates[index].appName = "Codex"
-            didChange = true
-        }
-
-        let codexDefaultID = updatedTemplates.first(where: {
-            $0.appBundleIdentifier == bundleID && $0.templateName == "Codex 默认"
-        })?.id
-        let legacyDefaultIDs = Set(updatedTemplates.compactMap { template -> UUID? in
-            guard template.appBundleIdentifier == bundleID,
-                  template.templateName == "ChatGPT 默认"
-            else { return nil }
-            return template.id
-        })
-        if !legacyDefaultIDs.isEmpty, let codexDefaultID {
-            updatedTemplates.removeAll { legacyDefaultIDs.contains($0.id) }
-            didChange = true
-
-            if legacyDefaultIDs.contains(activeTemplateIDs[bundleID] ?? UUID()) {
-                var updatedActiveIDs = activeTemplateIDs
-                updatedActiveIDs[bundleID] = codexDefaultID
-                activeTemplateIDs = updatedActiveIDs
-            }
-            print("[MappingStore] removed duplicate ChatGPT default template")
-        }
-
-        guard didChange else { return }
-        appTemplates = updatedTemplates
-        save()
     }
 
     /// ChatGPT and Codex share the same bundle identifier, so Codex needs its
@@ -1043,45 +1044,6 @@ final class MappingStore: ObservableObject {
         )
         appTemplates.append(template)
         print("[MappingStore] added built-in template: \(template.displayName)")
-    }
-
-    /// Install the Orbit-owned TV long-press map action for the global scope
-    /// and existing built-in app templates that predate this default. A
-    /// custom template is left untouched so a user's explicit layout remains
-    /// authoritative.
-    private func ensureDefaultKeymapInspection() {
-        let defaultProfile = AppTemplatePresetLibrary.defaultKeymapInspectionProfile
-        var globalProfiles = globalGestureProfiles
-        var updatedTemplates = appTemplates
-        var didChange = false
-
-        if globalProfiles[.tv] == nil {
-            globalProfiles[.tv] = defaultProfile
-            didChange = true
-            print("[MappingStore] added global TV long-press keymap inspection")
-        }
-
-        let builtInScopes = Set(
-            AppTemplatePresetLibrary.all.map {
-                "\($0.appBundleIdentifier)\u{0}\($0.templateName)"
-            }
-        )
-        for index in updatedTemplates.indices {
-            let template = updatedTemplates[index]
-            let scope = "\(template.appBundleIdentifier)\u{0}\(template.templateName)"
-            guard builtInScopes.contains(scope),
-                  template.gestureProfiles?[.tv] == nil else { continue }
-            var profiles = template.gestureProfiles ?? [:]
-            profiles[.tv] = defaultProfile
-            updatedTemplates[index].gestureProfiles = profiles
-            didChange = true
-            print("[MappingStore] added TV long-press keymap inspection: \(template.displayName)")
-        }
-
-        guard didChange else { return }
-        globalGestureProfiles = globalProfiles
-        appTemplates = updatedTemplates
-        save()
     }
 
     /// A template can survive a partial/older configuration migration while
@@ -1408,14 +1370,24 @@ final class MappingStore: ObservableObject {
         guard hasLoaded, !isLoading else { return }
         do {
             let data = try encodedCurrentConfiguration()
-            if let previous = UserDefaults.standard.data(forKey: Self.storageKey),
-               previous != data {
-                _ = backupMappingData(
-                    previous,
-                    fileName: Self.previousBackupFileName
-                )
+            let canonicalURL = AppStorage.mappingConfigurationFile
+            if let previous = try? Data(contentsOf: canonicalURL),
+                   previous != data,
+               !backupMappingData(
+                   previous,
+                   fileName: "mapping-v3-before-save-\(timestamp())-\(UUID().uuidString).json"
+               ) {
+                print("[MappingStore] refusing to replace configuration without a backup")
+                return
             }
+
+            AppStorage.ensureDirectory(AppStorage.configurationDirectory)
+            try data.write(to: canonicalURL, options: .atomic)
+            // Keep a compatibility mirror so an older signed build can still
+            // start with the latest user configuration. The file above remains
+            // the source of truth for current builds.
             UserDefaults.standard.set(data, forKey: Self.storageKey)
+            print("[MappingStore] saved canonical configuration: \(canonicalURL.path)")
         } catch {
             print("[MappingStore] save failed: \(error)")
         }
@@ -1423,9 +1395,17 @@ final class MappingStore: ObservableObject {
 
     private func encodedCurrentConfiguration() throws -> Data {
         let configuration = PersistedMappingConfiguration(
+            schemaVersion: Self.currentConfigurationSchemaVersion,
             globalBindings: bindings,
-            globallyPinnedButtons: legacyGloballyPinnedButtons,
-            globallyPinnedSlots: globallyPinnedSlots,
+            globallyPinnedButtons: legacyGloballyPinnedButtons.sorted {
+                $0.rawValue < $1.rawValue
+            },
+            globallyPinnedSlots: globallyPinnedSlots.sorted {
+                if $0.button.rawValue != $1.button.rawValue {
+                    return $0.button.rawValue < $1.button.rawValue
+                }
+                return $0.slot.rawValue < $1.slot.rawValue
+            },
             appTemplates: appTemplates,
             activeTemplateIDs: activeTemplateIDs,
             scrollLinesPerStep: scrollLinesPerStep,
@@ -1433,7 +1413,9 @@ final class MappingStore: ObservableObject {
                 ? nil
                 : globalGestureProfiles
         )
-        return try JSONEncoder().encode(configuration)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(configuration)
     }
 
     private var legacyGloballyPinnedButtons: Set<RemoteButton> {
@@ -1451,10 +1433,10 @@ final class MappingStore: ObservableObject {
             .replacingOccurrences(of: ":", with: "-")
     }
 
-    private func backupInvalidConfiguration(_ data: Data) {
+    private func backupInvalidConfiguration(_ data: Data, source: String) {
         _ = backupMappingData(
             data,
-            fileName: "mapping-v3-invalid-\(timestamp()).json"
+            fileName: "mapping-v3-invalid-\(source)-\(timestamp())-\(UUID().uuidString).json"
         )
     }
 

@@ -20,10 +20,10 @@
     <string>RemoteOrbit.icns</string>
     <key>CFBundleIconName</key>
     <string>RemoteOrbit</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.2.8</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.2.9</string>
 	<key>CFBundleVersion</key>
-	<string>34</string>
+	<string>35</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>

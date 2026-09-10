@@ -30,6 +30,20 @@ enum AppStorage {
             )
     }()
 
+    /// Canonical user-owned configuration storage. Keep this outside the app
+    /// bundle so replacing `/Applications/RemoteOrbit.app` cannot replace or
+    /// reset the user's mappings.
+    static let configurationDirectory: URL = {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(
+                "Library/Application Support/RemoteOrbit/Configuration",
+                isDirectory: true
+            )
+    }()
+
+    static let mappingConfigurationFile = configurationDirectory
+        .appendingPathComponent("mapping-v3.json")
+
     static func prepare() {
         UserDefaults.standard.register(defaults: [
             loggingEnabledKey: false,
@@ -38,6 +52,7 @@ enum AppStorage {
         ensureDirectory(logsDirectory)
         ensureDirectory(recordingsDirectory)
         ensureDirectory(mappingBackupsDirectory)
+        ensureDirectory(configurationDirectory)
 
         // The app uses ~/Library/Logs as its single persistent log location.
         try? FileManager.default.removeItem(

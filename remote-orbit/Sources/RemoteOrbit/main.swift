@@ -1,6 +1,7 @@
 // RemoteOrbit: a multi-mode control surface for the Xiaomi Bluetooth Voice Remote 2 Pro.
 //
-// 1. Voice key (HID F5) → suppressed → bridge-generated Option hold semantics
+// 1. Voice key (HID F5) → device-scoped physical left-Option mapping
+//    (synthetic Option remains only as a fallback if hidutil cannot apply)
 // 2. ATVV voice stream over BLE → decoded ADPCM → RemoteOrbit Mic 2ch
 //    → macOS audio input → Doubao hears the selected source
 //
@@ -185,6 +186,13 @@ final class VoicePressCoordinator {
     /// Lets the HUD update when a long press receives its first real remote
     /// audio frame, without changing the gesture state itself.
     var onRemoteAudioChanged: ((Bool) -> Void)?
+    /// Coordinates the physical hidutil Option edge with the short/long
+    /// classifier. The event tap temporarily stores the original CGEvents
+    /// until the gesture state decides whether to replay or drop them.
+    var onHardwareOptionGateBegin: ((UUID) -> Void)?
+    var onHardwareOptionGateLongReady: ((UUID) -> Void)?
+    var onHardwareOptionGateShortResult: ((UUID, Bool) -> Void)?
+    var onHardwareOptionGateCancel: ((UUID) -> Void)?
 
     /// This is the short-vs-long classifier. A quick tap invokes Doubao's
     /// computer/external-microphone input (or the optional Codex short action);
@@ -245,7 +253,8 @@ final class VoicePressCoordinator {
     func keyDown(
         onShortTap: (() -> Void)? = nil,
         usesLocalMicrophone: Bool = false,
-        togglesLocalMicrophone: Bool = false
+        togglesLocalMicrophone: Bool = false,
+        bypassesShortClassification: Bool = false
     ) -> Bool {
         guard Date() >= suppressNewPressUntil else {
             print("[PRESS] ignored release bounce")
@@ -269,11 +278,21 @@ final class VoicePressCoordinator {
             usesLocalMicrophone && !shortInputClosesLocalMicrophoneSession
         let currentGestureID = UUID()
         gestureID = currentGestureID
+        onHardwareOptionGateBegin?(currentGestureID)
         remoteAudioAvailable = false
         longInputStarted = false
         AudioPipe.shared.beginRemoteCandidate()
-        setMode(.pending)
 
+        if bypassesShortClassification {
+            // When the short slot is explicitly disabled there is no useful
+            // short-vs-long decision to make. Enter the remote-mic path on the
+            // first edge so the user does not pay the 300 ms classifier delay.
+            print("[PRESS] short slot disabled → direct LONG remote-mic path")
+            enterHoldingState()
+            return true
+        }
+
+        setMode(.pending)
         let work = DispatchWorkItem { [weak self] in
             self?.promoteToLongPress()
         }
@@ -314,6 +333,9 @@ final class VoicePressCoordinator {
                 // click.
                 localShortVoiceSessionActive = false
                 print("[PRESS] SHORT release → closing Doubao without microphone restart")
+                if let currentGestureID {
+                    onHardwareOptionGateShortResult?(currentGestureID, true)
+                }
                 emitShortPress()
             } else if shouldPrepareLocalMicrophone, let currentGestureID {
                 pendingShortPreparationID = currentGestureID
@@ -327,22 +349,33 @@ final class VoicePressCoordinator {
                     }
                     if let action {
                         print("[PRESS] SHORT local microphone ready → configured voice action")
+                        self.onHardwareOptionGateShortResult?(currentGestureID, false)
                         action()
                     } else {
                         print("[PRESS] SHORT local microphone ready → Doubao")
+                        self.onHardwareOptionGateShortResult?(currentGestureID, true)
                         self.emitShortPress()
                     }
                 }
             } else if let action {
                 print("[PRESS] SHORT release → configured voice action")
+                if let currentGestureID {
+                    onHardwareOptionGateShortResult?(currentGestureID, false)
+                }
                 action()
             } else {
                 print("[PRESS] SHORT release → Doubao")
+                if let currentGestureID {
+                    onHardwareOptionGateShortResult?(currentGestureID, true)
+                }
                 emitShortPress()
             }
         case .holding:
             shortTapAction = nil
             shortInputUsesLocalMicrophone = false
+            if let currentGestureID = gestureID, !longInputStarted {
+                onHardwareOptionGateCancel?(currentGestureID)
+            }
             gestureID = nil
             setMode(.idle)
             suppressNewPressUntil = Date().addingTimeInterval(
@@ -365,9 +398,12 @@ final class VoicePressCoordinator {
             onRemoteAudioChanged?(false)
             if mode == .holding {
                 // AUDIO_STOP can arrive before HID button-up. If the remote
-                // stream has ended, release the synthetic Option immediately
+                // stream has ended, release the active Option path immediately
                 // instead of leaving a voice dialog open until another event.
                 print("[PRESS] remote audio stopped while holding; closing voice input")
+                if !longInputStarted, let currentGestureID = gestureID {
+                    onHardwareOptionGateCancel?(currentGestureID)
+                }
                 setMode(.idle)
                 finishLongInput()
             }
@@ -404,6 +440,9 @@ final class VoicePressCoordinator {
         shortInputClosesLocalMicrophoneSession = false
         shortInputTogglesLocalMicrophone = false
         localShortVoiceSessionActive = false
+        if let currentGestureID = gestureID {
+            onHardwareOptionGateCancel?(currentGestureID)
+        }
         gestureID = nil
         pendingShortPreparationID = nil
         AudioPipe.shared.setLocalMicrophoneCaptureEnabled(false)
@@ -419,6 +458,10 @@ final class VoicePressCoordinator {
     private func promoteToLongPress() {
         guard mode == .pending else { return }
         holdWorkItem = nil
+        enterHoldingState()
+    }
+
+    private func enterHoldingState() {
         setMode(.holding)
 
         // Route selection follows the physical HID hold, not BLE notifications.
@@ -441,6 +484,9 @@ final class VoicePressCoordinator {
         if RemoteVoiceKeyMapping.isEnabled {
             print("[PRESS] LONG uses hardware-held left Option")
             optionIsHeld = false
+            if let currentGestureID = gestureID {
+                onHardwareOptionGateLongReady?(currentGestureID)
+            }
         } else {
             // Fallback for systems where hidutil could not be applied.
             print("[PRESS] LONG uses synthetic left Option")
@@ -551,6 +597,8 @@ final class VoiceKeyFilter {
     private var optionDeferralGestureID: UUID?
     private var deferredOptionDownSeen = false
     private var deferredOptionUpSeen = false
+    private var deferredOptionDownEvents: [CGEvent] = []
+    private var deferredOptionUpEvents: [CGEvent] = []
     var onVoiceKeyDown: (() -> Void)?
     var onVoiceKeyUp: (() -> Void)?
 
@@ -585,6 +633,8 @@ final class VoiceKeyFilter {
         optionDeferralGestureID = gestureID
         deferredOptionDownSeen = false
         deferredOptionUpSeen = false
+        deferredOptionDownEvents.removeAll(keepingCapacity: true)
+        deferredOptionUpEvents.removeAll(keepingCapacity: true)
         print("[VOICE] option gate armed gesture=\(gestureID.uuidString)")
     }
 
@@ -603,15 +653,24 @@ final class VoiceKeyFilter {
 
         let optionDownSeen = deferredOptionDownSeen
         let optionUpSeen = deferredOptionUpSeen
+        let optionDownEvents = deferredOptionDownEvents
+        let optionUpEvents = deferredOptionUpEvents
         deferredOptionDownSeen = false
         deferredOptionUpSeen = false
+        deferredOptionDownEvents.removeAll(keepingCapacity: true)
+        deferredOptionUpEvents.removeAll(keepingCapacity: true)
 
-        // A macOS modifier normally arrives as flagsChanged only. Do not
-        // replay that stale event object: normalize it through the same
-        // flagsChanged + keyboard event pair used by the known-good fallback.
-        // If the release was already captured, emit a real tap; otherwise
-        // leave Option held and let the later physical release pass through.
-        if optionDownSeen {
+        // Replay the original physical events without the synthetic marker.
+        // Doubao's new build may distinguish this HID-originated path from
+        // CGEvent-created modifier pairs. If only the down edge arrived before
+        // release, the later physical up event is allowed through once the
+        // gate is cleared.
+        if !optionDownEvents.isEmpty {
+            optionDownEvents.forEach { $0.post(tap: .cghidEventTap) }
+            optionUpEvents.forEach { $0.post(tap: .cghidEventTap) }
+        } else if optionDownSeen {
+            // Fallback for a modifier report observed before event copying was
+            // available; retain the previous balanced behavior.
             if optionUpSeen {
                 Key.optionTap()
             } else {
@@ -632,6 +691,8 @@ final class VoiceKeyFilter {
         optionDeferralGestureID = nil
         deferredOptionDownSeen = false
         deferredOptionUpSeen = false
+        deferredOptionDownEvents.removeAll(keepingCapacity: true)
+        deferredOptionUpEvents.removeAll(keepingCapacity: true)
         print(
             "[VOICE] option gate cancelled gesture=\(gestureID.uuidString) reason=\(reason)"
         )
@@ -690,14 +751,26 @@ final class VoiceKeyFilter {
                 case .flagsChanged:
                     if event.flags.contains(.maskAlternate) {
                         filter.deferredOptionDownSeen = true
+                        if let copiedEvent = event.copy() {
+                            filter.deferredOptionDownEvents.append(copiedEvent)
+                        }
                     } else if filter.deferredOptionDownSeen {
                         filter.deferredOptionUpSeen = true
+                        if let copiedEvent = event.copy() {
+                            filter.deferredOptionUpEvents.append(copiedEvent)
+                        }
                     }
                 case .keyDown:
                     filter.deferredOptionDownSeen = true
+                    if let copiedEvent = event.copy() {
+                        filter.deferredOptionDownEvents.append(copiedEvent)
+                    }
                 case .keyUp:
                     if filter.deferredOptionDownSeen {
                         filter.deferredOptionUpSeen = true
+                        if let copiedEvent = event.copy() {
+                            filter.deferredOptionUpEvents.append(copiedEvent)
+                        }
                     } else {
                         return Unmanaged.passUnretained(event)
                     }
@@ -750,7 +823,7 @@ final class VoiceKeyFilter {
         CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
         tapSource = src
         CGEvent.tapEnable(tap: tap, enable: true)
-        print("[FILTER] tap enabled; voice key 0x60 (F5) is suppressed; RemoteOrbit supplies a balanced synthetic left Option hold")
+        print("[FILTER] tap enabled; voice key 0x60 (F5) is suppressed; HID mapping supplies physical Option, with synthetic fallback")
     }
 
     func stop() {
@@ -822,9 +895,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // be slow or unavailable even while the receiver is already working.
         let needsFocusPreparation = needsFloatTabsFocus || needsCodexFocus
         let gestureID = UUID()
-        let shouldGateMappedOption = RemoteVoiceKeyMapping.isEnabled
-            && needsFocusPreparation
-
+        // Gate every gesture while the real HID mapping is active. Otherwise
+        // a disabled short slot could still leak the mapped Option into
+        // Doubao before the 300 ms classifier resolves the press.
         if let previousGestureID = voiceFocusTransactions.activeGestureID {
             voiceFocusSafetyWorkItem?.cancel()
             voiceFocusSafetyWorkItem = nil
@@ -833,15 +906,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 reason: "superseded-by-new-press"
             )
             _ = voiceFocusTransactions.cancel(previousGestureID)
-        }
-
-        // The remote's HID mapping produces a real left-Option edge which can
-        // beat the asynchronous FloatTabs/Codex focus handoff. Arm the gate
-        // before starting the voice transaction so the first edge is not
-        // delivered to a stale text client. Audio routing remains immediate
-        // inside VoicePressCoordinator and is never held behind focus work.
-        if shouldGateMappedOption {
-            filter.beginOptionDeferral(gestureID: gestureID)
         }
 
         // VoiceKeyFilter is the fallback path used while the HID monitor is
@@ -861,6 +925,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let togglesLocalMicrophone = VoicePressCoordinator.togglesLocalMicrophone(
             forShortBinding: resolvedShortBinding
         )
+        let bypassesShortClassification = resolvedShortBinding.isDisabled
         // Local capture is deliberately lazy. Starting it here would open the
         // physical microphone during the 300 ms short-vs-long classification
         // window, so a long hold would still briefly invoke the external mic.
@@ -898,24 +963,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard voicePress.keyDown(
             onShortTap: shortTapAction,
             usesLocalMicrophone: usesLocalMicrophone,
-            togglesLocalMicrophone: togglesLocalMicrophone
+            togglesLocalMicrophone: togglesLocalMicrophone,
+            bypassesShortClassification: bypassesShortClassification
         ) else {
-            if shouldGateMappedOption {
-                filter.cancelDeferredOption(
-                    gestureID: gestureID,
-                    reason: "voice-press-rejected"
-                )
-            }
             return
         }
 
         guard needsFocusPreparation else {
-            if shouldGateMappedOption {
-                filter.cancelDeferredOption(
-                    gestureID: gestureID,
-                    reason: "focus-not-needed"
-                )
-            }
             return
         }
         voiceFocusTransactions.begin(gestureID)
@@ -1049,10 +1103,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "[VOICE] focus transaction completed gesture=\(gestureID.uuidString) "
                 + "source=\(source) ready=\(ready) reason=\(reason)"
         )
-        if filter.isOptionDeferralActive(for: gestureID) {
+        if filter.isOptionDeferralActive(for: gestureID), !RemoteVoiceKeyMapping.isEnabled {
             filter.releaseDeferredOption(
                 gestureID: gestureID,
                 reason: ready ? "focus-ready" : "focus-failed-\(reason)"
+            )
+        } else if filter.isOptionDeferralActive(for: gestureID) {
+            print(
+                "[VOICE] focus result is advisory; physical Option remains gated "
+                    + "until gesture classification gesture=\(gestureID.uuidString)"
             )
         } else {
             print(
@@ -1162,6 +1221,36 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.actionHUD.dismiss()
             }
         }
+        voicePress.onHardwareOptionGateBegin = { [weak self] gestureID in
+            guard let self, RemoteVoiceKeyMapping.isEnabled else { return }
+            self.filter.beginOptionDeferral(gestureID: gestureID)
+        }
+        voicePress.onHardwareOptionGateLongReady = { [weak self] gestureID in
+            self?.filter.releaseDeferredOption(
+                gestureID: gestureID,
+                reason: "remote-audio-ready"
+            )
+        }
+        voicePress.onHardwareOptionGateShortResult = { [weak self] gestureID, shouldRelease in
+            guard let self else { return }
+            if shouldRelease {
+                self.filter.releaseDeferredOption(
+                    gestureID: gestureID,
+                    reason: "short-doubao"
+                )
+            } else {
+                self.filter.cancelDeferredOption(
+                    gestureID: gestureID,
+                    reason: "short-binding-disabled-or-custom"
+                )
+            }
+        }
+        voicePress.onHardwareOptionGateCancel = { [weak self] gestureID in
+            self?.filter.cancelDeferredOption(
+                gestureID: gestureID,
+                reason: "gesture-cancelled"
+            )
+        }
 
         // ATVV audio connection.
         filter.onVoiceKeyDown = { [weak self] in
@@ -1207,9 +1296,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.filter.skipVoiceKey = active
             self.hidConnected = active
-            // Keep the legacy hidutil mapping disabled; the app's own filter
-            // owns the voice-key event pair while HID is active.
-            RemoteVoiceKeyMapping.setEnabled(false)
+            // Restore the original device-scoped HID path. The event tap
+            // temporarily gates the resulting physical Option edge so short
+            // disabled/custom bindings still get dropped before Doubao sees
+            // them; long press replays the untouched HID event.
+            RemoteVoiceKeyMapping.setEnabled(active)
             self.updateStatus()
             if !active {
                 self.reconnectHeldButtons = Set(
