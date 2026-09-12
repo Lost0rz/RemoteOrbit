@@ -202,10 +202,11 @@ final class VoicePressCoordinator {
     /// but once short-press behavior was restored that made an ordinary tap
     /// look like a long press and opened Doubao unexpectedly.
     static let holdActivationThreshold: TimeInterval = 0.30
-    // The remote sends AUDIO_STOP before the HID key-up, so there is no BLE
-    // tail left to wait for here. Keeping this delay near zero makes Doubao
-    // leave its recording UI as soon as the user releases the button.
-    private let tailDrainDelay: TimeInterval = 0.02
+    // The remote usually sends AUDIO_STOP just before the HID key-up, and the
+    // BLE bridge keeps accepting packets during its drain window. Keep the
+    // output route alive long enough for those final frames to render even
+    // when the physical Option edge has already been released.
+    private let tailDrainDelay: TimeInterval = 0.80
     private var mode: State = .idle
     private var holdWorkItem: DispatchWorkItem?
     private var tailWorkItem: DispatchWorkItem?
@@ -397,14 +398,21 @@ final class VoicePressCoordinator {
             remoteAudioAvailable = false
             onRemoteAudioChanged?(false)
             if mode == .holding {
-                // AUDIO_STOP can arrive before HID button-up. If the remote
-                // stream has ended, release the active Option path immediately
-                // instead of leaving a voice dialog open until another event.
-                print("[PRESS] remote audio stopped while holding; closing voice input")
+                // AUDIO_STOP is delivered before HID button-up on this remote.
+                // The BLE side now drains the tail before this callback, so it
+                // is safe to close the route here. Previously this happened
+                // at the first AUDIO_STOP edge and discarded the tail.
+                print("[PRESS] remote audio stopped after drain; closing voice input")
                 if !longInputStarted, let currentGestureID = gestureID {
                     onHardwareOptionGateCancel?(currentGestureID)
                 }
                 setMode(.idle)
+                finishLongInput()
+            } else if remoteRouted {
+                // The physical HID edge may have arrived before the BLE
+                // drain callback. Close the route on that callback rather
+                // than on the earlier fallback timer.
+                print("[PRESS] remote audio drain complete; closing voice input")
                 finishLongInput()
             }
         }
@@ -496,7 +504,7 @@ final class VoicePressCoordinator {
     }
 
     private func scheduleLongFinish() {
-        guard optionIsHeld else {
+        guard longInputStarted else {
             setRemoteRouted(false)
             AudioPipe.shared.endRemoteCandidate()
             longInputStarted = false
@@ -506,24 +514,13 @@ final class VoicePressCoordinator {
         tailWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             self?.tailWorkItem = nil
-            self?.finishLongToggle()
+            self?.finishLongInput()
         }
         tailWorkItem = work
         DispatchQueue.main.asyncAfter(
             deadline: .now() + tailDrainDelay,
             execute: work
         )
-    }
-
-    private func finishLongToggle() {
-        guard optionIsHeld else { return }
-        optionIsHeld = false
-        print("[PRESS] LONG end → Option UP")
-        Key.optionUp()
-        setRemoteRouted(false)
-        AudioPipe.shared.endRemoteCandidate()
-        longInputStarted = false
-        remoteAudioAvailable = false
     }
 
     private func finishLongInput() {

@@ -23,6 +23,8 @@ final class WavRecorder {
     private var wavHandle: FileHandle?
     private var rawHandle: FileHandle?
     private var totalFrames: UInt64 = 0
+    private var isClosed = false
+    private let ioQueue: DispatchQueue
     private let sampleRate: UInt32 = 16_000
     private let channels: UInt16 = 1
     private let bitsPerSample: UInt16 = 16
@@ -31,6 +33,10 @@ final class WavRecorder {
         self.wavURL = wavURL
         self.rawURL = rawURL
         self.basename = basename
+        self.ioQueue = DispatchQueue(
+            label: "com.lost0rz.RemoteOrbit.wav.\(basename)",
+            qos: .utility
+        )
         // WAV
         try? FileManager.default.removeItem(at: wavURL)
         guard FileManager.default.createFile(atPath: wavURL.path, contents: nil),
@@ -51,41 +57,52 @@ final class WavRecorder {
     }
 
     func appendSamples(_ samples: [Int16]) {
-        guard let h = wavHandle, !samples.isEmpty else { return }
-        var pcm = [UInt8](repeating: 0, count: samples.count * 2)
-        for (i, s) in samples.enumerated() {
-            let u = UInt16(bitPattern: Int16(s))
-            pcm[i * 2]     = UInt8(u & 0xFF)
-            pcm[i * 2 + 1] = UInt8((u >> 8) & 0xFF)
+        guard !samples.isEmpty else { return }
+        ioQueue.async { [weak self] in
+            guard let self, !self.isClosed, let h = self.wavHandle else { return }
+            var pcm = [UInt8](repeating: 0, count: samples.count * 2)
+            for (i, s) in samples.enumerated() {
+                let u = UInt16(bitPattern: Int16(s))
+                pcm[i * 2]     = UInt8(u & 0xFF)
+                pcm[i * 2 + 1] = UInt8((u >> 8) & 0xFF)
+            }
+            h.write(Data(pcm))
+            self.totalFrames += UInt64(samples.count)
         }
-        h.write(Data(pcm))
-        totalFrames += UInt64(samples.count)
     }
 
     func appendRawBytes(_ data: Data) {
-        guard let h = rawHandle else { return }
-        h.write(data)
+        guard !data.isEmpty else { return }
+        ioQueue.async { [weak self] in
+            guard let self, !self.isClosed, let h = self.rawHandle else { return }
+            h.write(data)
+        }
     }
 
     func close() {
-        if let h = wavHandle {
-            wavHandle = nil
-            let dataBytes = UInt32(totalFrames) * UInt32(channels) * UInt32(bitsPerSample / 8)
-            let header = Self.makeHeader(
-                sampleRate: sampleRate, channels: channels,
-                bitsPerSample: bitsPerSample, dataBytes: dataBytes
-            )
-            do {
-                try h.seek(toOffset: 0)
-                try h.write(contentsOf: header)
-                try h.close()
-            } catch {
-                print("[WAV] close error: \(error.localizedDescription)")
+        ioQueue.sync {
+            guard !isClosed else { return }
+            isClosed = true
+
+            if let h = wavHandle {
+                wavHandle = nil
+                let dataBytes = UInt32(totalFrames) * UInt32(channels) * UInt32(bitsPerSample / 8)
+                let header = Self.makeHeader(
+                    sampleRate: sampleRate, channels: channels,
+                    bitsPerSample: bitsPerSample, dataBytes: dataBytes
+                )
+                do {
+                    try h.seek(toOffset: 0)
+                    try h.write(contentsOf: header)
+                    try h.close()
+                } catch {
+                    print("[WAV] close error: \(error.localizedDescription)")
+                }
             }
-        }
-        if let h = rawHandle {
-            rawHandle = nil
-            try? h.close()
+            if let h = rawHandle {
+                rawHandle = nil
+                try? h.close()
+            }
         }
     }
 

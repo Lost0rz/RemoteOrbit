@@ -59,10 +59,16 @@ final class BLEBridge: NSObject {
     private var connectTimeoutWorkItem: DispatchWorkItem?
     private var handshakeTimeoutWorkItem: DispatchWorkItem?
     private var stopAfterVoiceWorkItem: DispatchWorkItem?
+    private var audioStopDrainWorkItem: DispatchWorkItem?
     private let reconnectDelays: [TimeInterval] = [1, 2, 4, 8, 15, 30]
     private let scanTimeout: TimeInterval = 8
     private let connectTimeout: TimeInterval = 12
     private let handshakeTimeout: TimeInterval = 4
+    /// The remote often sends AUDIO_STOP before the final audio notifications
+    /// reach CoreBluetooth. Keep the decoder and output path alive briefly so
+    /// those packets can still be recorded and rendered.
+    private let audioStopDrainDelay: TimeInterval = 0.35
+    private let transportCloseDelay: TimeInterval = 0.60
 
     private let protocolHandler = ATVVProtocol()
     private var streamID: UInt8 = 0
@@ -81,6 +87,13 @@ final class BLEBridge: NSObject {
     private var streamClippedSampleCount = 0
     private var pendingAudioSyncCount = 0
     private var streamAudioSyncCount = 0
+    private var pendingAudioStopReason: UInt8?
+    private var streamStartedAt = Date.distantPast
+    private var firstAudioAt: Date?
+    private var lastAudioAt: Date?
+    private var maxAudioFrameGap: TimeInterval = 0
+    private var streamDrainFrameCount = 0
+    private var audioFramesOutsideStream = 0
     private var wavRecorder: WavRecorder?
     // Verbose PCM diagnostics are off unless explicitly requested.
     private static let diagnosticsEnabled =
@@ -109,6 +122,8 @@ final class BLEBridge: NSObject {
         micOpenRequested = false
         stopAfterVoiceWorkItem?.cancel()
         stopAfterVoiceWorkItem = nil
+        audioStopDrainWorkItem?.cancel()
+        audioStopDrainWorkItem = nil
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
         scanTimeoutWorkItem?.cancel()
@@ -173,7 +188,10 @@ final class BLEBridge: NSObject {
         }
         stopAfterVoiceWorkItem?.cancel()
         stopAfterVoiceWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + transportCloseDelay,
+            execute: work
+        )
     }
 
     func setRecordingEnabled(_ enabled: Bool) {
@@ -362,6 +380,8 @@ final class BLEBridge: NSObject {
         connectTimeoutWorkItem = nil
         handshakeTimeoutWorkItem?.cancel()
         handshakeTimeoutWorkItem = nil
+        audioStopDrainWorkItem?.cancel()
+        audioStopDrainWorkItem = nil
         keepAliveTimer?.invalidate()
         keepAliveTimer = nil
         if let recorder = wavRecorder {
@@ -370,6 +390,7 @@ final class BLEBridge: NSObject {
         }
         let wasStreaming = isStreaming
         isStreaming = false
+        pendingAudioStopReason = nil
         protocolHandler.endAudioStream()
         audioChar = nil
         commandChar = nil
@@ -404,7 +425,14 @@ final class BLEBridge: NSObject {
 
     private func writeCommand(_ data: Data) {
         guard let p = peripheral, let c = commandChar else { return }
-        p.writeValue(data, for: c, type: .withResponse)
+        // The remote exposes both write modes. ATVV commands are one-way
+        // control packets; using write-without-response avoids serializing the
+        // mic-open path behind an unnecessary ATT acknowledgement while still
+        // falling back safely on firmware that only exposes write-with-response.
+        let type: CBCharacteristicWriteType = c.properties.contains(.writeWithoutResponse)
+            ? .withoutResponse
+            : .withResponse
+        p.writeValue(data, for: c, type: type)
     }
 
     private func requestMicOpenIfReady() {
@@ -689,6 +717,9 @@ extension BLEBridge: CBPeripheralDelegate {
                 print("[BLE] caps error: \(error.localizedDescription)")
             }
         case .audioStart(_, let codec, let sid):
+            audioStopDrainWorkItem?.cancel()
+            audioStopDrainWorkItem = nil
+            pendingAudioStopReason = nil
             protocolHandler.beginAudioStream(codec: codec)
             // Some firmware emits AUDIO_START before the matching HID
             // key-down reaches the tap. Keep the same bounded pre-roll alive
@@ -705,40 +736,41 @@ extension BLEBridge: CBPeripheralDelegate {
             streamClippedSampleCount = 0
             streamAudioSyncCount = pendingAudioSyncCount
             pendingAudioSyncCount = 0
+            streamStartedAt = Date()
+            firstAudioAt = nil
+            lastAudioAt = nil
+            maxAudioFrameGap = 0
+            streamDrainFrameCount = 0
+            audioFramesOutsideStream = 0
             wavRecorder = AppStorage.recordingEnabled
                 ? WavRecorder.createNext(prefix: "remote-orbit")
                 : nil
             startKeepAliveTimer()
             print("[BLE] AUDIO_START streamID=\(sid)")
         case .audioStop(let reason):
-            isStreaming = false
-            protocolHandler.endAudioStream()
-            notifyStreaming(false)
-            levelSumSq = 0
-            levelCount = 0
-            levelPeak = 0
-            onLevel?(-120, 0)
-            diagFrameCount = 0
-            stopKeepAliveTimer()
-            if let w = wavRecorder {
-                w.close()
-                print("[WAV] closed \(w.filename)")
-                wavRecorder = nil
+            guard isStreaming else {
+                print("[BLE] AUDIO_STOP duplicate ignored reason=0x\(String(format: "%02x", reason))")
+                return
             }
-            let streamRMS = streamSampleCount > 0
-                ? sqrt(Double(streamSumSquares) / Double(streamSampleCount))
-                : 0
-            let streamDB = streamRMS > 0
-                ? 20.0 * log10(streamRMS / 32768.0)
-                : -120
+            if audioStopDrainWorkItem != nil {
+                print("[BLE] AUDIO_STOP duplicate during drain ignored reason=0x\(String(format: "%02x", reason))")
+                return
+            }
+            pendingAudioStopReason = reason
+            stopKeepAliveTimer()
             print(
-                "[BLE] AUDIO_SUMMARY streamID=\(streamID) " +
-                "frames=\(streamFrameCount) samples=\(streamSampleCount) " +
-                "peak=\(streamPeak) rms=\(Int(streamRMS.rounded())) " +
-                "db=\(String(format: "%.1f", streamDB)) " +
-                "clipped=\(streamClippedSampleCount) syncs=\(streamAudioSyncCount)"
+                "[BLE] AUDIO_STOP received; draining audio tail " +
+                    "for \(Int(audioStopDrainDelay * 1_000))ms " +
+                    "reason=0x\(String(format: "%02x", reason))"
             )
-            print("[BLE] AUDIO_STOP reason=0x\(String(format: "%02x", reason))")
+            let work = DispatchWorkItem { [weak self] in
+                self?.finishAudioStopAfterDrain()
+            }
+            audioStopDrainWorkItem = work
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + audioStopDrainDelay,
+                execute: work
+            )
         case .audioSync(let codec, let sequence, let pred, let stepIndex):
             protocolHandler.applyAudioSync(
                 codec: codec,
@@ -778,8 +810,25 @@ extension BLEBridge: CBPeripheralDelegate {
     }
 
     private func handleAudio(_ data: Data) {
-        guard isStreaming, let frame = protocolHandler.decodeAudio(data) else { return }
+        guard isStreaming else {
+            audioFramesOutsideStream += 1
+            return
+        }
+        guard let frame = protocolHandler.decodeAudio(data) else { return }
         if frame.samples.isEmpty { return }
+        let now = Date()
+        if let lastAudioAt {
+            maxAudioFrameGap = max(maxAudioFrameGap, now.timeIntervalSince(lastAudioAt))
+        } else {
+            firstAudioAt = now
+            print(
+                "[BLE] AUDIO_FIRST +\(String(format: "%.1f", now.timeIntervalSince(streamStartedAt) * 1_000))ms"
+            )
+        }
+        lastAudioAt = now
+        if audioStopDrainWorkItem != nil {
+            streamDrainFrameCount += 1
+        }
         streamFrameCount += 1
         streamSampleCount += frame.samples.count
         streamPeak = max(
@@ -808,11 +857,12 @@ extension BLEBridge: CBPeripheralDelegate {
             w.appendRawBytes(data)
         }
 
-        // Do not let the voice-key coordinator open Option merely because
-        // AUDIO_START arrived. The first decoded frame is the reliable point
-        // at which a long press actually has remote microphone input.
-        onAudioFrame?()
+        // Queue the decoded frame before opening the external voice dialog.
+        // The first frame must already be available when the target app reacts
+        // to the released Option edge; otherwise the opening syllable can be
+        // lost even though the BLE decoder received it.
         AudioPipe.shared.feed(samples: frame.samples)
+        onAudioFrame?()
         let needsLevel = onLevel != nil || Self.diagnosticsEnabled
         if needsLevel {
             levelSumSq += frame.samples.reduce(into: 0) {
@@ -839,6 +889,53 @@ extension BLEBridge: CBPeripheralDelegate {
             levelPeak = 0
             levelLogAt = Date()
         }
+    }
+
+    private func finishAudioStopAfterDrain() {
+        audioStopDrainWorkItem = nil
+        guard isStreaming else { return }
+
+        isStreaming = false
+        protocolHandler.endAudioStream()
+        notifyStreaming(false)
+        levelSumSq = 0
+        levelCount = 0
+        levelPeak = 0
+        onLevel?(-120, 0)
+        diagFrameCount = 0
+        if let w = wavRecorder {
+            w.close()
+            print("[WAV] closed \(w.filename)")
+            wavRecorder = nil
+        }
+        let streamRMS = streamSampleCount > 0
+            ? sqrt(Double(streamSumSquares) / Double(streamSampleCount))
+            : 0
+        let streamDB = streamRMS > 0
+            ? 20.0 * log10(streamRMS / 32768.0)
+            : -120
+        let firstMS = firstAudioAt.map {
+            String(format: "%.1f", $0.timeIntervalSince(streamStartedAt) * 1_000)
+        } ?? "n/a"
+        let maxGapMS = String(format: "%.1f", maxAudioFrameGap * 1_000)
+        let summary = [
+            "[BLE] AUDIO_SUMMARY streamID=\(streamID)",
+            "frames=\(streamFrameCount)",
+            "samples=\(streamSampleCount)",
+            "peak=\(streamPeak)",
+            "rms=\(Int(streamRMS.rounded()))",
+            "db=\(String(format: "%.1f", streamDB))",
+            "clipped=\(streamClippedSampleCount)",
+            "syncs=\(streamAudioSyncCount)",
+            "first=\(firstMS)ms",
+            "maxGap=\(maxGapMS)ms",
+            "drainFrames=\(streamDrainFrameCount)",
+            "outside=\(audioFramesOutsideStream)"
+        ].joined(separator: " ")
+        print(summary)
+        let reason = pendingAudioStopReason ?? 0
+        pendingAudioStopReason = nil
+        print("[BLE] AUDIO_STOP drained reason=0x\(String(format: "%02x", reason))")
     }
 
     /// Convert dBFS to a tiny ASCII bar for at-a-glance logs.

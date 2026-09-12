@@ -164,9 +164,12 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         var prebuffer: [Int16] = []
         stateLock.lock()
         remoteActive = active
-        pendingOutput.removeAll(keepingCapacity: true)
-        pendingOutputIndex = 0
         if active {
+            // A new voice session must never inherit a previous session's
+            // samples. On deactivation, however, keep the already queued
+            // frames alive so the BLE tail-drain window can render them.
+            pendingOutput.removeAll(keepingCapacity: true)
+            pendingOutputIndex = 0
             prebuffer = pendingRemotePrebuffer
             pendingRemotePrebuffer.removeAll(keepingCapacity: true)
         } else {
