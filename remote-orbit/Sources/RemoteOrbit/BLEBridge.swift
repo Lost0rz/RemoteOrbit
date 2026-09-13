@@ -176,6 +176,7 @@ final class BLEBridge: NSObject {
                 let command = try protocolHandler.micCloseCommand(streamID: streamID)
                 writeCommand(command)
                 print("[BLE] TX micClose")
+                VoiceTimingLogger.mark("MIC_CLOSE_TX")
             } catch {
                 print("[BLE] micClose error: \(error.localizedDescription)")
             }
@@ -443,6 +444,7 @@ final class BLEBridge: NSObject {
             writeCommand(try protocolHandler.micOpenCommand())
             micOpenRequested = true
             print("[BLE] TX micOpen (voice hold)")
+            VoiceTimingLogger.mark("MIC_OPEN_TX")
         } catch {
             print("[BLE] micOpen error: \(error.localizedDescription)")
         }
@@ -747,6 +749,7 @@ extension BLEBridge: CBPeripheralDelegate {
                 : nil
             startKeepAliveTimer()
             print("[BLE] AUDIO_START streamID=\(sid)")
+            VoiceTimingLogger.mark("AUDIO_START")
         case .audioStop(let reason):
             guard isStreaming else {
                 print("[BLE] AUDIO_STOP duplicate ignored reason=0x\(String(format: "%02x", reason))")
@@ -758,6 +761,7 @@ extension BLEBridge: CBPeripheralDelegate {
             }
             pendingAudioStopReason = reason
             stopKeepAliveTimer()
+            VoiceTimingLogger.mark("AUDIO_STOP")
             print(
                 "[BLE] AUDIO_STOP received; draining audio tail " +
                     "for \(Int(audioStopDrainDelay * 1_000))ms " +
@@ -897,6 +901,10 @@ extension BLEBridge: CBPeripheralDelegate {
 
         isStreaming = false
         protocolHandler.endAudioStream()
+        if lastAudioAt != nil {
+            VoiceTimingLogger.mark("LAST_AUDIO_FRAME")
+        }
+        VoiceTimingLogger.mark("DRAIN_FINISH")
         notifyStreaming(false)
         levelSumSq = 0
         levelCount = 0
