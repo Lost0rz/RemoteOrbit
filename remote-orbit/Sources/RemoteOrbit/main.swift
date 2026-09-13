@@ -182,6 +182,17 @@ final class VoicePressCoordinator {
         case holding
     }
 
+    private struct PendingRepress {
+        let sessionID: UUID
+        let physicalDownAt: TimeInterval
+        let onShortTap: (() -> Void)?
+        let usesLocalMicrophone: Bool
+        let togglesLocalMicrophone: Bool
+        let bypassesShortClassification: Bool
+        let usesHardwareOption: Bool
+        var isStillHeld = true
+    }
+
     var onStateChanged: ((State) -> Void)?
     /// Lets the HUD update when a long press receives its first real remote
     /// audio frame, without changing the gesture state itself.
@@ -225,6 +236,7 @@ final class VoicePressCoordinator {
     private var releaseBounceDebounceUntil = Date.distantPast
     private var lastPhysicalUpAt: Date?
     private(set) var lastRepressDecisionForTesting: String?
+    private var pendingRepress: PendingRepress?
     private var shortTapAction: (() -> Void)?
     private var shortInputUsesLocalMicrophone = false
     private var shortInputClosesLocalMicrophoneSession = false
@@ -265,6 +277,10 @@ final class VoicePressCoordinator {
         remoteAudioAvailable
     }
 
+    var pendingRepressSessionID: UUID? {
+        pendingRepress?.sessionID
+    }
+
     var currentStateForTesting: State {
         mode
     }
@@ -291,6 +307,7 @@ final class VoicePressCoordinator {
         usesHardwareOption: Bool = false
     ) -> Bool {
         let now = Date()
+        let physicalDownAt = ProcessInfo.processInfo.systemUptime
         if now < releaseBounceDebounceUntil {
             let delta = lastPhysicalUpAt.map {
                 now.timeIntervalSince($0) * 1000
@@ -302,18 +319,60 @@ final class VoicePressCoordinator {
             )
             return false
         }
-        if remoteRouted || longInputStarted || tailWorkItem != nil {
-            lastRepressDecisionForTesting = "previous-tail-active"
-            print("[PRESS] rejected/deferred re-press previous-tail-active")
-            return false
-        }
         guard mode == .idle else { return false }
+        if remoteRouted || longInputStarted || tailWorkItem != nil {
+            if pendingRepress == nil {
+                pendingRepress = PendingRepress(
+                    sessionID: sessionID,
+                    physicalDownAt: physicalDownAt,
+                    onShortTap: onShortTap,
+                    usesLocalMicrophone: usesLocalMicrophone,
+                    togglesLocalMicrophone: togglesLocalMicrophone,
+                    bypassesShortClassification: bypassesShortClassification,
+                    usesHardwareOption: usesHardwareOption
+                )
+                let shortID = String(sessionID.uuidString.prefix(4))
+                print(
+                    "[VOICE][\(shortID)][TIMING] VOICE_DOWN_PHYSICAL " +
+                        "uptime=" + String(format: "%.6f", physicalDownAt)
+                )
+                print(
+                    "[PRESS][\(shortID)] deferred previous-tail-active " +
+                        "session=\(sessionID.uuidString)"
+                )
+            } else {
+                print("[PRESS] deferred re-press already pending")
+            }
+            lastRepressDecisionForTesting = "deferred-previous-tail-active"
+            return true
+        }
         if lastPhysicalUpAt != nil {
             lastRepressDecisionForTesting = "accepted-after-route-finished"
             print("[PRESS] accepted new gesture after previous route finished")
         } else {
             lastRepressDecisionForTesting = nil
         }
+
+        return startAcceptedVoicePress(
+            sessionID: sessionID,
+            physicalDownAt: physicalDownAt,
+            onShortTap: onShortTap,
+            usesLocalMicrophone: usesLocalMicrophone,
+            togglesLocalMicrophone: togglesLocalMicrophone,
+            bypassesShortClassification: bypassesShortClassification,
+            usesHardwareOption: usesHardwareOption
+        )
+    }
+
+    private func startAcceptedVoicePress(
+        sessionID: UUID,
+        physicalDownAt: TimeInterval,
+        onShortTap: (() -> Void)?,
+        usesLocalMicrophone: Bool,
+        togglesLocalMicrophone: Bool,
+        bypassesShortClassification: Bool,
+        usesHardwareOption: Bool
+    ) -> Bool {
         // A new physical press owns the voice key now. Do not keep a local
         // session left by an earlier short tap alive during the classifier:
         // if this press becomes a hold, the physical mic must be closed from
@@ -350,25 +409,42 @@ final class VoicePressCoordinator {
         }
 
         setMode(.pending)
+        let heldDuration = max(
+            0,
+            ProcessInfo.processInfo.systemUptime - physicalDownAt
+        )
+        let remainingHoldTime = Self.holdActivationThreshold - heldDuration
+        guard remainingHoldTime > 0 else {
+            promoteToLongPress()
+            return true
+        }
         let work = DispatchWorkItem { [weak self] in
             self?.promoteToLongPress()
         }
         holdWorkItem = work
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.holdActivationThreshold,
+            deadline: .now() + remainingHoldTime,
             execute: work
         )
         print("[PRESS] pending; classifying short tap vs remote-mic hold in 300 ms")
         return true
     }
 
-    func keyUp() {
+    @discardableResult
+    func keyUp() -> Bool {
         holdWorkItem?.cancel()
         holdWorkItem = nil
 
         switch mode {
         case .idle:
-            return
+            guard let pendingRepress else { return false }
+            self.pendingRepress?.isStillHeld = false
+            self.pendingRepress = nil
+            let shortID = String(pendingRepress.sessionID.uuidString.prefix(4))
+            print(
+                "[PRESS][\(shortID)] deferred re-press released before activation"
+            )
+            return false
         case .pending:
             let action = shortTapAction
             shortTapAction = nil
@@ -443,6 +519,7 @@ final class VoicePressCoordinator {
                     )
                 }
             }
+            return true
         case .holding:
             shortTapAction = nil
             shortInputUsesLocalMicrophone = false
@@ -469,6 +546,7 @@ final class VoicePressCoordinator {
                 print("[PRESS] LONG release → no remote audio; no Option dialog")
                 finishLongInput(sessionID: nil)
             }
+            return true
         }
     }
 
@@ -528,6 +606,7 @@ final class VoicePressCoordinator {
         tailWorkItem?.cancel()
         tailWorkItem = nil
         tailSessionID = nil
+        pendingRepress = nil
         releaseBounceDebounceUntil = .distantPast
         lastPhysicalUpAt = nil
         shortTapAction = nil
@@ -629,6 +708,31 @@ final class VoicePressCoordinator {
         )
     }
 
+    private func activatePendingRepressIfHeld() {
+        guard let pendingRepress else { return }
+        self.pendingRepress = nil
+        guard pendingRepress.isStillHeld else { return }
+
+        let heldDuration = max(
+            0,
+            ProcessInfo.processInfo.systemUptime - pendingRepress.physicalDownAt
+        )
+        let shortID = String(pendingRepress.sessionID.uuidString.prefix(4))
+        print(
+            "[PRESS][\(shortID)] deferred re-press activated held=" +
+                String(format: "%.1fms", heldDuration * 1000)
+        )
+        _ = startAcceptedVoicePress(
+            sessionID: pendingRepress.sessionID,
+            physicalDownAt: pendingRepress.physicalDownAt,
+            onShortTap: pendingRepress.onShortTap,
+            usesLocalMicrophone: pendingRepress.usesLocalMicrophone,
+            togglesLocalMicrophone: pendingRepress.togglesLocalMicrophone,
+            bypassesShortClassification: pendingRepress.bypassesShortClassification,
+            usesHardwareOption: pendingRepress.usesHardwareOption
+        )
+    }
+
     func finishLongInput(sessionID: UUID?) {
         if let sessionID, gestureID != sessionID {
             print(
@@ -664,6 +768,7 @@ final class VoicePressCoordinator {
             VoiceTimingLogger.mark("ROUTE_OFF", sessionID: currentSessionID)
             VoiceTimingLogger.end(sessionID: currentSessionID)
         }
+        activatePendingRepressIfHeld()
     }
 
     /// Preserve the original Doubao integration: one short voice-key press
@@ -1056,16 +1161,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Gate every gesture while the real HID mapping is active. Otherwise
         // a disabled short slot could still leak the mapped Option into
         // Doubao before the 300 ms classifier resolves the press.
-        if let previousGestureID = voiceFocusTransactions.activeGestureID {
-            voiceFocusSafetyWorkItem?.cancel()
-            voiceFocusSafetyWorkItem = nil
-            filter.cancelDeferredOption(
-                gestureID: previousGestureID,
-                reason: "superseded-by-new-press"
-            )
-            _ = voiceFocusTransactions.cancel(previousGestureID)
-        }
-
         // VoiceKeyFilter is the fallback path used while the HID monitor is
         // unavailable. It used to pass nil here, which accidentally meant
         // “use the Doubao default” even when the user disabled the single-tap
@@ -1118,7 +1213,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
-        filter.cancelActiveOptionDeferral(reason: "superseded-by-new-gesture")
         guard voicePress.keyDown(
             sessionID: gestureID,
             onShortTap: shortTapAction,
@@ -1128,6 +1222,25 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             usesHardwareOption: RemoteVoiceKeyMapping.isEnabled
         ) else {
             return
+        }
+
+        // A deferred B edge has no active ownership yet. Leave A's focus and
+        // Option state untouched and wait for VoicePressCoordinator to
+        // activate the saved context after A's route is off.
+        guard voicePress.pendingRepressSessionID == nil else {
+            return
+        }
+
+        if let previousGestureID = voiceFocusTransactions.activeGestureID {
+            voiceFocusSafetyWorkItem?.cancel()
+            voiceFocusSafetyWorkItem = nil
+            _ = voiceFocusTransactions.cancel(previousGestureID)
+        }
+        // Hardware activation already supersedes an older gate inside
+        // beginOptionDeferral. Only the synthetic fallback needs the
+        // coordinator call site to clear a stale physical gate here.
+        if !RemoteVoiceKeyMapping.isEnabled {
+            filter.cancelActiveOptionDeferral(reason: "superseded-by-new-gesture")
         }
 
         guard needsFocusPreparation else {
@@ -1406,8 +1519,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.beginVoicePress()
         }
         filter.onVoiceKeyUp = { [weak self] in
-            self?.voicePress.keyUp()
-            self?.ble.stopVoiceInput()
+            guard let self else { return }
+            if self.voicePress.keyUp() {
+                self.ble.stopVoiceInput()
+            }
         }
         ble.onConnectionChanged = { [weak self] connected in
             self?.bleConnected = connected
@@ -1619,8 +1734,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             shortBinding: binding
                         )
                     } else {
-                        self.voicePress.keyUp()
-                        self.ble.stopVoiceInput()
+                        if self.voicePress.keyUp() {
+                            self.ble.stopVoiceInput()
+                        }
                     }
                     return
                 }

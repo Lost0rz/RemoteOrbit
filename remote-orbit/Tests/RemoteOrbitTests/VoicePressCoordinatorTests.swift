@@ -207,7 +207,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         press.keyUp()
         waitForCoordinatorTiming(0.20)
 
-        XCTAssertFalse(
+        XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
                 bypassesShortClassification: true
@@ -215,8 +215,9 @@ final class VoicePressCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(
             press.lastRepressDecisionForTesting,
-            "previous-tail-active"
+            "deferred-previous-tail-active"
         )
+        XCTAssertNotNil(press.pendingRepressSessionID)
         XCTAssertEqual(press.currentStateForTesting, .idle)
         press.stop()
     }
@@ -288,6 +289,172 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertEqual(events, [true, false, true])
         XCTAssertEqual(press.currentStateForTesting, .holding)
         XCTAssertTrue(press.hasRemoteAudio)
+        press.stop()
+    }
+
+    func testRepressDuringPreviousTailIsDeferredNotDropped() {
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+        var states: [VoicePressCoordinator.State] = []
+        press.onStateChanged = { states.append($0) }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.20)
+
+        let deferredSessionID = UUID()
+        XCTAssertTrue(press.keyDown(sessionID: deferredSessionID))
+        XCTAssertEqual(press.pendingRepressSessionID, deferredSessionID)
+        XCTAssertEqual(states.last, .idle)
+        press.stop()
+    }
+
+    func testDeferredRepressStartsWhenPreviousRouteFinishes() {
+        var events: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+        var states: [VoicePressCoordinator.State] = []
+        press.onStateChanged = { states.append($0) }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.22)
+
+        XCTAssertTrue(press.keyDown(sessionID: UUID()))
+        XCTAssertNotNil(press.pendingRepressSessionID)
+        press.setRemoteStreaming(false)
+        waitForCoordinatorTiming(0.40)
+
+        XCTAssertNil(press.pendingRepressSessionID)
+        XCTAssertEqual(states.last, .holding)
+        press.setRemoteAudioAvailable()
+        XCTAssertEqual(events, [true, false, true])
+        press.stop()
+    }
+
+    func testDeferredRepressUsesOriginalPhysicalDownForHoldThreshold() {
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+        var states: [VoicePressCoordinator.State] = []
+        press.onStateChanged = { states.append($0) }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.20)
+
+        XCTAssertTrue(press.keyDown(sessionID: UUID()))
+        waitForCoordinatorTiming(0.35)
+        XCTAssertNotNil(press.pendingRepressSessionID)
+        XCTAssertEqual(states.last, .idle)
+
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(states.last, .holding)
+        press.stop()
+    }
+
+    func testDeferredRepressReleasedBeforeTailFinishIsCancelled() {
+        var events: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.20)
+        XCTAssertTrue(press.keyDown(sessionID: UUID()))
+        XCTAssertNotNil(press.pendingRepressSessionID)
+
+        XCTAssertFalse(press.keyUp())
+        XCTAssertNil(press.pendingRepressSessionID)
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(events, [true, false])
+        press.stop()
+    }
+
+    func testDeferredRepressDoesNotStartBleBeforePreviousRouteOff() {
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+        var states: [VoicePressCoordinator.State] = []
+        press.onStateChanged = { states.append($0) }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.20)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        XCTAssertEqual(states.last, .idle)
+
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(states.last, .holding)
+        press.stop()
+    }
+
+    func testDeferredRepressStaleTailCompletionCannotClearActivatedGesture() {
+        var events: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+        let firstSessionID = UUID()
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: firstSessionID,
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.20)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        XCTAssertNotNil(press.pendingRepressSessionID)
+
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(press.currentStateForTesting, .holding)
+        press.setRemoteAudioAvailable()
+        XCTAssertEqual(events, [true, false, true])
+
+        press.invokeTailCompletionForTesting(sessionID: firstSessionID)
+
+        XCTAssertEqual(press.currentStateForTesting, .holding)
+        XCTAssertTrue(press.hasRemoteAudio)
+        XCTAssertEqual(events, [true, false, true])
         press.stop()
     }
 
