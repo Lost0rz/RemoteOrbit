@@ -237,6 +237,8 @@ final class VoicePressCoordinator {
     private var lastPhysicalUpAt: Date?
     private(set) var lastRepressDecisionForTesting: String?
     private var pendingRepress: PendingRepress?
+    private var deferredRepressAwaitingActivation = false
+    private var deferredRepressActivationWorkItem: DispatchWorkItem?
     private var shortTapAction: (() -> Void)?
     private var shortInputUsesLocalMicrophone = false
     private var shortInputClosesLocalMicrophoneSession = false
@@ -279,6 +281,10 @@ final class VoicePressCoordinator {
 
     var pendingRepressSessionID: UUID? {
         pendingRepress?.sessionID
+    }
+
+    var hasDeferredRepressAwaitingActivationForTesting: Bool {
+        deferredRepressAwaitingActivation
     }
 
     var currentStateForTesting: State {
@@ -440,6 +446,9 @@ final class VoicePressCoordinator {
             guard let pendingRepress else { return false }
             self.pendingRepress?.isStillHeld = false
             self.pendingRepress = nil
+            deferredRepressAwaitingActivation = false
+            deferredRepressActivationWorkItem?.cancel()
+            deferredRepressActivationWorkItem = nil
             let shortID = String(pendingRepress.sessionID.uuidString.prefix(4))
             print(
                 "[PRESS][\(shortID)] deferred re-press released before activation"
@@ -601,12 +610,30 @@ final class VoicePressCoordinator {
     }
 
     func stop() {
+        stopCurrentVoiceState(preservingDeferredRepress: false)
+    }
+
+    func stopCurrentVoiceStatePreservingDeferredRepress() {
+        guard deferredRepressAwaitingActivation, pendingRepress != nil else {
+            stop()
+            return
+        }
+        print("[PRESS] preserving deferred re-press across old transport teardown")
+        stopCurrentVoiceState(preservingDeferredRepress: true)
+    }
+
+    private func stopCurrentVoiceState(preservingDeferredRepress: Bool) {
         holdWorkItem?.cancel()
         holdWorkItem = nil
         tailWorkItem?.cancel()
         tailWorkItem = nil
         tailSessionID = nil
-        pendingRepress = nil
+        if !preservingDeferredRepress {
+            deferredRepressActivationWorkItem?.cancel()
+            deferredRepressActivationWorkItem = nil
+            deferredRepressAwaitingActivation = false
+            pendingRepress = nil
+        }
         releaseBounceDebounceUntil = .distantPast
         lastPhysicalUpAt = nil
         shortTapAction = nil
@@ -733,6 +760,21 @@ final class VoicePressCoordinator {
         )
     }
 
+    private func scheduleDeferredRepressActivation() {
+        guard pendingRepress != nil else { return }
+        deferredRepressAwaitingActivation = true
+        deferredRepressActivationWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.deferredRepressActivationWorkItem = nil
+            guard self.deferredRepressAwaitingActivation else { return }
+            self.deferredRepressAwaitingActivation = false
+            self.activatePendingRepressIfHeld()
+        }
+        deferredRepressActivationWorkItem = work
+        DispatchQueue.main.async(execute: work)
+    }
+
     func finishLongInput(sessionID: UUID?) {
         if let sessionID, gestureID != sessionID {
             print(
@@ -768,7 +810,7 @@ final class VoicePressCoordinator {
             VoiceTimingLogger.mark("ROUTE_OFF", sessionID: currentSessionID)
             VoiceTimingLogger.end(sessionID: currentSessionID)
         }
-        activatePendingRepressIfHeld()
+        scheduleDeferredRepressActivation()
     }
 
     /// Preserve the original Doubao integration: one short voice-key press
@@ -1529,9 +1571,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if !connected {
                 self?.remoteStreaming = false
                 // A BLE loss can happen before HID emits the matching key-up.
-                // Release the gesture and any synthetic modifier immediately;
-                // reconnecting the audio link must never leave a stale hold.
-                self?.voicePress.stop()
+                // Release A immediately, but preserve a deferred B until the
+                // old transport callback stack has returned to the run loop.
+                self?.voicePress.stopCurrentVoiceStatePreservingDeferredRepress()
             }
             self?.updateStatus()
         }

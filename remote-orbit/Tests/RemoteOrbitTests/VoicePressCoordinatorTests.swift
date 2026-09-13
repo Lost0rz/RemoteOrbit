@@ -365,6 +365,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertEqual(states.last, .idle)
 
         press.setRemoteStreaming(false)
+        waitForCoordinatorTiming(0.02)
         XCTAssertEqual(states.last, .holding)
         press.stop()
     }
@@ -417,6 +418,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertEqual(states.last, .idle)
 
         press.setRemoteStreaming(false)
+        waitForCoordinatorTiming(0.02)
         XCTAssertEqual(states.last, .holding)
         press.stop()
     }
@@ -446,6 +448,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertNotNil(press.pendingRepressSessionID)
 
         press.setRemoteStreaming(false)
+        waitForCoordinatorTiming(0.02)
         XCTAssertEqual(press.currentStateForTesting, .holding)
         press.setRemoteAudioAvailable()
         XCTAssertEqual(events, [true, false, true])
@@ -455,6 +458,163 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertEqual(press.currentStateForTesting, .holding)
         XCTAssertTrue(press.hasRemoteAudio)
         XCTAssertEqual(events, [true, false, true])
+        press.stop()
+    }
+
+    func testDeferredRepressWaitsUntilOldTransportCallbackStackFinishes() {
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+        let deferredSessionID = UUID()
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.20)
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: deferredSessionID,
+                bypassesShortClassification: true
+            )
+        )
+        XCTAssertEqual(press.pendingRepressSessionID, deferredSessionID)
+
+        // STREAMING_FALSE(A): A finishes logically, but B must not activate
+        // inside the old BLE callback stack.
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        XCTAssertEqual(press.pendingRepressSessionID, deferredSessionID)
+        XCTAssertTrue(press.hasDeferredRepressAwaitingActivationForTesting)
+
+        // CONNECTION_FALSE(A): old teardown cleanup must preserve B.
+        press.stopCurrentVoiceStatePreservingDeferredRepress()
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        XCTAssertEqual(press.pendingRepressSessionID, deferredSessionID)
+
+        waitForCoordinatorTiming(0.02)
+        XCTAssertEqual(press.currentStateForTesting, .holding)
+        press.stop()
+    }
+
+    func testOldConnectionFalseCannotCancelDeferredNextGesture() {
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+        let deferredSessionID = UUID()
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.20)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: deferredSessionID,
+                bypassesShortClassification: true
+            )
+        )
+
+        press.setRemoteStreaming(false)
+        press.stopCurrentVoiceStatePreservingDeferredRepress()
+
+        XCTAssertEqual(press.pendingRepressSessionID, deferredSessionID)
+        waitForCoordinatorTiming(0.02)
+        XCTAssertEqual(press.currentStateForTesting, .holding)
+        press.stop()
+    }
+
+    func testDeferredRepressActivatesAfterTeardownBarrier() {
+        var events: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.20)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(events, [true, false])
+        waitForCoordinatorTiming(0.02)
+        XCTAssertEqual(events, [true, false])
+        press.setRemoteAudioAvailable()
+        XCTAssertEqual(events, [true, false, true])
+        press.stop()
+    }
+
+    func testDeferredRepressReleasedDuringTeardownBarrierIsCancelled() {
+        var events: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.20)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteStreaming(false)
+
+        XCTAssertFalse(press.keyUp())
+        XCTAssertNil(press.pendingRepressSessionID)
+        waitForCoordinatorTiming(0.02)
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        XCTAssertEqual(events, [true, false])
+        press.stop()
+    }
+
+    func testNormalAudioStopPathUsesTheSameTeardownBarrier() {
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.20)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        XCTAssertTrue(press.hasDeferredRepressAwaitingActivationForTesting)
+        waitForCoordinatorTiming(0.02)
+        XCTAssertEqual(press.currentStateForTesting, .holding)
         press.stop()
     }
 
