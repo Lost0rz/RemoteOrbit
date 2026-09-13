@@ -210,14 +210,21 @@ final class VoicePressCoordinator {
     // output route alive long enough for those final frames to render even
     // when the physical Option edge has already been released.
     private let tailDrainDelay: TimeInterval = 0.80
+    // Physical release bounce is independent from the audio tail. Do not use
+    // the tail-drain duration as a press lockout: a completed route must allow
+    // the next real gesture immediately after this small debounce window.
+    private let releaseBounceDebounce: TimeInterval = 0.18
     private var mode: State = .idle
     private var holdWorkItem: DispatchWorkItem?
     private var tailWorkItem: DispatchWorkItem?
+    private var tailSessionID: UUID?
     private var remoteStreaming = false
     private var remoteAudioAvailable = false
     private var remoteRouted = false
     private var longInputStarted = false
-    private var suppressNewPressUntil = Date.distantPast
+    private var releaseBounceDebounceUntil = Date.distantPast
+    private var lastPhysicalUpAt: Date?
+    private(set) var lastRepressDecisionForTesting: String?
     private var shortTapAction: (() -> Void)?
     private var shortInputUsesLocalMicrophone = false
     private var shortInputClosesLocalMicrophoneSession = false
@@ -258,6 +265,22 @@ final class VoicePressCoordinator {
         remoteAudioAvailable
     }
 
+    var currentStateForTesting: State {
+        mode
+    }
+
+    var tailDrainDelayForTesting: TimeInterval {
+        tailDrainDelay
+    }
+
+    var hasPendingTailForTesting: Bool {
+        tailWorkItem != nil
+    }
+
+    func invokeTailCompletionForTesting(sessionID: UUID) {
+        finishLongInput(sessionID: sessionID)
+    }
+
     @discardableResult
     func keyDown(
         sessionID: UUID,
@@ -267,11 +290,30 @@ final class VoicePressCoordinator {
         bypassesShortClassification: Bool = false,
         usesHardwareOption: Bool = false
     ) -> Bool {
-        guard Date() >= suppressNewPressUntil else {
-            print("[PRESS] ignored release bounce")
+        let now = Date()
+        if now < releaseBounceDebounceUntil {
+            let delta = lastPhysicalUpAt.map {
+                now.timeIntervalSince($0) * 1000
+            } ?? 0
+            lastRepressDecisionForTesting = "release-bounce"
+            print(
+                "[PRESS] rejected release bounce delta=" +
+                    String(format: "%.1fms", delta)
+            )
+            return false
+        }
+        if remoteRouted || longInputStarted || tailWorkItem != nil {
+            lastRepressDecisionForTesting = "previous-tail-active"
+            print("[PRESS] rejected/deferred re-press previous-tail-active")
             return false
         }
         guard mode == .idle else { return false }
+        if lastPhysicalUpAt != nil {
+            lastRepressDecisionForTesting = "accepted-after-route-finished"
+            print("[PRESS] accepted new gesture after previous route finished")
+        } else {
+            lastRepressDecisionForTesting = nil
+        }
         // A new physical press owns the voice key now. Do not keep a local
         // session left by an earlier short tap alive during the classifier:
         // if this press becomes a hold, the physical mic must be closed from
@@ -415,8 +457,10 @@ final class VoicePressCoordinator {
                 usesHardwareOptionPath = false
             }
             setMode(.idle)
-            suppressNewPressUntil = Date().addingTimeInterval(
-                tailDrainDelay + 0.10
+            let physicalUpAt = Date()
+            lastPhysicalUpAt = physicalUpAt
+            releaseBounceDebounceUntil = physicalUpAt.addingTimeInterval(
+                releaseBounceDebounce
             )
             if longInputStarted {
                 print("[PRESS] LONG release → finish immediately")
@@ -483,6 +527,9 @@ final class VoicePressCoordinator {
         holdWorkItem = nil
         tailWorkItem?.cancel()
         tailWorkItem = nil
+        tailSessionID = nil
+        releaseBounceDebounceUntil = .distantPast
+        lastPhysicalUpAt = nil
         shortTapAction = nil
         shortInputUsesLocalMicrophone = false
         shortInputClosesLocalMicrophoneSession = false
@@ -560,12 +607,20 @@ final class VoicePressCoordinator {
             remoteAudioAvailable = false
             gestureID = nil
             usesHardwareOptionPath = false
+            tailSessionID = nil
             return
         }
         tailWorkItem?.cancel()
+        tailSessionID = sessionID
         let work = DispatchWorkItem { [weak self] in
-            self?.tailWorkItem = nil
-            self?.finishLongInput(sessionID: sessionID)
+            guard let self else { return }
+            guard self.tailSessionID == sessionID else {
+                print("[PRESS] stale tail completion ignored")
+                return
+            }
+            self.tailWorkItem = nil
+            self.tailSessionID = nil
+            self.finishLongInput(sessionID: sessionID)
         }
         tailWorkItem = work
         DispatchQueue.main.asyncAfter(
@@ -574,11 +629,20 @@ final class VoicePressCoordinator {
         )
     }
 
-    private func finishLongInput(sessionID: UUID?) {
+    func finishLongInput(sessionID: UUID?) {
+        if let sessionID, gestureID != sessionID {
+            print(
+                "[PRESS] stale tail completion ignored session=" +
+                    sessionID.uuidString + " current=" +
+                    (gestureID?.uuidString ?? "none")
+            )
+            return
+        }
         holdWorkItem?.cancel()
         holdWorkItem = nil
         tailWorkItem?.cancel()
         tailWorkItem = nil
+        tailSessionID = nil
         let currentSessionID = sessionID ?? gestureID
         if let currentSessionID {
             if syntheticOptionTrigger.sendUp(sessionID: currentSessionID) {

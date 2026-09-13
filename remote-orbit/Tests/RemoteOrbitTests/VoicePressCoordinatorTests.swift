@@ -144,4 +144,154 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertEqual(order, ["BLE_START_REQUEST", "REMOTE_ROUTE_PREPARATION"])
         press.stop()
     }
+
+    func testRepressAfterPreviousRouteFinishesIsNotBlockedByOldTailWindow() {
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+        var states: [VoicePressCoordinator.State] = []
+        press.onStateChanged = { states.append($0) }
+
+        let firstSessionID = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: firstSessionID,
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        press.setRemoteStreaming(false)
+        waitForCoordinatorTiming(0.20)
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID()
+            )
+        )
+        XCTAssertEqual(
+            press.lastRepressDecisionForTesting,
+            "accepted-after-route-finished"
+        )
+        waitForCoordinatorTiming(0.35)
+        XCTAssertEqual(states.last, .holding)
+        press.stop()
+    }
+
+    func testRepressWithinHardwareBounceWindowIsRejected() {
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.05)
+
+        XCTAssertFalse(press.keyDown(sessionID: UUID()))
+        XCTAssertEqual(press.lastRepressDecisionForTesting, "release-bounce")
+        press.stop()
+    }
+
+    func testRepressAfterHardwareDebounceButBeforeOldRouteFinishDoesNotStartSecondLongSession() {
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        waitForCoordinatorTiming(0.20)
+
+        XCTAssertFalse(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        XCTAssertEqual(
+            press.lastRepressDecisionForTesting,
+            "previous-tail-active"
+        )
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        press.stop()
+    }
+
+    func testNormalLongTimingUnchanged() {
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+        var order: [String] = []
+        press.onStateChanged = { state in
+            if state == .holding {
+                order.append("HOLD_CONFIRMED")
+            }
+        }
+        press.onRemoteRoutePreparation = {
+            order.append("REMOTE_ROUTE_PREPARATION")
+        }
+
+        XCTAssertTrue(press.keyDown(sessionID: UUID()))
+        waitForCoordinatorTiming(0.35)
+
+        XCTAssertEqual(order, ["HOLD_CONFIRMED", "REMOTE_ROUTE_PREPARATION"])
+        press.stop()
+    }
+
+    func testNormalTailTimingUnchanged() {
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+
+        XCTAssertEqual(press.tailDrainDelayForTesting, 0.80, accuracy: 0.001)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        XCTAssertTrue(press.hasPendingTailForTesting)
+        press.stop()
+    }
+
+    func testOldTailCompletionCannotClearNewGesture() {
+        var events: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+        let firstSessionID = UUID()
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: firstSessionID,
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.keyUp()
+        press.setRemoteStreaming(false)
+        waitForCoordinatorTiming(0.20)
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        XCTAssertEqual(events, [true, false, true])
+
+        press.invokeTailCompletionForTesting(sessionID: firstSessionID)
+
+        XCTAssertEqual(events, [true, false, true])
+        XCTAssertEqual(press.currentStateForTesting, .holding)
+        XCTAssertTrue(press.hasRemoteAudio)
+        press.stop()
+    }
+
+    private func waitForCoordinatorTiming(_ interval: TimeInterval) {
+        RunLoop.main.run(until: Date().addingTimeInterval(interval))
+    }
 }
