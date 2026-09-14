@@ -11,6 +11,15 @@
 import CoreBluetooth
 import Foundation
 
+enum BLEAudioStartDisposition: Equatable {
+    case accepted
+    case ignoredDuringDrain(
+        currentStreamID: UInt8,
+        incomingStreamID: UInt8,
+        pendingAudioStopReason: UInt8?
+    )
+}
+
 final class BLEBridge: NSObject {
     // ATVV service / characteristic UUIDs (Google Android TV Remote protocol).
     static let serviceUUID  = CBUUID(string: "AB5E0001-5A21-4F05-BC7D-AF01F617B664")
@@ -103,6 +112,22 @@ final class BLEBridge: NSObject {
     override init() {
         super.init()
         central = CBCentralManager(delegate: self, queue: .main)
+    }
+
+    static func audioStartDisposition(
+        drainPending: Bool,
+        currentStreamID: UInt8,
+        incomingStreamID: UInt8,
+        pendingAudioStopReason: UInt8?
+    ) -> BLEAudioStartDisposition {
+        guard drainPending == false else {
+            return .ignoredDuringDrain(
+                currentStreamID: currentStreamID,
+                incomingStreamID: incomingStreamID,
+                pendingAudioStopReason: pendingAudioStopReason
+            )
+        }
+        return .accepted
     }
 
     func start() {
@@ -719,6 +744,24 @@ extension BLEBridge: CBPeripheralDelegate {
                 print("[BLE] caps error: \(error.localizedDescription)")
             }
         case .audioStart(_, let codec, let sid):
+            switch Self.audioStartDisposition(
+                drainPending: audioStopDrainWorkItem != nil,
+                currentStreamID: streamID,
+                incomingStreamID: sid,
+                pendingAudioStopReason: pendingAudioStopReason
+            ) {
+            case .accepted:
+                break
+            case let .ignoredDuringDrain(currentStreamID, incomingStreamID, reason):
+                let reasonText = reason.map { String(format: "0x%02x", $0) } ?? "none"
+                print(
+                    "[BLE] late AUDIO_START ignored during drain " +
+                        "currentStreamID=\(currentStreamID) " +
+                        "incomingStreamID=\(incomingStreamID) " +
+                        "pendingReason=\(reasonText)"
+                )
+                return
+            }
             audioStopDrainWorkItem?.cancel()
             audioStopDrainWorkItem = nil
             pendingAudioStopReason = nil
