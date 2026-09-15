@@ -179,8 +179,55 @@ DMG 安装的应用位于：
 - 日志：`~/Library/Logs/RemoteOrbit/RemoteOrbit.log`
 - 录音：`~/Library/Application Support/RemoteOrbit/Recordings/`
 
-日志最大为 5 MB，到达上限后自动截断。调试录音会同时保存 16 kHz WAV 和原始 ATVV
+通用日志最大为 5 MB，到达上限后自动截断。调试录音会同时保存 16 kHz WAV 和原始 ATVV
 数据，仅在用户手动开启后生效。
+
+### 语音可靠性诊断
+
+语音可靠性诊断始终开启，不受“启用日志”开关影响；它只写结构化的生命周期和时序元数据，
+不写 PCM、不保存录音内容、识别文本、剪贴板内容、prompt、网页正文、密码、token 或 URL
+query。诊断文件位于：
+
+```text
+~/Library/Logs/RemoteOrbit/VoiceReliability.log
+~/Library/Logs/RemoteOrbit/VoiceReliability.log.1
+~/Library/Logs/RemoteOrbit/VoiceReliability.log.2
+```
+
+当前文件最多 2 MiB，最多保留 3 个文件，总占用上限约 6 MiB。达到上限时按 `.2 → 删除`、
+`.1 → .2`、`当前 → .1` 轮转。设置页的“清空日志”会同时清除通用日志和语音可靠性诊断日志。
+
+每条事件都包含完整 `session` UUID、8 位 `short` 标识、单调递增 `seq`、单调时钟
+`uptime`、相对首事件的 `elapsed_ms`、线程、`category`、`event` 以及结构化字段；session
+结束后会追加唯一的 `SUMMARY`。摘要会列出是否收到 PCM、Option DOWN/UP 请求和实际投递、
+observer 是否可用、焦点结果、stale callback，以及检测到的 Option 时序不变量违规。
+
+一条正常长按的可审计顺序应类似：
+
+```text
+SESSION_BEGIN → VOICE_DOWN_PHYSICAL → BLE_CONNECTED → PCM_DECODE_FIRST
+→ PCM_FEED_FIRST → AUDIO_FIRST_CALLBACK → OPTION_DOWN_REQUEST
+→ OPTION_DOWN_FLAGS_POST/OPTION_DOWN_KEY_POST
+→ OPTION_DOWN_FLAGS_OBSERVED/OPTION_DOWN_KEY_OBSERVED → PHYSICAL_UP
+→ BLE_STOP_REQUEST → DRAIN_FINISH → OPTION_UP_REQUEST
+→ OPTION_UP_FLAGS_POST/OPTION_UP_KEY_POST → SUMMARY
+```
+
+其中 `PCM_*_FIRST`、`OPTION_*_POST` 和 observer 事件用于交叉验证，不代表更改了
+语音状态机。长按阈值、BLE stop drain 和 tail fallback 的现有时序保持不变；没有真实 PCM
+的 session 不应出现 Option DOWN，也不应出现 Option UP。
+
+观察器是 listen-only 的 synthetic Option 证据采集器，不拦截、不修改、不重发任何 CGEvent。
+如果系统无法创建观察器，session 摘要会明确记录 `observerAvailable=false`；这不是把
+“未观察到事件”推断成“没有投递”。
+
+按 session 排查时，可直接使用：
+
+```bash
+grep 'SUMMARY' ~/Library/Logs/RemoteOrbit/VoiceReliability.log*
+grep 'INVARIANT_VIOLATION' ~/Library/Logs/RemoteOrbit/VoiceReliability.log*
+grep 'A1B2C3D4' ~/Library/Logs/RemoteOrbit/VoiceReliability.log*
+```
 
 ## 当前限制
 

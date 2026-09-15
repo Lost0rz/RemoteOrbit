@@ -91,6 +91,50 @@ Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建�
 
 遥控器音频当前使用约 20 倍增益，并使用软限幅，解决遥控器距离较远时声音过小的问题；如果近距离说话出现失真，可以调低 `AudioPipe.swift` 中的 `remoteGain`。
 
+### 语音可靠性诊断与验收
+
+语音可靠性诊断元数据始终写入，不受设置页的“启用日志”开关影响；它不写 PCM、不包含
+录音或识别文本，也不替代调试录音；同样不写入剪贴板、prompt、网页正文、密码、token
+或 URL query。文件为：
+
+```text
+~/Library/Logs/RemoteOrbit/VoiceReliability.log
+~/Library/Logs/RemoteOrbit/VoiceReliability.log.1
+~/Library/Logs/RemoteOrbit/VoiceReliability.log.2
+```
+
+当前诊断文件单个最多 2 MiB，最多保留 3 个文件，总占用约 6 MiB；设置页的“清空日志”会
+同时清理通用日志和这三份诊断文件。每个 voice session 以一次被接受的 physical voice
+down 开始，以正常排空、tail fallback、短按、无 PCM、abort 或 disconnect 之一结束。
+每条事件使用完整 session UUID 关联，并额外包含 8 位短 ID、单调 `seq`、`uptime`、相对
+`elapsed_ms`、线程、分类、事件名和字段；结束时追加唯一摘要。
+
+重点排障字段包括：
+
+- `PCM_DECODE_FIRST`、`PCM_FEED_FIRST`、`AUDIO_FIRST_CALLBACK`：首个真实
+  PCM 在解码、送入 AudioPipe、AudioUnit callback 的证据。
+- `OPTION_DOWN_REQUEST` / `OPTION_UP_REQUEST` 与 `OPTION_DOWN_FLAGS_POST`、`OPTION_DOWN_KEY_POST`：
+  Option 请求和两个 CGEvent 组件的实际投递证据。
+- `OPTION_DOWN_FLAGS_OBSERVED`、`OPTION_DOWN_KEY_OBSERVED`、`OPTION_UP_FLAGS_OBSERVED`、
+  `OPTION_UP_KEY_OBSERVED`：listen-only observer 看到的 synthetic
+  Option 事件；它只观察，不拦截、不修改、不重发。
+- `invariantViolations`：Option DOWN 早于首帧 PCM、重复 DOWN、无 DOWN 的 UP、session 结束时
+  仍保持 DOWN 等不变量问题。
+
+安装后的真实验收至少应覆盖一次正常长按、一次短按、一次无 PCM/过短按压（若设备条件允许）、
+一次 BLE 断连或 tail fallback，并检查每次是否有唯一 `SUMMARY`。如果 observer 无法创建，
+摘要中的 `observerAvailable=false` 必须作为环境限制单独记录；不能把 observer 未观测到
+事件直接判定为 Option 未投递。当前源码单元测试覆盖了这些分支，但本工作区没有已安装的
+RemoteOrbit.app，因此未宣称完成真实运行验收。
+
+按 session 重建时，可以使用完整 UUID 或 8 位短 ID：
+
+```bash
+grep 'SUMMARY' ~/Library/Logs/RemoteOrbit/VoiceReliability.log*
+grep 'INVARIANT_VIOLATION' ~/Library/Logs/RemoteOrbit/VoiceReliability.log*
+grep 'A1B2C3D4' ~/Library/Logs/RemoteOrbit/VoiceReliability.log*
+```
+
 ## 从个人仓库重新安装
 
 ```bash
