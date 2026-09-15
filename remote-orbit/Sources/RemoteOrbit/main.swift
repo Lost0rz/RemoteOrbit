@@ -200,7 +200,7 @@ final class VoicePressCoordinator {
     // The remote usually sends AUDIO_STOP just before the HID key-up, and the
     // BLE bridge keeps accepting packets during its drain window. Keep the
     // output route alive long enough for those final frames to render even
-    // when the physical Option edge has already been released.
+    // while the synthetic Option edge remains owned by the session.
     private let tailDrainDelay: TimeInterval = 0.80
     // Physical release bounce is independent from the audio tail. Do not use
     // the tail-drain duration as a press lockout: a completed route must allow
@@ -984,12 +984,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let needsCodexFocus = !needsFloatTabsFocus
             && CodexCommandAdapter.shouldPrepareInputFocus(for: target)
         // Focus repair is useful for the text insertion target, but it must
-        // never gate the physical Option edge or remote audio. AX/WebKit can
+        // never gate the synthetic Option lifecycle or remote audio. AX/WebKit can
         // be slow or unavailable even while the receiver is already working.
         let needsFocusPreparation = needsFloatTabsFocus || needsCodexFocus
         let gestureID = UUID()
-        // Gate every gesture while the real HID mapping is active. Otherwise
-        // a disabled short slot could still leak the mapped Option into
+        // Start every accepted gesture under one synthetic Option owner. Otherwise
+        // a disabled short slot could still leak the default Option tap into
         // Doubao before the 300 ms classifier resolves the press.
         // VoiceKeyFilter is the fallback path used while the HID monitor is
         // unavailable. It used to pass nil here, which accidentally meant

@@ -2,6 +2,13 @@ import XCTest
 @testable import RemoteOrbit
 
 final class ButtonActionTests: XCTestCase {
+    func testMicrophoneNativeF5DescriptorRemainsForMonitorSuppression() {
+        XCTAssertEqual(
+            RemoteButton.microphone.nativeEvent,
+            .keyboard(keyCode: 96)
+        )
+    }
+
     func testSingleShotBounceIsSuppressedUntilTheFenceExpires() {
         var debouncer = ButtonEdgeDebouncer()
 

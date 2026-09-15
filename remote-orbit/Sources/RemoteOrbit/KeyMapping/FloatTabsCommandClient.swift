@@ -113,7 +113,7 @@ enum FloatTabsCommandClient {
 
     /// Whether the next voice gesture should use the FloatTabs focus handoff.
     /// This is kept separate from the request itself so the caller can arm its
-    /// non-blocking HID event gate before posting the asynchronous command.
+    /// non-blocking voice session before posting the asynchronous command.
     static func shouldPrepareInputFocus(for targetBundleIdentifier: String?) -> Bool {
         guard isRunning else { return false }
         let ownsFocus = targetBundleIdentifier == bundleIdentifier
@@ -122,8 +122,8 @@ enum FloatTabsCommandClient {
 
     /// Ask FloatTabs to repair its native/WebKit input target. The request is
     /// deliberately asynchronous: RemoteOrbit never blocks the HID/event-tap
-    /// thread waiting for another application. The gesture transaction owns
-    /// the bounded safety deadline for the mapped Option event.
+    /// thread waiting for another application. The voice session owns its
+    /// synthetic Option lifetime independently of this request.
     @discardableResult
     static func requestInputFocusForVoice(
         gestureID: UUID,

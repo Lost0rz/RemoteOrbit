@@ -77,16 +77,16 @@ Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建�
 
 ### 短按
 
-短按遥控器语音键会被忽略：不调用本机或外接麦克风、不发送语音输入，也不切换系统音频设备。这样可以避免短按/长按识别竞态和第一次输入丢失。
+默认短按遥控器语音键由 `VoicePressCoordinator` 发送一次 synthetic Option tap，调用豆包的本机/外接麦克风。自定义短按动作只执行该动作，不发送默认语音 Option；如果短按槽位被禁用，当前状态机按实际 Profile 语义直接进入遥控器长按路径。
 
 ### 长按
 
-长按超过约 120 ms 时：
+默认长按超过约 300 ms 时：
 
-1. 真实左 Option 立即保持按下状态，所以豆包能显示按住说话浮窗；FloatTabs 的焦点预热不插入语音键延迟。
-2. RemoteOrbit 只把遥控器 ATVV 解码后的音频送入 `RemoteOrbit Mic 2ch`，不回退到本机麦克风。
-3. 豆包从同一个默认输入读取遥控器音频。
-4. 松开遥控器后立即释放 Option、停止遥控器音频，并清空本次语音的预缓冲。
+1. RemoteOrbit 只把遥控器 ATVV 解码后的音频送入 `RemoteOrbit Mic 2ch`，不回退到本机麦克风；FloatTabs/Codex 焦点准备只作 advisory。
+2. 第一帧真实 PCM 进入 `AudioPipe` 后，RemoteOrbit 才发送 synthetic Option DOWN，豆包从同一个默认输入读取遥控器音频。
+3. 松开遥控器后先请求 BLE 停止并保留约 0.35 秒的 transport drain；`VoicePressCoordinator` 保留约 0.80 秒的 tail barrier，完成后发送 synthetic Option UP。
+4. 没有收到真实 PCM 的 session 不发送 Option DOWN，也不会产生 Option UP。
 
 遥控器音频当前使用约 20 倍增益，并使用软限幅，解决遥控器距离较远时声音过小的问题；如果近距离说话出现失真，可以调低 `AudioPipe.swift` 中的 `remoteGain`。
 
@@ -132,7 +132,7 @@ open /Applications/RemoteOrbit.app
 - 豆包没有手动固定到 `External Microphone` 或其他设备；
 - 项目按键映射中的语音键仍然是“默认”，不要改成右 Option，也不要单独绑定右 Option。
 
-程序连接遥控器后会应用只针对该遥控器的 HID 映射：VID `0x2717`、PID `0x32B8` 的语音键 F5 usage 映射到左 Option。FloatTabs 场景由显示/激活流程预热输入焦点，语音键本身不等待焦点通知；不会修改 Mac 键盘或其他蓝牙键盘。退出程序时会清除这条设备级映射。
+程序连接遥控器后不会应用 F5 → 左 Option 的 device-scoped HID 映射。RemoteOrbit 直接拥有语音 session 的 synthetic Option 生命周期；启动、遥控器连接和退出时只会清理旧版本遗留的 `hidutil` mapping。FloatTabs/Codex 场景的焦点准备仍然只作 advisory，不会修改 Mac 键盘或其他蓝牙键盘。
 
 ## 常见问题处理
 
@@ -202,7 +202,7 @@ remoteGain
 
 ### 6. 短按浮窗一闪就消失
 
-旧版本可能同时产生设备级真实 Option 和合成 Option，导致浮窗一闪就消失或第一次语音无文字。当前版本只保留设备级真实 Option，不再额外合成第二个 Option，也不在语音键按下时等待焦点；FloatTabs 只在显示/激活阶段预热输入焦点。不要手动运行 `hidutil` 添加重复映射，也不要把语音键同时绑定到左 Option 和右 Option。
+旧版本可能同时产生设备级真实 Option 和合成 Option，导致浮窗一闪就消失或第一次语音无文字。当前版本只保留由 `VoiceOptionTrigger` 管理的 synthetic Option；原始 HID F5 只负责产生语音 gesture，FloatTabs/Codex 焦点只作 advisory。不要手动运行 `hidutil` 添加 F5 → Option 映射，也不要把语音键同时绑定到左 Option 和右 Option。
 
 ### 7. 按键时后台嘟一声，或自定义映射没有生效
 
@@ -363,11 +363,13 @@ defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool true
 重点关注：
 
 ```text
-[HID-MAP] 遥控器语音键 → 左 Option 已启用
+[HID-MAP] legacy voice-key mapping cleared
 [AUDIO] 输入切换 → 遥控器麦克风
-[PRESS] LONG start → Option DOWN
+[VOICE][xxxx][TIMING] AUDIO_FIRST +...ms
+[VOICE][xxxx][TIMING] OPTION_DOWN +...ms
 [AUDIO-METER] remoteBuffers=... renderedFrames=...
-[PRESS] LONG end → Option UP
+[VOICE][xxxx][TIMING] PHYSICAL_UP +...ms
+[VOICE][xxxx][TIMING] OPTION_UP +...ms
 [AUDIO] 输入切换 → 无输入（等待下一次遥控器长按）
 ```
 
@@ -385,7 +387,8 @@ defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool false
 
 ## 本次代码修改位置
 
-- `remote-orbit/Sources/RemoteOrbit/main.swift`：短按忽略/长按状态机、立即物理 Option、设备级映射。
+- `remote-orbit/Sources/RemoteOrbit/main.swift`：短按/长按状态机、synthetic Option 生命周期、F5 fallback 和遗留映射清理。
+- `remote-orbit/Sources/RemoteOrbit/VoiceOptionTrigger.swift`：单一 synthetic Option actuator、session ownership 和 balanced release。
 - `remote-orbit/Sources/RemoteOrbit/AudioPipe.swift`：遥控器增益、预缓冲和虚拟设备输出诊断；启动时恢复菜单选择的输入设备。
 - `remote-orbit/Sources/RemoteOrbit/AudioDeviceManager.swift`：CoreAudio 输入/输出设备枚举、系统默认设备切换和虚拟回环过滤。
 - `remote-orbit/Sources/RemoteOrbit/KeyMapping/MappingStore.swift`：全局映射、App 模板、持久化迁移和按下时目标快照。

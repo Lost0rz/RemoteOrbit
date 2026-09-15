@@ -2,7 +2,7 @@
 
 把小米蓝牙语音遥控器 2 Pro 变成 macOS 上的 Voice Coding 麦克风：
 
-- 短按语音键：忽略，不调用本机或外接麦克风。
+- 默认短按语音键：发送一次由 RemoteOrbit 自己拥有的 synthetic Option tap，调用豆包的本机/外接麦克风；自定义短按动作不会额外发送默认语音 Option。
 - 长按语音键：调用遥控器的 ATVV 蓝牙麦克风。
 - 向豆包输入法暴露可识别的 `RemoteOrbit Mic 2ch` 输入设备。
 
@@ -18,7 +18,7 @@ FloatTabs/Codex/Ghostty/Obsidian 等应用适配，以及按键注入、语音�
 [SETUP_NOTES.md](SETUP_NOTES.md)。
 
 项目已在 Xiaomi Bluetooth Voice Remote 2 Pro、Apple Silicon Mac 和豆包输入法上完成
-连续长按、短按忽略和遥控器音频链路验证。发布 DMG 会把 App 和独立音频驱动一起带上，普通用户
+连续长按、默认短按 synthetic tap 和遥控器音频链路验证。发布 DMG 会把 App 和独立音频驱动一起带上，普通用户
 不需要准备开发环境；维护者也可以用仓库中的脚本重新生成 DMG。
 
 ### 当前功能
@@ -27,7 +27,8 @@ FloatTabs/Codex/Ghostty/Obsidian 等应用适配，以及按键注入、语音�
 - 增加协议自测，覆盖连续音频流和同步状态隔离。
 - 增加菜单栏状态、登录时自动启动、日志与调试录音控制。
 - 日志和调试录音默认关闭，可查看占用、打开目录或清空。
-- 改进长按语音键的 Option 按键行为和遥控器音频诊断。
+- 将语音 Option 生命周期收口到 `VoicePressCoordinator` + `VoiceOptionTrigger`，不再依赖设备级 F5 → Option 映射或 CGEvent replay。
+- 改进长按语音键的 synthetic Option 生命周期和遥控器音频诊断。
 - 自定义组合快捷键改为完整发送修饰键按下、目标键按下/松开和修饰键释放，兼容更多全局快捷键监听器。
 - 改进兼容模式下遥控器原生 Home/方向键的事件压制，并修复首次打开快捷键录制窗口无内容的问题。
 - 对带 Command 的自定义快捷键增加 System Events 路径，兼容 `KeyboardShortcuts`/Carbon 全局热键。
@@ -40,6 +41,14 @@ FloatTabs/Codex/Ghostty/Obsidian 等应用适配，以及按键注入、语音�
 - 丰富 Obsidian 标准模板：增加编辑器/分栏焦点、向右分屏、堆叠标签、大纲和书签等语义动作。
 - Obsidian 动作选择器按“焦点与布局、标签与窗口、笔记与编辑、搜索与命令、视图与属性、设置”分类展示；命令通过 Obsidian 命令面板执行，不依赖用户重新录制快捷键。
 - 更新 Obsidian 默认模板：上下键按阅读方向滚屏，左右键切换左右分栏焦点，返回键删除，主页键快速切换文件，菜单键打开命令面板，TV 键新建笔记，音量键切换标签。
+
+### 语音生命周期
+
+- RC003 原始 HID F5 是语音手势的唯一权威来源；`VoicePressCoordinator` 是每个语音 session 的唯一生命周期 owner。
+- 长按确认并收到第一帧真实 PCM 后，RemoteOrbit 才发送 synthetic Option DOWN；不能用 `AUDIO_START` 代替真实音频首帧。
+- 物理松开后先停止 BLE 并完成音频 tail drain，再发送 synthetic Option UP；异常断连、退出和会话替换也会平衡释放已发送的 Option DOWN。
+- FloatTabs/Codex 焦点准备只提供 advisory 信息，不拥有语音 Option，也不会阻塞音频生命周期。
+- 启动、遥控器连接和退出时会清理旧版本遗留的 device-scoped `hidutil` mapping，但当前版本不会重新启用它。
 
 ## RemoteOrbit Control Center
 
