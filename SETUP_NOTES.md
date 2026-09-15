@@ -77,16 +77,16 @@ Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建�
 
 ### 短按
 
-默认短按遥控器语音键由 `VoicePressCoordinator` 发送一次 synthetic Option tap，调用豆包的本机/外接麦克风。自定义短按动作只执行该动作，不发送默认语音 Option；如果短按槽位被禁用，当前状态机按实际 Profile 语义直接进入遥控器长按路径。
+默认短按遥控器语音键优先使用支持遥控器的 device-scoped F5 → 左 Option 物理路径调用豆包的本机/外接麦克风。`HardwareOptionGate` 会在当前 voice session 内暂存映射产生的物理 Option 边沿，确认后原样重放；只有映射不可用、事件复制失败或物理边沿缺失时，才由 `VoiceOptionTrigger` 使用 synthetic fallback。自定义短按动作只执行该动作，不发送默认语音 Option；如果短按槽位被禁用，当前状态机按实际 Profile 语义直接进入遥控器长按路径。
 
 ### 长按
 
 默认长按超过约 300 ms 时：
 
 1. RemoteOrbit 只把遥控器 ATVV 解码后的音频送入 `RemoteOrbit Mic 2ch`，不回退到本机麦克风；FloatTabs/Codex 焦点准备只作 advisory。
-2. 第一帧真实 PCM 进入 `AudioPipe` 后，RemoteOrbit 才发送 synthetic Option DOWN，豆包从同一个默认输入读取遥控器音频。
-3. 正常松开流程是：physical up → 请求 BLE stop → 约 0.35 秒 transport drain → `streaming=false` → synthetic Option UP。
-4. 如果 BLE drain completion 异常没有到达，`VoicePressCoordinator` 的约 0.80 秒 safety timer 会兜底发送 synthetic Option UP。
+2. 第一帧真实 PCM 进入 `AudioPipe` 后，RemoteOrbit 才释放长按的 Option owner；物理-primary session 重放已捕获的物理边沿，fallback session 才发送 synthetic Option DOWN。不能用 `AUDIO_START` 代替真实音频首帧。
+3. 正常松开流程是：physical up → 请求 BLE stop → 约 0.35 秒 transport drain → `streaming=false` → 完成物理 Option release；只有 fallback session 才发送 synthetic Option UP。
+4. 如果 BLE drain completion 异常没有到达，`VoicePressCoordinator` 的约 0.80 秒 safety timer 会兜底结束 session，并平衡当前 synthetic fallback 的 Option DOWN（如果存在）。
 5. 没有收到真实 PCM 的 session 不发送 Option DOWN，也不会产生 Option UP。
 
 遥控器音频当前使用约 20 倍增益，并使用软限幅，解决遥控器距离较远时声音过小的问题；如果近距离说话出现失真，可以调低 `AudioPipe.swift` 中的 `remoteGain`。
@@ -177,7 +177,19 @@ open /Applications/RemoteOrbit.app
 - 豆包没有手动固定到 `External Microphone` 或其他设备；
 - 项目按键映射中的语音键仍然是“默认”，不要改成右 Option，也不要单独绑定右 Option。
 
-程序连接遥控器后不会应用 F5 → 左 Option 的 device-scoped HID 映射。RemoteOrbit 直接拥有语音 session 的 synthetic Option 生命周期；启动、遥控器连接和退出时只会清理旧版本遗留的 `hidutil` mapping。FloatTabs/Codex 场景的焦点准备仍然只作 advisory，不会修改 Mac 键盘或其他蓝牙键盘。
+程序启动时会清理旧映射；连接受支持的 Xiaomi Voice Remote 2 Pro 后，会应用匹配 `VendorID=0x2717`、`ProductID=0x32B8` 的 device-scoped F5 → 左 Option `hidutil` mapping。`VoiceKeyFilter` 只在当前 voice session 的 gate 内捕获目标 Option 事件，因此不会拦截普通 Mac 键盘或其他蓝牙键盘的 Option。映射启用失败时，原始 HID F5 仍然可以启动 gesture，当前 session 会记录 `synthetic_fallback` 并使用 synthetic Option。断连和退出时会关闭映射。FloatTabs/Codex 场景的焦点准备仍然只作 advisory，不会修改 Mac 键盘或其他蓝牙键盘。
+
+### 物理主路径验收日志
+
+在真实遥控器验收时，按下面顺序检查日志和 session summary：
+
+- H1 正常长按：看到 `REMOTE_F5_HID_MAPPING enabled=true success=true`、`OPTION_OWNER_SELECTED owner=hardware`、`HARDWARE_OPTION_REPLAY`，并确认 `syntheticDownRequests=0`。
+- H2 默认短按：确认物理 Option pair 只被 replay/release 一次，summary 为 `optionOwner=hardware`，没有额外 synthetic tap。
+- H3 自定义短按：确认自定义 action 执行，物理 Option 被取消/丢弃，没有 Doubao Option leak，也没有 synthetic request。
+- H4 连续长按：每个 session 都应有独立的 owner、PCM 和 tail/drain 证据；不存在上一 session 的 stale Option up 释放当前 session 的情况。
+- H5 断连/重连：断连时看到 mapping disable 和 session teardown；重连后重新看到 mapping enable。若 enable 失败，当前 session 应明确记录 `owner=synthetic_fallback` 和 `fallbackReason`，而不是全局禁用语音。
+
+本机 XCTest 只能验证 gate、session ownership 和日志契约；H1–H5 仍需要真实 Xiaomi remote、macOS HID、`hidutil`、CGEvent tap 和豆包窗口完成硬件验收。
 
 ## 常见问题处理
 
@@ -247,7 +259,7 @@ remoteGain
 
 ### 6. 短按浮窗一闪就消失
 
-旧版本可能同时产生设备级真实 Option 和合成 Option，导致浮窗一闪就消失或第一次语音无文字。当前版本只保留由 `VoiceOptionTrigger` 管理的 synthetic Option；原始 HID F5 只负责产生语音 gesture，FloatTabs/Codex 焦点只作 advisory。不要手动运行 `hidutil` 添加 F5 → Option 映射，也不要把语音键同时绑定到左 Option 和右 Option。
+如果映射或物理 Option 事件复制失败，日志会记录 `OPTION_OWNER_SELECTED owner=synthetic_fallback` 以及 fallback reason；如果正常捕获并重放，session summary 会记录 `optionOwner=hardware` 和 `deliveryEvidence=hardware-replay`。gate 会压制 fallback 已经接管后的迟到物理 down/up，避免同一短按同时产生真实 Option 和合成 Option。不要手动运行额外的全局 F5 → Option 映射，也不要把语音键同时绑定到左 Option 和右 Option。
 
 ### 7. 按键时后台嘟一声，或自定义映射没有生效
 
@@ -432,8 +444,8 @@ defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool false
 
 ## 本次代码修改位置
 
-- `remote-orbit/Sources/RemoteOrbit/main.swift`：短按/长按状态机、synthetic Option 生命周期、F5 fallback 和遗留映射清理。
-- `remote-orbit/Sources/RemoteOrbit/VoiceOptionTrigger.swift`：单一 synthetic Option actuator、session ownership 和 balanced release。
+- `remote-orbit/Sources/RemoteOrbit/main.swift`：短按/长按状态机、device-scoped mapping、物理 Option gate、synthetic fallback 和 session teardown。
+- `remote-orbit/Sources/RemoteOrbit/VoiceOptionTrigger.swift`：`HardwareOptionGate` 的 source ownership/race protection，以及 synthetic Option actuator 的 balanced release。
 - `remote-orbit/Sources/RemoteOrbit/AudioPipe.swift`：遥控器增益、预缓冲和虚拟设备输出诊断；启动时恢复菜单选择的输入设备。
 - `remote-orbit/Sources/RemoteOrbit/AudioDeviceManager.swift`：CoreAudio 输入/输出设备枚举、系统默认设备切换和虚拟回环过滤。
 - `remote-orbit/Sources/RemoteOrbit/KeyMapping/MappingStore.swift`：全局映射、App 模板、持久化迁移和按下时目标快照。
