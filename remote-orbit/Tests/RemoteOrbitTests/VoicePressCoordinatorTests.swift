@@ -135,7 +135,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
     }
 
-    func testDisabledShortSlotDoesNotSendOption() {
+    func testDisabledShortBypassReleasedBeforePCMDoesNotSendOption() {
         var events: [Bool] = []
         let press = VoicePressCoordinator(
             optionTrigger: VoiceOptionTrigger { events.append($0) }
@@ -144,12 +144,64 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                onShortTap: { }
+                onShortTap: { },
+                bypassesShortClassification: true
             )
         )
+        XCTAssertEqual(press.currentStateForTesting, .holding)
+        XCTAssertTrue(events.isEmpty)
+
         XCTAssertTrue(press.keyUp())
 
         XCTAssertTrue(events.isEmpty)
+    }
+
+    func testDisabledShortBypassFirstPCMUsesRemoteLongOption() {
+        var events: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                onShortTap: { },
+                bypassesShortClassification: true
+            )
+        )
+        XCTAssertEqual(press.currentStateForTesting, .holding)
+
+        press.setRemoteAudioAvailable()
+
+        XCTAssertEqual(events, [true])
+        press.stop()
+        XCTAssertEqual(events, [true, false])
+    }
+
+    func testLongPressSafetyTailBalancesOptionWhenStreamingFalseNeverArrives() {
+        var events: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        XCTAssertEqual(events, [true])
+
+        XCTAssertTrue(press.keyUp())
+        XCTAssertEqual(events, [true])
+        XCTAssertTrue(press.hasPendingTailForTesting)
+
+        waitForCoordinatorTiming(press.tailDrainDelayForTesting + 0.08)
+
+        XCTAssertEqual(events, [true, false])
+        XCTAssertFalse(press.hasPendingTailForTesting)
+        XCTAssertEqual(press.currentStateForTesting, .idle)
     }
 
     func testShortShortLongStillPromotesTheFinalLongPress() {
