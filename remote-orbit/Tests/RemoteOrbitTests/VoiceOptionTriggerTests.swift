@@ -2,6 +2,26 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceOptionTriggerTests: XCTestCase {
+    func testTimingLineIncludesMonotonicAndGateDeltas() {
+        let line = VoiceTimingLogger.formatLine(
+            event: "OPTION_KEY_DOWN_SEEN",
+            shortID: "ABCD",
+            uptime: 10.250,
+            startedAt: 10.000,
+            gateStartedAt: 10.100,
+            firstOptionAt: 10.250,
+            details: "type=keyDown"
+        )
+
+        XCTAssertEqual(
+            line,
+            "[VOICE][ABCD][TIMING] OPTION_KEY_DOWN_SEEN "
+                + "uptime=10.250000 +250.0ms deltaRawF5=250.0ms "
+                + "deltaGate=150.0ms "
+                + "deltaFirstOption=0.0ms type=keyDown"
+        )
+    }
+
     func testHardwareLongUsesOnlyTheCapturedPhysicalDown() {
         let gate = HardwareOptionGate()
         let session = UUID()
