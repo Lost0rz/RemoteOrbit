@@ -396,7 +396,6 @@ final class VoicePressCoordinator {
             usesLocalMicrophone && !shortInputClosesLocalMicrophoneSession
         usesHardwareOptionPath = usesHardwareOption
         gestureID = sessionID
-        VoiceTimingLogger.begin(sessionID: sessionID)
         _ = syntheticOptionTrigger.begin(sessionID: sessionID)
         if usesHardwareOptionPath {
             onHardwareOptionGateBegin?(sessionID)
@@ -471,7 +470,7 @@ final class VoicePressCoordinator {
             setRemoteRouted(false)
             AudioPipe.shared.endRemoteCandidate()
             if let currentGestureID {
-                VoiceTimingLogger.end(sessionID: currentGestureID)
+                VoiceOptionTrace.scheduleSessionEnd(currentGestureID)
             }
             if shouldCloseLocalMicrophoneSession {
                 // The default short action is a toggle. The local capture was
@@ -534,7 +533,7 @@ final class VoicePressCoordinator {
             shortInputUsesLocalMicrophone = false
             let releasedSessionID = gestureID
             if let releasedSessionID {
-                VoiceTimingLogger.mark("PHYSICAL_UP", sessionID: releasedSessionID)
+                VoiceOptionTrace.timingMark(.physicalUp, sessionID: releasedSessionID)
             }
             if let currentGestureID = gestureID, !longInputStarted {
                 onHardwareOptionGateCancel?(currentGestureID)
@@ -600,7 +599,7 @@ final class VoicePressCoordinator {
         guard !remoteAudioAvailable else { return }
         remoteAudioAvailable = true
         if let currentGestureID = gestureID {
-            VoiceTimingLogger.mark("AUDIO_FIRST", sessionID: currentGestureID)
+            VoiceOptionTrace.timingMark(.audioFirst, sessionID: currentGestureID)
         }
         if mode == .holding {
             onRemoteAudioChanged?(true)
@@ -656,8 +655,8 @@ final class VoicePressCoordinator {
         setRemoteRouted(false)
         AudioPipe.shared.endRemoteCandidate()
         if let stoppedSessionID {
-            VoiceTimingLogger.mark("ROUTE_OFF", sessionID: stoppedSessionID)
-            VoiceTimingLogger.end(sessionID: stoppedSessionID)
+            VoiceOptionTrace.timingMark(.routeOff, sessionID: stoppedSessionID)
+            VoiceOptionTrace.scheduleSessionEnd(stoppedSessionID)
         }
     }
 
@@ -669,14 +668,14 @@ final class VoicePressCoordinator {
 
     private func enterHoldingState() {
         guard let currentGestureID = gestureID else { return }
-        VoiceTimingLogger.mark("HOLD_CONFIRMED", sessionID: currentGestureID)
-        VoiceTimingLogger.mark("BLE_START_REQUEST", sessionID: currentGestureID)
+        VoiceOptionTrace.timingMark(.holdConfirmed, sessionID: currentGestureID)
+        VoiceOptionTrace.timingMark(.bleStartRequest, sessionID: currentGestureID)
         setMode(.holding)
 
         // Route selection follows the physical HID hold, not BLE notifications.
         // If ATVV is late or briefly drops, emit silence rather than leaking
         // the physical microphone into a remote-only gesture.
-        VoiceTimingLogger.mark("REMOTE_ROUTE_BEGIN", sessionID: currentGestureID)
+        VoiceOptionTrace.timingMark(.remoteRouteBegin, sessionID: currentGestureID)
         onRemoteRoutePreparation?()
         setRemoteRouted(true)
         print(
@@ -702,8 +701,7 @@ final class VoicePressCoordinator {
             _ = syntheticOptionTrigger.sendDown(sessionID: currentGestureID)
             VoiceOptionTrace.gateRelease(
                 sessionID: currentGestureID,
-                uptime: ProcessInfo.processInfo.systemUptime,
-                reason: "synthetic-fallback"
+                uptime: ProcessInfo.processInfo.systemUptime
             )
             VoiceOptionTrace.resolution(
                 sessionID: currentGestureID,
@@ -819,8 +817,8 @@ final class VoicePressCoordinator {
         gestureID = nil
         usesHardwareOptionPath = false
         if let currentSessionID {
-            VoiceTimingLogger.mark("ROUTE_OFF", sessionID: currentSessionID)
-            VoiceTimingLogger.end(sessionID: currentSessionID)
+            VoiceOptionTrace.timingMark(.routeOff, sessionID: currentSessionID)
+            VoiceOptionTrace.scheduleSessionEnd(currentSessionID)
         }
         scheduleDeferredRepressActivation()
     }
@@ -839,8 +837,7 @@ final class VoicePressCoordinator {
             _ = syntheticOptionTrigger.sendTap(sessionID: sessionID)
             VoiceOptionTrace.gateRelease(
                 sessionID: sessionID,
-                uptime: ProcessInfo.processInfo.systemUptime,
-                reason: "short-synthetic"
+                uptime: ProcessInfo.processInfo.systemUptime
             )
             VoiceOptionTrace.resolution(
                 sessionID: sessionID,
@@ -901,9 +898,11 @@ final class VoiceKeyFilter {
     private var deferredOptionEventSeen = false
     private var deferredOptionDownEvents: [CGEvent] = []
     private var deferredOptionUpEvents: [CGEvent] = []
-    private var voiceKeySessionID: UUID?
+    // Diagnostic-only identity; the product coordinator owns a separate
+    // gesture UUID and never receives this value as its gesture owner.
+    private var voiceTraceSessionID: UUID?
     var onVoiceKeyDown: ((UUID) -> Void)?
-    var onVoiceKeyUp: ((UUID) -> Void)?
+    var onVoiceKeyUp: ((UUID?) -> Void)?
 
     private var optionDeferralActive: Bool {
         optionGate.activeSessionID != nil
@@ -929,8 +928,7 @@ final class VoiceKeyFilter {
         if let activeGestureID = optionGate.activeSessionID,
            activeGestureID != gestureID {
             cancelDeferredOption(
-                gestureID: activeGestureID,
-                reason: "superseded"
+                gestureID: activeGestureID
             )
         }
         _ = optionGate.begin(sessionID: gestureID)
@@ -944,26 +942,21 @@ final class VoiceKeyFilter {
             sessionID: gestureID,
             uptime: ProcessInfo.processInfo.systemUptime
         )
-        print("[VOICE] option gate armed gesture=\(gestureID.uuidString)")
     }
 
     /// Drop any older physical gate before a new gesture selects its Option
     /// source. This also covers a new synthetic-fallback gesture, which does
     /// not arm a replacement physical gate of its own.
-    func cancelActiveOptionDeferral(reason: String) {
+    func cancelActiveOptionDeferral() {
         guard let gestureID = optionGate.activeSessionID else { return }
-        cancelDeferredOption(gestureID: gestureID, reason: reason)
+        cancelDeferredOption(gestureID: gestureID)
     }
 
     /// Release a deferred physical Option pair. The gesture identifier makes
     /// this idempotent and prevents a late acknowledgement from releasing a
     /// newer gesture's Option edge.
-    func releaseDeferredOption(gestureID: UUID, reason: String) {
+    func releaseDeferredOption(gestureID: UUID) {
         guard optionGate.activeSessionID == gestureID else {
-            print(
-                "[VOICE] ignored stale option release gesture=\(gestureID.uuidString) "
-                    + "active=\(optionGate.activeSessionID?.uuidString ?? "none")"
-            )
             return
         }
 
@@ -983,8 +976,7 @@ final class VoiceKeyFilter {
         let resolutionUptime = ProcessInfo.processInfo.systemUptime
         VoiceOptionTrace.gateRelease(
             sessionID: gestureID,
-            uptime: resolutionUptime,
-            reason: reason
+            uptime: resolutionUptime
         )
         VoiceOptionTrace.resolution(
             sessionID: gestureID,
@@ -1011,17 +1003,12 @@ final class VoiceKeyFilter {
         case .noOptionEdge:
             _ = syntheticOptionTrigger.abort(sessionID: gestureID)
         }
-        print(
-            "[VOICE] option gate released gesture=\(gestureID.uuidString) reason=\(reason) "
-                + "optionDown=\(optionDownSeen) optionUp=\(optionUpSeen) "
-                + "resolution=\(String(describing: resolution))"
-        )
     }
 
     /// Drops a fully captured gesture without replaying it. This is used only
     /// when a newer physical press supersedes a completed request; the stale
     /// request must never turn into a delayed Option tap in the new target.
-    func cancelDeferredOption(gestureID: UUID, reason: String) {
+    func cancelDeferredOption(gestureID: UUID) {
         let optionDownSeen = deferredOptionDownSeen
         let optionUpSeen = deferredOptionUpSeen
         let downCopyCount = deferredOptionDownEvents.count
@@ -1036,14 +1023,10 @@ final class VoiceKeyFilter {
         VoiceOptionTrace.gateCancel(
             sessionID: gestureID,
             uptime: ProcessInfo.processInfo.systemUptime,
-            reason: reason,
             downSeen: optionDownSeen,
             upSeen: optionUpSeen,
             downCopyCount: downCopyCount,
             upCopyCount: upCopyCount
-        )
-        print(
-            "[VOICE] option gate cancelled gesture=\(gestureID.uuidString) reason=\(reason)"
         )
     }
 
@@ -1081,6 +1064,7 @@ final class VoiceKeyFilter {
             print("[FILTER] event tap already running")
             return
         }
+        VoiceOptionTrace.initialize()
 
         // Don't prompt user each time — check if already trusted.
         let trusted = AXIsProcessTrusted()
@@ -1202,7 +1186,7 @@ final class VoiceKeyFilter {
                     }
                     filter.voiceKeyIsDown = true
                     let sessionID = UUID()
-                    filter.voiceKeySessionID = sessionID
+                    filter.voiceTraceSessionID = sessionID
                     VoiceOptionTrace.rawF5Down(
                         sessionID: sessionID,
                         uptime: ProcessInfo.processInfo.systemUptime,
@@ -1216,14 +1200,15 @@ final class VoiceKeyFilter {
                     guard filter.voiceKeyIsDown else { return nil }
                     filter.voiceKeyIsDown = false
                     print("[KEY] voice-key UP   → finish gesture")
-                    if let sessionID = filter.voiceKeySessionID {
+                    let diagnosticSessionID = filter.voiceTraceSessionID
+                    if let diagnosticSessionID {
                         VoiceOptionTrace.rawF5Up(
-                            sessionID: sessionID,
+                            sessionID: diagnosticSessionID,
                             uptime: ProcessInfo.processInfo.systemUptime
                         )
-                        filter.voiceKeySessionID = nil
-                        filter.onVoiceKeyUp?(sessionID)
                     }
+                    filter.voiceTraceSessionID = nil
+                    filter.onVoiceKeyUp?(diagnosticSessionID)
                     return nil
                 }
             }
@@ -1254,14 +1239,13 @@ final class VoiceKeyFilter {
 
     func stop() {
         if let gestureID = optionGate.activeSessionID {
-            cancelDeferredOption(gestureID: gestureID, reason: "stop")
+            cancelDeferredOption(gestureID: gestureID)
         }
         if voiceKeyIsDown {
             voiceKeyIsDown = false
-            if let sessionID = voiceKeySessionID {
-                voiceKeySessionID = nil
-                onVoiceKeyUp?(sessionID)
-            }
+            let diagnosticSessionID = voiceTraceSessionID
+            voiceTraceSessionID = nil
+            onVoiceKeyUp?(diagnosticSessionID)
         }
         if let source = tapSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
@@ -1310,7 +1294,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var voiceTraceSessionID: UUID?
 
     private func beginVoicePress(
-        sessionID: UUID? = nil,
+        diagnosticSessionID: UUID? = nil,
         targetApplicationBundleIdentifier lockedTarget: String? = nil,
         shortBinding: ButtonBinding? = nil
     ) {
@@ -1325,7 +1309,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // never gate the physical Option edge or remote audio. AX/WebKit can
         // be slow or unavailable even while the receiver is already working.
         let needsFocusPreparation = needsFloatTabsFocus || needsCodexFocus
-        let gestureID = sessionID ?? UUID()
+        let gestureID = UUID()
         // Gate every gesture while the real HID mapping is active. Otherwise
         // a disabled short slot could still leak the mapped Option into
         // Doubao before the 300 ms classifier resolves the press.
@@ -1381,6 +1365,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
+        if let diagnosticSessionID {
+            VoiceOptionTrace.bindGestureSession(
+                diagnosticSessionID: diagnosticSessionID,
+                gestureID: gestureID
+            )
+        }
+
         guard voicePress.keyDown(
             sessionID: gestureID,
             onShortTap: shortTapAction,
@@ -1389,7 +1380,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             bypassesShortClassification: bypassesShortClassification,
             usesHardwareOption: RemoteVoiceKeyMapping.isEnabled
         ) else {
-            VoiceTimingLogger.end(sessionID: gestureID)
+            VoiceOptionTrace.scheduleSessionEnd(gestureID)
             return
         }
 
@@ -1409,7 +1400,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // beginOptionDeferral. Only the synthetic fallback needs the
         // coordinator call site to clear a stale physical gate here.
         if !RemoteVoiceKeyMapping.isEnabled {
-            filter.cancelActiveOptionDeferral(reason: "superseded-by-new-gesture")
+            filter.cancelActiveOptionDeferral()
         }
 
         guard needsFocusPreparation else {
@@ -1658,43 +1649,46 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         voicePress.onHardwareOptionGateLongReady = { [weak self] gestureID in
             self?.filter.releaseDeferredOption(
-                gestureID: gestureID,
-                reason: "remote-audio-ready"
+                gestureID: gestureID
             )
         }
         voicePress.onHardwareOptionGateShortResult = { [weak self] gestureID, shouldRelease in
             guard let self else { return }
             if shouldRelease {
                 self.filter.releaseDeferredOption(
-                    gestureID: gestureID,
-                    reason: "short-doubao"
+                    gestureID: gestureID
                 )
             } else {
                 self.filter.cancelDeferredOption(
-                    gestureID: gestureID,
-                    reason: "short-binding-disabled-or-custom"
+                    gestureID: gestureID
                 )
             }
         }
         voicePress.onHardwareOptionGateCancel = { [weak self] gestureID in
             self?.filter.cancelDeferredOption(
-                gestureID: gestureID,
-                reason: "gesture-cancelled"
+                gestureID: gestureID
             )
         }
 
         // ATVV audio connection.
-        filter.onVoiceKeyDown = { [weak self] sessionID in
-            self?.beginVoicePress(sessionID: sessionID)
+        filter.onVoiceKeyDown = { [weak self] diagnosticSessionID in
+            self?.beginVoicePress(diagnosticSessionID: diagnosticSessionID)
         }
-        filter.onVoiceKeyUp = { [weak self] sessionID in
+        filter.onVoiceKeyUp = { [weak self] diagnosticSessionID in
             guard let self else { return }
             if self.voicePress.keyUp() {
-                VoiceTimingLogger.mark(
-                    "BLE_STOP_REQUEST",
-                    sessionID: sessionID,
-                    uptime: ProcessInfo.processInfo.systemUptime
-                )
+                if let diagnosticSessionID {
+                    VoiceOptionTrace.timingMark(
+                        .bleStopRequest,
+                        sessionID: diagnosticSessionID,
+                        uptime: ProcessInfo.processInfo.systemUptime
+                    )
+                } else {
+                    VoiceOptionTrace.timingMark(
+                        .bleStopRequest,
+                        uptime: ProcessInfo.processInfo.systemUptime
+                    )
+                }
                 self.ble.stopVoiceInput()
             }
         }
@@ -1902,34 +1896,34 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     && profile.longPressBehavior != .none
                 if usesRemoteMicrophone {
                     if isDown {
-                        let sessionID = UUID()
-                        self.voiceTraceSessionID = sessionID
+                        let diagnosticSessionID = UUID()
+                        self.voiceTraceSessionID = diagnosticSessionID
                         VoiceOptionTrace.rawF5Down(
-                            sessionID: sessionID,
+                            sessionID: diagnosticSessionID,
                             uptime: timestamp,
                             remoteHIDActive: self.hidConnected,
                             mappingEnabled: RemoteVoiceKeyMapping.isEnabled
                         )
                         self.beginVoicePress(
-                            sessionID: sessionID,
+                            diagnosticSessionID: diagnosticSessionID,
                             targetApplicationBundleIdentifier: self.mappingStore
                                 .activePressApplicationBundleIdentifier(for: button),
                             shortBinding: binding
                         )
                     } else {
-                        let sessionID = self.voiceTraceSessionID
+                        let diagnosticSessionID = self.voiceTraceSessionID
                         self.voiceTraceSessionID = nil
-                        if let sessionID {
+                        if let diagnosticSessionID {
                             VoiceOptionTrace.rawF5Up(
-                                sessionID: sessionID,
+                                sessionID: diagnosticSessionID,
                                 uptime: timestamp
                             )
                         }
                         if self.voicePress.keyUp() {
-                            if let sessionID {
-                                VoiceTimingLogger.mark(
-                                    "BLE_STOP_REQUEST",
-                                    sessionID: sessionID,
+                            if let diagnosticSessionID {
+                                VoiceOptionTrace.timingMark(
+                                    .bleStopRequest,
+                                    sessionID: diagnosticSessionID,
                                     uptime: timestamp
                                 )
                             }

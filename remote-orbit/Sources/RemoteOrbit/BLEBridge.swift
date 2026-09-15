@@ -201,7 +201,7 @@ final class BLEBridge: NSObject {
                 let command = try protocolHandler.micCloseCommand(streamID: streamID)
                 writeCommand(command)
                 print("[BLE] TX micClose")
-                VoiceTimingLogger.mark("MIC_CLOSE_TX")
+                VoiceOptionTrace.timingMark(.micCloseTx)
             } catch {
                 print("[BLE] micClose error: \(error.localizedDescription)")
             }
@@ -469,7 +469,7 @@ final class BLEBridge: NSObject {
             writeCommand(try protocolHandler.micOpenCommand())
             micOpenRequested = true
             print("[BLE] TX micOpen (voice hold)")
-            VoiceTimingLogger.mark("MIC_OPEN_TX")
+            VoiceOptionTrace.timingMark(.micOpenTx)
         } catch {
             print("[BLE] micOpen error: \(error.localizedDescription)")
         }
@@ -792,7 +792,7 @@ extension BLEBridge: CBPeripheralDelegate {
                 : nil
             startKeepAliveTimer()
             print("[BLE] AUDIO_START streamID=\(sid)")
-            VoiceTimingLogger.mark("AUDIO_START")
+            VoiceOptionTrace.timingMark(.audioStart)
         case .audioStop(let reason):
             guard isStreaming else {
                 print("[BLE] AUDIO_STOP duplicate ignored reason=0x\(String(format: "%02x", reason))")
@@ -804,7 +804,7 @@ extension BLEBridge: CBPeripheralDelegate {
             }
             pendingAudioStopReason = reason
             stopKeepAliveTimer()
-            VoiceTimingLogger.mark("AUDIO_STOP")
+            VoiceOptionTrace.timingMark(.audioStop)
             print(
                 "[BLE] AUDIO_STOP received; draining audio tail " +
                     "for \(Int(audioStopDrainDelay * 1_000))ms " +
@@ -945,9 +945,9 @@ extension BLEBridge: CBPeripheralDelegate {
         isStreaming = false
         protocolHandler.endAudioStream()
         if lastAudioAt != nil {
-            VoiceTimingLogger.mark("LAST_AUDIO_FRAME")
+            VoiceOptionTrace.timingMark(.lastAudioFrame)
         }
-        VoiceTimingLogger.mark("DRAIN_FINISH")
+        VoiceOptionTrace.timingMark(.drainFinish)
         notifyStreaming(false)
         levelSumSq = 0
         levelCount = 0

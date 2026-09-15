@@ -1,6 +1,58 @@
 import Foundation
 import CoreGraphics
 
+enum VoiceTimingEvent: Int64 {
+    case voiceDown
+    case rawF5Down
+    case rawF5Up
+    case optionGateBegin
+    case optionGateRelease
+    case optionGateCancel
+    case optionCopyOK
+    case optionCopyFailed
+    case optionResolution
+    case physicalUp
+    case audioFirst
+    case routeOff
+    case holdConfirmed
+    case bleStartRequest
+    case remoteRouteBegin
+    case bleStopRequest
+    case micCloseTx
+    case micOpenTx
+    case audioStart
+    case audioStop
+    case lastAudioFrame
+    case drainFinish
+
+    var name: String {
+        switch self {
+        case .voiceDown: return "VOICE_DOWN"
+        case .rawF5Down: return "RAW_F5_DOWN"
+        case .rawF5Up: return "RAW_F5_UP"
+        case .optionGateBegin: return "OPTION_GATE_BEGIN"
+        case .optionGateRelease: return "OPTION_GATE_RELEASE"
+        case .optionGateCancel: return "OPTION_GATE_CANCEL"
+        case .optionCopyOK: return "OPTION_COPY_OK"
+        case .optionCopyFailed: return "OPTION_COPY_FAILED"
+        case .optionResolution: return "OPTION_RESOLUTION"
+        case .physicalUp: return "PHYSICAL_UP"
+        case .audioFirst: return "AUDIO_FIRST"
+        case .routeOff: return "ROUTE_OFF"
+        case .holdConfirmed: return "HOLD_CONFIRMED"
+        case .bleStartRequest: return "BLE_START_REQUEST"
+        case .remoteRouteBegin: return "REMOTE_ROUTE_BEGIN"
+        case .bleStopRequest: return "BLE_STOP_REQUEST"
+        case .micCloseTx: return "MIC_CLOSE_TX"
+        case .micOpenTx: return "MIC_OPEN_TX"
+        case .audioStart: return "AUDIO_START"
+        case .audioStop: return "AUDIO_STOP"
+        case .lastAudioFrame: return "LAST_AUDIO_FRAME"
+        case .drainFinish: return "DRAIN_FINISH"
+        }
+    }
+}
+
 /// A process-local timeline for one voice gesture. It is diagnostic only: it
 /// never gates callbacks or changes the voice state machine.
 enum VoiceTimingLogger {
@@ -14,13 +66,15 @@ enum VoiceTimingLogger {
     private static var activeSessionID: UUID?
     private static var sessions: [UUID: SessionTiming] = [:]
 
-    static func begin(
+    /// Called only by VoiceOptionTrace's serial diagnostic queue. Keeping this
+    /// off the event-tap callback prevents diagnostic session bookkeeping from
+    /// changing the physical event's return latency.
+    static func beginForDiagnostics(
         sessionID: UUID,
         at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) {
         lock.lock()
-        let isNewSession = sessions[sessionID] == nil
-        if isNewSession {
+        if sessions[sessionID] == nil {
             sessions[sessionID] = SessionTiming(
                 startedAt: uptime,
                 gateStartedAt: nil,
@@ -29,9 +83,6 @@ enum VoiceTimingLogger {
         }
         activeSessionID = sessionID
         lock.unlock()
-        if isNewSession {
-            mark("VOICE_DOWN", sessionID: sessionID, uptime: uptime)
-        }
     }
 
     @discardableResult
@@ -82,11 +133,15 @@ enum VoiceTimingLogger {
     }
 
     static func end(sessionID: UUID) {
+        VoiceOptionTrace.scheduleSessionEnd(sessionID)
+    }
+
+    static func finishSessionForDiagnostics(_ sessionID: UUID) {
         lock.lock()
-        sessions.removeValue(forKey: sessionID)
         if activeSessionID == sessionID {
             activeSessionID = nil
         }
+        sessions.removeValue(forKey: sessionID)
         lock.unlock()
     }
 
@@ -141,60 +196,153 @@ enum VoiceTimingLogger {
 /// This type deliberately has no state machine, timers, event posting, or
 /// policy decisions. It only records what the existing path observed.
 enum VoiceOptionTrace {
+    private static let diagnosticQueueKey = DispatchSpecificKey<Void>()
+    private static let diagnosticQueue: DispatchQueue = {
+        let queue = DispatchQueue(
+            label: "com.lost0rz.RemoteOrbit.voice-option-diagnostics"
+        )
+        queue.setSpecific(key: diagnosticQueueKey, value: ())
+        return queue
+    }()
+
+    static let controlTraceEnabled = controlTraceEnabled(
+        environment: ProcessInfo.processInfo.environment
+    )
+
+    // This map is owned and mutated only by diagnosticQueue. Product gesture
+    // IDs remain the coordinator's existing ownership IDs; this is solely the
+    // background correlation from a product gesture to a raw F5 trace.
+    private static var diagnosticSessionByGestureID: [UUID: UUID] = [:]
+
+    static func controlTraceEnabled(environment: [String: String]) -> Bool {
+        environment["REMOTEORBIT_OPTION_CONTROL_TRACE"] == "1"
+    }
+
+    /// Warm the diagnostic queue and the environment opt-in before the event
+    /// tap starts. This keeps lazy static initialization out of the callback.
+    static func initialize() {
+        _ = diagnosticQueue
+        _ = controlTraceEnabled
+    }
+
+    private struct OptionEventSnapshot {
+        let typeRawValue: Int64
+        let flagsRawValue: UInt64
+        let keyCode: Int64
+        let autorepeat: Int64
+        let eventSourceUserData: Int64
+        let eventTimestamp: UInt64
+        let keyboardType: Int64
+        let sourceStateID: Int64
+        let sourceProcessID: Int64
+        let sourceUserID: Int64
+        let sourceGroupID: Int64
+        let uptime: TimeInterval
+        let sessionID: UUID?
+        let gateActive: Bool
+        let firstOptionEvent: Bool
+    }
+
+    private static func enqueue(_ work: @escaping () -> Void) {
+        diagnosticQueue.async(execute: work)
+    }
+
+    static func bindGestureSession(
+        diagnosticSessionID: UUID,
+        gestureID: UUID
+    ) {
+        enqueue {
+            diagnosticSessionByGestureID[gestureID] = diagnosticSessionID
+        }
+    }
+
+    #if DEBUG
+    /// Test-only probe used to keep formatting on the diagnostic queue.
+    static func enqueueFormattingProbeForTesting(
+        _ completion: @escaping (Bool) -> Void
+    ) {
+        enqueue {
+            _ = VoiceTimingLogger.formatLine(
+                event: VoiceTimingEvent.optionResolution.name,
+                shortID: "TEST",
+                uptime: 2,
+                startedAt: 1,
+                gateStartedAt: nil,
+                firstOptionAt: nil
+            )
+            completion(
+                DispatchQueue.getSpecific(key: diagnosticQueueKey) != nil
+            )
+        }
+    }
+
+    static func waitForDiagnosticsForTesting() {
+        diagnosticQueue.sync {}
+    }
+    #endif
+
     static func rawF5Down(
         sessionID: UUID,
         uptime: TimeInterval,
         remoteHIDActive: Bool,
         mappingEnabled: Bool
     ) {
-        VoiceTimingLogger.begin(sessionID: sessionID, at: uptime)
-        VoiceTimingLogger.mark(
-            "RAW_F5_DOWN",
-            sessionID: sessionID,
-            uptime: uptime,
-            details: "remoteHIDActive=\(remoteHIDActive) "
-                + "mappingEnabled=\(mappingEnabled)"
-        )
+        enqueue {
+            VoiceTimingLogger.beginForDiagnostics(sessionID: sessionID, at: uptime)
+            VoiceTimingLogger.mark(
+                VoiceTimingEvent.voiceDown.name,
+                sessionID: sessionID,
+                uptime: uptime
+            )
+            VoiceTimingLogger.mark(
+                VoiceTimingEvent.rawF5Down.name,
+                sessionID: sessionID,
+                uptime: uptime,
+                details: "remoteHIDActive=\(remoteHIDActive) "
+                    + "mappingEnabled=\(mappingEnabled)"
+            )
+        }
     }
 
     static func rawF5Up(sessionID: UUID, uptime: TimeInterval) {
-        VoiceTimingLogger.mark("RAW_F5_UP", sessionID: sessionID, uptime: uptime)
+        timingMark(.rawF5Up, sessionID: sessionID, uptime: uptime)
     }
 
     static func gateBegin(sessionID: UUID, uptime: TimeInterval) {
-        VoiceTimingLogger.mark("OPTION_GATE_BEGIN", sessionID: sessionID, uptime: uptime)
+        timingMark(.optionGateBegin, sessionID: sessionID, uptime: uptime)
     }
 
     static func gateRelease(
         sessionID: UUID,
-        uptime: TimeInterval,
-        reason: String
+        uptime: TimeInterval
     ) {
-        VoiceTimingLogger.mark(
-            "OPTION_GATE_RELEASE",
-            sessionID: sessionID,
-            uptime: uptime,
-            details: "reason=\(reason)"
-        )
+        enqueue {
+            VoiceTimingLogger.mark(
+                VoiceTimingEvent.optionGateRelease.name,
+                sessionID: diagnosticSessionID(for: sessionID),
+                uptime: uptime
+            )
+        }
     }
 
     static func gateCancel(
         sessionID: UUID,
         uptime: TimeInterval,
-        reason: String,
         downSeen: Bool,
         upSeen: Bool,
         downCopyCount: Int,
         upCopyCount: Int
     ) {
-        VoiceTimingLogger.mark(
-            "OPTION_GATE_CANCEL",
-            sessionID: sessionID,
-            uptime: uptime,
-            details: "reason=\(reason) downSeen=\(downSeen) "
-                + "upSeen=\(upSeen) downCopyCount=\(downCopyCount) "
-                + "upCopyCount=\(upCopyCount)"
-        )
+        enqueue {
+            VoiceTimingLogger.mark(
+                VoiceTimingEvent.optionGateCancel.name,
+                sessionID: diagnosticSessionID(for: sessionID),
+                uptime: uptime,
+                details: "downSeen=\(downSeen) "
+                    + "upSeen=\(upSeen) downCopyCount=\(downCopyCount) "
+                    + "upCopyCount=\(upCopyCount)"
+            )
+        }
     }
 
     static func optionEvent(
@@ -204,18 +352,25 @@ enum VoiceOptionTrace {
         uptime: TimeInterval,
         firstOptionEvent: Bool
     ) {
-        let eventName = optionEventName(type: type, event: event)
-        VoiceTimingLogger.mark(
-            eventName,
-            sessionID: sessionID,
+        let snapshot = makeOptionEventSnapshot(
+            type: type,
+            event: event,
             uptime: uptime,
-            details: optionEventDetails(
-                type: type,
-                event: event,
-                gateActive: true,
-                firstOptionEvent: firstOptionEvent
-            )
+            sessionID: sessionID,
+            gateActive: true,
+            firstOptionEvent: firstOptionEvent
         )
+        enqueue {
+            let diagnosticSessionID = snapshot.sessionID.map {
+                self.diagnosticSessionID(for: $0)
+            }
+            VoiceTimingLogger.mark(
+                optionEventName(snapshot: snapshot),
+                sessionID: diagnosticSessionID,
+                uptime: snapshot.uptime,
+                details: optionEventDetails(snapshot: snapshot)
+            )
+        }
     }
 
     static func controlOptionEvent(
@@ -223,16 +378,45 @@ enum VoiceOptionTrace {
         event: CGEvent,
         uptime: TimeInterval
     ) {
-        VoiceTimingLogger.markControl(
-            optionEventName(type: type, event: event),
+        guard controlTraceEnabled else { return }
+        let snapshot = makeOptionEventSnapshot(
+            type: type,
+            event: event,
             uptime: uptime,
-            details: optionEventDetails(
-                type: type,
-                event: event,
-                gateActive: false,
-                firstOptionEvent: false
-            )
+            sessionID: nil,
+            gateActive: false,
+            firstOptionEvent: false
         )
+        enqueue {
+            VoiceTimingLogger.markControl(
+                optionEventName(snapshot: snapshot),
+                uptime: snapshot.uptime,
+                details: optionEventDetails(snapshot: snapshot)
+            )
+        }
+    }
+
+    static func timingMark(
+        _ event: VoiceTimingEvent,
+        sessionID: UUID,
+        uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
+        enqueue {
+            VoiceTimingLogger.mark(
+                event.name,
+                sessionID: diagnosticSessionID(for: sessionID),
+                uptime: uptime
+            )
+        }
+    }
+
+    static func timingMark(
+        _ event: VoiceTimingEvent,
+        uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
+        enqueue {
+            VoiceTimingLogger.mark(event.name, uptime: uptime)
+        }
     }
 
     static func copyResult(
@@ -241,12 +425,17 @@ enum VoiceOptionTrace {
         copied: Bool,
         uptime: TimeInterval
     ) {
-        VoiceTimingLogger.mark(
-            copied ? "OPTION_COPY_OK" : "OPTION_COPY_FAILED",
-            sessionID: sessionID,
-            uptime: uptime,
-            details: "direction=\(edgeName(edge))"
-        )
+        let directionRawValue: Int64 = edge == .down ? 0 : 1
+        enqueue {
+            VoiceTimingLogger.mark(
+                copied
+                    ? VoiceTimingEvent.optionCopyOK.name
+                    : VoiceTimingEvent.optionCopyFailed.name,
+                sessionID: diagnosticSessionID(for: sessionID),
+                uptime: uptime,
+                details: "direction=\(directionName(rawValue: directionRawValue))"
+            )
+        }
     }
 
     static func resolution(
@@ -258,77 +447,121 @@ enum VoiceOptionTrace {
         downCopyCount: Int,
         upCopyCount: Int
     ) {
-        VoiceTimingLogger.mark(
-            "OPTION_RESOLUTION",
-            sessionID: sessionID,
-            uptime: uptime,
-            details: "resolution=\(resolutionName(resolution)) "
-                + "downSeen=\(downSeen) upSeen=\(upSeen) "
-                + "downCopyCount=\(downCopyCount) upCopyCount=\(upCopyCount)"
-        )
-    }
-
-    private static func optionEventName(type: CGEventType, event: CGEvent) -> String {
-        switch type {
-        case .flagsChanged:
-            return event.flags.contains(.maskAlternate)
-                ? "OPTION_FLAGS_DOWN_SEEN"
-                : "OPTION_FLAGS_UP_SEEN"
-        case .keyDown:
-            return "OPTION_KEY_DOWN_SEEN"
-        case .keyUp:
-            return "OPTION_KEY_UP_SEEN"
-        default:
-            return "OPTION_EVENT_SEEN"
+        let resolutionRawValue = resolution.rawValue
+        enqueue {
+            VoiceTimingLogger.mark(
+                VoiceTimingEvent.optionResolution.name,
+                sessionID: diagnosticSessionID(for: sessionID),
+                uptime: uptime,
+                details: "resolution=\(resolutionName(rawValue: resolutionRawValue)) "
+                    + "downSeen=\(downSeen) upSeen=\(upSeen) "
+                    + "downCopyCount=\(downCopyCount) upCopyCount=\(upCopyCount)"
+            )
         }
     }
 
-    private static func optionEventDetails(
+    static func scheduleSessionEnd(_ sessionID: UUID) {
+        enqueue {
+            let diagnosticID = diagnosticSessionByGestureID.removeValue(forKey: sessionID)
+                ?? sessionID
+            VoiceTimingLogger.finishSessionForDiagnostics(diagnosticID)
+        }
+    }
+
+    private static func diagnosticSessionID(for gestureID: UUID) -> UUID {
+        diagnosticSessionByGestureID[gestureID] ?? gestureID
+    }
+
+    private static func makeOptionEventSnapshot(
         type: CGEventType,
         event: CGEvent,
+        uptime: TimeInterval,
+        sessionID: UUID?,
         gateActive: Bool,
         firstOptionEvent: Bool
-    ) -> String {
+    ) -> OptionEventSnapshot {
+        OptionEventSnapshot(
+            typeRawValue: Int64(type.rawValue),
+            flagsRawValue: UInt64(event.flags.rawValue),
+            keyCode: event.getIntegerValueField(.keyboardEventKeycode),
+            autorepeat: event.getIntegerValueField(.keyboardEventAutorepeat),
+            eventSourceUserData: event.getIntegerValueField(.eventSourceUserData),
+            eventTimestamp: event.timestamp,
+            keyboardType: event.getIntegerValueField(.keyboardEventKeyboardType),
+            sourceStateID: event.getIntegerValueField(.eventSourceStateID),
+            sourceProcessID: event.getIntegerValueField(.eventSourceUnixProcessID),
+            sourceUserID: event.getIntegerValueField(.eventSourceUserID),
+            sourceGroupID: event.getIntegerValueField(.eventSourceGroupID),
+            uptime: uptime,
+            sessionID: sessionID,
+            gateActive: gateActive,
+            firstOptionEvent: firstOptionEvent
+        )
+    }
+
+    private static func optionEventName(snapshot: OptionEventSnapshot) -> String {
+        if snapshot.typeRawValue == Int64(CGEventType.flagsChanged.rawValue) {
+            return snapshot.flagsRawValue & CGEventFlags.maskAlternate.rawValue != 0
+                ? "OPTION_FLAGS_DOWN_SEEN"
+                : "OPTION_FLAGS_UP_SEEN"
+        }
+        if snapshot.typeRawValue == Int64(CGEventType.keyDown.rawValue) {
+            return "OPTION_KEY_DOWN_SEEN"
+        }
+        if snapshot.typeRawValue == Int64(CGEventType.keyUp.rawValue) {
+            return "OPTION_KEY_UP_SEEN"
+        }
+        return "OPTION_EVENT_SEEN"
+    }
+
+    private static func optionEventDetails(snapshot: OptionEventSnapshot) -> String {
         let fields = [
-            "type=\(eventTypeName(type))",
-            "flags=0x\(String(event.flags.rawValue, radix: 16))",
-            "keyboardEventKeycode=\(event.getIntegerValueField(.keyboardEventKeycode))",
-            "keyboardEventAutorepeat=\(event.getIntegerValueField(.keyboardEventAutorepeat))",
-            "eventSourceUserData=\(event.getIntegerValueField(.eventSourceUserData))",
-            "eventTimestamp=\(event.timestamp)",
-            "keyboardEventKeyboardType=\(event.getIntegerValueField(.keyboardEventKeyboardType))",
-            "eventSourceStateID=\(event.getIntegerValueField(.eventSourceStateID))",
-            "eventSourceUnixProcessID=\(event.getIntegerValueField(.eventSourceUnixProcessID))",
-            "eventSourceUserID=\(event.getIntegerValueField(.eventSourceUserID))",
-            "eventSourceGroupID=\(event.getIntegerValueField(.eventSourceGroupID))",
-            "gateActive=\(gateActive)",
-            "firstOptionEvent=\(firstOptionEvent)",
+            "type=\(eventTypeName(rawValue: snapshot.typeRawValue))",
+            "flags=0x\(String(snapshot.flagsRawValue, radix: 16))",
+            "keyboardEventKeycode=\(snapshot.keyCode)",
+            "keyboardEventAutorepeat=\(snapshot.autorepeat)",
+            "eventSourceUserData=\(snapshot.eventSourceUserData)",
+            "eventTimestamp=\(snapshot.eventTimestamp)",
+            "keyboardEventKeyboardType=\(snapshot.keyboardType)",
+            "eventSourceStateID=\(snapshot.sourceStateID)",
+            "eventSourceUnixProcessID=\(snapshot.sourceProcessID)",
+            "eventSourceUserID=\(snapshot.sourceUserID)",
+            "eventSourceGroupID=\(snapshot.sourceGroupID)",
+            "gateActive=\(snapshot.gateActive)",
+            "firstOptionEvent=\(snapshot.firstOptionEvent)",
         ]
         return fields.joined(separator: " ")
     }
 
-    private static func eventTypeName(_ type: CGEventType) -> String {
-        switch type {
-        case .flagsChanged: return "flagsChanged"
-        case .keyDown: return "keyDown"
-        case .keyUp: return "keyUp"
-        default: return "raw\(type.rawValue)"
+    private static func eventTypeName(rawValue: Int64) -> String {
+        if rawValue == Int64(CGEventType.flagsChanged.rawValue) {
+            return "flagsChanged"
         }
+        if rawValue == Int64(CGEventType.keyDown.rawValue) {
+            return "keyDown"
+        }
+        if rawValue == Int64(CGEventType.keyUp.rawValue) {
+            return "keyUp"
+        }
+        return "raw\(rawValue)"
     }
 
-    private static func edgeName(_ edge: HardwareOptionEdge) -> String {
-        switch edge {
-        case .down: return "down"
-        case .up: return "up"
-        }
+    private static func directionName(rawValue: Int64) -> String {
+        rawValue == 0 ? "down" : "up"
     }
 
-    private static func resolutionName(_ resolution: HardwareOptionResolution) -> String {
-        switch resolution {
-        case .hardwareReplay: return "hardwareReplay"
-        case .syntheticTap: return "syntheticTap"
-        case .syntheticDown: return "syntheticDown"
-        case .noOptionEdge: return "noOptionEdge"
+    private static func resolutionName(rawValue: Int64) -> String {
+        switch rawValue {
+        case HardwareOptionResolution.hardwareReplay.rawValue:
+            return "hardwareReplay"
+        case HardwareOptionResolution.syntheticTap.rawValue:
+            return "syntheticTap"
+        case HardwareOptionResolution.syntheticDown.rawValue:
+            return "syntheticDown"
+        case HardwareOptionResolution.noOptionEdge.rawValue:
+            return "noOptionEdge"
+        default:
+            return "raw\(rawValue)"
         }
     }
 }
@@ -341,7 +574,7 @@ enum HardwareOptionEdge: Equatable {
     case up
 }
 
-enum HardwareOptionResolution: Equatable {
+enum HardwareOptionResolution: Int64, Equatable {
     case hardwareReplay
     case syntheticTap
     case syntheticDown
