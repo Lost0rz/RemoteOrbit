@@ -1184,6 +1184,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
 
+    static func bypassesShortClassification(for _: ButtonBinding) -> Bool {
+        // A disabled short action still uses the normal short-vs-long classifier.
+        false
+    }
+
     private func beginVoicePress(
         targetApplicationBundleIdentifier lockedTarget: String? = nil,
         shortBinding: ButtonBinding? = nil
@@ -1220,7 +1225,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let togglesLocalMicrophone = VoicePressCoordinator.togglesLocalMicrophone(
             forShortBinding: resolvedShortBinding
         )
-        let bypassesShortClassification = resolvedShortBinding.isDisabled
+        let bypassesShortClassification = Self.bypassesShortClassification(
+            for: resolvedShortBinding
+        )
         // Local capture is deliberately lazy. Starting it here would open the
         // physical microphone during the 300 ms short-vs-long classification
         // window, so a long hold would still briefly invoke the external mic.
