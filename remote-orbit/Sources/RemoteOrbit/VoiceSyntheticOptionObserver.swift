@@ -8,7 +8,9 @@ struct VoiceSyntheticOptionClassification: Equatable {
 }
 
 /// A listen-only observer for the two CGEvents making up one synthetic
-/// Option edge. It never suppresses, rewrites, or triggers voice lifecycle.
+/// fallback Option edge. It never suppresses, rewrites, or triggers voice
+/// lifecycle; hardware-primary sessions are intentionally excluded from its
+/// correlation path by `VoiceSessionDiagnostics`.
 final class VoiceSyntheticOptionObserver {
     typealias Handler = (
         _ direction: VoiceOptionDirection,

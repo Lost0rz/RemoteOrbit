@@ -120,6 +120,208 @@ enum VoiceTimingLogger {
     }
 }
 
+enum HardwareOptionEdge: Equatable {
+    case down
+    case up
+}
+
+enum HardwareOptionResolution: Equatable {
+    case hardwareReplay
+    case syntheticTap
+    case syntheticDown
+    case noOptionEdge
+}
+
+enum HardwareOptionOwner: String, Equatable {
+    case hardware
+    case syntheticFallback = "synthetic_fallback"
+}
+
+enum HardwareOptionGateState: Equatable {
+    case waitingForHardware
+    case hardwareOwned
+    case fallbackOwned
+    case resolved
+    case cancelled
+}
+
+enum HardwareOptionEventDisposition: Equatable {
+    case deferred
+    case suppressedLate
+    case passThrough
+    case ignored
+}
+
+/// Coordinates the mapped physical Option edge with the voice gesture.
+///
+/// The gate is deliberately independent from `VoiceOptionTrigger`: hardware
+/// owns the normal path, while the synthetic trigger is selected only after a
+/// missing/copy-failed physical edge is explicitly resolved as fallback.
+final class HardwareOptionGate {
+    private(set) var activeSessionID: UUID?
+    private(set) var state: HardwareOptionGateState = .cancelled
+    private(set) var selectedOwner: HardwareOptionOwner?
+    private(set) var fallbackReason: String?
+    private(set) var hardwareDownSeen = false
+    private(set) var hardwareUpSeen = false
+    private(set) var copiedDownPresent = false
+
+    private var replayedDownAwaitingPhysicalUp = false
+    private var hardwareCopyFailed = false
+
+    @discardableResult
+    func begin(sessionID: UUID) -> Bool {
+        if let activeSessionID, activeSessionID != sessionID {
+            _ = cancel(sessionID: activeSessionID)
+        }
+        guard activeSessionID != sessionID else { return true }
+        self.activeSessionID = sessionID
+        state = .waitingForHardware
+        selectedOwner = nil
+        fallbackReason = nil
+        hardwareDownSeen = false
+        hardwareUpSeen = false
+        copiedDownPresent = false
+        replayedDownAwaitingPhysicalUp = false
+        hardwareCopyFailed = false
+        return true
+    }
+
+    /// Compatibility/test seam that reports whether an edge was deferred.
+    @discardableResult
+    func capture(_ edge: HardwareOptionEdge, copied: Bool) -> Bool {
+        captureEvent(edge, copied: copied) == .deferred
+    }
+
+    /// Record an edge and tell the event tap whether to defer, suppress, or
+    /// pass it through. The caller supplies whether `CGEvent.copy()` worked.
+    @discardableResult
+    func captureEvent(
+        _ edge: HardwareOptionEdge,
+        copied: Bool
+    ) -> HardwareOptionEventDisposition {
+        guard activeSessionID != nil else { return .ignored }
+
+        switch state {
+        case .waitingForHardware, .hardwareOwned:
+            switch edge {
+            case .down:
+                hardwareDownSeen = true
+                if copied {
+                    copiedDownPresent = true
+                    state = .hardwareOwned
+                } else {
+                    hardwareCopyFailed = true
+                }
+                return .deferred
+            case .up:
+                guard hardwareDownSeen else { return .passThrough }
+                hardwareUpSeen = true
+                if !copied {
+                    hardwareCopyFailed = true
+                }
+                return .deferred
+            }
+        case .fallbackOwned:
+            return .suppressedLate
+        case .resolved:
+            if edge == .up, replayedDownAwaitingPhysicalUp {
+                replayedDownAwaitingPhysicalUp = false
+                activeSessionID = nil
+                return .passThrough
+            }
+            return .suppressedLate
+        case .cancelled:
+            return .passThrough
+        }
+    }
+
+    @discardableResult
+    func resolve(sessionID: UUID) -> HardwareOptionResolution? {
+        guard activeSessionID == sessionID else { return nil }
+        guard state == .waitingForHardware || state == .hardwareOwned else {
+            return nil
+        }
+        if copiedDownPresent, !hardwareCopyFailed {
+            selectedOwner = .hardware
+            state = .resolved
+            return .hardwareReplay
+        }
+        return resolutionWithoutOwner()
+    }
+
+    /// Select synthetic fallback after the caller has reached the narrow
+    /// resolution point (first PCM for a long press, or copy failure).
+    @discardableResult
+    func selectFallback(
+        sessionID: UUID,
+        reason: String
+    ) -> HardwareOptionResolution? {
+        guard activeSessionID == sessionID else { return nil }
+        guard state == .waitingForHardware || state == .hardwareOwned else {
+            return nil
+        }
+        selectedOwner = .syntheticFallback
+        fallbackReason = reason
+        state = .fallbackOwned
+        let resolution = resolutionWithoutOwner()
+        return resolution == .noOptionEdge ? .syntheticDown : resolution
+    }
+
+    func owner(for sessionID: UUID) -> HardwareOptionOwner? {
+        guard activeSessionID == sessionID else { return nil }
+        return selectedOwner
+    }
+
+    /// Returns true when an event must be dropped because fallback already
+    /// owns the session, or because it is a duplicate after hardware replay.
+    @discardableResult
+    func shouldSuppressLateHardwareEvent(
+        _ edge: HardwareOptionEdge,
+        sessionID: UUID
+    ) -> Bool {
+        guard activeSessionID == sessionID else { return false }
+        return captureEvent(edge, copied: false) == .suppressedLate
+    }
+
+    /// Finish hardware replay. If only the copied down was replayed, retain a
+    /// tiny resolved gate so the matching physical up can pass exactly once.
+    func completeHardwareReplay(
+        sessionID: UUID,
+        replayedDown: Bool,
+        replayedUp: Bool
+    ) {
+        guard activeSessionID == sessionID,
+              selectedOwner == .hardware,
+              state == .resolved
+        else { return }
+        replayedDownAwaitingPhysicalUp = replayedDown && !replayedUp
+        if !replayedDownAwaitingPhysicalUp {
+            activeSessionID = nil
+        }
+    }
+
+    @discardableResult
+    func cancel(sessionID: UUID) -> Bool {
+        guard activeSessionID == sessionID else { return false }
+        activeSessionID = nil
+        state = .cancelled
+        selectedOwner = nil
+        fallbackReason = nil
+        hardwareDownSeen = false
+        hardwareUpSeen = false
+        copiedDownPresent = false
+        replayedDownAwaitingPhysicalUp = false
+        hardwareCopyFailed = false
+        return true
+    }
+
+    private func resolutionWithoutOwner() -> HardwareOptionResolution {
+        guard hardwareDownSeen else { return .noOptionEdge }
+        return hardwareUpSeen ? .syntheticTap : .syntheticDown
+    }
+}
+
 /// Owns synthetic Option edges for one voice gesture. In particular, the
 /// delayed up from a short tap is ignored once a newer session owns the
 /// trigger, so it cannot release the newer gesture.

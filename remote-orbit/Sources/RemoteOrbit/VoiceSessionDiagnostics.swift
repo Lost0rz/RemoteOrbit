@@ -64,6 +64,14 @@ struct VoiceSessionSummary: Equatable {
     let shortBindingMode: String
     let bypassShortClassification: Bool
     let targetBundleID: String?
+    let optionOwner: HardwareOptionOwner?
+    let hardwareDownSeen: Bool
+    let hardwareUpSeen: Bool
+    let hardwareReplayPerformed: Bool
+    let syntheticDownRequests: Int
+    let syntheticUpRequests: Int
+    let lateHardwareSuppressed: Bool
+    let fallbackReason: String?
     let lifecycle: VoiceSessionLifecycle
     let completion: VoiceSessionCompletion
     let firstPCM: Bool
@@ -84,6 +92,9 @@ struct VoiceSessionSummary: Equatable {
     let invariantViolations: Int
 
     var deliveryEvidence: String {
+        if optionOwner == .hardware {
+            return hardwareReplayPerformed ? "hardware-replay" : "hardware-captured"
+        }
         guard observerAvailable else { return "observer-unavailable" }
         let hasCompleteDown = downFlagsPosted > 0 && downKeyPosted > 0
             && downFlagsObserved > 0 && downKeyObserved > 0
@@ -129,6 +140,12 @@ final class VoiceSessionDiagnostics {
         var firstPCMStages = Set<VoicePCMStage>()
         var optionDownRequests = 0
         var optionUpRequests = 0
+        var optionOwner: HardwareOptionOwner?
+        var fallbackReason: String?
+        var hardwareDownSeen = false
+        var hardwareUpSeen = false
+        var hardwareReplayPerformed = false
+        var lateHardwareSuppressed = false
         var downFlagsPosted = 0
         var downKeyPosted = 0
         var upFlagsPosted = 0
@@ -251,6 +268,135 @@ final class VoiceSessionDiagnostics {
         )
     }
 
+    func recordRemoteF5Mapping(enabled: Bool, success: Bool) {
+        emitGlobal(
+            category: .hid,
+            event: "REMOTE_F5_HID_MAPPING",
+            fields: [
+                "enabled": String(enabled),
+                "success": String(success),
+                "owner": success && enabled ? "hardware" : "synthetic_fallback",
+            ]
+        )
+    }
+
+    func recordOptionOwnerSelected(
+        sessionID: UUID,
+        owner: HardwareOptionOwner,
+        fallbackReason: String? = nil
+    ) {
+        lock.lock()
+        guard let state = sessions[sessionID], state.summary == nil else {
+            lock.unlock()
+            return
+        }
+        guard state.optionOwner != owner || state.fallbackReason != fallbackReason else {
+            lock.unlock()
+            return
+        }
+        state.optionOwner = owner
+        state.fallbackReason = fallbackReason.map(Self.safeValue)
+        var fields = ["owner": owner.rawValue]
+        if let fallbackReason {
+            fields["fallbackReason"] = Self.safeValue(fallbackReason)
+        }
+        let event = appendEventLocked(
+            state,
+            category: .option,
+            event: "OPTION_OWNER_SELECTED",
+            fields: fields
+        )
+        lock.unlock()
+        emit(event)
+    }
+
+    func recordHardwareOptionEdge(
+        sessionID: UUID,
+        direction: VoiceOptionDirection
+    ) {
+        lock.lock()
+        guard let state = sessions[sessionID], state.summary == nil else {
+            lock.unlock()
+            return
+        }
+        switch direction {
+        case .down:
+            state.hardwareDownSeen = true
+            let event = appendEventLocked(
+                state,
+                category: .option,
+                event: "HARDWARE_OPTION_DOWN_CAPTURED"
+            )
+            lock.unlock()
+            emit(event)
+        case .up:
+            state.hardwareUpSeen = true
+            let event = appendEventLocked(
+                state,
+                category: .option,
+                event: "HARDWARE_OPTION_UP_CAPTURED"
+            )
+            lock.unlock()
+            emit(event)
+        }
+    }
+
+    func recordHardwareOptionCopyFailed(
+        sessionID: UUID,
+        direction: VoiceOptionDirection
+    ) {
+        record(
+            sessionID: sessionID,
+            category: .option,
+            event: "HARDWARE_OPTION_COPY_FAILED",
+            fields: ["direction": direction.rawValue]
+        )
+    }
+
+    func recordHardwareOptionReplay(
+        sessionID: UUID,
+        downCount: Int,
+        upCount: Int
+    ) {
+        lock.lock()
+        guard let state = sessions[sessionID], state.summary == nil else {
+            lock.unlock()
+            return
+        }
+        state.hardwareReplayPerformed = true
+        let event = appendEventLocked(
+            state,
+            category: .option,
+            event: "HARDWARE_OPTION_REPLAY",
+            fields: [
+                "downEvents": String(downCount),
+                "upEvents": String(upCount),
+            ]
+        )
+        lock.unlock()
+        emit(event)
+    }
+
+    func recordLateHardwareOptionSuppressed(
+        sessionID: UUID,
+        direction: VoiceOptionDirection
+    ) {
+        lock.lock()
+        guard let state = sessions[sessionID], state.summary == nil else {
+            lock.unlock()
+            return
+        }
+        state.lateHardwareSuppressed = true
+        let event = appendEventLocked(
+            state,
+            category: .option,
+            event: "LATE_HARDWARE_OPTION_SUPPRESSED",
+            fields: ["direction": direction.rawValue]
+        )
+        lock.unlock()
+        emit(event)
+    }
+
     func record(
         sessionID: UUID,
         category: VoiceDiagnosticCategory,
@@ -308,7 +454,23 @@ final class VoiceSessionDiagnostics {
         }
         let eventName = requestedEvent
             ?? (direction == .down ? "OPTION_DOWN_REQUEST" : "OPTION_UP_REQUEST")
-        var events = [appendEventLocked(state, category: .option, event: eventName)]
+        var events: [VoiceDiagnosticEvent] = []
+        if state.optionOwner == nil {
+            state.optionOwner = .syntheticFallback
+            state.fallbackReason = "synthetic-option-request"
+            events.append(
+                appendEventLocked(
+                    state,
+                    category: .option,
+                    event: "OPTION_OWNER_SELECTED",
+                    fields: [
+                        "owner": HardwareOptionOwner.syntheticFallback.rawValue,
+                        "fallbackReason": "synthetic-option-request",
+                    ]
+                )
+            )
+        }
+        events.append(appendEventLocked(state, category: .option, event: eventName))
         switch direction {
         case .down:
             state.optionDownRequests += 1
@@ -319,6 +481,11 @@ final class VoiceSessionDiagnostics {
             }
             if state.logicalOptionDown {
                 events.append(appendInvariantLocked(state, type: "duplicate-option-down"))
+            }
+            if state.optionOwner == .hardware {
+                events.append(
+                    appendInvariantLocked(state, type: "synthetic-option-on-hardware-owner")
+                )
             }
             state.logicalOptionDown = true
             state.expectedOptionEdges.append(
@@ -379,7 +546,9 @@ final class VoiceSessionDiagnostics {
         lock.lock()
         purgeExpiredExpectedEdgesLocked(now: now)
         let candidates = sessions.values
-            .filter { $0.summary == nil }
+            .filter {
+                $0.summary == nil && $0.optionOwner == .syntheticFallback
+            }
             .sorted { $0.startedAt > $1.startedAt }
         var matchedState: SessionState?
         var matchedExpected: ExpectedOptionEdge?
@@ -619,6 +788,14 @@ final class VoiceSessionDiagnostics {
             shortBindingMode: state.shortBindingMode,
             bypassShortClassification: state.bypassShortClassification,
             targetBundleID: state.targetBundleID,
+            optionOwner: state.optionOwner,
+            hardwareDownSeen: state.hardwareDownSeen,
+            hardwareUpSeen: state.hardwareUpSeen,
+            hardwareReplayPerformed: state.hardwareReplayPerformed,
+            syntheticDownRequests: state.optionDownRequests,
+            syntheticUpRequests: state.optionUpRequests,
+            lateHardwareSuppressed: state.lateHardwareSuppressed,
+            fallbackReason: state.fallbackReason,
             lifecycle: state.lifecycle,
             completion: state.completion,
             firstPCM: !state.firstPCMStages.isEmpty,
@@ -744,6 +921,14 @@ final class VoiceSessionDiagnostics {
             ("shortBinding", summary.shortBindingMode),
             ("bypassShortClassification", String(summary.bypassShortClassification)),
             ("targetBundle", summary.targetBundleID ?? "unknown"),
+            ("optionOwner", summary.optionOwner?.rawValue ?? "none"),
+            ("hardwareDownSeen", String(summary.hardwareDownSeen)),
+            ("hardwareUpSeen", String(summary.hardwareUpSeen)),
+            ("hardwareReplayPerformed", String(summary.hardwareReplayPerformed)),
+            ("syntheticDownRequests", String(summary.syntheticDownRequests)),
+            ("syntheticUpRequests", String(summary.syntheticUpRequests)),
+            ("lateHardwareSuppressed", String(summary.lateHardwareSuppressed)),
+            ("fallbackReason", summary.fallbackReason ?? "none"),
             ("lifecycle", summary.lifecycle.rawValue),
             ("completion", summary.completion.rawValue),
             ("deliveryEvidence", summary.deliveryEvidence),
