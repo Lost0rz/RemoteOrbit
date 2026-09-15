@@ -11,8 +11,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                bypassesShortClassification: true,
-                usesHardwareOption: true
+                bypassesShortClassification: true
             )
         )
 
@@ -31,8 +30,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                bypassesShortClassification: true,
-                usesHardwareOption: true
+                bypassesShortClassification: true
             )
         )
         press.setRemoteAudioAvailable()
@@ -53,8 +51,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                bypassesShortClassification: true,
-                usesHardwareOption: true
+                bypassesShortClassification: true
             )
         )
         press.setRemoteAudioAvailable()
@@ -74,8 +71,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                bypassesShortClassification: true,
-                usesHardwareOption: true
+                bypassesShortClassification: true
             )
         )
         press.setRemoteAudioAvailable()
@@ -94,8 +90,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                bypassesShortClassification: true,
-                usesHardwareOption: true
+                bypassesShortClassification: true
             )
         )
         press.setRemoteAudioAvailable()
@@ -112,8 +107,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(
             press.keyDown(
-                sessionID: UUID(),
-                usesHardwareOption: true
+                sessionID: UUID()
             )
         )
         XCTAssertTrue(press.keyUp())
@@ -132,8 +126,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                onShortTap: { actionCalled = true },
-                usesHardwareOption: true
+                onShortTap: { actionCalled = true }
             )
         )
         XCTAssertTrue(press.keyUp())
@@ -151,8 +144,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                onShortTap: { },
-                usesHardwareOption: true
+                onShortTap: { }
             )
         )
         XCTAssertTrue(press.keyUp())

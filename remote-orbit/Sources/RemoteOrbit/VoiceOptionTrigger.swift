@@ -40,91 +40,9 @@ enum VoiceTimingLogger {
     }
 }
 
-/// The physical HID path is the normal owner. This small state object only
-/// records the captured edges so VoiceKeyFilter can choose the existing
-/// hardware replay or copy-failure fallback without losing gesture identity.
-enum HardwareOptionEdge: Equatable {
-    case down
-    case up
-}
-
-enum HardwareOptionResolution: Equatable {
-    case hardwareReplay
-    case syntheticTap
-    case syntheticDown
-    case noOptionEdge
-}
-
-final class HardwareOptionGate {
-    private(set) var activeSessionID: UUID?
-    private var downSeen = false
-    private var upSeen = false
-    private var copiedDownPresent = false
-
-    @discardableResult
-    func begin(sessionID: UUID) -> Bool {
-        if let activeSessionID, activeSessionID != sessionID {
-            _ = cancel(sessionID: activeSessionID)
-        }
-        if activeSessionID == sessionID {
-            return true
-        }
-        activeSessionID = sessionID
-        downSeen = false
-        upSeen = false
-        copiedDownPresent = false
-        return true
-    }
-
-    @discardableResult
-    func capture(_ edge: HardwareOptionEdge, copied: Bool) -> Bool {
-        guard activeSessionID != nil else { return false }
-        switch edge {
-        case .down:
-            downSeen = true
-            copiedDownPresent = copiedDownPresent || copied
-        case .up:
-            guard downSeen else { return false }
-            upSeen = true
-        }
-        return true
-    }
-
-    @discardableResult
-    func resolve(sessionID: UUID) -> HardwareOptionResolution? {
-        guard activeSessionID == sessionID else { return nil }
-        let resolution: HardwareOptionResolution
-        if copiedDownPresent {
-            resolution = .hardwareReplay
-        } else if !downSeen {
-            resolution = .noOptionEdge
-        } else if upSeen {
-            resolution = .syntheticTap
-        } else {
-            resolution = .syntheticDown
-        }
-        clear()
-        return resolution
-    }
-
-    @discardableResult
-    func cancel(sessionID: UUID) -> Bool {
-        guard activeSessionID == sessionID else { return false }
-        clear()
-        return true
-    }
-
-    private func clear() {
-        activeSessionID = nil
-        downSeen = false
-        upSeen = false
-        copiedDownPresent = false
-    }
-}
-
-/// Owns synthetic Option fallback edges for one voice gesture. In
-/// particular, the delayed up from a short tap is ignored once a newer
-/// session owns the trigger, so it cannot release the newer gesture.
+/// Owns synthetic Option edges for one voice gesture. In particular, the
+/// delayed up from a short tap is ignored once a newer session owns the
+/// trigger, so it cannot release the newer gesture.
 final class VoiceOptionTrigger {
     typealias EventSink = (_ isDown: Bool) -> Void
 
