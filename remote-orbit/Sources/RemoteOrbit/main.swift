@@ -67,7 +67,24 @@ enum Key {
     /// event. The former makes macOS track left Option correctly; the latter
     /// is what Doubao's global shortcut listener sees.
     private static func postOption(keyDown: Bool) {
-        guard let source = CGEventSource(stateID: .hidSystemState) else { return }
+        let diagnosticContext = VoiceOptionDiagnosticContext.current()
+        guard let source = CGEventSource(stateID: .hidSystemState) else {
+            if let diagnosticContext {
+                let direction: VoiceOptionDirection = keyDown ? .down : .up
+                diagnosticContext.diagnostics.record(
+                    sessionID: diagnosticContext.sessionID,
+                    category: .option,
+                    event: "OPTION_FLAGS_CREATE_FAILED"
+                )
+                diagnosticContext.diagnostics.record(
+                    sessionID: diagnosticContext.sessionID,
+                    category: .option,
+                    event: "OPTION_KEY_CREATE_FAILED",
+                    fields: ["direction": direction.rawValue]
+                )
+            }
+            return
+        }
         let flags: CGEventFlags = keyDown ? .maskAlternate : []
 
         if let flagsEvent = CGEvent(
@@ -82,6 +99,19 @@ enum Key {
                 value: syntheticMarker
             )
             flagsEvent.post(tap: .cghidEventTap)
+            if let diagnosticContext {
+                diagnosticContext.diagnostics.recordOptionPost(
+                    sessionID: diagnosticContext.sessionID,
+                    direction: keyDown ? .down : .up,
+                    component: .flags
+                )
+            }
+        } else if let diagnosticContext {
+            diagnosticContext.diagnostics.record(
+                sessionID: diagnosticContext.sessionID,
+                category: .option,
+                event: "OPTION_FLAGS_CREATE_FAILED"
+            )
         }
 
         if let keyEvent = CGEvent(
@@ -95,6 +125,19 @@ enum Key {
                 value: syntheticMarker
             )
             keyEvent.post(tap: .cgSessionEventTap)
+            if let diagnosticContext {
+                diagnosticContext.diagnostics.recordOptionPost(
+                    sessionID: diagnosticContext.sessionID,
+                    direction: keyDown ? .down : .up,
+                    component: .key
+                )
+            }
+        } else if let diagnosticContext {
+            diagnosticContext.diagnostics.record(
+                sessionID: diagnosticContext.sessionID,
+                category: .option,
+                event: "OPTION_KEY_CREATE_FAILED"
+            )
         }
     }
 
@@ -188,6 +231,9 @@ final class VoicePressCoordinator {
         let usesLocalMicrophone: Bool
         let togglesLocalMicrophone: Bool
         let bypassesShortClassification: Bool
+        let shortBindingMode: String
+        let targetBundleID: String?
+        let source: String
         var isStillHeld = true
     }
 
@@ -242,9 +288,14 @@ final class VoicePressCoordinator {
     private var gestureID: UUID?
     private var pendingShortPreparationID: UUID?
     private let syntheticOptionTrigger: VoiceOptionTrigger
+    private let diagnostics: VoiceSessionDiagnostics
 
-    init(optionTrigger: VoiceOptionTrigger = .shared) {
+    init(
+        optionTrigger: VoiceOptionTrigger = .shared,
+        diagnostics: VoiceSessionDiagnostics = .shared
+    ) {
         syntheticOptionTrigger = optionTrigger
+        self.diagnostics = diagnostics
     }
 
     /// Only these short actions need RemoteOrbit to capture the Mac's
@@ -299,7 +350,10 @@ final class VoicePressCoordinator {
         onShortTap: (() -> Void)? = nil,
         usesLocalMicrophone: Bool = false,
         togglesLocalMicrophone: Bool = false,
-        bypassesShortClassification: Bool = false
+        bypassesShortClassification: Bool = false,
+        shortBindingMode: String = "unknown",
+        targetBundleID: String? = nil,
+        source: String = "unknown"
     ) -> Bool {
         let now = Date()
         let physicalDownAt = ProcessInfo.processInfo.systemUptime
@@ -323,7 +377,10 @@ final class VoicePressCoordinator {
                     onShortTap: onShortTap,
                     usesLocalMicrophone: usesLocalMicrophone,
                     togglesLocalMicrophone: togglesLocalMicrophone,
-                    bypassesShortClassification: bypassesShortClassification
+                    bypassesShortClassification: bypassesShortClassification,
+                    shortBindingMode: shortBindingMode,
+                    targetBundleID: targetBundleID,
+                    source: source
                 )
                 let shortID = String(sessionID.uuidString.prefix(4))
                 print(
@@ -353,7 +410,10 @@ final class VoicePressCoordinator {
             onShortTap: onShortTap,
             usesLocalMicrophone: usesLocalMicrophone,
             togglesLocalMicrophone: togglesLocalMicrophone,
-            bypassesShortClassification: bypassesShortClassification
+            bypassesShortClassification: bypassesShortClassification,
+            shortBindingMode: shortBindingMode,
+            targetBundleID: targetBundleID,
+            source: source
         )
     }
 
@@ -363,7 +423,10 @@ final class VoicePressCoordinator {
         onShortTap: (() -> Void)?,
         usesLocalMicrophone: Bool,
         togglesLocalMicrophone: Bool,
-        bypassesShortClassification: Bool
+        bypassesShortClassification: Bool,
+        shortBindingMode: String,
+        targetBundleID: String?,
+        source: String
     ) -> Bool {
         // A new physical press owns the voice key now. Do not keep a local
         // session left by an earlier short tap alive during the classifier:
@@ -381,7 +444,20 @@ final class VoicePressCoordinator {
         shortInputUsesLocalMicrophone =
             usesLocalMicrophone && !shortInputClosesLocalMicrophoneSession
         gestureID = sessionID
-        VoiceTimingLogger.begin(sessionID: sessionID)
+        _ = diagnostics.begin(
+            sessionID: sessionID,
+            legacySafe: true,
+            shortBindingMode: shortBindingMode,
+            bypassShortClassification: bypassesShortClassification,
+            targetBundleID: targetBundleID
+        )
+        diagnostics.record(
+            sessionID: sessionID,
+            category: .hid,
+            event: "VOICE_DOWN_PHYSICAL",
+            fields: ["source": source]
+        )
+        VoiceTimingLogger.begin(sessionID: sessionID, diagnostics: diagnostics)
         _ = syntheticOptionTrigger.begin(sessionID: sessionID)
         remoteAudioAvailable = false
         longInputStarted = false
@@ -447,12 +523,12 @@ final class VoicePressCoordinator {
             shortInputTogglesLocalMicrophone = false
             let currentGestureID = gestureID
             gestureID = nil
+            if let currentGestureID {
+                VoiceTimingLogger.mark("PHYSICAL_UP", sessionID: currentGestureID)
+            }
             setMode(.idle)
             setRemoteRouted(false)
             AudioPipe.shared.endRemoteCandidate()
-            if let currentGestureID {
-                VoiceTimingLogger.end(sessionID: currentGestureID)
-            }
             if shouldCloseLocalMicrophoneSession {
                 // The default short action is a toggle. The local capture was
                 // already stopped at keyDown to keep a possible long hold
@@ -467,8 +543,16 @@ final class VoicePressCoordinator {
                 pendingShortPreparationID = currentGestureID
                 print("[PRESS] SHORT release → preparing local microphone")
                 AudioPipe.shared.setLocalMicrophoneCaptureEnabled(true) { [weak self] in
-                    guard let self,
-                          self.pendingShortPreparationID == currentGestureID else { return }
+                    guard let self else { return }
+                    guard self.pendingShortPreparationID == currentGestureID else {
+                        self.diagnostics.recordStaleCallback(
+                            callback: "short-microphone-preparation",
+                            callbackSession: currentGestureID,
+                            activeSession: self.gestureID,
+                            currentState: self.modeName
+                        )
+                        return
+                    }
                     self.pendingShortPreparationID = nil
                     if shouldTrackLocalMicrophoneSession {
                         self.localShortVoiceSessionActive = true
@@ -481,6 +565,9 @@ final class VoicePressCoordinator {
                         print("[PRESS] SHORT local microphone ready → Doubao")
                         self.emitShortPress(sessionID: currentGestureID)
                     }
+                    if action != nil {
+                        self.endShortDiagnostics(sessionID: currentGestureID)
+                    }
                 }
             } else if let action {
                 print("[PRESS] SHORT release → configured voice action")
@@ -488,6 +575,9 @@ final class VoicePressCoordinator {
                     _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
                 }
                 action()
+                if let currentGestureID {
+                    endShortDiagnostics(sessionID: currentGestureID)
+                }
             } else {
                 print("[PRESS] SHORT release → Doubao")
                 if let currentGestureID {
@@ -502,6 +592,7 @@ final class VoicePressCoordinator {
             if let releasedSessionID {
                 VoiceTimingLogger.mark("PHYSICAL_UP", sessionID: releasedSessionID)
             }
+            let noAudioSessionID = gestureID
             if let currentGestureID = gestureID, !longInputStarted {
                 abortSyntheticOption(
                     sessionID: currentGestureID,
@@ -520,7 +611,15 @@ final class VoicePressCoordinator {
                 scheduleLongFinish(sessionID: gestureID)
             } else {
                 print("[PRESS] LONG release → no remote audio; no Option dialog")
-                finishLongInput(sessionID: nil)
+                if let noAudioSessionID {
+                    diagnostics.end(
+                        sessionID: noAudioSessionID,
+                        completion: .noPCM,
+                        lifecycle: .aborted
+                    )
+                    VoiceTimingLogger.end(sessionID: noAudioSessionID)
+                }
+                finishLongInput(sessionID: nil, completion: .noPCM)
             }
             return true
         }
@@ -544,13 +643,16 @@ final class VoicePressCoordinator {
                     )
                 }
                 setMode(.idle)
-                finishLongInput(sessionID: gestureID)
+                finishLongInput(
+                    sessionID: gestureID,
+                    completion: longInputStarted ? .normalDrain : .noPCM
+                )
             } else if remoteRouted {
                 // The physical HID edge may have arrived before the BLE
                 // drain callback. Close the route on that callback rather
                 // than on the earlier fallback timer.
                 print("[PRESS] remote audio drain complete; closing voice input")
-                finishLongInput(sessionID: gestureID)
+                finishLongInput(sessionID: gestureID, completion: .normalDrain)
             }
         }
         // BLE availability is informational only. HID owns gesture lifetime
@@ -569,7 +671,10 @@ final class VoicePressCoordinator {
         guard !remoteAudioAvailable else { return }
         remoteAudioAvailable = true
         if let currentGestureID = gestureID {
-            VoiceTimingLogger.mark("AUDIO_FIRST", sessionID: currentGestureID)
+            VoiceTimingLogger.markFirstPCM(
+                .audioCallback,
+                sessionID: currentGestureID
+            )
         }
         if mode == .holding {
             onRemoteAudioChanged?(true)
@@ -579,19 +684,33 @@ final class VoicePressCoordinator {
     }
 
     func stop() {
-        stopCurrentVoiceState(preservingDeferredRepress: false)
+        stopCurrentVoiceState(
+            preservingDeferredRepress: false,
+            completion: .abort
+        )
     }
 
-    func stopCurrentVoiceStatePreservingDeferredRepress() {
+    func stopCurrentVoiceStatePreservingDeferredRepress(
+        completion: VoiceSessionCompletion = .abort
+    ) {
         guard deferredRepressAwaitingActivation, pendingRepress != nil else {
-            stop()
+            stopCurrentVoiceState(
+                preservingDeferredRepress: false,
+                completion: completion
+            )
             return
         }
         print("[PRESS] preserving deferred re-press across old transport teardown")
-        stopCurrentVoiceState(preservingDeferredRepress: true)
+        stopCurrentVoiceState(
+            preservingDeferredRepress: true,
+            completion: completion
+        )
     }
 
-    private func stopCurrentVoiceState(preservingDeferredRepress: Bool) {
+    private func stopCurrentVoiceState(
+        preservingDeferredRepress: Bool,
+        completion: VoiceSessionCompletion
+    ) {
         holdWorkItem?.cancel()
         holdWorkItem = nil
         tailWorkItem?.cancel()
@@ -628,6 +747,11 @@ final class VoicePressCoordinator {
         if let stoppedSessionID {
             VoiceTimingLogger.mark("ROUTE_OFF", sessionID: stoppedSessionID)
             VoiceTimingLogger.end(sessionID: stoppedSessionID)
+            diagnostics.end(
+                sessionID: stoppedSessionID,
+                completion: completion,
+                lifecycle: completion == .disconnect ? .incomplete : .aborted
+            )
         }
     }
 
@@ -688,11 +812,27 @@ final class VoicePressCoordinator {
             guard let self else { return }
             guard self.tailSessionID == sessionID else {
                 print("[PRESS] stale tail completion ignored")
+                if let sessionID {
+                    self.diagnostics.recordStaleCallback(
+                        callback: "tail-completion",
+                        callbackSession: sessionID,
+                        activeSession: self.gestureID,
+                        currentState: self.modeName,
+                        pendingRepressSession: self.pendingRepress?.sessionID
+                    )
+                }
                 return
             }
             self.tailWorkItem = nil
             self.tailSessionID = nil
-            self.finishLongInput(sessionID: sessionID)
+            if let sessionID {
+                self.diagnostics.record(
+                    sessionID: sessionID,
+                    category: .route,
+                    event: "TAIL_FALLBACK_FIRED"
+                )
+            }
+            self.finishLongInput(sessionID: sessionID, completion: .tailFallback)
         }
         tailWorkItem = work
         DispatchQueue.main.asyncAfter(
@@ -721,7 +861,10 @@ final class VoicePressCoordinator {
             onShortTap: pendingRepress.onShortTap,
             usesLocalMicrophone: pendingRepress.usesLocalMicrophone,
             togglesLocalMicrophone: pendingRepress.togglesLocalMicrophone,
-            bypassesShortClassification: pendingRepress.bypassesShortClassification
+            bypassesShortClassification: pendingRepress.bypassesShortClassification,
+            shortBindingMode: pendingRepress.shortBindingMode,
+            targetBundleID: pendingRepress.targetBundleID,
+            source: pendingRepress.source
         )
     }
 
@@ -729,10 +872,22 @@ final class VoicePressCoordinator {
         guard pendingRepress != nil else { return }
         deferredRepressAwaitingActivation = true
         deferredRepressActivationWorkItem?.cancel()
+        let deferredSessionID = pendingRepress?.sessionID
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.deferredRepressActivationWorkItem = nil
-            guard self.deferredRepressAwaitingActivation else { return }
+            guard self.deferredRepressAwaitingActivation else {
+                if let deferredSessionID {
+                    self.diagnostics.recordStaleCallback(
+                        callback: "deferred-repress-activation",
+                        callbackSession: deferredSessionID,
+                        activeSession: self.gestureID,
+                        currentState: self.modeName,
+                        pendingRepressSession: self.pendingRepress?.sessionID
+                    )
+                }
+                return
+            }
             self.deferredRepressAwaitingActivation = false
             self.activatePendingRepressIfHeld()
         }
@@ -740,12 +895,22 @@ final class VoicePressCoordinator {
         DispatchQueue.main.async(execute: work)
     }
 
-    func finishLongInput(sessionID: UUID?) {
+    func finishLongInput(
+        sessionID: UUID?,
+        completion: VoiceSessionCompletion = .normalDrain
+    ) {
         if let sessionID, gestureID != sessionID {
             print(
                 "[PRESS] stale tail completion ignored session=" +
                     sessionID.uuidString + " current=" +
                     (gestureID?.uuidString ?? "none")
+            )
+            diagnostics.recordStaleCallback(
+                callback: "tail-completion",
+                callbackSession: sessionID,
+                activeSession: gestureID,
+                currentState: modeName,
+                pendingRepressSession: pendingRepress?.sessionID
             )
             return
         }
@@ -774,6 +939,20 @@ final class VoicePressCoordinator {
         if let currentSessionID {
             VoiceTimingLogger.mark("ROUTE_OFF", sessionID: currentSessionID)
             VoiceTimingLogger.end(sessionID: currentSessionID)
+            diagnostics.end(
+                sessionID: currentSessionID,
+                completion: completion,
+                lifecycle: {
+                    switch completion {
+                    case .normalDrain, .tailFallback, .shortTap:
+                        return .balanced
+                    case .abort, .noPCM:
+                        return .aborted
+                    case .disconnect, .incomplete:
+                        return .incomplete
+                    }
+                }()
+            )
         }
         scheduleDeferredRepressActivation()
     }
@@ -783,7 +962,21 @@ final class VoicePressCoordinator {
     /// selected by macOS/RemoteOrbit's stable virtual input path.
     private func emitShortPress(sessionID: UUID) {
         print("[PRESS] SHORT → synthetic Option tap; source=Doubao Mac/external microphone")
-        _ = syntheticOptionTrigger.sendTap(sessionID: sessionID)
+        let scheduled = syntheticOptionTrigger.sendTap(sessionID: sessionID) { [weak self] _ in
+            self?.endShortDiagnostics(sessionID: sessionID)
+        }
+        if !scheduled {
+            endShortDiagnostics(sessionID: sessionID)
+        }
+    }
+
+    private func endShortDiagnostics(sessionID: UUID) {
+        diagnostics.end(
+            sessionID: sessionID,
+            completion: .shortTap,
+            lifecycle: .balanced
+        )
+        VoiceTimingLogger.end(sessionID: sessionID)
     }
 
     @discardableResult
@@ -970,6 +1163,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let buttonGestureRecognizer = ButtonGestureRecognizer()
     private let actionHUD = RemoteActionHUD()
     private let keymapOverlayController = KeymapOverlayController()
+    private let voiceOptionObserver = VoiceSyntheticOptionObserver()
     /// The contextual mapping overlay is a press-and-hold surface. Keep the
     /// originating button so its release can dismiss only its own overlay.
     private var contextualOverlayButton: RemoteButton?
@@ -981,14 +1175,21 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let voiceFocusTransactions = VoiceFocusTransactionTracker()
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
+    private var voiceFocusRequestStartedAt: [UUID: TimeInterval] = [:]
+    private var voiceFocusRequestSource: [UUID: String] = [:]
+    private var voiceFocusRequestTarget: [UUID: String] = [:]
     private var legacyVoiceMappingSafety = LegacyVoiceMappingSafety()
 
     private func beginVoicePress(
         targetApplicationBundleIdentifier lockedTarget: String? = nil,
-        shortBinding: ButtonBinding? = nil
+        shortBinding: ButtonBinding? = nil,
+        source: String = "unknown"
     ) {
         guard legacyVoiceMappingSafety.isSafe else {
             print("[VOICE] blocked: legacy F5→Option mapping cleanup failed")
+            VoiceSessionDiagnostics.shared.recordVoiceBlocked(
+                reason: "legacy-mapping-unsafe"
+            )
             updateStatus()
             return
         }
@@ -1025,6 +1226,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             forShortBinding: resolvedShortBinding
         )
         let bypassesShortClassification = resolvedShortBinding.isDisabled
+        let shortBindingMode: String
+        switch resolvedShortBinding {
+        case .voiceKeyDefault:
+            shortBindingMode = "default"
+        case let binding where binding.isDisabled:
+            shortBindingMode = "disabled"
+        default:
+            shortBindingMode = "configured"
+        }
         // Local capture is deliberately lazy. Starting it here would open the
         // physical microphone during the 300 ms short-vs-long classification
         // window, so a long hold would still briefly invoke the external mic.
@@ -1064,7 +1274,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             onShortTap: shortTapAction,
             usesLocalMicrophone: usesLocalMicrophone,
             togglesLocalMicrophone: togglesLocalMicrophone,
-            bypassesShortClassification: bypassesShortClassification
+            bypassesShortClassification: bypassesShortClassification,
+            shortBindingMode: shortBindingMode,
+            targetBundleID: target,
+            source: source
         ) else {
             return
         }
@@ -1080,11 +1293,25 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             voiceFocusSafetyWorkItem?.cancel()
             voiceFocusSafetyWorkItem = nil
             _ = voiceFocusTransactions.cancel(previousGestureID)
+            voiceFocusRequestStartedAt.removeValue(forKey: previousGestureID)
+            voiceFocusRequestSource.removeValue(forKey: previousGestureID)
+            voiceFocusRequestTarget.removeValue(forKey: previousGestureID)
         }
         guard needsFocusPreparation else {
             return
         }
         voiceFocusTransactions.begin(gestureID)
+        let focusSource = needsFloatTabsFocus ? "FloatTabs" : "Codex"
+        let focusTarget = target ?? "unknown"
+        voiceFocusRequestStartedAt[gestureID] =
+            ProcessInfo.processInfo.systemUptime
+        voiceFocusRequestSource[gestureID] = focusSource
+        voiceFocusRequestTarget[gestureID] = focusTarget
+        VoiceSessionDiagnostics.shared.recordFocusRequest(
+            sessionID: gestureID,
+            source: focusSource,
+            targetBundleID: target
+        )
         armVoiceFocusSafetyTimeout(gestureID: gestureID)
         print(
             "[VOICE] focus transaction started gesture=\(gestureID.uuidString) "
@@ -1207,8 +1434,28 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "[VOICE] ignored stale focus result gesture=\(gestureID.uuidString) "
                     + "source=\(source) ready=\(ready) reason=\(reason)"
             )
+            VoiceSessionDiagnostics.shared.recordStaleCallback(
+                callback: "focus",
+                callbackSession: gestureID,
+                activeSession: voiceFocusTransactions.activeGestureID
+            )
             return
         }
+        let requestStartedAt = voiceFocusRequestStartedAt.removeValue(forKey: gestureID)
+        let requestedSource = voiceFocusRequestSource.removeValue(forKey: gestureID)
+        let requestedTarget = voiceFocusRequestTarget.removeValue(forKey: gestureID)
+        let resultSource = requestedSource ?? (source == "safety" ? "unknown" : source)
+        let latency = requestStartedAt.map {
+            max(0, (ProcessInfo.processInfo.systemUptime - $0) * 1_000)
+        } ?? 0
+        VoiceSessionDiagnostics.shared.recordFocusResult(
+            sessionID: gestureID,
+            source: resultSource,
+            targetBundleID: requestedTarget,
+            ready: ready,
+            reason: reason,
+            latencyMilliseconds: latency
+        )
         voiceFocusSafetyWorkItem?.cancel()
         voiceFocusSafetyWorkItem = nil
         print(
@@ -1224,6 +1471,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func recordLegacyVoiceMappingClear(reason: String) {
         let succeeded = LegacyVoiceKeyMapping.clear()
         legacyVoiceMappingSafety.recordClearResult(succeeded)
+        VoiceSessionDiagnostics.shared.recordLegacyMappingClear(
+            reason: reason,
+            success: succeeded
+        )
         print(
             "[VOICE] legacy F5→Option mapping cleanup "
                 + (succeeded ? "safe" : "unsafe")
@@ -1238,6 +1489,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.setActivationPolicy(.accessory)
         AppStorage.prepare()
         recordLegacyVoiceMappingClear(reason: "app-launch")
+        let observerAvailable = voiceOptionObserver.start()
+        VoiceSessionDiagnostics.shared.setObserverAvailable(observerAvailable)
         let appVersion = Bundle.main.object(
             forInfoDictionaryKey: "CFBundleShortVersionString"
         ) as? String ?? "development"
@@ -1337,7 +1590,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // ATVV audio connection.
         filter.onVoiceKeyDown = { [weak self] in
-            self?.beginVoicePress()
+            self?.beginVoicePress(source: "cgevent-fallback")
         }
         filter.onVoiceKeyUp = { [weak self] in
             guard let self else { return }
@@ -1352,7 +1605,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // A BLE loss can happen before HID emits the matching key-up.
                 // Release A immediately, but preserve a deferred B until the
                 // old transport callback stack has returned to the run loop.
-                self?.voicePress.stopCurrentVoiceStatePreservingDeferredRepress()
+                self?.voicePress.stopCurrentVoiceStatePreservingDeferredRepress(
+                    completion: .disconnect
+                )
             }
             self?.updateStatus()
         }
@@ -1557,7 +1812,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         self.beginVoicePress(
                             targetApplicationBundleIdentifier: self.mappingStore
                                 .activePressApplicationBundleIdentifier(for: button),
-                            shortBinding: binding
+                            shortBinding: binding,
+                            source: "raw-hid"
                         )
                     } else {
                         if self.voicePress.keyUp() {
@@ -2066,12 +2322,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         reconnectHeldButtons.removeAll()
         voicePress.stop()
         filter.stop()
+        voiceOptionObserver.stop()
         hidMonitor.stop()
         mappingStore.clearPressedBindings()
         KeyInjector.releaseAll()
         ble.stop()
         AudioPipe.shared.stop()
         let terminationCleanupSucceeded = LegacyVoiceKeyMapping.clear()
+        VoiceSessionDiagnostics.shared.recordLegacyMappingClear(
+            reason: "termination",
+            success: terminationCleanupSucceeded
+        )
         print(
             "[VOICE] termination legacy F5→Option mapping cleanup "
                 + (terminationCleanupSucceeded ? "completed" : "failed")

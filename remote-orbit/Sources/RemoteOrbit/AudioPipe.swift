@@ -133,6 +133,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
 
     func feed(samples: [Int16], inputSampleRate: Double = 16_000) {
         guard !samples.isEmpty else { return }
+        VoiceTimingLogger.markFirstPCM(.feed)
         stateLock.lock()
         let active = remoteActive
         if !active {

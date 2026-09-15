@@ -35,16 +35,14 @@ enum Log {
         defer { lock.unlock() }
         closeHandle()
         try? FileManager.default.removeItem(at: AppStorage.logFile)
+        VoiceReliabilityLog.clear()
         if AppStorage.loggingEnabled {
             openHandleIfNeeded()
         }
     }
 
     static var byteSize: UInt64 {
-        let values = try? AppStorage.logFile.resourceValues(
-            forKeys: [.fileSizeKey]
-        )
-        return UInt64(values?.fileSize ?? 0)
+        AppStorage.byteSize(of: AppStorage.logsDirectory)
     }
 
     private static func openHandleIfNeeded() {

@@ -2,6 +2,30 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceOptionTriggerTests: XCTestCase {
+    func testOptionLifecycleEmitsStructuredRequestFacts() {
+        let diagnostics = VoiceSessionDiagnostics(summaryGrace: 0)
+        let session = UUID()
+        XCTAssertTrue(diagnostics.begin(sessionID: session, legacySafe: true))
+        diagnostics.markFirstPCM(sessionID: session, stage: .audioCallback)
+        var events: [Bool] = []
+        let trigger = VoiceOptionTrigger(
+            eventSink: { events.append($0) },
+            diagnostics: diagnostics
+        )
+
+        XCTAssertTrue(trigger.begin(sessionID: session))
+        XCTAssertTrue(trigger.sendDown(sessionID: session))
+        XCTAssertTrue(trigger.sendUp(sessionID: session))
+
+        XCTAssertEqual(
+            diagnostics.events(for: session)
+                .filter { $0.event.hasSuffix("_REQUEST") }
+                .map(\.event),
+            ["OPTION_DOWN_REQUEST", "OPTION_UP_REQUEST"]
+        )
+        XCTAssertEqual(events, [true, false])
+    }
+
     func testSendDownAndUpAreBalancedForOneSession() {
         var events: [Bool] = []
         let trigger = VoiceOptionTrigger { events.append($0) }

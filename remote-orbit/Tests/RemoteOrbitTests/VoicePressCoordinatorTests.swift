@@ -2,6 +2,58 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoicePressCoordinatorTests: XCTestCase {
+    func testAcceptedGestureStartsStructuredSessionDiagnostics() {
+        let diagnostics = VoiceSessionDiagnostics(summaryGrace: 0)
+        let session = UUID()
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger(
+                eventSink: { _ in },
+                diagnostics: diagnostics
+            ),
+            diagnostics: diagnostics
+        )
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: session,
+                bypassesShortClassification: true,
+                shortBindingMode: "disabled",
+                targetBundleID: "com.example.target"
+            )
+        )
+
+        let events = diagnostics.events(for: session)
+        XCTAssertEqual(events.first?.event, "SESSION_BEGIN")
+        XCTAssertTrue(events.contains { $0.event == "VOICE_DOWN_PHYSICAL" })
+        XCTAssertTrue(events.contains { $0.event == "HOLD_CONFIRMED" })
+        press.stop()
+    }
+
+    func testNoPCMSessionSummaryIdentifiesNoPCMCompletion() {
+        let diagnostics = VoiceSessionDiagnostics(summaryGrace: 0)
+        let session = UUID()
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger(
+                eventSink: { _ in },
+                diagnostics: diagnostics
+            ),
+            diagnostics: diagnostics
+        )
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: session,
+                bypassesShortClassification: true
+            )
+        )
+        XCTAssertTrue(press.keyUp())
+
+        XCTAssertEqual(diagnostics.summary(for: session)?.completion, .noPCM)
+        XCTAssertEqual(diagnostics.summary(for: session)?.lifecycle, .aborted)
+        XCTAssertFalse(diagnostics.summary(for: session)?.firstPCM ?? true)
+        press.stop()
+    }
+
     func testLongPressDoesNotSendOptionBeforeFirstPCM() {
         var events: [Bool] = []
         let press = VoicePressCoordinator(
@@ -114,6 +166,28 @@ final class VoicePressCoordinatorTests: XCTestCase {
         waitForCoordinatorTiming(0.08)
 
         XCTAssertEqual(events, [true, false])
+    }
+
+    func testDefaultShortSummaryWaitsForDelayedOptionUp() {
+        let diagnostics = VoiceSessionDiagnostics(summaryGrace: 0)
+        let session = UUID()
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger(
+                eventSink: { _ in },
+                diagnostics: diagnostics
+            ),
+            diagnostics: diagnostics
+        )
+
+        XCTAssertTrue(press.keyDown(sessionID: session))
+        XCTAssertTrue(press.keyUp())
+        waitForCoordinatorTiming(0.08)
+
+        let summary = diagnostics.summary(for: session)
+        XCTAssertEqual(summary?.completion, .shortTap)
+        XCTAssertEqual(summary?.optionDownRequests, 1)
+        XCTAssertEqual(summary?.optionUpRequests, 1)
+        XCTAssertEqual(summary?.invariantViolations, 0)
     }
 
     func testConfiguredShortActionDoesNotSendDefaultOption() {

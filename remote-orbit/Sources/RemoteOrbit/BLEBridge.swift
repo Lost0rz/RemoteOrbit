@@ -195,6 +195,7 @@ final class BLEBridge: NSObject {
             }
             return
         }
+        VoiceTimingLogger.mark("BLE_STOP_REQUEST")
         voiceInputRequested = false
         if micOpenRequested, atvvReady {
             do {
@@ -397,6 +398,7 @@ final class BLEBridge: NSObject {
         atvvReady = true
         reconnectAttempt = 0
         print("[BLE] ATVV 语音链路已就绪")
+        VoiceTimingLogger.mark("BLE_CONNECTED")
         onConnectionChanged?(true)
         requestMicOpenIfReady()
     }
@@ -426,6 +428,9 @@ final class BLEBridge: NSObject {
         micOpenRequested = false
         let wasReady = atvvReady
         atvvReady = false
+        if wasReady {
+            VoiceTimingLogger.mark("BLE_DISCONNECTED")
+        }
         if wasStreaming || notify {
             notifyStreaming(false)
         }
@@ -863,6 +868,7 @@ extension BLEBridge: CBPeripheralDelegate {
         }
         guard let frame = protocolHandler.decodeAudio(data) else { return }
         if frame.samples.isEmpty { return }
+        VoiceTimingLogger.markFirstPCM(.decode)
         let now = Date()
         if let lastAudioAt {
             maxAudioFrameGap = max(maxAudioFrameGap, now.timeIntervalSince(lastAudioAt))
