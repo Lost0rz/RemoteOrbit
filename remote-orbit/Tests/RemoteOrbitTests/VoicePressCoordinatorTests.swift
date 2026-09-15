@@ -2,6 +2,33 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoicePressCoordinatorTests: XCTestCase {
+    func testPhysicalLongPathReleasesHardwareWithoutSyntheticEvents() {
+        var syntheticEvents: [Bool] = []
+        var gateBegan: UUID?
+        var gateReleased: UUID?
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { syntheticEvents.append($0) }
+        )
+        press.onHardwareOptionGateBegin = { gateBegan = $0 }
+        press.onHardwareOptionGateLongReady = { gateReleased = $0 }
+
+        let session = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: session,
+                bypassesShortClassification: true,
+                usesHardwareOption: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+
+        XCTAssertEqual(gateBegan, session)
+        XCTAssertEqual(gateReleased, session)
+        XCTAssertTrue(syntheticEvents.isEmpty)
+        press.stop()
+        XCTAssertTrue(syntheticEvents.isEmpty)
+    }
+
     func testAcceptedGestureStartsStructuredSessionDiagnostics() {
         let diagnostics = VoiceSessionDiagnostics(summaryGrace: 0)
         let session = UUID()
@@ -43,7 +70,8 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: session,
-                bypassesShortClassification: true
+                bypassesShortClassification: true,
+                usesHardwareOption: false
             )
         )
         XCTAssertTrue(press.keyUp())
@@ -63,7 +91,8 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                bypassesShortClassification: true
+                bypassesShortClassification: true,
+                usesHardwareOption: false
             )
         )
 
@@ -82,7 +111,8 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                bypassesShortClassification: true
+                bypassesShortClassification: true,
+                usesHardwareOption: false
             )
         )
         press.setRemoteAudioAvailable()
@@ -103,7 +133,8 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                bypassesShortClassification: true
+                bypassesShortClassification: true,
+                usesHardwareOption: false
             )
         )
         press.setRemoteAudioAvailable()
@@ -123,7 +154,8 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                bypassesShortClassification: true
+                bypassesShortClassification: true,
+                usesHardwareOption: false
             )
         )
         press.setRemoteAudioAvailable()
@@ -142,7 +174,8 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                bypassesShortClassification: true
+                bypassesShortClassification: true,
+                usesHardwareOption: false
             )
         )
         press.setRemoteAudioAvailable()
@@ -159,7 +192,8 @@ final class VoicePressCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(
             press.keyDown(
-                sessionID: UUID()
+                sessionID: UUID(),
+                usesHardwareOption: false
             )
         )
         XCTAssertTrue(press.keyUp())
@@ -179,7 +213,12 @@ final class VoicePressCoordinatorTests: XCTestCase {
             diagnostics: diagnostics
         )
 
-        XCTAssertTrue(press.keyDown(sessionID: session))
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: session,
+                usesHardwareOption: false
+            )
+        )
         XCTAssertTrue(press.keyUp())
         waitForCoordinatorTiming(0.08)
 
@@ -209,6 +248,34 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
     }
 
+    func testConfiguredHardwareShortActionCancelsGateWithoutOptionLeak() {
+        var events: [Bool] = []
+        var gateCancelled: UUID?
+        var actionCalled = false
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+        press.onHardwareOptionGateShortResult = { sessionID, shouldRelease in
+            if !shouldRelease {
+                gateCancelled = sessionID
+            }
+        }
+
+        let session = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: session,
+                onShortTap: { actionCalled = true },
+                usesHardwareOption: true
+            )
+        )
+        XCTAssertTrue(press.keyUp())
+
+        XCTAssertTrue(actionCalled)
+        XCTAssertEqual(gateCancelled, session)
+        XCTAssertTrue(events.isEmpty)
+    }
+
     func testDisabledShortBypassReleasedBeforePCMDoesNotSendOption() {
         var events: [Bool] = []
         let press = VoicePressCoordinator(
@@ -219,7 +286,8 @@ final class VoicePressCoordinatorTests: XCTestCase {
             press.keyDown(
                 sessionID: UUID(),
                 onShortTap: { },
-                bypassesShortClassification: true
+                bypassesShortClassification: true,
+                usesHardwareOption: false
             )
         )
         XCTAssertEqual(press.currentStateForTesting, .holding)
@@ -240,7 +308,8 @@ final class VoicePressCoordinatorTests: XCTestCase {
             press.keyDown(
                 sessionID: UUID(),
                 onShortTap: { },
-                bypassesShortClassification: true
+                bypassesShortClassification: true,
+                usesHardwareOption: false
             )
         )
         XCTAssertEqual(press.currentStateForTesting, .holding)
@@ -261,7 +330,8 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                bypassesShortClassification: true
+                bypassesShortClassification: true,
+                usesHardwareOption: false
             )
         )
         press.setRemoteAudioAvailable()
@@ -293,7 +363,8 @@ final class VoicePressCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                bypassesShortClassification: true
+                bypassesShortClassification: true,
+                usesHardwareOption: false
             )
         )
 

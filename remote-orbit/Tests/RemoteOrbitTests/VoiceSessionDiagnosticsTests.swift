@@ -209,6 +209,88 @@ final class VoiceSessionDiagnosticsTests: XCTestCase {
         XCTAssertEqual(diagnostics.summary(for: session)?.invariantViolations, 0)
     }
 
+    func testHardwareOwnerSummaryDoesNotRequireSyntheticObserver() throws {
+        let diagnostics = VoiceSessionDiagnostics(summaryGrace: 0)
+        let session = UUID()
+        XCTAssertTrue(diagnostics.begin(sessionID: session, legacySafe: true))
+        diagnostics.markFirstPCM(sessionID: session, stage: .audioCallback)
+        diagnostics.recordOptionOwnerSelected(sessionID: session, owner: .hardware)
+        diagnostics.recordHardwareOptionEdge(sessionID: session, direction: .down)
+        diagnostics.recordHardwareOptionEdge(sessionID: session, direction: .up)
+        diagnostics.recordHardwareOptionReplay(
+            sessionID: session,
+            downCount: 2,
+            upCount: 2
+        )
+        diagnostics.end(
+            sessionID: session,
+            completion: .normalDrain,
+            lifecycle: .balanced
+        )
+
+        let summary = try XCTUnwrap(diagnostics.summary(for: session))
+        XCTAssertEqual(summary.optionOwner, .hardware)
+        XCTAssertTrue(summary.hardwareDownSeen)
+        XCTAssertTrue(summary.hardwareUpSeen)
+        XCTAssertTrue(summary.hardwareReplayPerformed)
+        XCTAssertEqual(summary.syntheticDownRequests, 0)
+        XCTAssertEqual(summary.syntheticUpRequests, 0)
+        XCTAssertEqual(summary.deliveryEvidence, "hardware-replay")
+        XCTAssertEqual(summary.invariantViolations, 0)
+    }
+
+    func testSyntheticFallbackSummaryIncludesOwnerAndReason() throws {
+        let diagnostics = VoiceSessionDiagnostics(summaryGrace: 0)
+        let session = UUID()
+        XCTAssertTrue(diagnostics.begin(sessionID: session, legacySafe: true))
+        diagnostics.markFirstPCM(sessionID: session, stage: .audioCallback)
+        diagnostics.recordOptionOwnerSelected(
+            sessionID: session,
+            owner: .syntheticFallback,
+            fallbackReason: "physical-option-copy-failed"
+        )
+        diagnostics.recordOptionRequest(sessionID: session, direction: .down)
+        diagnostics.recordOptionRequest(sessionID: session, direction: .up)
+        diagnostics.recordLateHardwareOptionSuppressed(
+            sessionID: session,
+            direction: .down
+        )
+        diagnostics.end(
+            sessionID: session,
+            completion: .shortTap,
+            lifecycle: .balanced
+        )
+
+        let summary = try XCTUnwrap(diagnostics.summary(for: session))
+        XCTAssertEqual(summary.optionOwner, .syntheticFallback)
+        XCTAssertEqual(summary.fallbackReason, "physical-option-copy-failed")
+        XCTAssertEqual(summary.syntheticDownRequests, 1)
+        XCTAssertEqual(summary.syntheticUpRequests, 1)
+        XCTAssertTrue(summary.lateHardwareSuppressed)
+    }
+
+    func testRemoteF5MappingDiagnosticRecordsOwnerSelection() {
+        var lines: [String] = []
+        let diagnostics = VoiceSessionDiagnostics(
+            eventSink: { lines.append($0) },
+            summaryGrace: 0
+        )
+
+        diagnostics.recordRemoteF5Mapping(enabled: true, success: true)
+        diagnostics.recordRemoteF5Mapping(enabled: true, success: false)
+
+        XCTAssertTrue(lines.contains {
+            $0.contains("event=REMOTE_F5_HID_MAPPING")
+                && $0.contains("enabled=true")
+                && $0.contains("owner=hardware")
+        })
+        XCTAssertTrue(lines.contains {
+            $0.contains("event=REMOTE_F5_HID_MAPPING")
+                && $0.contains("enabled=true")
+                && $0.contains("owner=synthetic_fallback")
+        })
+    }
+
     func testCanonicalLongSessionProducesAnAuditableSampleTimeline() {
         var lines: [String] = []
         let diagnostics = VoiceSessionDiagnostics(
