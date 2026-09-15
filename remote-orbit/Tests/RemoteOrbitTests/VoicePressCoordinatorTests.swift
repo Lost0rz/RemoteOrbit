@@ -2,15 +2,31 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoicePressCoordinatorTests: XCTestCase {
-    func testHardwareLongReleasesOnlyThePhysicalGate() {
+    func testLongPressDoesNotSendOptionBeforeFirstPCM() {
         var events: [Bool] = []
         let press = VoicePressCoordinator(
             optionTrigger: VoiceOptionTrigger { events.append($0) }
         )
-        var gateBegan = false
-        var gateReleased = false
-        press.onHardwareOptionGateBegin = { _ in gateBegan = true }
-        press.onHardwareOptionGateLongReady = { _ in gateReleased = true }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true,
+                usesHardwareOption: true
+            )
+        )
+
+        XCTAssertTrue(events.isEmpty)
+        press.keyUp()
+        XCTAssertTrue(events.isEmpty)
+        press.stop()
+    }
+
+    func testLongPressSendsOneSyntheticOptionDownAfterFirstPCM() {
+        var events: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
 
         XCTAssertTrue(
             press.keyDown(
@@ -20,50 +36,46 @@ final class VoicePressCoordinatorTests: XCTestCase {
             )
         )
         press.setRemoteAudioAvailable()
+        press.setRemoteAudioAvailable()
+        press.setRemoteAudioAvailable()
 
-        XCTAssertTrue(gateBegan)
-        XCTAssertTrue(gateReleased)
-        XCTAssertTrue(events.isEmpty)
+        XCTAssertEqual(events, [true])
         press.stop()
+        XCTAssertEqual(events, [true, false])
     }
 
-    func testHardwareShortReleasesPhysicalGateWithoutSyntheticEvents() {
+    func testLongPressReleaseAfterFirstPCMWaitsForDrainThenSendsOptionUp() {
         var events: [Bool] = []
         let press = VoicePressCoordinator(
             optionTrigger: VoiceOptionTrigger { events.append($0) }
         )
-        var shortResult: (UUID, Bool)?
-        press.onHardwareOptionGateShortResult = { sessionID, shouldRelease in
-            shortResult = (sessionID, shouldRelease)
-        }
 
-        let sessionID = UUID()
         XCTAssertTrue(
             press.keyDown(
-                sessionID: sessionID,
+                sessionID: UUID(),
+                bypassesShortClassification: true,
                 usesHardwareOption: true
             )
         )
+        press.setRemoteAudioAvailable()
         press.keyUp()
+        XCTAssertEqual(events, [true])
 
-        XCTAssertEqual(shortResult?.0, sessionID)
-        XCTAssertEqual(shortResult?.1, true)
-        XCTAssertTrue(events.isEmpty)
-        press.stop()
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(events, [true, false])
     }
 
-    func testMappingUnavailableLongUsesBalancedSyntheticOwner() {
+    func testLongPressStopAfterFirstPCMBalancesSyntheticOption() {
         var events: [Bool] = []
         let press = VoicePressCoordinator(
             optionTrigger: VoiceOptionTrigger { events.append($0) }
         )
-        let sessionID = UUID()
 
         XCTAssertTrue(
             press.keyDown(
-                sessionID: sessionID,
+                sessionID: UUID(),
                 bypassesShortClassification: true,
-                usesHardwareOption: false
+                usesHardwareOption: true
             )
         )
         press.setRemoteAudioAvailable()
@@ -71,6 +83,81 @@ final class VoicePressCoordinatorTests: XCTestCase {
 
         press.stop()
         XCTAssertEqual(events, [true, false])
+    }
+
+    func testLongPressDisconnectAfterFirstPCMBalancesSyntheticOption() {
+        var events: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true,
+                usesHardwareOption: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        press.setRemoteStreaming(false)
+
+        XCTAssertEqual(events, [true, false])
+    }
+
+    func testDefaultShortUsesOneBalancedSyntheticTap() {
+        var events: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: true
+            )
+        )
+        XCTAssertTrue(press.keyUp())
+        waitForCoordinatorTiming(0.08)
+
+        XCTAssertEqual(events, [true, false])
+    }
+
+    func testConfiguredShortActionDoesNotSendDefaultOption() {
+        var events: [Bool] = []
+        var actionCalled = false
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                onShortTap: { actionCalled = true },
+                usesHardwareOption: true
+            )
+        )
+        XCTAssertTrue(press.keyUp())
+
+        XCTAssertTrue(actionCalled)
+        XCTAssertTrue(events.isEmpty)
+    }
+
+    func testDisabledShortSlotDoesNotSendOption() {
+        var events: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                onShortTap: { },
+                usesHardwareOption: true
+            )
+        )
+        XCTAssertTrue(press.keyUp())
+
+        XCTAssertTrue(events.isEmpty)
     }
 
     func testShortShortLongStillPromotesTheFinalLongPress() {
