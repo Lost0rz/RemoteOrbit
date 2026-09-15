@@ -153,6 +153,16 @@ enum LegacyVoiceKeyMapping {
     }
 }
 
+/// Tracks whether the latest legacy F5 → Option cleanup completed successfully.
+/// Synthetic voice input is fail-closed until this state is explicitly safe.
+struct LegacyVoiceMappingSafety {
+    private(set) var isSafe = false
+
+    mutating func recordClearResult(_ succeeded: Bool) {
+        isSafe = succeeded
+    }
+}
+
 // MARK: - Voice-button gesture state machine
 
 /// The physical voice button exposes two independent input paths:
@@ -199,8 +209,8 @@ final class VoicePressCoordinator {
     static let holdActivationThreshold: TimeInterval = 0.30
     // The remote usually sends AUDIO_STOP just before the HID key-up, and the
     // BLE bridge keeps accepting packets during its drain window. Keep the
-    // output route alive long enough for those final frames to render even
-    // while the synthetic Option edge remains owned by the session.
+    // output route alive long enough for those final frames to render; this
+    // timer is also the safety fallback if the BLE drain callback is missing.
     private let tailDrainDelay: TimeInterval = 0.80
     // Physical release bounce is independent from the audio tail. Do not use
     // the tail-drain duration as a press lockout: a completed route must allow
@@ -971,11 +981,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let voiceFocusTransactions = VoiceFocusTransactionTracker()
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
+    private var legacyVoiceMappingSafety = LegacyVoiceMappingSafety()
 
     private func beginVoicePress(
         targetApplicationBundleIdentifier lockedTarget: String? = nil,
         shortBinding: ButtonBinding? = nil
     ) {
+        guard legacyVoiceMappingSafety.isSafe else {
+            print("[VOICE] blocked: legacy F5→Option mapping cleanup failed")
+            updateStatus()
+            return
+        }
         let target = lockedTarget
             ?? MappingStore.preferredApplicationBundleIdentifier()
         let needsFloatTabsFocus = FloatTabsCommandClient.shouldPrepareInputFocus(
@@ -1205,10 +1221,23 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
     }
 
+    private func recordLegacyVoiceMappingClear(reason: String) {
+        let succeeded = LegacyVoiceKeyMapping.clear()
+        legacyVoiceMappingSafety.recordClearResult(succeeded)
+        print(
+            "[VOICE] legacy F5→Option mapping cleanup "
+                + (succeeded ? "safe" : "unsafe")
+                + " reason=\(reason)"
+        )
+        if !succeeded {
+            print("[VOICE] blocked: legacy F5→Option mapping cleanup failed")
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         AppStorage.prepare()
-        _ = LegacyVoiceKeyMapping.clear()
+        recordLegacyVoiceMappingClear(reason: "app-launch")
         let appVersion = Bundle.main.object(
             forInfoDictionaryKey: "CFBundleShortVersionString"
         ) as? String ?? "development"
@@ -1352,10 +1381,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.filter.skipVoiceKey = active
             self.hidConnected = active
-            // Older releases installed a device-scoped F5 → Option mapping.
-            // Clear it whenever the supported HID device appears so the raw
-            // HID path remains the sole voice gesture authority.
-            _ = LegacyVoiceKeyMapping.clear()
+            if active {
+                // Older releases installed a device-scoped F5 → Option mapping.
+                // A failed cleanup makes the synthetic voice path unsafe; keep
+                // the HID gesture visible for diagnostics but reject voice.
+                self.recordLegacyVoiceMappingClear(reason: "HID-connect")
+                if !self.legacyVoiceMappingSafety.isSafe {
+                    self.voicePress.stop()
+                    self.actionHUD.dismiss()
+                }
+            }
             self.updateStatus()
             if !active {
                 self.reconnectHeldButtons = Set(
@@ -1871,7 +1906,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let accessibilityGranted = KeyInjector.isAccessibilityTrusted
         let audioOutputReady = AudioPipe.shared.isOutputReady
 
-        if remoteStreaming, audioOutputReady {
+        if !legacyVoiceMappingSafety.isSafe {
+            stopRecordingStatusPulse()
+            setStatusSummary("状态 · 语音已禁用（F5→Option 清理失败）", color: .systemRed)
+            setStatusIcon(systemName: "exclamationmark.triangle", color: .systemRed)
+        } else if remoteStreaming, audioOutputReady {
             setStatusSummary("状态 · 遥控器录音中", color: .systemGreen)
             startRecordingStatusPulse()
         } else if !inputMonitoringGranted || !accessibilityGranted {
@@ -1903,10 +1942,24 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             setStatusIcon(systemName: "exclamationmark.triangle", color: .systemRed)
         }
 
-        setMenuStatus(remoteStatusItem, title: "遥控器 · " + (hidConnected ? "HID 已连接" : "未连接"), color: hidConnected ? .systemGreen : .systemRed)
+        let remoteTitle: String
+        let remoteColor: NSColor
+        if !legacyVoiceMappingSafety.isSafe {
+            remoteTitle = hidConnected
+                ? "遥控器 · HID 已连接 / 语音已禁用"
+                : "遥控器 · 未连接 / 语音未就绪"
+            remoteColor = .systemRed
+        } else {
+            remoteTitle = "遥控器 · " + (hidConnected ? "HID 已连接" : "未连接")
+            remoteColor = hidConnected ? .systemGreen : .systemRed
+        }
+        setMenuStatus(remoteStatusItem, title: remoteTitle, color: remoteColor)
         let audioTitle: String
         let audioColor: NSColor
-        if remoteStreaming, audioOutputReady {
+        if !legacyVoiceMappingSafety.isSafe {
+            audioTitle = "语音检测 · 已禁用（F5→Option 清理失败）"
+            audioColor = .systemRed
+        } else if remoteStreaming, audioOutputReady {
             audioTitle = "语音链路 · 遥控器录音中"
             audioColor = .systemGreen
         } else if remoteStreaming {
@@ -2018,7 +2071,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         KeyInjector.releaseAll()
         ble.stop()
         AudioPipe.shared.stop()
-        _ = LegacyVoiceKeyMapping.clear()
+        let terminationCleanupSucceeded = LegacyVoiceKeyMapping.clear()
+        print(
+            "[VOICE] termination legacy F5→Option mapping cleanup "
+                + (terminationCleanupSucceeded ? "completed" : "failed")
+        )
     }
 
     @objc private func openKeyMapping() {

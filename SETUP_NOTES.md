@@ -85,8 +85,9 @@ Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建�
 
 1. RemoteOrbit 只把遥控器 ATVV 解码后的音频送入 `RemoteOrbit Mic 2ch`，不回退到本机麦克风；FloatTabs/Codex 焦点准备只作 advisory。
 2. 第一帧真实 PCM 进入 `AudioPipe` 后，RemoteOrbit 才发送 synthetic Option DOWN，豆包从同一个默认输入读取遥控器音频。
-3. 松开遥控器后先请求 BLE 停止并保留约 0.35 秒的 transport drain；`VoicePressCoordinator` 保留约 0.80 秒的 tail barrier，完成后发送 synthetic Option UP。
-4. 没有收到真实 PCM 的 session 不发送 Option DOWN，也不会产生 Option UP。
+3. 正常松开流程是：physical up → 请求 BLE stop → 约 0.35 秒 transport drain → `streaming=false` → synthetic Option UP。
+4. 如果 BLE drain completion 异常没有到达，`VoicePressCoordinator` 的约 0.80 秒 safety timer 会兜底发送 synthetic Option UP。
+5. 没有收到真实 PCM 的 session 不发送 Option DOWN，也不会产生 Option UP。
 
 遥控器音频当前使用约 20 倍增益，并使用软限幅，解决遥控器距离较远时声音过小的问题；如果近距离说话出现失真，可以调低 `AudioPipe.swift` 中的 `remoteGain`。
 

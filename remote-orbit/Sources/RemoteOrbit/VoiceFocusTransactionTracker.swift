@@ -1,9 +1,10 @@
 import Foundation
 
-/// Owns the identity of the one voice-focus transaction that may release the
-/// synthetic Option lifecycle. The app drives this object from the main thread; keeping
-/// the token logic separate makes stale-callback behavior deterministic and
-/// directly testable without HID or Accessibility services.
+/// Tracks only asynchronous focus-request identity and stale-callback
+/// isolation. It does not gate, send, or release Option. The app drives this
+/// object from the main thread; keeping the token logic separate makes stale
+/// focus behavior deterministic and directly testable without HID or
+/// Accessibility services.
 final class VoiceFocusTransactionTracker {
     private(set) var activeGestureID: UUID?
 
