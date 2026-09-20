@@ -2,6 +2,166 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoicePressCoordinatorTests: XCTestCase {
+    func testDisabledShortStartsTransportPreparationWithoutSkippingClassifier() {
+        var events: [String] = []
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+        press.onRemoteTransportPreparation = {
+            events.append("BLE_PREPARE_REQUEST")
+        }
+        press.onRemoteRoutePreparation = {
+            events.append("REMOTE_ROUTE_PREPARATION")
+        }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                preparesRemoteTransport: true
+            )
+        )
+
+        XCTAssertEqual(events, ["BLE_PREPARE_REQUEST"])
+        XCTAssertEqual(press.currentStateForTesting, .pending)
+        XCTAssertFalse(press.shouldShowPendingVoiceUI)
+        press.keyUp()
+        press.stop()
+    }
+
+    func testDisabledShortWithPendingAudioHasNoVisibleOptionAction() {
+        var optionEvents: [Bool] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { optionEvents.append($0) }
+        )
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                preparesRemoteTransport: true
+            )
+        )
+        AudioPipe.shared.feed(samples: Array(repeating: Int16(9), count: 64))
+        press.setRemoteAudioAvailable()
+
+        XCTAssertEqual(press.currentStateForTesting, .pending)
+        XCTAssertFalse(press.shouldShowPendingVoiceUI)
+        XCTAssertTrue(optionEvents.isEmpty)
+        XCTAssertTrue(press.keyUp())
+        press.stop()
+    }
+
+    func testPendingRemoteAudioIsQueuedBeforeLongOptionActivation() {
+        var order: [String] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { _ in
+                order.append("OPTION_DOWN_RELEASE")
+            }
+        )
+        press.onStateChanged = { state in
+            if state == .holding {
+                order.append("HOLD_CONFIRMED")
+            }
+        }
+        press.onRemoteRoutePreparation = {
+            order.append("REMOTE_ROUTE_PREPARATION")
+        }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                preparesRemoteTransport: true
+            )
+        )
+        AudioPipe.shared.feed(samples: Array(repeating: Int16(7), count: 320))
+        press.setRemoteAudioAvailable()
+        waitForCoordinatorTiming(0.35)
+
+        XCTAssertEqual(
+            order,
+            ["HOLD_CONFIRMED", "REMOTE_ROUTE_PREPARATION", "OPTION_DOWN_RELEASE"]
+        )
+        press.keyUp()
+        press.stop()
+    }
+
+    func testHardwareOptionUpWaitsForOutputDrain() {
+        var order: [String] = []
+        var completeOutputDrain: (() -> Void)?
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in
+            XCTFail("hardware replay must not use synthetic Option")
+        })
+        press.onHardwareOptionGateBegin = { _ in
+            order.append("OPTION_GATE_BEGIN")
+        }
+        press.onHardwareOptionGateLongReady = { _ in
+            order.append("OPTION_DOWN_RELEASE")
+        }
+        press.onHardwareOptionGatePhysicalUp = { _ in
+            order.append("PHYSICAL_UP")
+        }
+        press.onHardwareOptionGateOutputDrained = { _ in
+            order.append("OPTION_UP_RELEASE")
+        }
+        press.onRemoteOutputDrain = { _, completion in
+            order.append("WAIT_OUTPUT_DRAIN")
+            completeOutputDrain = completion
+        }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true,
+                usesHardwareOption: true
+            )
+        )
+        press.setRemoteStreaming(true)
+        press.setRemoteAudioAvailable()
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+
+        XCTAssertEqual(
+            order,
+            [
+                "OPTION_GATE_BEGIN",
+                "OPTION_DOWN_RELEASE",
+                "PHYSICAL_UP",
+                "WAIT_OUTPUT_DRAIN",
+            ]
+        )
+        XCTAssertNotNil(completeOutputDrain)
+        XCTAssertNotEqual(order.last, "OPTION_UP_RELEASE")
+
+        completeOutputDrain?()
+
+        XCTAssertEqual(order.last, "OPTION_UP_RELEASE")
+        press.stop()
+    }
+
+    func testSyntheticOptionUpAlsoWaitsForOutputDrain() {
+        var events: [Bool] = []
+        var completeOutputDrain: (() -> Void)?
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+        press.onRemoteOutputDrain = { _, completion in
+            completeOutputDrain = completion
+        }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteStreaming(true)
+        press.setRemoteAudioAvailable()
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+
+        XCTAssertEqual(events, [true])
+        completeOutputDrain?()
+        XCTAssertEqual(events, [true, false])
+        press.stop()
+    }
+
     func testHardwareLongReleasesOnlyThePhysicalGate() {
         var events: [Bool] = []
         let press = VoicePressCoordinator(
