@@ -190,6 +190,7 @@ final class VoicePressCoordinator {
         let togglesLocalMicrophone: Bool
         let bypassesShortClassification: Bool
         let usesHardwareOption: Bool
+        let preparesRemoteTransport: Bool
         var isStillHeld = true
     }
 
@@ -207,6 +208,15 @@ final class VoicePressCoordinator {
     /// Testable ordering seam: the state callback is where AppController
     /// requests BLE acquisition, and this callback marks route preparation.
     var onRemoteRoutePreparation: (() -> Void)?
+    /// A disabled short press may prepare ATVV while classification is
+    /// pending. This does not release Option or expose the voice HUD.
+    var onRemoteTransportPreparation: (() -> Void)?
+    /// Complete a long gesture only after queued remote PCM has rendered.
+    var onRemoteOutputDrain: ((UUID, @escaping () -> Void) -> Void)?
+    /// The raw HID voice-key release arms the matching mapped Option-up.
+    var onHardwareOptionGatePhysicalUp: ((UUID) -> Void)?
+    /// Release a replayed hardware Option-up after output drain.
+    var onHardwareOptionGateOutputDrained: ((UUID) -> Void)?
 
     /// This is the short-vs-long classifier. A quick tap invokes Doubao's
     /// computer/external-microphone input (or the optional Codex short action);
@@ -251,6 +261,11 @@ final class VoicePressCoordinator {
     private var gestureID: UUID?
     private var pendingShortPreparationID: UUID?
     private var usesHardwareOptionPath = false
+    private var remoteOutputDrainRequestedSessionID: UUID?
+    private var remoteOutputDrainedSessionID: UUID?
+    private var physicalUpSessionID: UUID?
+    private var awaitingPhysicalVoiceKeyUp = false
+    private var pendingVoiceUIHidden = false
     private let syntheticOptionTrigger: VoiceOptionTrigger
 
     init(optionTrigger: VoiceOptionTrigger = .shared) {
@@ -299,6 +314,10 @@ final class VoicePressCoordinator {
         tailWorkItem != nil
     }
 
+    var shouldShowPendingVoiceUI: Bool {
+        !pendingVoiceUIHidden
+    }
+
     func invokeTailCompletionForTesting(sessionID: UUID) {
         finishLongInput(sessionID: sessionID)
     }
@@ -310,7 +329,8 @@ final class VoicePressCoordinator {
         usesLocalMicrophone: Bool = false,
         togglesLocalMicrophone: Bool = false,
         bypassesShortClassification: Bool = false,
-        usesHardwareOption: Bool = false
+        usesHardwareOption: Bool = false,
+        preparesRemoteTransport: Bool = false
     ) -> Bool {
         let now = Date()
         let physicalDownAt = ProcessInfo.processInfo.systemUptime
@@ -335,7 +355,8 @@ final class VoicePressCoordinator {
                     usesLocalMicrophone: usesLocalMicrophone,
                     togglesLocalMicrophone: togglesLocalMicrophone,
                     bypassesShortClassification: bypassesShortClassification,
-                    usesHardwareOption: usesHardwareOption
+                    usesHardwareOption: usesHardwareOption,
+                    preparesRemoteTransport: preparesRemoteTransport
                 )
                 let shortID = String(sessionID.uuidString.prefix(4))
                 print(
@@ -366,7 +387,8 @@ final class VoicePressCoordinator {
             usesLocalMicrophone: usesLocalMicrophone,
             togglesLocalMicrophone: togglesLocalMicrophone,
             bypassesShortClassification: bypassesShortClassification,
-            usesHardwareOption: usesHardwareOption
+            usesHardwareOption: usesHardwareOption,
+            preparesRemoteTransport: preparesRemoteTransport
         )
     }
 
@@ -377,7 +399,8 @@ final class VoicePressCoordinator {
         usesLocalMicrophone: Bool,
         togglesLocalMicrophone: Bool,
         bypassesShortClassification: Bool,
-        usesHardwareOption: Bool
+        usesHardwareOption: Bool,
+        preparesRemoteTransport: Bool
     ) -> Bool {
         // A new physical press owns the voice key now. Do not keep a local
         // session left by an earlier short tap alive during the classifier:
@@ -395,6 +418,11 @@ final class VoicePressCoordinator {
         shortInputUsesLocalMicrophone =
             usesLocalMicrophone && !shortInputClosesLocalMicrophoneSession
         usesHardwareOptionPath = usesHardwareOption
+        remoteOutputDrainRequestedSessionID = nil
+        remoteOutputDrainedSessionID = nil
+        physicalUpSessionID = nil
+        awaitingPhysicalVoiceKeyUp = false
+        pendingVoiceUIHidden = preparesRemoteTransport
         gestureID = sessionID
         VoiceTimingLogger.begin(sessionID: sessionID)
         _ = syntheticOptionTrigger.begin(sessionID: sessionID)
@@ -406,15 +434,14 @@ final class VoicePressCoordinator {
         AudioPipe.shared.beginRemoteCandidate()
 
         if bypassesShortClassification {
-            // When the short slot is explicitly disabled there is no useful
-            // short-vs-long decision to make. Enter the remote-mic path on the
-            // first edge so the user does not pay the 300 ms classifier delay.
-            print("[PRESS] short slot disabled → direct LONG remote-mic path")
             enterHoldingState()
             return true
         }
 
         setMode(.pending)
+        if preparesRemoteTransport && !bypassesShortClassification {
+            onRemoteTransportPreparation?()
+        }
         let heldDuration = max(
             0,
             ProcessInfo.processInfo.systemUptime - physicalDownAt
@@ -443,6 +470,18 @@ final class VoicePressCoordinator {
 
         switch mode {
         case .idle:
+            if awaitingPhysicalVoiceKeyUp {
+                awaitingPhysicalVoiceKeyUp = false
+                if let currentGestureID = gestureID {
+                    physicalUpSessionID = currentGestureID
+                    if usesHardwareOptionPath {
+                        onHardwareOptionGatePhysicalUp?(currentGestureID)
+                    }
+                    completeLongInputIfReady(sessionID: currentGestureID)
+                }
+                print("[PRESS] completed route consumed pending physical voice-key release")
+                return true
+            }
             guard let pendingRepress else { return false }
             self.pendingRepress?.isStillHeld = false
             self.pendingRepress = nil
@@ -467,6 +506,7 @@ final class VoicePressCoordinator {
             let shouldUseHardwareOption = usesHardwareOptionPath
             gestureID = nil
             usesHardwareOptionPath = false
+            pendingVoiceUIHidden = false
             setMode(.idle)
             setRemoteRouted(false)
             AudioPipe.shared.endRemoteCandidate()
@@ -534,7 +574,10 @@ final class VoicePressCoordinator {
             shortInputUsesLocalMicrophone = false
             let releasedSessionID = gestureID
             if let releasedSessionID {
-                VoiceTimingLogger.mark("PHYSICAL_UP", sessionID: releasedSessionID)
+                physicalUpSessionID = releasedSessionID
+                if usesHardwareOptionPath {
+                    onHardwareOptionGatePhysicalUp?(releasedSessionID)
+                }
             }
             if let currentGestureID = gestureID, !longInputStarted {
                 onHardwareOptionGateCancel?(currentGestureID)
@@ -565,23 +608,26 @@ final class VoicePressCoordinator {
             remoteAudioAvailable = false
             onRemoteAudioChanged?(false)
             if mode == .holding {
-                // AUDIO_STOP is delivered before HID button-up on this remote.
-                // The BLE side now drains the tail before this callback, so it
-                // is safe to close the route here. Previously this happened
-                // at the first AUDIO_STOP edge and discarded the tail.
-                print("[PRESS] remote audio stopped after drain; closing voice input")
-                if !longInputStarted, let currentGestureID = gestureID {
-                    onHardwareOptionGateCancel?(currentGestureID)
-                    _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
+                // The BLE side has stopped accepting input, but queued PCM
+                // still owns the Option-up lifetime.
+                print("[PRESS] remote audio stopped after drain; waiting for output drain")
+                if longInputStarted {
+                    awaitingPhysicalVoiceKeyUp = true
+                    setMode(.idle)
+                    requestRemoteOutputDrain(sessionID: gestureID)
+                } else {
+                    if let currentGestureID = gestureID {
+                        onHardwareOptionGateCancel?(currentGestureID)
+                        _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
+                    }
+                    setMode(.idle)
+                    finishLongInput(sessionID: gestureID)
                 }
-                setMode(.idle)
-                finishLongInput(sessionID: gestureID)
-            } else if remoteRouted {
+            } else if longInputStarted {
                 // The physical HID edge may have arrived before the BLE
-                // drain callback. Close the route on that callback rather
-                // than on the earlier fallback timer.
-                print("[PRESS] remote audio drain complete; closing voice input")
-                finishLongInput(sessionID: gestureID)
+                // drain callback. Preserve the same output-drain barrier.
+                print("[PRESS] remote audio drain complete; waiting for output drain")
+                requestRemoteOutputDrain(sessionID: gestureID)
             }
         }
         // BLE availability is informational only. HID owns gesture lifetime
@@ -655,6 +701,14 @@ final class VoicePressCoordinator {
         setMode(.idle)
         setRemoteRouted(false)
         AudioPipe.shared.endRemoteCandidate()
+        pendingVoiceUIHidden = false
+        longInputStarted = false
+        remoteAudioAvailable = false
+        remoteStreaming = false
+        awaitingPhysicalVoiceKeyUp = false
+        remoteOutputDrainRequestedSessionID = nil
+        remoteOutputDrainedSessionID = nil
+        physicalUpSessionID = nil
         if let stoppedSessionID {
             VoiceTimingLogger.mark("ROUTE_OFF", sessionID: stoppedSessionID)
             VoiceTimingLogger.end(sessionID: stoppedSessionID)
@@ -726,7 +780,7 @@ final class VoicePressCoordinator {
             }
             self.tailWorkItem = nil
             self.tailSessionID = nil
-            self.finishLongInput(sessionID: sessionID)
+            self.requestRemoteOutputDrain(sessionID: sessionID)
         }
         tailWorkItem = work
         DispatchQueue.main.asyncAfter(
@@ -756,7 +810,8 @@ final class VoicePressCoordinator {
             usesLocalMicrophone: pendingRepress.usesLocalMicrophone,
             togglesLocalMicrophone: pendingRepress.togglesLocalMicrophone,
             bypassesShortClassification: pendingRepress.bypassesShortClassification,
-            usesHardwareOption: pendingRepress.usesHardwareOption
+            usesHardwareOption: pendingRepress.usesHardwareOption,
+            preparesRemoteTransport: pendingRepress.preparesRemoteTransport
         )
     }
 
@@ -784,32 +839,96 @@ final class VoicePressCoordinator {
             )
             return
         }
+        guard let currentSessionID = sessionID ?? gestureID else { return }
+        guard longInputStarted else {
+            completeVoiceRouteWithoutAudio(sessionID: currentSessionID)
+            return
+        }
+        requestRemoteOutputDrain(sessionID: currentSessionID)
+        completeLongInputIfReady(sessionID: currentSessionID)
+    }
+
+    private func requestRemoteOutputDrain(sessionID: UUID?) {
+        guard let sessionID,
+              gestureID == sessionID,
+              longInputStarted else { return }
+        if remoteOutputDrainRequestedSessionID == sessionID {
+            completeLongInputIfReady(sessionID: sessionID)
+            return
+        }
+
+        // Stop accepting new remote samples before asking the output side to
+        // drain. `setRemoteActive(false)` keeps already queued PCM alive.
+        AudioPipe.shared.endRemoteCandidate()
+        _ = setRemoteRouted(false)
+        remoteOutputDrainRequestedSessionID = sessionID
+
+        let completion = { [weak self] in
+            guard let self,
+                  self.gestureID == sessionID,
+                  self.longInputStarted else { return }
+            self.remoteOutputDrainedSessionID = sessionID
+            self.completeLongInputIfReady(sessionID: sessionID)
+        }
+        if let onRemoteOutputDrain {
+            onRemoteOutputDrain(sessionID, completion)
+        } else {
+            completion()
+        }
+    }
+
+    private func completeLongInputIfReady(sessionID: UUID) {
+        guard gestureID == sessionID,
+              longInputStarted,
+              remoteOutputDrainedSessionID == sessionID,
+              physicalUpSessionID == sessionID else { return }
+
         holdWorkItem?.cancel()
         holdWorkItem = nil
         tailWorkItem?.cancel()
         tailWorkItem = nil
         tailSessionID = nil
-        let currentSessionID = sessionID ?? gestureID
-        if let currentSessionID {
-            if syntheticOptionTrigger.sendUp(sessionID: currentSessionID) {
-                print("[PRESS] LONG end → synthetic Option UP")
-            } else {
-                _ = syntheticOptionTrigger.abort(sessionID: currentSessionID)
-            }
-        }
         if usesHardwareOptionPath {
-            print("[PRESS] LONG end → Option UP")
+            onHardwareOptionGateOutputDrained?(sessionID)
+            print("[PRESS] LONG end → Option UP after output drain")
+        } else if syntheticOptionTrigger.sendUp(sessionID: sessionID) {
+            print("[PRESS] LONG end → synthetic Option UP after output drain")
+        } else {
+            _ = syntheticOptionTrigger.abort(sessionID: sessionID)
         }
-        setRemoteRouted(false)
+        longInputStarted = false
+        remoteAudioAvailable = false
+        gestureID = nil
+        usesHardwareOptionPath = false
+        remoteOutputDrainRequestedSessionID = nil
+        remoteOutputDrainedSessionID = nil
+        physicalUpSessionID = nil
+        awaitingPhysicalVoiceKeyUp = false
+        pendingVoiceUIHidden = false
+        if mode != .idle {
+            setMode(.idle)
+        }
+        VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
+        VoiceTimingLogger.end(sessionID: sessionID)
+        scheduleDeferredRepressActivation()
+    }
+
+    private func completeVoiceRouteWithoutAudio(sessionID: UUID) {
+        onHardwareOptionGateCancel?(sessionID)
+        _ = syntheticOptionTrigger.abort(sessionID: sessionID)
+        _ = setRemoteRouted(false)
         AudioPipe.shared.endRemoteCandidate()
         longInputStarted = false
         remoteAudioAvailable = false
         gestureID = nil
         usesHardwareOptionPath = false
-        if let currentSessionID {
-            VoiceTimingLogger.mark("ROUTE_OFF", sessionID: currentSessionID)
-            VoiceTimingLogger.end(sessionID: currentSessionID)
-        }
+        remoteOutputDrainRequestedSessionID = nil
+        remoteOutputDrainedSessionID = nil
+        physicalUpSessionID = nil
+        awaitingPhysicalVoiceKeyUp = false
+        pendingVoiceUIHidden = false
+        VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
+        VoiceTimingLogger.end(sessionID: sessionID)
         scheduleDeferredRepressActivation()
     }
 
@@ -828,10 +947,11 @@ final class VoicePressCoordinator {
         }
     }
 
-    private func setRemoteRouted(_ active: Bool) {
-        guard remoteRouted != active else { return }
+    @discardableResult
+    private func setRemoteRouted(_ active: Bool) -> Int {
+        guard remoteRouted != active else { return 0 }
         remoteRouted = active
-        AudioPipe.shared.setRemoteActive(active)
+        return AudioPipe.shared.setRemoteActive(active)
     }
 
     private func setMode(_ newMode: State) {
@@ -874,6 +994,11 @@ final class VoiceKeyFilter {
     private var deferredOptionUpSeen = false
     private var deferredOptionDownEvents: [CGEvent] = []
     private var deferredOptionUpEvents: [CGEvent] = []
+    private var heldHardwareOptionSessionID: UUID?
+    private var heldHardwareOptionUpEvents: [CGEvent] = []
+    private var heldHardwareOptionFlagsUpSeen = false
+    private var heldHardwareOptionKeyUpSeen = false
+    private var hardwareOptionReleaseArmed = false
     var onVoiceKeyDown: (() -> Void)?
     var onVoiceKeyUp: (() -> Void)?
 
@@ -898,6 +1023,13 @@ final class VoiceKeyFilter {
     /// This prevents the first Option edge from beating a stale WebKit text
     /// client without blocking the event-tap thread.
     func beginOptionDeferral(gestureID: UUID) {
+        if let heldSessionID = heldHardwareOptionSessionID,
+           heldSessionID != gestureID {
+            abortHeldHardwareOption(
+                gestureID: heldSessionID,
+                reason: "superseded"
+            )
+        }
         if let activeGestureID = optionGate.activeSessionID,
            activeGestureID != gestureID {
             cancelDeferredOption(
@@ -918,8 +1050,11 @@ final class VoiceKeyFilter {
     /// source. This also covers a new synthetic-fallback gesture, which does
     /// not arm a replacement physical gate of its own.
     func cancelActiveOptionDeferral(reason: String) {
-        guard let gestureID = optionGate.activeSessionID else { return }
-        cancelDeferredOption(gestureID: gestureID, reason: reason)
+        if let gestureID = optionGate.activeSessionID {
+            cancelDeferredOption(gestureID: gestureID, reason: reason)
+        } else if let gestureID = heldHardwareOptionSessionID {
+            abortHeldHardwareOption(gestureID: gestureID, reason: reason)
+        }
     }
 
     /// Release a deferred physical Option pair. The gesture identifier makes
@@ -953,7 +1088,18 @@ final class VoiceKeyFilter {
             // physical up event is allowed through once the gate is cleared.
             _ = syntheticOptionTrigger.abort(sessionID: gestureID)
             optionDownEvents.forEach { $0.post(tap: .cghidEventTap) }
-            optionUpEvents.forEach { $0.post(tap: .cghidEventTap) }
+            if optionUpSeen {
+                optionUpEvents.forEach { $0.post(tap: .cghidEventTap) }
+            } else if optionDownSeen {
+                // A long remote hold has a captured Option-down but its
+                // matching up arrives with the raw HID voice-key release.
+                // Hold that one session's mapped up until output drains.
+                heldHardwareOptionSessionID = gestureID
+                heldHardwareOptionUpEvents.removeAll(keepingCapacity: true)
+                heldHardwareOptionFlagsUpSeen = false
+                heldHardwareOptionKeyUpSeen = false
+                hardwareOptionReleaseArmed = false
+            }
         case .syntheticTap:
             _ = syntheticOptionTrigger.sendTap(sessionID: gestureID)
         case .syntheticDown:
@@ -968,10 +1114,70 @@ final class VoiceKeyFilter {
         )
     }
 
+    /// Called after the raw HID microphone-up was accepted for this gesture.
+    func armHardwareOptionRelease(gestureID: UUID) {
+        guard heldHardwareOptionSessionID == gestureID else { return }
+        hardwareOptionReleaseArmed = true
+        print("[VOICE] hardware Option-up armed gesture=\(gestureID.uuidString)")
+    }
+
+    /// Release the captured hardware Option-up after remote output drains.
+    /// If macOS did not deliver a matching up, use the existing synthetic
+    /// helper only as an emergency balancing edge.
+    func releaseHeldHardwareOption(gestureID: UUID, reason: String) {
+        guard heldHardwareOptionSessionID == gestureID else {
+            print(
+                "[VOICE] ignored stale hardware Option-up release gesture="
+                    + "\(gestureID.uuidString) active="
+                    + "\(heldHardwareOptionSessionID?.uuidString ?? "none")"
+            )
+            return
+        }
+        let events = heldHardwareOptionUpEvents
+        clearHeldHardwareOption()
+        if events.isEmpty {
+            Key.optionUp()
+            print("[VOICE] hardware Option-up missing; emergency balancing up")
+        } else {
+            events.forEach { $0.post(tap: .cghidEventTap) }
+        }
+        print(
+            "[VOICE] hardware Option-up released gesture=\(gestureID.uuidString) "
+                + "reason=\(reason)"
+        )
+    }
+
+    private func abortHeldHardwareOption(gestureID: UUID, reason: String) {
+        guard heldHardwareOptionSessionID == gestureID else { return }
+        let events = heldHardwareOptionUpEvents
+        clearHeldHardwareOption()
+        if events.isEmpty {
+            Key.optionUp()
+        } else {
+            events.forEach { $0.post(tap: .cghidEventTap) }
+        }
+        print(
+            "[VOICE] hardware Option-up emergency release gesture="
+                + "\(gestureID.uuidString) reason=\(reason)"
+        )
+    }
+
+    private func clearHeldHardwareOption() {
+        heldHardwareOptionSessionID = nil
+        heldHardwareOptionUpEvents.removeAll(keepingCapacity: true)
+        heldHardwareOptionFlagsUpSeen = false
+        heldHardwareOptionKeyUpSeen = false
+        hardwareOptionReleaseArmed = false
+    }
+
     /// Drops a fully captured gesture without replaying it. This is used only
     /// when a newer physical press supersedes a completed request; the stale
     /// request must never turn into a delayed Option tap in the new target.
     func cancelDeferredOption(gestureID: UUID, reason: String) {
+        if heldHardwareOptionSessionID == gestureID {
+            abortHeldHardwareOption(gestureID: gestureID, reason: reason)
+            return
+        }
         guard optionGate.cancel(sessionID: gestureID) else { return }
         _ = syntheticOptionTrigger.abort(sessionID: gestureID)
         deferredOptionDownSeen = false
@@ -1085,6 +1291,33 @@ final class VoiceKeyFilter {
                 return nil
             }
 
+            // Once a long hardware replay has been selected and the raw HID
+            // voice-key up is accepted, hold only that session's mapped
+            // Option-up until AudioPipe confirms the queued PCM is drained.
+            if keyCode == VK.option,
+               filter.heldHardwareOptionSessionID != nil,
+               filter.hardwareOptionReleaseArmed {
+                switch type {
+                case .flagsChanged:
+                    guard !event.flags.contains(.maskAlternate),
+                          !filter.heldHardwareOptionFlagsUpSeen else {
+                        return nil
+                    }
+                    filter.heldHardwareOptionFlagsUpSeen = true
+                case .keyUp:
+                    guard !filter.heldHardwareOptionKeyUpSeen else {
+                        return nil
+                    }
+                    filter.heldHardwareOptionKeyUpSeen = true
+                default:
+                    return Unmanaged.passUnretained(event)
+                }
+                if let copiedEvent = event.copy() {
+                    filter.heldHardwareOptionUpEvents.append(copiedEvent)
+                }
+                return nil
+            }
+
             if keyCode == VK.voiceKey {
                 if filter.skipVoiceKey {
                     return Unmanaged.passUnretained(event)
@@ -1135,6 +1368,9 @@ final class VoiceKeyFilter {
         if let gestureID = optionGate.activeSessionID {
             cancelDeferredOption(gestureID: gestureID, reason: "stop")
         }
+        if let gestureID = heldHardwareOptionSessionID {
+            abortHeldHardwareOption(gestureID: gestureID, reason: "stop")
+        }
         if voiceKeyIsDown {
             voiceKeyIsDown = false
             onVoiceKeyUp?()
@@ -1184,6 +1420,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
 
+    static func bypassesShortClassification(for _: ButtonBinding) -> Bool {
+        // A disabled short action still uses the normal classifier.
+        false
+    }
+
     private func beginVoicePress(
         targetApplicationBundleIdentifier lockedTarget: String? = nil,
         shortBinding: ButtonBinding? = nil
@@ -1220,7 +1461,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let togglesLocalMicrophone = VoicePressCoordinator.togglesLocalMicrophone(
             forShortBinding: resolvedShortBinding
         )
-        let bypassesShortClassification = resolvedShortBinding.isDisabled
+        let bypassesShortClassification = Self.bypassesShortClassification(
+            for: resolvedShortBinding
+        )
         // Local capture is deliberately lazy. Starting it here would open the
         // physical microphone during the 300 ms short-vs-long classification
         // window, so a long hold would still briefly invoke the external mic.
@@ -1261,7 +1504,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             usesLocalMicrophone: usesLocalMicrophone,
             togglesLocalMicrophone: togglesLocalMicrophone,
             bypassesShortClassification: bypassesShortClassification,
-            usesHardwareOption: RemoteVoiceKeyMapping.isEnabled
+            usesHardwareOption: RemoteVoiceKeyMapping.isEnabled,
+            preparesRemoteTransport: resolvedShortBinding.isDisabled
         ) else {
             return
         }
@@ -1378,6 +1622,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .idle:
             actionHUD.dismiss()
         case .pending:
+            guard voicePress.shouldShowPendingVoiceUI else {
+                actionHUD.dismiss()
+                return
+            }
             actionHUD.show(
                 button: .microphone,
                 gesture: "按住",
@@ -1507,7 +1755,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if state == .holding {
                 // Do not open ATVV for a short tap. The coordinator promotes
                 // only after the long-press threshold has been crossed.
-                self?.ble.startVoiceInput()
+                self?.ble.activateVoiceInput()
             }
             self?.updateVoiceHUD(for: state)
         }
@@ -1553,6 +1801,21 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.filter.cancelDeferredOption(
                 gestureID: gestureID,
                 reason: "gesture-cancelled"
+            )
+        }
+        voicePress.onRemoteTransportPreparation = { [weak self] in
+            self?.ble.prepareVoiceTransport()
+        }
+        voicePress.onRemoteOutputDrain = { _, completion in
+            AudioPipe.shared.waitForOutputDrain(completion: completion)
+        }
+        voicePress.onHardwareOptionGatePhysicalUp = { [weak self] gestureID in
+            self?.filter.armHardwareOptionRelease(gestureID: gestureID)
+        }
+        voicePress.onHardwareOptionGateOutputDrained = { [weak self] gestureID in
+            self?.filter.releaseHeldHardwareOption(
+                gestureID: gestureID,
+                reason: "output-drained"
             )
         }
 

@@ -49,6 +49,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var outputDeviceReady = false
     private var pendingOutput: [Float] = []
     private var pendingOutputIndex = 0
+    private var pendingRemoteOutputFrames = 0
+    private var remoteOutputDrainWaiter: (() -> Void)?
     private var scheduledMacBuffers = 0
     private var scheduledRemoteBuffers = 0
     private var scheduledPeak: Float = 0
@@ -92,6 +94,14 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         return outputDeviceReady
     }
 
+    /// Number of output frames still waiting for the CoreAudio render
+    /// callback. This is used to sequence the final Option-up safely.
+    var queuedOutputFrames: Int {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return max(0, pendingOutput.count - pendingOutputIndex)
+    }
+
     func restartOutputDevice() {
         stop()
         if let output = Self.findOutputDevice() {
@@ -131,6 +141,31 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         stateLock.unlock()
     }
 
+    /// True only when the remote route is inactive and no output frames are
+    /// waiting for the CoreAudio render callback.
+    static func isOutputDrained(remoteActive: Bool, queuedFrames: Int) -> Bool {
+        !remoteActive && queuedFrames <= 0
+    }
+
+    /// Complete on the main queue after already queued output has rendered.
+    /// The caller owns session identity validation for the completion.
+    func waitForOutputDrain(completion: @escaping () -> Void) {
+        stateLock.lock()
+        let queuedFrames = pendingOutput.count - pendingOutputIndex
+        let drained = Self.isOutputDrained(
+            remoteActive: remoteActive,
+            queuedFrames: queuedFrames
+        )
+        if !drained {
+            remoteOutputDrainWaiter = completion
+        }
+        stateLock.unlock()
+
+        if drained {
+            DispatchQueue.main.async(execute: completion)
+        }
+    }
+
     func feed(samples: [Int16], inputSampleRate: Double = 16_000) {
         guard !samples.isEmpty else { return }
         stateLock.lock()
@@ -160,7 +195,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         )
     }
 
-    func setRemoteActive(_ active: Bool) {
+    @discardableResult
+    func setRemoteActive(_ active: Bool) -> Int {
         var prebuffer: [Int16] = []
         stateLock.lock()
         remoteActive = active
@@ -168,8 +204,10 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             // A new voice session must never inherit a previous session's
             // samples. On deactivation, however, keep the already queued
             // frames alive so the BLE tail-drain window can render them.
+            remoteOutputDrainWaiter = nil
             pendingOutput.removeAll(keepingCapacity: true)
             pendingOutputIndex = 0
+            pendingRemoteOutputFrames = 0
             prebuffer = pendingRemotePrebuffer
             pendingRemotePrebuffer.removeAll(keepingCapacity: true)
         } else {
@@ -210,6 +248,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             // once a remote hold has ended.
             SystemAudioDeviceManager.applyPreferredInputSelection()
         }
+        return prebuffer.count
     }
 
     /// Enable or disable the physical/external microphone path used by the
@@ -261,6 +300,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         outputDeviceReady = false
         pendingOutput.removeAll(keepingCapacity: true)
         pendingOutputIndex = 0
+        pendingRemoteOutputFrames = 0
+        remoteOutputDrainWaiter = nil
         localMicrophoneCaptureRequested = false
         localMicrophonePermissionRequestInFlight = false
         pendingLocalMicrophoneReady = nil
@@ -537,6 +578,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         pendingOutput.append(contentsOf: resampled)
         if expectedRemoteMode {
             scheduledRemoteBuffers += 1
+            pendingRemoteOutputFrames += resampled.count
         } else {
             scheduledMacBuffers += 1
         }
@@ -611,6 +653,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         guard frameCount > 0 else { return }
 
         var mono = [Float](repeating: 0, count: frameCount)
+        var drainCompletion: (() -> Void)?
         stateLock.lock()
         let available = pendingOutput.count - pendingOutputIndex
         if available > 0 {
@@ -622,6 +665,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 with: pendingOutput[start..<end]
             )
             renderedFrames += take
+            let renderedRemoteFrames = min(take, pendingRemoteOutputFrames)
+            pendingRemoteOutputFrames -= renderedRemoteFrames
             renderedPeak = max(
                 renderedPeak,
                 pendingOutput[start..<end].reduce(0) { max($0, abs($1)) }
@@ -629,8 +674,20 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             pendingOutputIndex = end
             compactOutputBufferIfNeeded()
         }
+        let remaining = pendingOutput.count - pendingOutputIndex
+        if Self.isOutputDrained(
+            remoteActive: remoteActive,
+            queuedFrames: remaining
+        ) {
+            drainCompletion = remoteOutputDrainWaiter
+            remoteOutputDrainWaiter = nil
+        }
         renderCallbackCount += 1
         stateLock.unlock()
+
+        if let drainCompletion {
+            DispatchQueue.main.async(execute: drainCompletion)
+        }
 
         for buffer in buffers {
             guard let data = buffer.mData else { continue }
@@ -658,7 +715,12 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         let maximumQueuedFrames = Int(Self.outputSampleRate * 2)
         let available = pendingOutput.count - pendingOutputIndex
         if available > maximumQueuedFrames {
-            pendingOutputIndex += available - maximumQueuedFrames
+            let dropped = available - maximumQueuedFrames
+            pendingOutputIndex += dropped
+            pendingRemoteOutputFrames = max(
+                0,
+                pendingRemoteOutputFrames - dropped
+            )
         }
     }
 

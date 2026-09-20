@@ -248,42 +248,25 @@ final class HIDMonitor {
     fileprivate func deviceDidMatch(result: IOReturn, device: IOHIDDevice) {
         guard manager != nil, activeDevice == nil else { return }
 
-        var openSucceeded = false
-        var seized = false
-
-        if result == kIOReturnSuccess {
-            // 优先尝试独占模式（seize）：阻止 macOS 接收遥控器事件
-            let seizeResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
-            if seizeResult == kIOReturnSuccess {
-                openSucceeded = true
-                seized = true
-            } else {
-                // 降级为 monitor 模式
-                let monitorResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
-                if monitorResult == kIOReturnSuccess {
-                    openSucceeded = true
-                } else {
-                    print("[HID] device open failed: seize=\(seizeResult) monitor=\(monitorResult)")
-                }
-            }
-        }
-
-        guard openSucceeded else {
+        guard result == kIOReturnSuccess else {
             updateStatus("无法读取遥控器（错误 \(result)）")
             return
         }
 
-        activeDevice = device
-        activeDeviceIsSeized = seized
-        eventSuppressor.setRemotePowerSuppressionEnabled(!seized)
-        eventSuppressor.setRemoteMediaSuppressionEnabled(!seized)
-        if seized {
-            updateStatus("遥控器已连接（独占模式）")
-            print("[HID] connected: seized")
-        } else {
-            updateStatus("遥控器已连接（兼容模式）")
-            print("[HID] connected: monitored")
+        // Keep the device in monitored mode so macOS can continue delivering
+        // hidutil-translated events while EventSuppressor handles leakage.
+        let monitorResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
+        guard monitorResult == kIOReturnSuccess else {
+            print("[HID] device open failed: monitor=\(monitorResult)")
+            return
         }
+
+        activeDevice = device
+        activeDeviceIsSeized = false
+        eventSuppressor.setRemotePowerSuppressionEnabled(true)
+        eventSuppressor.setRemoteMediaSuppressionEnabled(true)
+        updateStatus("遥控器已连接（兼容模式）")
+        print("[HID] connected: monitored")
         onDeviceChange?(true)
     }
 
