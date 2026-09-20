@@ -6,7 +6,7 @@
 - 长按语音键：调用遥控器的 ATVV 蓝牙麦克风。
 - 向豆包输入法暴露可识别的 `RemoteOrbit Mic 2ch` 输入设备。
 
-## 当前版本：0.2.11（RemoteOrbit 正式基线，Build 40）
+## 当前版本：0.2.12（RemoteOrbit 正式基线，Build 41）
 
 这是独立维护的开发基线，后续功能和发布节奏均由本项目单独维护。
 
@@ -189,7 +189,7 @@ DMG 安装的应用位于：
 ```
 
 该命令会下载固定版本的 BlackHole 源码、构建独立驱动、打包 App，并生成
-`dist/RemoteOrbit-0.2.11.dmg`。如果已经有本地构建好的驱动，可以使用：
+`dist/RemoteOrbit-0.2.12.dmg`。如果已经有本地构建好的驱动，可以使用：
 
 ```bash
 ./package-dmg.sh --reuse-driver
@@ -202,7 +202,7 @@ DMG 安装的应用位于：
 - 提供 Developer ID 签名、Hardened Runtime 和 Apple 公证的正式安装包。
 - 增加 GitHub Actions、更多自动测试和干净 Mac 安装验证。
 
-当前 `0.2.11` 是 RemoteOrbit 的正式独立产品基线；安装包使用本地 ad-hoc 签名，仍需用户按
+当前 `0.2.12` 是 RemoteOrbit 的正式独立产品基线；安装包使用本地 ad-hoc 签名，仍需用户按
 macOS 提示授予蓝牙、麦克风、辅助功能和输入监控权限。Developer ID 签名和 Apple 公证仍是后续
 发布工作，不影响本机测试和安装。
 
