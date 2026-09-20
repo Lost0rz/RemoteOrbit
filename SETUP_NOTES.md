@@ -2,7 +2,7 @@
 
 ## 当前基线
 
-- RemoteOrbit 当前版本为 `0.2.11 (Build 40)`；当前 `main` 已将本次音频设备切换、断连重连、Obsidian 默认模板和语音尾部排空修复整理为正式基线。
+- RemoteOrbit 当前版本为 `0.2.12 (Build 41)`；当前 `main` 的正式基线包含 monitored/non-seize HID ownership、物理/系统映射的 Option 正常语音路径、300ms classifier 内的 disabled short、transport-only ATVV prewarm、仅在 long confirmation 后启动 `micOpen`、等待队列远程 PCM 排空后再释放最终 Option-up，以及保留 FloatTabs semantic integration。
 - 当前主线覆盖独立产品改名、DMG/组件安装、Control Center、通用映射与 App 模板、Codex/FloatTabs/Ghostty/Obsidian 预设、音频链路和语音焦点修复。
 - 当前整理后的音频设备基线还包含菜单栏输入/输出切换、物理麦克风保留选择和虚拟回环设备过滤。
 - Obsidian 默认模板现在包含分栏焦点切换、上下滚屏、标签/窗口、笔记编辑、命令面板、搜索、侧边栏、图谱、大纲、书签和属性动作；设置页按功能类别展示。
@@ -77,18 +77,30 @@ Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建�
 
 ### 短按
 
-短按遥控器语音键会被忽略：不调用本机或外接麦克风、不发送语音输入，也不切换系统音频设备。这样可以避免短按/长按识别竞态和第一次输入丢失。
+短按仍进入正常的 300 ms short-vs-long classifier；如果在 threshold 前释放，则判为 SHORT。当前 disabled-short 配置下，短按会直接丢弃：不会启动 `micOpen`、`AUDIO_START`、streaming 或 Option-down；pending transport preparation 会被取消并恢复 HID-only。
 
 ### 长按
 
-长按超过约 120 ms 时：
+按下语音键后先进入约 300 ms 的 short-vs-long classifier。
 
-1. 真实左 Option 立即保持按下状态，所以豆包能显示按住说话浮窗；FloatTabs 的焦点预热不插入语音键延迟。
-2. RemoteOrbit 只把遥控器 ATVV 解码后的音频送入 `RemoteOrbit Mic 2ch`，不回退到本机麦克风。
-3. 豆包从同一个默认输入读取遥控器音频。
-4. 松开遥控器后立即释放 Option、停止遥控器音频，并清空本次语音的预缓冲。
+在 pending 阶段，RemoteOrbit 可以提前准备 ATVV transport，但该阶段只是 transport preparation：
 
-遥控器音频当前使用约 20 倍增益，并使用软限幅，解决遥控器距离较远时声音过小的问题；如果近距离说话出现失真，可以调低 `AudioPipe.swift` 中的 `remoteGain`。
+- 不发送 `micOpen`；
+- 不进入 `AUDIO_START` / streaming；
+- 不释放 Option-down；
+- 不打开真正的远程语音 session。
+
+达到约 300 ms threshold 并确认 LONG 后：
+
+1. RemoteOrbit 将手势提升为 long hold，并激活真正的 ATVV voice input。
+2. 如果 transport 已经准备好，则直接发送 `micOpen`；否则继续完成连接/握手后再发送 `micOpen`。
+3. RemoteOrbit 将遥控器 ATVV 解码音频路由到 `RemoteOrbit Mic 2ch`，不回退到本机麦克风。
+4. 只有收到第一帧实际远程 PCM（`AUDIO_FIRST`）以后，才释放设备级物理/系统映射的左 Option-down，使目标语音输入开始消费已经就绪的遥控器音频。
+5. 松开物理语音键后，RemoteOrbit 停止新的远程输入，但不会立即释放最终 Option-up。
+6. 已经进入输出队列的远程 PCM 必须完成 output drain；排空完成后才释放对应的 hardware Option-up，并结束本次语音 route。
+7. 如果正常 hardware Option-up 边沿缺失，只允许 existing synthetic helper 作为 emergency balancing up；synthetic Option 不作为正常语音 owner。
+
+遥控器远程音频增益仍为约 20 倍，并使用软限幅。
 
 ## 从个人仓库重新安装
 
@@ -364,11 +376,15 @@ defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool true
 
 ```text
 [HID-MAP] 遥控器语音键 → 左 Option 已启用
-[AUDIO] 输入切换 → 遥控器麦克风
-[PRESS] LONG start → Option DOWN
-[AUDIO-METER] remoteBuffers=... renderedFrames=...
-[PRESS] LONG end → Option UP
-[AUDIO] 输入切换 → 无输入（等待下一次遥控器长按）
+[PRESS] pending; classifying short tap vs remote-mic hold in 300 ms
+[BLE] transport prewarm requested; micOpen deferred until long confirmation
+[VOICE][...][TIMING] HOLD_CONFIRMED +...ms
+[BLE] TX micOpen (voice hold)
+[VOICE][...][TIMING] AUDIO_FIRST +...ms
+[PRESS] LONG audio ready → Option DOWN; source=remote
+[PRESS] remote audio drain complete; waiting for output drain
+[PRESS] LONG end → Option UP after output drain
+[BLE] prepared transport cancelled; HID-only restored
 ```
 
 需要确认遥控器原始音频时，可以在菜单中打开调试录音。录音目录为：
@@ -385,8 +401,10 @@ defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool false
 
 ## 本次代码修改位置
 
-- `remote-orbit/Sources/RemoteOrbit/main.swift`：短按忽略/长按状态机、立即物理 Option、设备级映射。
-- `remote-orbit/Sources/RemoteOrbit/AudioPipe.swift`：遥控器增益、预缓冲和虚拟设备输出诊断；启动时恢复菜单选择的输入设备。
+- `remote-orbit/Sources/RemoteOrbit/main.swift`：300ms short-vs-long classifier、pending transport preparation、long-confirmed voice route、first-PCM gated hardware Option-down，以及 output-drain 后的 Option-up 协调。
+- `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`：分离 transport-only prewarm 与 voice activation；`micOpen` 仅允许在 long confirmation 后发生。
+- `remote-orbit/Sources/RemoteOrbit/AudioPipe.swift`：远程 PCM 预缓冲、20x gain、输出队列 drain barrier，以及远程路由切换。
+- `remote-orbit/Sources/RemoteOrbit/KeyMapping/HIDMonitor.swift`：固定 monitored/non-seize HID ownership，让设备级 `hidutil` Option 映射继续由 macOS 正常产生。
 - `remote-orbit/Sources/RemoteOrbit/AudioDeviceManager.swift`：CoreAudio 输入/输出设备枚举、系统默认设备切换和虚拟回环过滤。
 - `remote-orbit/Sources/RemoteOrbit/KeyMapping/MappingStore.swift`：全局映射、App 模板、持久化迁移和按下时目标快照。
 - `remote-orbit/Sources/RemoteOrbit/KeyMapping/SettingsView.swift`：RemoteOrbit Control Center、按键 Profile、预设导入和全局按键锁定。
