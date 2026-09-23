@@ -38,6 +38,16 @@ enum ATVVControlEvent: Equatable {
     case micOpenError(UInt16)
     case unknown(Data)
 }
+struct ATVVDecodedFrame {
+    let sequence: UInt16
+    let samples: [Int16]
+}
+
+enum ATVVDecodeResult {
+    case rejected
+    case waitingForFrame
+    case frames([ATVVDecodedFrame])
+}
 
 final class ATVVProtocol {
     static let serviceUUID = "AB5E0001-5A21-4F05-BC7D-AF01F617B664"
@@ -48,9 +58,14 @@ final class ATVVProtocol {
     private(set) var capabilities: ATVVCapabilities?
     private(set) var codec: ATVVCodec?
     private var decoder = ADPCMDecoder()
+    private var v10FrameAccumulator = ATVVFrameAccumulator(frameSize: 0)
     private var v10Sequence: UInt16 = 0
     private var audioStreamActive = false
     private var hasPendingSyncBeforeStart = false
+
+    var bufferedAudioBytesForTesting: Int {
+        v10FrameAccumulator.bufferedByteCount
+    }
 
     let getCapabilitiesCommand = Data([0x0A, 0x01, 0x00, 0x00, 0x03, 0x03])
 
@@ -61,6 +76,7 @@ final class ATVVProtocol {
         self.capabilities = capabilities
         self.codec = selected
         decoder.reset(predictor: 0, stepIndex: 0)
+        v10FrameAccumulator = ATVVFrameAccumulator(frameSize: capabilities.frameSize)
         v10Sequence = 0
         audioStreamActive = false
         hasPendingSyncBeforeStart = false
@@ -173,6 +189,7 @@ final class ATVVProtocol {
         self.codec = codec
         v10Sequence = sequence
         decoder.reset(predictor: predictor, stepIndex: stepIndex)
+        v10FrameAccumulator.reset()
         // A sync received before AUDIO_START belongs to the upcoming stream
         // and must survive beginAudioStream(). A sync received while already
         // streaming applies immediately but must not leak into the next one.
@@ -188,6 +205,7 @@ final class ATVVProtocol {
     func prepareForAudioStream() {
         v10Sequence = 0
         decoder.reset(predictor: 0, stepIndex: 0)
+        v10FrameAccumulator.reset()
         audioStreamActive = false
         hasPendingSyncBeforeStart = false
     }
@@ -198,6 +216,7 @@ final class ATVVProtocol {
     /// AUDIO_SYNC did arrive first, preserve the synchronized state instead.
     func beginAudioStream(codec: ATVVCodec) {
         self.codec = codec
+        v10FrameAccumulator.reset()
         if !hasPendingSyncBeforeStart {
             v10Sequence = 0
             decoder.reset(predictor: 0, stepIndex: 0)
@@ -209,25 +228,49 @@ final class ATVVProtocol {
     func endAudioStream() {
         audioStreamActive = false
         hasPendingSyncBeforeStart = false
+        v10FrameAccumulator.reset()
     }
 
     func decodeAudio(_ data: Data) -> (sequence: UInt16, samples: [Int16])? {
-        guard let capabilities, codec != nil else { return nil }
+        guard case .frames(let frames) = decodeAudioFrames(data),
+              let frame = frames.first else { return nil }
+        return (frame.sequence, frame.samples)
+    }
+
+    func decodeAudioFrames(_ data: Data) -> ATVVDecodeResult {
+        guard let capabilities, codec != nil else { return .rejected }
         let bytes = [UInt8](data)
 
         switch capabilities.version {
         case .v04:
-            guard bytes.count == capabilities.frameSize, bytes.count >= 6 else { return nil }
+            guard bytes.count == capabilities.frameSize, bytes.count >= 6 else {
+                return .rejected
+            }
             let sequence = UInt16(bytes[0]) << 8 | UInt16(bytes[1])
             let predictorBits = UInt16(bytes[3]) << 8 | UInt16(bytes[4])
             let predictor = Int16(bitPattern: predictorBits)
             decoder.reset(predictor: predictor, stepIndex: bytes[5])
-            return (sequence, [predictor] + decoder.decode(bytes.dropFirst(6)))
+            return .frames([
+                ATVVDecodedFrame(
+                    sequence: sequence,
+                    samples: [predictor] + decoder.decode(bytes.dropFirst(6))
+                )
+            ])
         case .v10:
-            guard !bytes.isEmpty else { return nil }
-            let sequence = v10Sequence
-            v10Sequence &+= 1
-            return (sequence, decoder.decode(bytes[...]))
+            guard !bytes.isEmpty, capabilities.frameSize > 0 else {
+                return .rejected
+            }
+            let frames = v10FrameAccumulator.append(data)
+            guard !frames.isEmpty else { return .waitingForFrame }
+            let decoded = frames.map { frame -> ATVVDecodedFrame in
+                let sequence = v10Sequence
+                v10Sequence &+= 1
+                return ATVVDecodedFrame(
+                    sequence: sequence,
+                    samples: decoder.decode(frame)
+                )
+            }
+            return .frames(decoded)
         }
     }
 }

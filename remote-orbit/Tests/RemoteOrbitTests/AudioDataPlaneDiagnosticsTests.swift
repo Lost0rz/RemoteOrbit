@@ -125,4 +125,93 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
         XCTAssertEqual(result.droppedFrames, 0)
         XCTAssertEqual(result.droppedMilliseconds, 0.0, accuracy: 0.0001)
     }
+    func testFrameAccumulatorEmitsExactFrame() {
+        var accumulator = ATVVFrameAccumulator(frameSize: 120)
+
+        let frames = accumulator.append(Data(repeating: 0x01, count: 120))
+
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames[0].count, 120)
+        XCTAssertEqual(accumulator.bufferedByteCount, 0)
+    }
+
+    func testFrameAccumulatorCombinesPartialNotifications() {
+        var accumulator = ATVVFrameAccumulator(frameSize: 120)
+
+        XCTAssertTrue(accumulator.append(Data(repeating: 0x01, count: 82)).isEmpty)
+        let frames = accumulator.append(Data(repeating: 0x02, count: 38))
+
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames[0].prefix(82), Data(repeating: 0x01, count: 82))
+        XCTAssertEqual(frames[0].suffix(38), Data(repeating: 0x02, count: 38))
+        XCTAssertEqual(accumulator.bufferedByteCount, 0)
+    }
+
+    func testFrameAccumulatorEmitsMultipleFramesFromOneNotification() {
+        var accumulator = ATVVFrameAccumulator(frameSize: 120)
+
+        let frames = accumulator.append(Data(repeating: 0x03, count: 240))
+
+        XCTAssertEqual(frames.count, 2)
+        XCTAssertTrue(frames.allSatisfy { $0 == Data(repeating: 0x03, count: 120) })
+        XCTAssertEqual(accumulator.bufferedByteCount, 0)
+    }
+
+    func testFrameAccumulatorRetainsPartialRemainder() {
+        var accumulator = ATVVFrameAccumulator(frameSize: 120)
+
+        let frames = accumulator.append(Data(repeating: 0x04, count: 250))
+
+        XCTAssertEqual(frames.count, 2)
+        XCTAssertEqual(accumulator.bufferedByteCount, 10)
+    }
+
+    func testFrameAccumulatorResetClearsRemainder() {
+        var accumulator = ATVVFrameAccumulator(frameSize: 120)
+
+        _ = accumulator.append(Data(repeating: 0x05, count: 82))
+        accumulator.reset()
+
+        XCTAssertEqual(accumulator.bufferedByteCount, 0)
+        XCTAssertTrue(accumulator.append(Data(repeating: 0x06, count: 38)).isEmpty)
+    }
+
+    func testAudioSyncBoundaryClearsPartialV10Frame() throws {
+        let protocolHandler = ATVVProtocol()
+        try protocolHandler.acceptCapabilities(
+            ATVVCapabilities(
+                version: .v10,
+                codecs: ATVVCodec.adpcm16k.rawValue,
+                interactionModel: 0,
+                frameSize: 120
+            )
+        )
+        _ = protocolHandler.decodeAudio(Data(repeating: 0x07, count: 82))
+
+        protocolHandler.applyAudioSync(
+            codec: .adpcm16k,
+            sequence: 10,
+            predictor: 0,
+            stepIndex: 0
+        )
+
+        XCTAssertEqual(protocolHandler.bufferedAudioBytesForTesting, 0)
+    }
+
+    func testNewStreamBoundaryClearsPartialV10Frame() throws {
+        let protocolHandler = ATVVProtocol()
+        try protocolHandler.acceptCapabilities(
+            ATVVCapabilities(
+                version: .v10,
+                codecs: ATVVCodec.adpcm16k.rawValue,
+                interactionModel: 0,
+                frameSize: 120
+            )
+        )
+        protocolHandler.beginAudioStream(codec: .adpcm16k)
+        _ = protocolHandler.decodeAudio(Data(repeating: 0x08, count: 82))
+        protocolHandler.endAudioStream()
+
+        XCTAssertEqual(protocolHandler.bufferedAudioBytesForTesting, 0)
+    }
 }

@@ -7,6 +7,7 @@ OUTPUT="$SCRIPT_DIR/.build/remote-orbit-self-test"
 mkdir -p "${OUTPUT:h}"
 swiftc \
   "$SCRIPT_DIR/Sources/RemoteOrbit/ATVV/BridgeError.swift" \
+  "$SCRIPT_DIR/Sources/RemoteOrbit/AudioDataPlaneDiagnostics.swift" \
   "$SCRIPT_DIR/Sources/RemoteOrbit/ATVV/ADPCMDecoder.swift" \
   "$SCRIPT_DIR/Sources/RemoteOrbit/ATVV/ATVVProtocol.swift" \
   "$SCRIPT_DIR/SelfTests/main.swift" \
