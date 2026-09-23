@@ -32,6 +32,10 @@ rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 lipo -create "$ARM64_BINARY" "$X86_BINARY" -output "$CONTENTS/MacOS/RemoteOrbit"
 cp "$SCRIPT_DIR/Packaging/Info.plist" "$CONTENTS/Info.plist"
+SOURCE_HEAD="$(git -C "$SCRIPT_DIR" rev-parse HEAD)"
+/usr/libexec/PlistBuddy \
+  -c "Set :RemoteOrbitDiagnosticSourceHead $SOURCE_HEAD" \
+  "$CONTENTS/Info.plist"
 cp "$SCRIPT_DIR/dist/RemoteOrbit.icns" "$CONTENTS/Resources/RemoteOrbit.icns"
 chmod 755 "$CONTENTS/MacOS/RemoteOrbit"
 
