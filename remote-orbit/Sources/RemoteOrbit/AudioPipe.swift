@@ -57,6 +57,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var renderCallbackCount = 0
     private var renderedFrames = 0
     private var renderedPeak: Float = 0
+    private var diagnosticsCumulative = AudioPipeDiagnosticsCounters()
+    private var diagnosticsWindow = AudioPipeDiagnosticsCounters()
     private var diagnosticsTimer: Timer?
 
     private override init() {
@@ -100,6 +102,31 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         stateLock.lock()
         defer { stateLock.unlock() }
         return max(0, pendingOutput.count - pendingOutputIndex)
+    }
+
+    func beginRemoteAudioDiagnostics() {
+        stateLock.lock()
+        let currentDepth = max(0, pendingOutput.count - pendingOutputIndex)
+        diagnosticsCumulative.reset(currentQueueDepthFrames: currentDepth)
+        diagnosticsWindow.reset(currentQueueDepthFrames: currentDepth)
+        stateLock.unlock()
+    }
+
+    func takeAudioDiagnosticsSnapshot(
+        resettingWindow: Bool = false
+    ) -> AudioPipeDiagnosticsSnapshot {
+        stateLock.lock()
+        let currentDepth = max(0, pendingOutput.count - pendingOutputIndex)
+        let counters = resettingWindow ? diagnosticsWindow : diagnosticsCumulative
+        let snapshot = counters.snapshot(
+            currentQueueDepthFrames: currentDepth,
+            sampleRate: Self.outputSampleRate
+        )
+        if resettingWindow {
+            diagnosticsWindow.reset(currentQueueDepthFrames: currentDepth)
+        }
+        stateLock.unlock()
+        return snapshot
     }
 
     func restartOutputDevice() {
@@ -586,6 +613,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             scheduledPeak,
             resampled.reduce(0) { max($0, abs($1)) }
         )
+        recordQueueDepthLocked(pendingOutput.count - pendingOutputIndex)
         stateLock.unlock()
     }
 
@@ -655,9 +683,13 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         var mono = [Float](repeating: 0, count: frameCount)
         var drainCompletion: (() -> Void)?
         stateLock.lock()
-        let available = pendingOutput.count - pendingOutputIndex
-        if available > 0 {
-            let take = min(frameCount, available)
+        let available = max(0, pendingOutput.count - pendingOutputIndex)
+        let fill = AudioRenderFillAccounting.measure(
+            requestedFrames: frameCount,
+            availableFrames: available
+        )
+        if fill.filledFrames > 0 {
+            let take = fill.filledFrames
             let start = pendingOutputIndex
             let end = start + take
             mono.replaceSubrange(
@@ -674,7 +706,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             pendingOutputIndex = end
             compactOutputBufferIfNeeded()
         }
-        let remaining = pendingOutput.count - pendingOutputIndex
+        let remaining = max(0, pendingOutput.count - pendingOutputIndex)
         if Self.isOutputDrained(
             remoteActive: remoteActive,
             queuedFrames: remaining
@@ -682,6 +714,17 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             drainCompletion = remoteOutputDrainWaiter
             remoteOutputDrainWaiter = nil
         }
+        diagnosticsCumulative.recordRender(
+            requestedFrames: frameCount,
+            filledFrames: fill.filledFrames,
+            unfilledFrames: fill.unfilledFrames
+        )
+        diagnosticsWindow.recordRender(
+            requestedFrames: frameCount,
+            filledFrames: fill.filledFrames,
+            unfilledFrames: fill.unfilledFrames
+        )
+        recordQueueDepthLocked(remaining)
         renderCallbackCount += 1
         stateLock.unlock()
 
@@ -711,19 +754,34 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         if pendingOutputIndex > 4_096 {
             pendingOutput.removeFirst(pendingOutputIndex)
             pendingOutputIndex = 0
+            diagnosticsCumulative.recordCompaction()
+            diagnosticsWindow.recordCompaction()
         }
         let maximumQueuedFrames = Int(Self.outputSampleRate * 2)
-        let available = pendingOutput.count - pendingOutputIndex
-        if available > maximumQueuedFrames {
-            let dropped = available - maximumQueuedFrames
-            pendingOutputIndex += dropped
+        let available = max(0, pendingOutput.count - pendingOutputIndex)
+        let overflow = AudioQueueOverflowAccounting.measure(
+            availableBefore: available,
+            maximumQueuedFrames: maximumQueuedFrames,
+            sampleRate: Int(Self.outputSampleRate)
+        )
+        if overflow.droppedFrames > 0 {
+            pendingOutputIndex += overflow.droppedFrames
             pendingRemoteOutputFrames = max(
                 0,
-                pendingRemoteOutputFrames - dropped
+                pendingRemoteOutputFrames - overflow.droppedFrames
             )
+            diagnosticsCumulative.recordOverflow(overflow.droppedFrames)
+            diagnosticsWindow.recordOverflow(overflow.droppedFrames)
         }
+        recordQueueDepthLocked(
+            max(0, pendingOutput.count - pendingOutputIndex)
+        )
     }
 
+    private func recordQueueDepthLocked(_ frames: Int) {
+        diagnosticsCumulative.recordQueueDepth(frames)
+        diagnosticsWindow.recordQueueDepth(frames)
+    }
     private static func findOutputDevice() -> (id: AudioDeviceID, name: String)? {
         var propertySize: UInt32 = 0
         var address = AudioObjectPropertyAddress(
