@@ -60,6 +60,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var diagnosticsCumulative = AudioPipeDiagnosticsCounters()
     private var diagnosticsWindow = AudioPipeDiagnosticsCounters()
     private var diagnosticsTimer: Timer?
+    private var remoteDiagnosticsActive = false
+    private var remoteDiagnosticsSawActiveRoute = false
 
     private override init() {
         super.init()
@@ -106,9 +108,22 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
 
     func beginRemoteAudioDiagnostics() {
         stateLock.lock()
-        let currentDepth = max(0, pendingOutput.count - pendingOutputIndex)
+        let totalDepth = max(0, pendingOutput.count - pendingOutputIndex)
+        let currentDepth = AudioRemoteQueueAttribution.remoteQueueDepth(
+            totalQueueFrames: totalDepth,
+            pendingRemoteFrames: pendingRemoteOutputFrames
+        )
+        remoteDiagnosticsActive = true
+        remoteDiagnosticsSawActiveRoute = remoteActive
         diagnosticsCumulative.reset(currentQueueDepthFrames: currentDepth)
         diagnosticsWindow.reset(currentQueueDepthFrames: currentDepth)
+        stateLock.unlock()
+    }
+
+    func endRemoteAudioDiagnostics() {
+        stateLock.lock()
+        remoteDiagnosticsActive = false
+        remoteDiagnosticsSawActiveRoute = false
         stateLock.unlock()
     }
 
@@ -116,7 +131,11 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         resettingWindow: Bool = false
     ) -> AudioPipeDiagnosticsSnapshot {
         stateLock.lock()
-        let currentDepth = max(0, pendingOutput.count - pendingOutputIndex)
+        let totalDepth = max(0, pendingOutput.count - pendingOutputIndex)
+        let currentDepth = AudioRemoteQueueAttribution.remoteQueueDepth(
+            totalQueueFrames: totalDepth,
+            pendingRemoteFrames: pendingRemoteOutputFrames
+        )
         let counters = resettingWindow ? diagnosticsWindow : diagnosticsCumulative
         let snapshot = counters.snapshot(
             currentQueueDepthFrames: currentDepth,
@@ -227,6 +246,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         var prebuffer: [Int16] = []
         stateLock.lock()
         remoteActive = active
+        if active, remoteDiagnosticsActive {
+            remoteDiagnosticsSawActiveRoute = true
+        }
         if active {
             // A new voice session must never inherit a previous session's
             // samples. On deactivation, however, keep the already queued
@@ -601,7 +623,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             stateLock.unlock()
             return
         }
-        compactOutputBufferIfNeeded()
+        compactOutputBufferIfNeeded(
+            recordRemoteDiagnostics: expectedRemoteMode
+        )
         pendingOutput.append(contentsOf: resampled)
         if expectedRemoteMode {
             scheduledRemoteBuffers += 1
@@ -613,7 +637,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             scheduledPeak,
             resampled.reduce(0) { max($0, abs($1)) }
         )
-        recordQueueDepthLocked(pendingOutput.count - pendingOutputIndex)
+        recordQueueDepthLocked(pendingRemoteOutputFrames)
         stateLock.unlock()
     }
 
@@ -684,6 +708,23 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         var drainCompletion: (() -> Void)?
         stateLock.lock()
         let available = max(0, pendingOutput.count - pendingOutputIndex)
+        let availableRemoteFrames = AudioRemoteQueueAttribution.remoteQueueDepth(
+            totalQueueFrames: available,
+            pendingRemoteFrames: pendingRemoteOutputFrames
+        )
+        let renderAccounting = AudioPipeRenderAccounting.measure(
+            requestedFrames: frameCount,
+            availableRemoteFrames: availableRemoteFrames,
+            pendingRemoteFrames: pendingRemoteOutputFrames,
+            remoteActive: remoteActive,
+            remoteWasActive: remoteDiagnosticsSawActiveRoute,
+            localMicrophoneActive: localMicrophoneCaptureRequested
+        )
+        let recordRemoteCompaction = AudioRemoteQueueAttribution
+            .shouldRecordCompaction(
+                remoteActive: remoteActive,
+                pendingRemoteFrames: pendingRemoteOutputFrames
+            )
         let fill = AudioRenderFillAccounting.measure(
             requestedFrames: frameCount,
             availableFrames: available
@@ -704,7 +745,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 pendingOutput[start..<end].reduce(0) { max($0, abs($1)) }
             )
             pendingOutputIndex = end
-            compactOutputBufferIfNeeded()
+            compactOutputBufferIfNeeded(
+                recordRemoteDiagnostics: recordRemoteCompaction
+            )
         }
         let remaining = max(0, pendingOutput.count - pendingOutputIndex)
         if Self.isOutputDrained(
@@ -714,17 +757,11 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             drainCompletion = remoteOutputDrainWaiter
             remoteOutputDrainWaiter = nil
         }
-        diagnosticsCumulative.recordRender(
-            requestedFrames: frameCount,
-            filledFrames: fill.filledFrames,
-            unfilledFrames: fill.unfilledFrames
-        )
-        diagnosticsWindow.recordRender(
-            requestedFrames: frameCount,
-            filledFrames: fill.filledFrames,
-            unfilledFrames: fill.unfilledFrames
-        )
-        recordQueueDepthLocked(remaining)
+        if remoteDiagnosticsActive {
+            diagnosticsCumulative.recordRender(renderAccounting)
+            diagnosticsWindow.recordRender(renderAccounting)
+            recordQueueDepthLocked(pendingRemoteOutputFrames)
+        }
         renderCallbackCount += 1
         stateLock.unlock()
 
@@ -750,12 +787,14 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         }
     }
 
-    private func compactOutputBufferIfNeeded() {
+    private func compactOutputBufferIfNeeded(recordRemoteDiagnostics: Bool) {
         if pendingOutputIndex > 4_096 {
             pendingOutput.removeFirst(pendingOutputIndex)
             pendingOutputIndex = 0
-            diagnosticsCumulative.recordCompaction()
-            diagnosticsWindow.recordCompaction()
+            if remoteDiagnosticsActive, recordRemoteDiagnostics {
+                diagnosticsCumulative.recordCompaction()
+                diagnosticsWindow.recordCompaction()
+            }
         }
         let maximumQueuedFrames = Int(Self.outputSampleRate * 2)
         let available = max(0, pendingOutput.count - pendingOutputIndex)
@@ -765,22 +804,33 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             sampleRate: Int(Self.outputSampleRate)
         )
         if overflow.droppedFrames > 0 {
+            let remoteDroppedFrames = AudioRemoteQueueAttribution.remoteDroppedFrames(
+                totalDroppedFrames: overflow.droppedFrames,
+                pendingRemoteFrames: pendingRemoteOutputFrames,
+                sourceIsRemote: recordRemoteDiagnostics
+            )
             pendingOutputIndex += overflow.droppedFrames
             pendingRemoteOutputFrames = max(
                 0,
                 pendingRemoteOutputFrames - overflow.droppedFrames
             )
-            diagnosticsCumulative.recordOverflow(overflow.droppedFrames)
-            diagnosticsWindow.recordOverflow(overflow.droppedFrames)
+            if remoteDiagnosticsActive, remoteDroppedFrames > 0 {
+                diagnosticsCumulative.recordOverflow(remoteDroppedFrames)
+                diagnosticsWindow.recordOverflow(remoteDroppedFrames)
+            }
         }
-        recordQueueDepthLocked(
-            max(0, pendingOutput.count - pendingOutputIndex)
-        )
+        recordQueueDepthLocked(pendingRemoteOutputFrames)
     }
 
-    private func recordQueueDepthLocked(_ frames: Int) {
-        diagnosticsCumulative.recordQueueDepth(frames)
-        diagnosticsWindow.recordQueueDepth(frames)
+    private func recordQueueDepthLocked(_ pendingRemoteFrames: Int) {
+        guard remoteDiagnosticsActive else { return }
+        let totalQueueFrames = max(0, pendingOutput.count - pendingOutputIndex)
+        let remoteQueueDepth = AudioRemoteQueueAttribution.remoteQueueDepth(
+            totalQueueFrames: totalQueueFrames,
+            pendingRemoteFrames: pendingRemoteFrames
+        )
+        diagnosticsCumulative.recordQueueDepth(remoteQueueDepth)
+        diagnosticsWindow.recordQueueDepth(remoteQueueDepth)
     }
     private static func findOutputDevice() -> (id: AudioDeviceID, name: String)? {
         var propertySize: UInt32 = 0

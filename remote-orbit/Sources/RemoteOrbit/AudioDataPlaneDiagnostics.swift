@@ -1,5 +1,103 @@
 import Foundation
 
+struct AudioDeliveryTiming: Equatable {
+    let measurementElapsedSeconds: TimeInterval
+    let lifecycleElapsedSeconds: TimeInterval
+    let audioStopAtMilliseconds: Double?
+    let lastAudioAtMilliseconds: Double?
+    let stopToLastAudioMilliseconds: Double?
+    let drainFinishAtMilliseconds: Double?
+    let postLastAudioDrainMilliseconds: Double?
+
+    static func measure(
+        streamStartedAt: TimeInterval,
+        audioStopReceivedAt: TimeInterval?,
+        lastAudioAt: TimeInterval?,
+        drainFinishedAt: TimeInterval?
+    ) -> AudioDeliveryTiming {
+        let measurementEnd = lastAudioAt
+            ?? audioStopReceivedAt
+            ?? drainFinishedAt
+            ?? streamStartedAt
+        let lifecycleEnd = drainFinishedAt
+            ?? audioStopReceivedAt
+            ?? lastAudioAt
+            ?? streamStartedAt
+        let measurementElapsed = max(0, measurementEnd - streamStartedAt)
+        let lifecycleElapsed = max(0, lifecycleEnd - streamStartedAt)
+        let stopToLastAudio: Double? = if let audioStopReceivedAt, let lastAudioAt {
+            (lastAudioAt - audioStopReceivedAt) * 1_000
+        } else {
+            nil
+        }
+        let postLastAudioDrain: Double? = if let lastAudioAt, let drainFinishedAt {
+            max(0, drainFinishedAt - lastAudioAt) * 1_000
+        } else {
+            nil
+        }
+
+        return AudioDeliveryTiming(
+            measurementElapsedSeconds: measurementElapsed,
+            lifecycleElapsedSeconds: lifecycleElapsed,
+            audioStopAtMilliseconds: audioStopReceivedAt.map {
+                max(0, $0 - streamStartedAt) * 1_000
+            },
+            lastAudioAtMilliseconds: lastAudioAt.map {
+                max(0, $0 - streamStartedAt) * 1_000
+            },
+            stopToLastAudioMilliseconds: stopToLastAudio,
+            drainFinishAtMilliseconds: drainFinishedAt.map {
+                max(0, $0 - streamStartedAt) * 1_000
+            },
+            postLastAudioDrainMilliseconds: postLastAudioDrain
+        )
+    }
+}
+
+struct AudioHealthWindowAccumulator {
+    struct Snapshot: Equatable {
+        let elapsedMilliseconds: Double
+        let decodedSamples: Int
+    }
+
+    private(set) var startedAt: TimeInterval
+    private(set) var decodedSamples = 0
+    private(set) var isOpen = true
+
+    init(startedAt: TimeInterval) {
+        self.startedAt = startedAt
+    }
+
+    @discardableResult
+    mutating func recordDecodedSamples(_ count: Int) -> Bool {
+        guard isOpen else { return false }
+        decodedSamples += max(0, count)
+        return true
+    }
+
+    mutating func roll(at now: TimeInterval) -> Snapshot? {
+        guard isOpen else { return nil }
+        let snapshot = makeSnapshot(at: now)
+        startedAt = max(startedAt, now)
+        decodedSamples = 0
+        return snapshot
+    }
+
+    mutating func close(at now: TimeInterval) -> Snapshot? {
+        guard isOpen else { return nil }
+        let snapshot = makeSnapshot(at: now)
+        isOpen = false
+        return snapshot
+    }
+
+    private func makeSnapshot(at now: TimeInterval) -> Snapshot {
+        Snapshot(
+            elapsedMilliseconds: max(0, now - startedAt) * 1_000,
+            decodedSamples: decodedSamples
+        )
+    }
+}
+
 struct AudioDeliveryAccounting {
     struct Result: Equatable {
         let expectedSamples: Int
@@ -35,6 +133,89 @@ struct AudioDeliveryAccounting {
             deficitSamples: deficit,
             deficitMilliseconds: Double(deficit) / Double(safeSampleRate) * 1_000
         )
+    }
+}
+
+enum AudioPipeRenderState: Equatable {
+    case activeRemote
+    case tailDrain
+    case idle
+    case localMicrophone
+}
+
+struct AudioPipeRenderAccounting: Equatable {
+    let state: AudioPipeRenderState
+    let accounted: Bool
+    let activeRequestedFrames: Int
+    let activeFilledFrames: Int
+    let activeUnderrunFrames: Int
+    let activeUnderrunCallbacks: Int
+    let tailRenderedFrames: Int
+    let tailEmptyCallbacks: Int
+    let idleRenderCallbacks: Int
+
+    static func measure(
+        requestedFrames: Int,
+        availableRemoteFrames: Int,
+        pendingRemoteFrames: Int,
+        remoteActive: Bool,
+        remoteWasActive: Bool,
+        localMicrophoneActive: Bool = false
+    ) -> AudioPipeRenderAccounting {
+        let requested = max(0, requestedFrames)
+        let pending = max(0, pendingRemoteFrames)
+        let available = min(max(0, availableRemoteFrames), pending)
+        let filled = min(requested, available)
+        let state: AudioPipeRenderState = if remoteActive {
+            .activeRemote
+        } else if pending > 0 {
+            .tailDrain
+        } else if localMicrophoneActive {
+            .localMicrophone
+        } else if remoteWasActive {
+            .tailDrain
+        } else {
+            .idle
+        }
+        let accounted = remoteActive || pending > 0
+        let underrunFrames = state == .activeRemote ? requested - filled : 0
+
+        return AudioPipeRenderAccounting(
+            state: state,
+            accounted: accounted,
+            activeRequestedFrames: state == .activeRemote ? requested : 0,
+            activeFilledFrames: state == .activeRemote ? filled : 0,
+            activeUnderrunFrames: underrunFrames,
+            activeUnderrunCallbacks: underrunFrames > 0 ? 1 : 0,
+            tailRenderedFrames: state == .tailDrain ? filled : 0,
+            tailEmptyCallbacks: state == .tailDrain && filled == 0 ? 1 : 0,
+            idleRenderCallbacks: state == .idle ? 1 : 0
+        )
+    }
+}
+
+enum AudioRemoteQueueAttribution {
+    static func remoteQueueDepth(
+        totalQueueFrames: Int,
+        pendingRemoteFrames: Int
+    ) -> Int {
+        min(max(0, totalQueueFrames), max(0, pendingRemoteFrames))
+    }
+
+    static func remoteDroppedFrames(
+        totalDroppedFrames: Int,
+        pendingRemoteFrames: Int,
+        sourceIsRemote: Bool = true
+    ) -> Int {
+        guard sourceIsRemote else { return 0 }
+        return min(max(0, totalDroppedFrames), max(0, pendingRemoteFrames))
+    }
+
+    static func shouldRecordCompaction(
+        remoteActive: Bool,
+        pendingRemoteFrames: Int
+    ) -> Bool {
+        remoteActive || pendingRemoteFrames > 0
     }
 }
 
@@ -229,6 +410,9 @@ struct AudioPipeDiagnosticsSnapshot {
     let overflowDroppedFrames: Int
     let overflowDroppedMilliseconds: Double
     let compactionCount: Int
+    let tailRenderedFrames: Int
+    let tailEmptyCallbackCount: Int
+    let idleRenderCallbackCount: Int
 
     init(
         renderCallbackCount: Int,
@@ -242,6 +426,9 @@ struct AudioPipeDiagnosticsSnapshot {
         maxQueueDepthFrames: Int,
         overflowDroppedFrames: Int,
         compactionCount: Int,
+        tailRenderedFrames: Int,
+        tailEmptyCallbackCount: Int,
+        idleRenderCallbackCount: Int,
         sampleRate: Double
     ) {
         self.renderCallbackCount = renderCallbackCount
@@ -261,6 +448,9 @@ struct AudioPipeDiagnosticsSnapshot {
             ? Double(overflowDroppedFrames) / sampleRate * 1_000
             : 0
         self.compactionCount = compactionCount
+        self.tailRenderedFrames = tailRenderedFrames
+        self.tailEmptyCallbackCount = tailEmptyCallbackCount
+        self.idleRenderCallbackCount = idleRenderCallbackCount
     }
 }
 
@@ -275,6 +465,9 @@ struct AudioPipeDiagnosticsCounters {
     var maxQueueDepthFrames = 0
     var overflowDroppedFrames = 0
     var compactionCount = 0
+    var tailRenderedFrames = 0
+    var tailEmptyCallbackCount = 0
+    var idleRenderCallbackCount = 0
 
     mutating func reset(currentQueueDepthFrames: Int) {
         renderCallbackCount = 0
@@ -287,20 +480,32 @@ struct AudioPipeDiagnosticsCounters {
         maxQueueDepthFrames = max(0, currentQueueDepthFrames)
         overflowDroppedFrames = 0
         compactionCount = 0
+        tailRenderedFrames = 0
+        tailEmptyCallbackCount = 0
+        idleRenderCallbackCount = 0
     }
 
-    mutating func recordRender(
-        requestedFrames: Int,
-        filledFrames: Int,
-        unfilledFrames: Int
-    ) {
-        renderCallbackCount += 1
-        renderRequestedFrames += max(0, requestedFrames)
-        renderFilledFrames += max(0, filledFrames)
-        renderUnfilledFrames += max(0, unfilledFrames)
-        if unfilledFrames > 0 {
-            underrunCallbackCount += 1
-            maxUnderrunFrames = max(maxUnderrunFrames, unfilledFrames)
+    mutating func recordRender(_ accounting: AudioPipeRenderAccounting) {
+        switch accounting.state {
+        case .activeRemote:
+            renderCallbackCount += 1
+            renderRequestedFrames += accounting.activeRequestedFrames
+            renderFilledFrames += accounting.activeFilledFrames
+            renderUnfilledFrames += accounting.activeUnderrunFrames
+            if accounting.activeUnderrunCallbacks > 0 {
+                underrunCallbackCount += accounting.activeUnderrunCallbacks
+                maxUnderrunFrames = max(
+                    maxUnderrunFrames,
+                    accounting.activeUnderrunFrames
+                )
+            }
+        case .tailDrain:
+            tailRenderedFrames += accounting.tailRenderedFrames
+            tailEmptyCallbackCount += accounting.tailEmptyCallbacks
+        case .idle:
+            idleRenderCallbackCount += accounting.idleRenderCallbacks
+        case .localMicrophone:
+            break
         }
     }
 
@@ -331,6 +536,9 @@ struct AudioPipeDiagnosticsCounters {
             maxQueueDepthFrames: maxQueueDepthFrames,
             overflowDroppedFrames: overflowDroppedFrames,
             compactionCount: compactionCount,
+            tailRenderedFrames: tailRenderedFrames,
+            tailEmptyCallbackCount: tailEmptyCallbackCount,
+            idleRenderCallbackCount: idleRenderCallbackCount,
             sampleRate: sampleRate
         )
     }

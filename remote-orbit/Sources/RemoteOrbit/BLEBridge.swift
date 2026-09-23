@@ -158,6 +158,8 @@ final class BLEBridge: NSObject {
     private var streamStartedAt = Date.distantPast
     private var firstAudioAt: Date?
     private var lastAudioAt: Date?
+    private var audioStopReceivedAt: Date?
+    private var drainFinishedAt: Date?
     private var prewarmVoiceInputActive = false
     private var maxAudioFrameGap: TimeInterval = 0
     private var streamDrainFrameCount = 0
@@ -165,9 +167,8 @@ final class BLEBridge: NSObject {
     private var streamNotificationTelemetry = BLENotificationTelemetry()
     private var streamDecodeRejectCount = 0
     private var streamZeroSampleDecodeCount = 0
-    private var windowDecodedSamples = 0
     private var windowMaxNotificationGapMilliseconds: Double = 0
-    private var healthWindowStartedAt = Date.distantPast
+    private var healthWindow = AudioHealthWindowAccumulator(startedAt: 0)
     private var healthWindowTimer: Timer?
     private var wavRecorder: WavRecorder?
     // Verbose PCM diagnostics are off unless explicitly requested.
@@ -536,6 +537,8 @@ final class BLEBridge: NSObject {
         audioStopDrainWorkItem?.cancel()
         audioStopDrainWorkItem = nil
         stopAudioHealthWindow()
+        _ = healthWindow.close(at: ProcessInfo.processInfo.systemUptime)
+        AudioPipe.shared.endRemoteAudioDiagnostics()
         keepAliveTimer?.invalidate()
         keepAliveTimer = nil
         if let recorder = wavRecorder {
@@ -638,9 +641,10 @@ final class BLEBridge: NSObject {
 
     private func startAudioHealthWindow() {
         stopAudioHealthWindow()
-        windowDecodedSamples = 0
         windowMaxNotificationGapMilliseconds = 0
-        healthWindowStartedAt = Date()
+        healthWindow = AudioHealthWindowAccumulator(
+            startedAt: ProcessInfo.processInfo.systemUptime
+        )
         healthWindowTimer = Timer.scheduledTimer(
             withTimeInterval: 5.0,
             repeats: true
@@ -654,32 +658,37 @@ final class BLEBridge: NSObject {
         healthWindowTimer = nil
     }
 
-    private func emitAudioHealthWindow() {
+    private func emitAudioHealthWindow(closing: Bool = false) {
         guard isStreaming else { return }
-        let now = Date()
-        let elapsed = max(0, now.timeIntervalSince(healthWindowStartedAt))
+        let snapshot = closing
+            ? healthWindow.close(at: ProcessInfo.processInfo.systemUptime)
+            : healthWindow.roll(at: ProcessInfo.processInfo.systemUptime)
+        guard let snapshot else { return }
+        let elapsed = snapshot.elapsedMilliseconds / 1_000
         let sampleRate = protocolHandler.codec?.sampleRate ?? 0
         let delivery = AudioDeliveryAccounting.measure(
-            decodedSamples: windowDecodedSamples,
+            decodedSamples: snapshot.decodedSamples,
             sampleRate: sampleRate,
             elapsedSeconds: elapsed
         )
         let pipe = AudioPipe.shared.takeAudioDiagnosticsSnapshot(resettingWindow: true)
         let queueDepthMS = Double(pipe.currentQueueDepthFrames) / 48_000 * 1_000
         print(String(
-            format: "[AUDIO-PATH] WINDOW window_ms=%.0f decoded_samples=%d expected_samples=%d delivery_ratio=%.3f queue_depth_ms=%.1f underrun_frames=%d overflow_drop_frames=%d max_ble_gap_ms=%.1f",
-            elapsed * 1_000,
-            windowDecodedSamples,
+            format: "[AUDIO-PATH] WINDOW window_ms=%.0f decoded_samples=%d expected_samples=%d delivery_ratio=%.3f queue_depth_ms=%.1f active_remote_underrun_frames=%d active_remote_underrun_callbacks=%d tail_rendered_frames=%d tail_empty_callbacks=%d idle_render_callbacks=%d overflow_drop_frames=%d max_ble_gap_ms=%.1f",
+            snapshot.elapsedMilliseconds,
+            snapshot.decodedSamples,
             delivery.expectedSamples,
             delivery.deliveryRatio,
             queueDepthMS,
             pipe.renderUnfilledFrames,
+            pipe.underrunCallbackCount,
+            pipe.tailRenderedFrames,
+            pipe.tailEmptyCallbackCount,
+            pipe.idleRenderCallbackCount,
             pipe.overflowDroppedFrames,
             windowMaxNotificationGapMilliseconds
         ))
-        windowDecodedSamples = 0
         windowMaxNotificationGapMilliseconds = 0
-        healthWindowStartedAt = now
     }
 
     private func notifyStreaming(_ on: Bool) {
@@ -957,12 +966,13 @@ extension BLEBridge: CBPeripheralDelegate {
             streamNotificationTelemetry.reset()
             streamDecodeRejectCount = 0
             streamZeroSampleDecodeCount = 0
-            windowDecodedSamples = 0
             windowMaxNotificationGapMilliseconds = 0
             AudioPipe.shared.beginRemoteAudioDiagnostics()
             streamAudioSyncCount = pendingAudioSyncCount
             pendingAudioSyncCount = 0
             streamStartedAt = Date()
+            audioStopReceivedAt = nil
+            drainFinishedAt = nil
             startAudioHealthWindow()
             firstAudioAt = nil
             lastAudioAt = nil
@@ -985,7 +995,10 @@ extension BLEBridge: CBPeripheralDelegate {
                 return
             }
             pendingAudioStopReason = reason
+            audioStopReceivedAt = Date()
             stopKeepAliveTimer()
+            stopAudioHealthWindow()
+            emitAudioHealthWindow(closing: true)
             VoiceTimingLogger.mark("AUDIO_STOP")
             print(
                 "[BLE] AUDIO_STOP received; draining audio tail " +
@@ -1050,10 +1063,12 @@ extension BLEBridge: CBPeripheralDelegate {
             frameSize: protocolHandler.capabilities?.frameSize ?? 0,
             at: now.timeIntervalSinceReferenceDate
         )
-        windowMaxNotificationGapMilliseconds = max(
-            windowMaxNotificationGapMilliseconds,
-            streamNotificationTelemetry.lastNotificationGapMilliseconds
-        )
+        if healthWindow.isOpen {
+            windowMaxNotificationGapMilliseconds = max(
+                windowMaxNotificationGapMilliseconds,
+                streamNotificationTelemetry.lastNotificationGapMilliseconds
+            )
+        }
         wavRecorder?.appendRawBytes(data)
 
         switch protocolHandler.decodeAudioFrames(data) {
@@ -1091,7 +1106,7 @@ extension BLEBridge: CBPeripheralDelegate {
         }
         streamFrameCount += 1
         streamSampleCount += frame.samples.count
-        windowDecodedSamples += frame.samples.count
+        _ = healthWindow.recordDecodedSamples(frame.samples.count)
         streamPeak = max(
             streamPeak,
             frame.samples.map { Int(abs(Int($0))) }.max() ?? 0
@@ -1148,6 +1163,13 @@ extension BLEBridge: CBPeripheralDelegate {
         audioStopDrainWorkItem = nil
         guard isStreaming else { return }
 
+        drainFinishedAt = Date()
+        let timing = AudioDeliveryTiming.measure(
+            streamStartedAt: streamStartedAt.timeIntervalSinceReferenceDate,
+            audioStopReceivedAt: audioStopReceivedAt?.timeIntervalSinceReferenceDate,
+            lastAudioAt: lastAudioAt?.timeIntervalSinceReferenceDate,
+            drainFinishedAt: drainFinishedAt?.timeIntervalSinceReferenceDate
+        )
         isStreaming = false
         protocolHandler.endAudioStream()
         if lastAudioAt != nil {
@@ -1166,11 +1188,11 @@ extension BLEBridge: CBPeripheralDelegate {
             let wavSamples = w.totalSamples
             print("[WAV] closed \(w.filename)")
             print(String(
-                format: "[AUDIO-PATH] WAV_SUMMARY path=%@ wav_samples=%llu wav_audio_ms=%.1f stream_elapsed_ms=%.1f",
+                format: "[AUDIO-PATH] WAV_SUMMARY path=%@ wav_samples=%llu wav_audio_ms=%.1f lifecycle_elapsed_ms=%.1f",
                 wavPath,
                 wavSamples,
                 Double(wavSamples) / Double(w.recordedSampleRate) * 1_000,
-                Date().timeIntervalSince(streamStartedAt) * 1_000
+                timing.lifecycleElapsedSeconds * 1_000
             ))
             wavRecorder = nil
         }
@@ -1199,24 +1221,29 @@ extension BLEBridge: CBPeripheralDelegate {
             "outside=\(audioFramesOutsideStream)"
         ].joined(separator: " ")
         print(summary)
-        let streamElapsedMS = max(0, Date().timeIntervalSince(streamStartedAt) * 1_000)
         let sampleRate = protocolHandler.codec?.sampleRate ?? 0
         let delivery = AudioDeliveryAccounting.measure(
             decodedSamples: streamSampleCount,
             sampleRate: sampleRate,
-            elapsedSeconds: streamElapsedMS / 1_000
+            elapsedSeconds: timing.measurementElapsedSeconds
         )
         let pipe = AudioPipe.shared.takeAudioDiagnosticsSnapshot()
         let queueDepthMinMS = Double(pipe.minQueueDepthFrames) / 48_000 * 1_000
         let queueDepthMaxMS = Double(pipe.maxQueueDepthFrames) / 48_000 * 1_000
         let queueDepthCurrentMS = Double(pipe.currentQueueDepthFrames) / 48_000 * 1_000
         print(String(
-            format: "[AUDIO-PATH] BLE_DECODE_SUMMARY stream=%d codec=%@ sample_rate=%d frame_size=%d elapsed_ms=%.1f notifications=%d notification_bytes=%d notification_size_min=%d notification_size_max=%d notification_size_distribution=%@ frame_size_distribution=%@ decoded_frames=%d decoded_samples=%d decoded_audio_ms=%.1f delivery_ratio=%.3f expected_samples=%d deficit_samples=%d deficit_ms=%.1f decode_rejects=%d zero_sample_decodes=%d max_notification_gap_ms=%.1f p95_notification_gap_ms=%.1f gap_gt20ms=%d gap_gt30ms=%d gap_gt50ms=%d gap_gt100ms=%d",
+            format: "[AUDIO-PATH] BLE_DECODE_SUMMARY stream=%d codec=%@ sample_rate=%d frame_size=%d measurement_elapsed_ms=%.1f lifecycle_elapsed_ms=%.1f audio_stop_at_ms=%@ last_audio_at_ms=%@ stop_to_last_audio_ms=%@ drain_finish_ms=%@ post_last_audio_drain_ms=%@ notifications=%d notification_bytes=%d notification_size_min=%d notification_size_max=%d notification_size_distribution=%@ frame_size_distribution=%@ decoded_frames=%d decoded_samples=%d decoded_audio_ms=%.1f delivery_ratio=%.3f expected_samples=%d deficit_samples=%d deficit_ms=%.1f decode_rejects=%d zero_sample_decodes=%d max_notification_gap_ms=%.1f p95_notification_gap_ms=%.1f gap_gt20ms=%d gap_gt30ms=%d gap_gt50ms=%d gap_gt100ms=%d",
             streamID,
             protocolHandler.codec?.description ?? "unknown",
             sampleRate,
             protocolHandler.capabilities?.frameSize ?? 0,
-            streamElapsedMS,
+            timing.measurementElapsedSeconds * 1_000,
+            timing.lifecycleElapsedSeconds * 1_000,
+            formatMilliseconds(timing.audioStopAtMilliseconds),
+            formatMilliseconds(timing.lastAudioAtMilliseconds),
+            formatMilliseconds(timing.stopToLastAudioMilliseconds),
+            formatMilliseconds(timing.drainFinishAtMilliseconds),
+            formatMilliseconds(timing.postLastAudioDrainMilliseconds),
             streamNotificationTelemetry.notificationCount,
             streamNotificationTelemetry.notificationBytesTotal,
             streamNotificationTelemetry.notificationSizeMin,
@@ -1240,7 +1267,7 @@ extension BLEBridge: CBPeripheralDelegate {
             streamNotificationTelemetry.gapOver100Milliseconds
         ))
         print(String(
-            format: "[AUDIO-PATH] AUDIOPIPE_SUMMARY stream=%d render_callback_count=%d render_requested_frames=%d render_filled_frames=%d render_unfilled_frames=%d underrun_callbacks=%d underrun_duration_ms=%.1f max_underrun_frames=%d queue_depth_current_ms=%.1f queue_depth_min_ms=%.1f queue_depth_max_ms=%.1f overflow_dropped_frames=%d overflow_dropped_ms=%.1f compaction_count=%d",
+            format: "[AUDIO-PATH] AUDIOPIPE_SUMMARY stream=%d render_callback_count=%d render_requested_frames=%d render_filled_frames=%d render_unfilled_frames=%d underrun_callbacks=%d underrun_duration_ms=%.1f max_underrun_frames=%d active_remote_underrun_frames=%d active_remote_underrun_callbacks=%d tail_rendered_frames=%d tail_empty_callbacks=%d idle_render_callbacks=%d queue_depth_current_ms=%.1f queue_depth_min_ms=%.1f queue_depth_max_ms=%.1f overflow_dropped_frames=%d overflow_dropped_ms=%.1f compaction_count=%d",
             streamID,
             pipe.renderCallbackCount,
             pipe.renderRequestedFrames,
@@ -1249,6 +1276,11 @@ extension BLEBridge: CBPeripheralDelegate {
             pipe.underrunCallbackCount,
             pipe.totalUnderrunMilliseconds,
             pipe.maxUnderrunFrames,
+            pipe.renderUnfilledFrames,
+            pipe.underrunCallbackCount,
+            pipe.tailRenderedFrames,
+            pipe.tailEmptyCallbackCount,
+            pipe.idleRenderCallbackCount,
             queueDepthCurrentMS,
             queueDepthMinMS,
             queueDepthMaxMS,
@@ -1256,9 +1288,14 @@ extension BLEBridge: CBPeripheralDelegate {
             pipe.overflowDroppedMilliseconds,
             pipe.compactionCount
         ))
+        AudioPipe.shared.endRemoteAudioDiagnostics()
         let reason = pendingAudioStopReason ?? 0
         pendingAudioStopReason = nil
         print("[BLE] AUDIO_STOP drained reason=0x\(String(format: "%02x", reason))")
+    }
+
+    private func formatMilliseconds(_ value: Double?) -> String {
+        value.map { String(format: "%.1f", $0) } ?? "n/a"
     }
 
     /// Convert dBFS to a tiny ASCII bar for at-a-glance logs.

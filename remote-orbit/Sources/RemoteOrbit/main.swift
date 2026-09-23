@@ -1676,6 +1676,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         AppStorage.prepare()
+        if ProcessInfo.processInfo.environment["REMOTE_ORBIT_DIAGNOSTICS"] == "1" {
+            let sourceHead = Bundle.main.object(
+                forInfoDictionaryKey: "RemoteOrbitDiagnosticSourceHead"
+            ) as? String ?? "UNSTAMPED"
+            print(
+                "[AUDIO-PATH] DIAGNOSTIC_BUILD "
+                    + "head=\(sourceHead) instrumentation=p0"
+            )
+        }
         let appVersion = Bundle.main.object(
             forInfoDictionaryKey: "CFBundleShortVersionString"
         ) as? String ?? "development"
