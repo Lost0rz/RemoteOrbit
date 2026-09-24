@@ -405,6 +405,10 @@ struct AudioPipeDiagnosticsSnapshot {
     let maxUnderrunFrames: Int
     let totalUnderrunMilliseconds: Double
     let currentQueueDepthFrames: Int
+    let audioQueueDepthFrames: Int
+    let pendingRemoteFrames: Int
+    let submittedRemoteFrames: Int
+    let renderedRemoteFrames: Int
     let minQueueDepthFrames: Int
     let maxQueueDepthFrames: Int
     let overflowDroppedFrames: Int
@@ -424,6 +428,10 @@ struct AudioPipeDiagnosticsSnapshot {
         underrunCallbackCount: Int,
         maxUnderrunFrames: Int,
         currentQueueDepthFrames: Int,
+        audioQueueDepthFrames: Int,
+        pendingRemoteFrames: Int,
+        submittedRemoteFrames: Int,
+        renderedRemoteFrames: Int,
         minQueueDepthFrames: Int,
         maxQueueDepthFrames: Int,
         overflowDroppedFrames: Int,
@@ -445,6 +453,10 @@ struct AudioPipeDiagnosticsSnapshot {
             ? Double(renderUnfilledFrames) / sampleRate * 1_000
             : 0
         self.currentQueueDepthFrames = max(0, currentQueueDepthFrames)
+        self.audioQueueDepthFrames = max(0, audioQueueDepthFrames)
+        self.pendingRemoteFrames = max(0, pendingRemoteFrames)
+        self.submittedRemoteFrames = max(0, submittedRemoteFrames)
+        self.renderedRemoteFrames = max(0, renderedRemoteFrames)
         self.minQueueDepthFrames = max(0, minQueueDepthFrames)
         self.maxQueueDepthFrames = max(0, maxQueueDepthFrames)
         self.overflowDroppedFrames = overflowDroppedFrames
@@ -469,6 +481,8 @@ struct AudioPipeDiagnosticsCounters {
     var renderUnfilledFrames = 0
     var underrunCallbackCount = 0
     var maxUnderrunFrames = 0
+    var submittedRemoteFrames = 0
+    var renderedRemoteFrames = 0
     var minQueueDepthFrames: Int?
     var maxQueueDepthFrames = 0
     var overflowDroppedFrames = 0
@@ -484,6 +498,8 @@ struct AudioPipeDiagnosticsCounters {
         renderUnfilledFrames = 0
         underrunCallbackCount = 0
         maxUnderrunFrames = 0
+        submittedRemoteFrames = 0
+        renderedRemoteFrames = 0
         minQueueDepthFrames = max(0, currentQueueDepthFrames)
         maxQueueDepthFrames = max(0, currentQueueDepthFrames)
         overflowDroppedFrames = 0
@@ -517,6 +533,14 @@ struct AudioPipeDiagnosticsCounters {
         }
     }
 
+    mutating func recordSubmittedRemoteFrames(_ frames: Int) {
+        submittedRemoteFrames += max(0, frames)
+    }
+
+    mutating func recordRenderedRemoteFrames(_ frames: Int) {
+        renderedRemoteFrames += max(0, frames)
+    }
+
     mutating func recordQueueDepth(_ frames: Int) {
         let depth = max(0, frames)
         minQueueDepthFrames = min(minQueueDepthFrames ?? depth, depth)
@@ -533,6 +557,8 @@ struct AudioPipeDiagnosticsCounters {
 
     func snapshot(
         currentQueueDepthFrames: Int,
+        audioQueueDepthFrames: Int,
+        pendingRemoteFrames: Int,
         sampleRate: Double,
         lastRemoteSubmittedMonotonicNanoseconds: UInt64? = nil,
         lastRemoteRenderedMonotonicNanoseconds: UInt64? = nil
@@ -545,6 +571,10 @@ struct AudioPipeDiagnosticsCounters {
             underrunCallbackCount: underrunCallbackCount,
             maxUnderrunFrames: maxUnderrunFrames,
             currentQueueDepthFrames: currentQueueDepthFrames,
+            audioQueueDepthFrames: audioQueueDepthFrames,
+            pendingRemoteFrames: pendingRemoteFrames,
+            submittedRemoteFrames: submittedRemoteFrames,
+            renderedRemoteFrames: renderedRemoteFrames,
             minQueueDepthFrames: minQueueDepthFrames ?? currentQueueDepthFrames,
             maxQueueDepthFrames: maxQueueDepthFrames,
             overflowDroppedFrames: overflowDroppedFrames,

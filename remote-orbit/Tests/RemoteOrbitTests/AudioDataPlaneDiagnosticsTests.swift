@@ -2,6 +2,66 @@ import XCTest
 @testable import RemoteOrbit
 
 final class AudioDataPlaneDiagnosticsTests: XCTestCase {
+    func testAudioPipeDiagnosticsCountersTrackSubmittedAndRenderedRemoteFrames() {
+        var counters = AudioPipeDiagnosticsCounters()
+        counters.reset(currentQueueDepthFrames: 0)
+
+        counters.recordSubmittedRemoteFrames(1_440)
+        counters.recordRenderedRemoteFrames(960)
+
+        let snapshot = counters.snapshot(
+            currentQueueDepthFrames: 480,
+            audioQueueDepthFrames: 640,
+            pendingRemoteFrames: 480,
+            sampleRate: 48_000
+        )
+
+        XCTAssertEqual(snapshot.submittedRemoteFrames, 1_440)
+        XCTAssertEqual(snapshot.renderedRemoteFrames, 960)
+        XCTAssertEqual(snapshot.currentQueueDepthFrames, 480)
+        XCTAssertEqual(snapshot.pendingRemoteFrames, 480)
+        XCTAssertEqual(snapshot.audioQueueDepthFrames, 640)
+    }
+
+    func testAudioPipeDiagnosticsWindowResetDoesNotChangeSessionCumulativeCounters() {
+        var session = AudioPipeDiagnosticsCounters()
+        var window = AudioPipeDiagnosticsCounters()
+        session.reset(currentQueueDepthFrames: 0)
+        window.reset(currentQueueDepthFrames: 0)
+
+        session.recordSubmittedRemoteFrames(2_880)
+        session.recordRenderedRemoteFrames(2_400)
+        window.recordSubmittedRemoteFrames(480)
+        window.recordRenderedRemoteFrames(480)
+
+        let windowBeforeReset = window.snapshot(
+            currentQueueDepthFrames: 0,
+            audioQueueDepthFrames: 0,
+            pendingRemoteFrames: 0,
+            sampleRate: 48_000
+        )
+        window.reset(currentQueueDepthFrames: 0)
+        let windowAfterReset = window.snapshot(
+            currentQueueDepthFrames: 0,
+            audioQueueDepthFrames: 0,
+            pendingRemoteFrames: 0,
+            sampleRate: 48_000
+        )
+        let sessionAfterWindowReset = session.snapshot(
+            currentQueueDepthFrames: 480,
+            audioQueueDepthFrames: 480,
+            pendingRemoteFrames: 480,
+            sampleRate: 48_000
+        )
+
+        XCTAssertEqual(windowBeforeReset.submittedRemoteFrames, 480)
+        XCTAssertEqual(windowBeforeReset.renderedRemoteFrames, 480)
+        XCTAssertEqual(windowAfterReset.submittedRemoteFrames, 0)
+        XCTAssertEqual(windowAfterReset.renderedRemoteFrames, 0)
+        XCTAssertEqual(sessionAfterWindowReset.submittedRemoteFrames, 2_880)
+        XCTAssertEqual(sessionAfterWindowReset.renderedRemoteFrames, 2_400)
+    }
+
     func testDeliveryRatioAtFullRateHasNoDeficit() {
         let result = AudioDeliveryAccounting.measure(
             decodedSamples: 80_000,
