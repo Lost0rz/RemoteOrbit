@@ -156,6 +156,8 @@ final class BLEBridge: NSObject {
     private var streamAudioSyncCount = 0
     private var pendingAudioStopReason: UInt8?
     private var streamStartedAt = Date.distantPast
+    private var streamStartedUptime: TimeInterval = 0
+    private var streamSessionID = "NA"
     private var firstAudioAt: Date?
     private var lastAudioAt: Date?
     private var audioStopReceivedAt: Date?
@@ -172,6 +174,7 @@ final class BLEBridge: NSObject {
     private var windowMaxNotificationGapMilliseconds: Double = 0
     private var healthWindow = AudioHealthWindowAccumulator(startedAt: 0)
     private var healthWindowTimer: Timer?
+    private var longDurationSnapshotTimer: Timer?
     private var wavRecorder: WavRecorder?
     // Verbose PCM diagnostics are off unless explicitly requested.
     private static let diagnosticsEnabled =
@@ -539,6 +542,7 @@ final class BLEBridge: NSObject {
         audioStopDrainWorkItem?.cancel()
         audioStopDrainWorkItem = nil
         stopAudioHealthWindow()
+        stopLongDurationSnapshotTimer()
         _ = healthWindow.close(at: ProcessInfo.processInfo.systemUptime)
         AudioPipe.shared.endRemoteAudioDiagnostics()
         keepAliveTimer?.invalidate()
@@ -658,6 +662,48 @@ final class BLEBridge: NSObject {
     private func stopAudioHealthWindow() {
         healthWindowTimer?.invalidate()
         healthWindowTimer = nil
+    }
+
+    private func startLongDurationSnapshotTimer() {
+        stopLongDurationSnapshotTimer()
+        longDurationSnapshotTimer = Timer.scheduledTimer(
+            withTimeInterval: 1.0,
+            repeats: true
+        ) { [weak self] _ in
+            self?.emitLongDurationSnapshot()
+        }
+    }
+
+    private func stopLongDurationSnapshotTimer() {
+        longDurationSnapshotTimer?.invalidate()
+        longDurationSnapshotTimer = nil
+    }
+
+    private func emitLongDurationSnapshot() {
+        guard isStreaming else { return }
+        let pipe = AudioPipe.shared.takeAudioDiagnosticsSnapshot()
+        let sampleRate = protocolHandler.codec?.sampleRate ?? 0
+        let snapshot = AudioSessionTelemetrySnapshot(
+            sessionID: streamSessionID,
+            elapsedMilliseconds: max(
+                0,
+                ProcessInfo.processInfo.systemUptime - streamStartedUptime
+            ) * 1_000,
+            sampleRate: sampleRate,
+            bleNotificationsTotal: streamNotificationTelemetry.notificationCount,
+            bleBytesTotal: streamNotificationTelemetry.notificationBytesTotal,
+            decodedFramesTotal: streamFrameCount,
+            decodedSamplesTotal: streamSampleCount,
+            submittedFramesTotal: pipe.submittedRemoteFrames,
+            renderedFramesTotal: pipe.renderedRemoteFrames,
+            pendingRemoteFrames: pipe.pendingRemoteFrames,
+            audioQueueDepthFrames: pipe.audioQueueDepthFrames,
+            activeUnderrunFramesTotal: pipe.renderUnfilledFrames,
+            activeUnderrunCallbacksTotal: pipe.underrunCallbackCount,
+            droppedFramesTotal: pipe.overflowDroppedFrames,
+            overflowFramesTotal: pipe.overflowDroppedFrames
+        )
+        print(snapshot.logLine)
     }
 
     private func emitAudioHealthWindow(closing: Bool = false) {
@@ -981,9 +1027,12 @@ extension BLEBridge: CBPeripheralDelegate {
             streamAudioSyncCount = pendingAudioSyncCount
             pendingAudioSyncCount = 0
             streamStartedAt = Date()
+            streamStartedUptime = ProcessInfo.processInfo.systemUptime
+            streamSessionID = VoiceTimingLogger.currentSessionID?.uuidString ?? "NA"
             audioStopReceivedAt = nil
             drainFinishedAt = nil
             startAudioHealthWindow()
+            startLongDurationSnapshotTimer()
             firstAudioAt = nil
             lastAudioAt = nil
             maxAudioFrameGap = 0
@@ -1007,6 +1056,8 @@ extension BLEBridge: CBPeripheralDelegate {
             pendingAudioStopReason = reason
             audioStopReceivedAt = Date()
             stopKeepAliveTimer()
+            emitLongDurationSnapshot()
+            stopLongDurationSnapshotTimer()
             stopAudioHealthWindow()
             emitAudioHealthWindow(closing: true)
             VoiceTimingLogger.mark("AUDIO_STOP")
@@ -1213,6 +1264,7 @@ extension BLEBridge: CBPeripheralDelegate {
     }
 
     private func finishAudioStopAfterDrain() {
+        stopLongDurationSnapshotTimer()
         stopAudioHealthWindow()
         audioStopDrainWorkItem = nil
         guard isStreaming else { return }

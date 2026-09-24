@@ -2,6 +2,35 @@ import XCTest
 @testable import RemoteOrbit
 
 final class AudioDataPlaneDiagnosticsTests: XCTestCase {
+    func testLongDurationSnapshotUsesOutputFrameUnitsAndReportsBacklog() {
+        let snapshot = AudioSessionTelemetrySnapshot(
+            sessionID: "session-1",
+            elapsedMilliseconds: 30_000,
+            sampleRate: 16_000,
+            bleNotificationsTotal: 250,
+            bleBytesTotal: 30_000,
+            decodedFramesTotal: 300,
+            decodedSamplesTotal: 32_000,
+            submittedFramesTotal: 96_000,
+            renderedFramesTotal: 95_520,
+            pendingRemoteFrames: 480,
+            audioQueueDepthFrames: 640,
+            activeUnderrunFramesTotal: 96,
+            activeUnderrunCallbacksTotal: 3,
+            droppedFramesTotal: 480,
+            overflowFramesTotal: 480
+        )
+
+        XCTAssertEqual(snapshot.decodedOutputFramesTotal, 96_000)
+        XCTAssertEqual(snapshot.decodedMinusRenderedFrames, 480)
+        XCTAssertEqual(snapshot.pendingAudioMilliseconds, 10.0, accuracy: 0.0001)
+        XCTAssertEqual(snapshot.decodeRenderLagMilliseconds, 10.0, accuracy: 0.0001)
+        XCTAssertEqual(snapshot.downstreamDrainVisibility, .unavailable)
+        XCTAssertTrue(snapshot.logLine.contains("session_id=session-1"))
+        XCTAssertTrue(snapshot.logLine.contains("decoded_minus_rendered_frames=480"))
+        XCTAssertTrue(snapshot.logLine.contains("downstream_drain_visibility=UNAVAILABLE"))
+    }
+
     func testAudioPipeDiagnosticsCountersTrackSubmittedAndRenderedRemoteFrames() {
         var counters = AudioPipeDiagnosticsCounters()
         counters.reset(currentQueueDepthFrames: 0)
