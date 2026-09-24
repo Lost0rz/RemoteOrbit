@@ -187,21 +187,6 @@ final class BLEBridge: NSObject {
     private var streamZeroSampleDecodeCount = 0
     private var hasRecordedFirstP1A4AudioPacket = false
     private var p1A5VoiceOnsetDetector = P1A5VoiceOnsetDetector()
-    private var windowMaxNotificationGapMilliseconds: Double = 0
-    private var healthWindow = AudioHealthWindowAccumulator(startedAt: 0)
-    private var healthWindowTimer: Timer?
-    private var longDurationSnapshotTimer: Timer?
-    private var mainQueueHeartbeatTimer: Timer?
-    private var mainQueueStallMonitor = MainQueueStallMonitor(
-        interval: 0.25,
-        threshold: 0.05
-    )
-    private var isolationWindow = AudioPathIsolationWindowAccumulator(
-        sessionID: "NA",
-        startedAt: 0
-    )
-    private var processingTimingWindow = AudioPathProcessingTimingAccumulator()
-    private var processingTimingSession = AudioPathProcessingTimingAccumulator()
     private var wavRecorder: WavRecorder?
     // Verbose PCM diagnostics are off unless explicitly requested.
     private static let diagnosticsEnabled =
@@ -675,10 +660,6 @@ final class BLEBridge: NSObject {
         handshakeTimeoutWorkItem = nil
         audioStopDrainWorkItem?.cancel()
         audioStopDrainWorkItem = nil
-        stopAudioHealthWindow()
-        stopLongDurationSnapshotTimer()
-        stopMainQueueHeartbeat()
-        _ = healthWindow.close(at: ProcessInfo.processInfo.systemUptime)
         AudioPipe.shared.endRemoteAudioDiagnostics()
         keepAliveTimer?.invalidate()
         keepAliveTimer = nil
@@ -866,244 +847,6 @@ final class BLEBridge: NSObject {
     private func currentStreamElapsedMilliseconds() -> Double {
         guard streamStartedUptime > 0 else { return 0 }
         return max(0, ProcessInfo.processInfo.systemUptime - streamStartedUptime) * 1_000
-    }
-
-    private func startAudioHealthWindow() {
-        stopAudioHealthWindow()
-        windowMaxNotificationGapMilliseconds = 0
-        healthWindow = AudioHealthWindowAccumulator(
-            startedAt: ProcessInfo.processInfo.systemUptime
-        )
-        healthWindowTimer = Timer.scheduledTimer(
-            withTimeInterval: 5.0,
-            repeats: true
-        ) { [weak self] _ in
-            self?.emitAudioHealthWindow()
-        }
-    }
-
-    private func stopAudioHealthWindow() {
-        healthWindowTimer?.invalidate()
-        healthWindowTimer = nil
-    }
-
-    private func startLongDurationSnapshotTimer() {
-        stopLongDurationSnapshotTimer()
-        longDurationSnapshotTimer = Timer.scheduledTimer(
-            withTimeInterval: 1.0,
-            repeats: true
-        ) { [weak self] _ in
-            self?.emitLongDurationSnapshot()
-        }
-    }
-
-    private func stopLongDurationSnapshotTimer() {
-        longDurationSnapshotTimer?.invalidate()
-        longDurationSnapshotTimer = nil
-    }
-
-    private func startMainQueueHeartbeat() {
-        stopMainQueueHeartbeat()
-        mainQueueStallMonitor.start(
-            sessionID: streamSessionID,
-            at: streamStartedUptime
-        )
-        mainQueueHeartbeatTimer = Timer.scheduledTimer(
-            withTimeInterval: mainQueueStallMonitor.interval,
-            repeats: true
-        ) { [weak self] _ in
-            self?.recordMainQueueHeartbeat()
-        }
-    }
-
-    private func stopMainQueueHeartbeat() {
-        mainQueueHeartbeatTimer?.invalidate()
-        mainQueueHeartbeatTimer = nil
-        guard mainQueueStallMonitor.isActive else { return }
-        let summary = mainQueueStallMonitor.summary
-        print(String(
-            format: "[AUDIO-PATH] MAIN_QUEUE_SUMMARY session_id=%@ stall_count=%d max_lag_ms=%.1f p95_lag_ms=%.1f",
-            streamSessionID,
-            summary.stallCount,
-            summary.maxLagMilliseconds,
-            summary.p95LagMilliseconds
-        ))
-        mainQueueStallMonitor.stop()
-    }
-
-    private func recordMainQueueHeartbeat() {
-        guard isStreaming else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        guard let event = mainQueueStallMonitor.record(actualUptime: now) else { return }
-        print(String(
-            format: "[AUDIO-PATH] MAIN_QUEUE_STALL session_id=%@ elapsed_ms=%.1f expected_fire_ms=%.1f actual_fire_ms=%.1f lag_ms=%.1f",
-            event.sessionID,
-            event.elapsedMilliseconds,
-            event.expectedFireMilliseconds,
-            event.actualFireMilliseconds,
-            event.lagMilliseconds
-        ))
-    }
-
-    private func recordProcessingDuration(
-        _ stage: AudioPathProcessingStage,
-        startedAt: TimeInterval
-    ) {
-        let milliseconds = max(
-            0,
-            ProcessInfo.processInfo.systemUptime - startedAt
-        ) * 1_000
-        isolationWindow.recordProcessing(
-            stage: stage,
-            milliseconds: milliseconds
-        )
-        processingTimingWindow.record(
-            stage: stage,
-            milliseconds: milliseconds
-        )
-        processingTimingSession.record(
-            stage: stage,
-            milliseconds: milliseconds
-        )
-    }
-
-    private func emitIsolationWindow(closing: Bool = false) {
-        guard isStreaming else { return }
-        let snapshot = closing
-            ? isolationWindow.close(at: ProcessInfo.processInfo.systemUptime)
-            : isolationWindow.roll(at: ProcessInfo.processInfo.systemUptime)
-        guard let snapshot else { return }
-        let frameSize = protocolHandler.capabilities?.frameSize ?? 0
-        print(String(
-            format: "[AUDIO-PATH] ISOLATION_WINDOW session_id=%@ window_start_ms=%.1f window_end_ms=%.1f notification_count=%d notification_bytes=%d complete_frames_from_bytes=%d decoded_frames=%d decoded_samples=%d frame_accumulator_buffered_bytes=%d frame_accumulator_max_buffered_bytes=%d byte_to_frame_ratio=%.3f frame_to_decode_ratio=%.3f max_callback_gap_ms=%.1f callbacks_with_gap_gt20=%d callbacks_with_gap_gt50=%d callbacks_with_gap_gt100=%d callbacks_with_gap_gt250=%d callbacks_with_gap_gt500=%d burst_callbacks_lt2ms=%d burst_bytes_lt2ms=%d callback_burst_after_gap=%@ decode_rejects=%d handle_audio_max_ms=%.3f decode_audio_frames_max_ms=%.3f process_decoded_frame_max_ms=%.3f audio_pipe_feed_max_ms=%.3f",
-            snapshot.sessionID,
-            snapshot.windowStartMilliseconds,
-            snapshot.windowEndMilliseconds,
-            snapshot.notificationCount,
-            snapshot.notificationBytes,
-            snapshot.completeFramesFromBytes,
-            snapshot.decodedFrames,
-            snapshot.decodedSamples,
-            snapshot.frameAccumulatorBufferedBytes,
-            snapshot.frameAccumulatorMaxBufferedBytes,
-            snapshot.byteToFrameRatio(frameSize: frameSize),
-            snapshot.frameToDecodeRatio,
-            snapshot.maxCallbackGapMilliseconds,
-            snapshot.callbacksWithGapOver20,
-            snapshot.callbacksWithGapOver50,
-            snapshot.callbacksWithGapOver100,
-            snapshot.callbacksWithGapOver250,
-            snapshot.callbacksWithGapOver500,
-            snapshot.burstCallbacksUnder2Milliseconds,
-            snapshot.burstBytesUnder2Milliseconds,
-            snapshot.callbackBurstAfterGap ? "YES" : "NO",
-            snapshot.decodeRejects,
-            snapshot.maxHandleAudioMilliseconds,
-            snapshot.maxDecodeAudioFramesMilliseconds,
-            snapshot.maxProcessDecodedFrameMilliseconds,
-            snapshot.maxAudioPipeFeedMilliseconds
-        ))
-    }
-
-    private func emitProcessingSummary(
-        windowMilliseconds: Double,
-        total: Bool = false
-    ) {
-        let source = total ? processingTimingSession : processingTimingWindow
-        let handle = source.summary(for: .handleAudio)
-        let decode = source.summary(for: .decodeAudioFrames)
-        let process = source.summary(for: .processDecodedFrame)
-        let feed = source.summary(for: .audioPipeFeed)
-        let prefix = total
-            ? "[AUDIO-PATH] PROCESSING_TOTAL"
-            : "[AUDIO-PATH] PROCESSING_SUMMARY"
-        print(String(
-            format: "%@ session_id=%@ window_ms=%.1f handle_audio_count=%d handle_audio_avg_us=%.1f handle_audio_p95_us=%.1f handle_audio_max_us=%.1f decode_audio_frames_count=%d decode_audio_frames_avg_us=%.1f decode_audio_frames_p95_us=%.1f decode_audio_frames_max_us=%.1f process_decoded_frame_count=%d process_decoded_frame_avg_us=%.1f process_decoded_frame_p95_us=%.1f process_decoded_frame_max_us=%.1f audio_pipe_feed_count=%d audio_pipe_feed_avg_us=%.1f audio_pipe_feed_p95_us=%.1f audio_pipe_feed_max_us=%.1f",
-            prefix,
-            streamSessionID,
-            windowMilliseconds,
-            handle.count,
-            handle.averageMilliseconds * 1_000,
-            handle.p95Milliseconds * 1_000,
-            handle.maxMilliseconds * 1_000,
-            decode.count,
-            decode.averageMilliseconds * 1_000,
-            decode.p95Milliseconds * 1_000,
-            decode.maxMilliseconds * 1_000,
-            process.count,
-            process.averageMilliseconds * 1_000,
-            process.p95Milliseconds * 1_000,
-            process.maxMilliseconds * 1_000,
-            feed.count,
-            feed.averageMilliseconds * 1_000,
-            feed.p95Milliseconds * 1_000,
-            feed.maxMilliseconds * 1_000
-        ))
-        if !total {
-            processingTimingWindow.reset()
-        }
-    }
-
-    private func emitLongDurationSnapshot() {
-        guard isStreaming else { return }
-        let pipe = AudioPipe.shared.takeAudioDiagnosticsSnapshot()
-        let sampleRate = protocolHandler.codec?.sampleRate ?? 0
-        let snapshot = AudioSessionTelemetrySnapshot(
-            sessionID: streamSessionID,
-            elapsedMilliseconds: max(
-                0,
-                ProcessInfo.processInfo.systemUptime - streamStartedUptime
-            ) * 1_000,
-            sampleRate: sampleRate,
-            bleNotificationsTotal: streamNotificationTelemetry.notificationCount,
-            bleBytesTotal: streamNotificationTelemetry.notificationBytesTotal,
-            decodedFramesTotal: streamFrameCount,
-            decodedSamplesTotal: streamSampleCount,
-            submittedFramesTotal: pipe.submittedRemoteFrames,
-            renderedFramesTotal: pipe.renderedRemoteFrames,
-            pendingRemoteFrames: pipe.pendingRemoteFrames,
-            audioQueueDepthFrames: pipe.audioQueueDepthFrames,
-            activeUnderrunFramesTotal: pipe.renderUnfilledFrames,
-            activeUnderrunCallbacksTotal: pipe.underrunCallbackCount,
-            droppedFramesTotal: pipe.overflowDroppedFrames,
-            overflowFramesTotal: pipe.overflowDroppedFrames
-        )
-        print(snapshot.logLine)
-        emitIsolationWindow()
-    }
-
-    private func emitAudioHealthWindow(closing: Bool = false) {
-        guard isStreaming else { return }
-        let snapshot = closing
-            ? healthWindow.close(at: ProcessInfo.processInfo.systemUptime)
-            : healthWindow.roll(at: ProcessInfo.processInfo.systemUptime)
-        guard let snapshot else { return }
-        let elapsed = snapshot.elapsedMilliseconds / 1_000
-        let sampleRate = protocolHandler.codec?.sampleRate ?? 0
-        let delivery = AudioDeliveryAccounting.measure(
-            decodedSamples: snapshot.decodedSamples,
-            sampleRate: sampleRate,
-            elapsedSeconds: elapsed
-        )
-        let pipe = AudioPipe.shared.takeAudioDiagnosticsSnapshot(resettingWindow: true)
-        let queueDepthMS = Double(pipe.currentQueueDepthFrames) / 48_000 * 1_000
-        print(String(
-            format: "[AUDIO-PATH] WINDOW window_ms=%.0f decoded_samples=%d expected_samples=%d delivery_ratio=%.3f queue_depth_ms=%.1f active_remote_underrun_frames=%d active_remote_underrun_callbacks=%d tail_rendered_frames=%d tail_empty_callbacks=%d idle_render_callbacks=%d overflow_drop_frames=%d max_ble_gap_ms=%.1f",
-            snapshot.elapsedMilliseconds,
-            snapshot.decodedSamples,
-            delivery.expectedSamples,
-            delivery.deliveryRatio,
-            queueDepthMS,
-            pipe.renderUnfilledFrames,
-            pipe.underrunCallbackCount,
-            pipe.tailRenderedFrames,
-            pipe.tailEmptyCallbackCount,
-            pipe.idleRenderCallbackCount,
-            pipe.overflowDroppedFrames,
-            windowMaxNotificationGapMilliseconds
-        ))
-        emitProcessingSummary(windowMilliseconds: snapshot.elapsedMilliseconds)
-        windowMaxNotificationGapMilliseconds = 0
     }
 
     private func notifyStreaming(_ on: Bool) {
@@ -1384,7 +1127,6 @@ extension BLEBridge: CBPeripheralDelegate {
             streamZeroSampleDecodeCount = 0
             hasRecordedFirstP1A4AudioPacket = false
             p1A5VoiceOnsetDetector.reset()
-            windowMaxNotificationGapMilliseconds = 0
             if VoiceTimingLogger.p1A5Enabled {
                 VoiceTimingLogger.recordIfAbsent(
                     "F1_audio_pipeline_start_requested",
@@ -1397,12 +1139,6 @@ extension BLEBridge: CBPeripheralDelegate {
             streamStartedAt = Date()
             streamStartedUptime = ProcessInfo.processInfo.systemUptime
             streamSessionID = VoiceTimingLogger.currentSessionID?.uuidString ?? "NA"
-            isolationWindow = AudioPathIsolationWindowAccumulator(
-                sessionID: streamSessionID,
-                startedAt: streamStartedUptime
-            )
-            processingTimingWindow.reset()
-            processingTimingSession.reset()
             streamSessionOrigin = ATVVKeepAliveTelemetry.sessionOrigin(
                 micOpenRequested: transportState.micOpenRequested,
                 voiceInputRequested: transportState.voiceInputRequested
@@ -1411,9 +1147,6 @@ extension BLEBridge: CBPeripheralDelegate {
             lastKeepAliveElapsedMilliseconds = nil
             audioStopReceivedAt = nil
             drainFinishedAt = nil
-            startAudioHealthWindow()
-            startLongDurationSnapshotTimer()
-            startMainQueueHeartbeat()
             firstAudioAt = nil
             lastAudioAt = nil
             maxAudioFrameGap = 0
@@ -1459,10 +1192,6 @@ extension BLEBridge: CBPeripheralDelegate {
                 transportState.commitVoiceInputClose()
             }
             stopKeepAliveTimer()
-            emitLongDurationSnapshot()
-            stopLongDurationSnapshotTimer()
-            stopAudioHealthWindow()
-            emitAudioHealthWindow(closing: true)
             VoiceTimingLogger.mark("AUDIO_STOP")
             VoiceTimingLogger.mark("AUDIO_DRAIN_BEGIN")
             print(
@@ -1522,14 +1251,6 @@ extension BLEBridge: CBPeripheralDelegate {
             return
         }
 
-        let handleAudioStartedAt = ProcessInfo.processInfo.systemUptime
-        defer {
-            recordProcessingDuration(
-                .handleAudio,
-                startedAt: handleAudioStartedAt
-            )
-        }
-
         let packetTimestamp = P1A4MonotonicClock.nowNanoseconds()
         // The first timestamp is the first received BLE audio notification;
         // the last timestamp is overwritten for each packet without logging
@@ -1553,75 +1274,22 @@ extension BLEBridge: CBPeripheralDelegate {
         )
 
         let now = Date()
-        let callbackUptime = ProcessInfo.processInfo.systemUptime
-        let hadPreviousNotification = streamNotificationTelemetry.notificationCount > 0
-        let bufferedBytesBeforeDecode = protocolHandler.bufferedAudioBytesForTesting
         streamNotificationTelemetry.record(
             size: data.count,
             frameSize: protocolHandler.capabilities?.frameSize ?? 0,
             at: now.timeIntervalSinceReferenceDate
         )
-        if healthWindow.isOpen {
-            windowMaxNotificationGapMilliseconds = max(
-                windowMaxNotificationGapMilliseconds,
-                streamNotificationTelemetry.lastNotificationGapMilliseconds
-            )
-        }
         wavRecorder?.appendRawBytes(data)
 
-        let decodeStartedAt = ProcessInfo.processInfo.systemUptime
-        let decodeResult = protocolHandler.decodeAudioFrames(data)
-        recordProcessingDuration(
-            .decodeAudioFrames,
-            startedAt: decodeStartedAt
-        )
-        let completeFramesFromBytes = completeFramesFromAudioBytes(
-            dataCount: data.count,
-            bufferedBytesBeforeDecode: bufferedBytesBeforeDecode
-        )
-        isolationWindow.recordNotification(
-            size: data.count,
-            gapMilliseconds: hadPreviousNotification
-                ? streamNotificationTelemetry.lastNotificationGapMilliseconds
-                : nil,
-            completeFramesFromBytes: completeFramesFromBytes,
-            frameAccumulatorBufferedBytes: protocolHandler.bufferedAudioBytesForTesting,
-            at: callbackUptime
-        )
-
-        switch decodeResult {
+        switch protocolHandler.decodeAudioFrames(data) {
         case .rejected:
             streamDecodeRejectCount += 1
-            isolationWindow.recordDecoded(
-                frameCount: 0,
-                sampleCount: 0,
-                rejected: true
-            )
         case .waitingForFrame:
-            break
+            return
         case .frames(let frames):
-            isolationWindow.recordDecoded(
-                frameCount: frames.count,
-                sampleCount: frames.reduce(0) { $0 + $1.samples.count },
-                rejected: false
-            )
             for frame in frames {
                 processDecodedFrame(frame, rawData: data, at: now)
             }
-        }
-    }
-
-    private func completeFramesFromAudioBytes(
-        dataCount: Int,
-        bufferedBytesBeforeDecode: Int
-    ) -> Int {
-        guard let capabilities = protocolHandler.capabilities,
-              capabilities.frameSize > 0 else { return 0 }
-        switch capabilities.version {
-        case .v04:
-            return max(0, dataCount) / capabilities.frameSize
-        case .v10:
-            return max(0, bufferedBytesBeforeDecode + dataCount) / capabilities.frameSize
         }
     }
 
@@ -1630,13 +1298,6 @@ extension BLEBridge: CBPeripheralDelegate {
         rawData: Data,
         at now: Date
     ) {
-        let processStartedAt = ProcessInfo.processInfo.systemUptime
-        defer {
-            recordProcessingDuration(
-                .processDecodedFrame,
-                startedAt: processStartedAt
-            )
-        }
         guard !frame.samples.isEmpty else {
             streamZeroSampleDecodeCount += 1
             return
@@ -1676,7 +1337,6 @@ extension BLEBridge: CBPeripheralDelegate {
         }
         streamFrameCount += 1
         streamSampleCount += frame.samples.count
-        _ = healthWindow.recordDecodedSamples(frame.samples.count)
         streamPeak = max(
             streamPeak,
             frame.samples.map { Int(abs(Int($0))) }.max() ?? 0
@@ -1698,12 +1358,7 @@ extension BLEBridge: CBPeripheralDelegate {
         wavRecorder?.appendSamples(frame.samples)
 
         // Queue the decoded frame before opening the external voice dialog.
-        let audioPipeFeedStartedAt = ProcessInfo.processInfo.systemUptime
         AudioPipe.shared.feed(samples: frame.samples)
-        recordProcessingDuration(
-            .audioPipeFeed,
-            startedAt: audioPipeFeedStartedAt
-        )
         onAudioFrame?()
         let needsLevel = onLevel != nil || Self.diagnosticsEnabled
         if needsLevel {
@@ -1734,21 +1389,10 @@ extension BLEBridge: CBPeripheralDelegate {
     }
 
     private func finishAudioStopAfterDrain() {
-        stopLongDurationSnapshotTimer()
-        stopAudioHealthWindow()
         audioStopDrainWorkItem = nil
         guard isStreaming else { return }
 
         drainFinishedAt = Date()
-        emitIsolationWindow(closing: true)
-        stopMainQueueHeartbeat()
-        emitProcessingSummary(
-            windowMilliseconds: max(
-                0,
-                ProcessInfo.processInfo.systemUptime - streamStartedUptime
-            ) * 1_000,
-            total: true
-        )
         let timing = AudioDeliveryTiming.measure(
             streamStartedAt: streamStartedAt.timeIntervalSinceReferenceDate,
             audioStopReceivedAt: audioStopReceivedAt?.timeIntervalSinceReferenceDate,
