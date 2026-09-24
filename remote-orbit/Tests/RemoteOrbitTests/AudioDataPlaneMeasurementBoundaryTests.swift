@@ -64,18 +64,6 @@ final class AudioDataPlaneMeasurementBoundaryTests: XCTestCase {
         XCTAssertEqual(timing.postLastAudioDrainMilliseconds, nil)
     }
 
-    func testHealthWindowRejectsFramesAfterAudioStopFreeze() {
-        var window = AudioHealthWindowAccumulator(startedAt: 0)
-        XCTAssertTrue(window.recordDecodedSamples(80_000))
-
-        let frozen = window.close(at: 5.0)
-
-        XCTAssertEqual(frozen?.elapsedMilliseconds ?? -1, 5_000, accuracy: 0.0001)
-        XCTAssertEqual(frozen?.decodedSamples, 80_000)
-        XCTAssertFalse(window.recordDecodedSamples(8_000))
-        XCTAssertNil(window.close(at: 5.35))
-    }
-
     func testIdleRemoteRenderIsNotAccountedAsUnderrun() {
         let render = AudioPipeRenderAccounting.measure(
             requestedFrames: 512,

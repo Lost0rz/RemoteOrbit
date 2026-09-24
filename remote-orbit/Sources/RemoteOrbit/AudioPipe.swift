@@ -142,6 +142,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         let counters = resettingWindow ? diagnosticsWindow : diagnosticsCumulative
         let snapshot = counters.snapshot(
             currentQueueDepthFrames: currentDepth,
+            audioQueueDepthFrames: totalDepth,
+            pendingRemoteFrames: pendingRemoteOutputFrames,
             sampleRate: Self.outputSampleRate,
             lastRemoteSubmittedMonotonicNanoseconds:
                 lastRemoteSubmittedMonotonicNanoseconds,
@@ -215,6 +217,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         stateLock.unlock()
 
         if drained {
+            VoiceTimingLogger.recordQueueEmpty(
+                timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
+            )
             DispatchQueue.main.async(execute: completion)
         }
     }
@@ -640,6 +645,10 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         if expectedRemoteMode {
             scheduledRemoteBuffers += 1
             pendingRemoteOutputFrames += resampled.count
+            if remoteDiagnosticsActive {
+                diagnosticsCumulative.recordSubmittedRemoteFrames(resampled.count)
+                diagnosticsWindow.recordSubmittedRemoteFrames(resampled.count)
+            }
             let submissionTimestamp = P1A4MonotonicClock.nowNanoseconds()
             lastRemoteSubmittedMonotonicNanoseconds = submissionTimestamp
             if VoiceTimingLogger.p1A5Enabled {
@@ -782,6 +791,10 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             renderedFrames += take
             let renderedRemoteFrames = min(take, pendingRemoteOutputFrames)
             pendingRemoteOutputFrames -= renderedRemoteFrames
+            if remoteDiagnosticsActive, renderedRemoteFrames > 0 {
+                diagnosticsCumulative.recordRenderedRemoteFrames(renderedRemoteFrames)
+                diagnosticsWindow.recordRenderedRemoteFrames(renderedRemoteFrames)
+            }
             renderedPeak = max(
                 renderedPeak,
                 pendingOutput[start..<end].reduce(0) { max($0, abs($1)) }
@@ -818,6 +831,11 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             remoteActive: remoteActive,
             queuedFrames: remaining
         ) {
+            if remoteOutputDrainWaiter != nil {
+                VoiceTimingLogger.recordQueueEmpty(
+                    timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
+                )
+            }
             drainCompletion = remoteOutputDrainWaiter
             remoteOutputDrainWaiter = nil
         }

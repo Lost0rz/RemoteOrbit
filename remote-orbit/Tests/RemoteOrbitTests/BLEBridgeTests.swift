@@ -120,6 +120,31 @@ final class BLEBridgeTests: XCTestCase {
         XCTAssertFalse(state.shouldRequestMicOpen)
     }
 
+    func testPostReleaseGraceKeepsVoiceIntentUntilActualClose() {
+        var state = BLEVoiceTransportState()
+        state.prepareTransport()
+        state.requestVoiceInput()
+        state.atvvReady = true
+        state.micOpenRequested = true
+
+        XCTAssertTrue(state.deferVoiceInputCloseForPostReleaseGrace())
+        XCTAssertTrue(state.voiceInputRequested)
+        XCTAssertTrue(state.micOpenRequested)
+
+        state.commitVoiceInputClose()
+
+        XCTAssertFalse(state.voiceInputRequested)
+        XCTAssertFalse(state.micOpenRequested)
+    }
+
+    func testPostReleaseGraceCannotBeginWithoutVoiceIntent() {
+        let state = BLEVoiceTransportState()
+
+        XCTAssertFalse(state.deferVoiceInputCloseForPostReleaseGrace())
+        XCTAssertFalse(state.voiceInputRequested)
+        XCTAssertFalse(state.micOpenRequested)
+    }
+
     func testLateAudioStartDuringDrainIsIgnoredAndPreservesDrainInputs() {
         let decision = BLEBridge.audioStartDisposition(
             drainPending: true,

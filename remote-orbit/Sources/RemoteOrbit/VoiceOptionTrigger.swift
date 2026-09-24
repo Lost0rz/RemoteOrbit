@@ -8,6 +8,8 @@ enum VoiceTimingLogger {
     private static var startedAt: TimeInterval = 0
     private static var timeline: [String: UInt64] = [:]
     private static var frontEdgeUnderrunStats = P1A5FrontEdgeUnderrunStats()
+    private static var lastEndedSessionID: UUID?
+    private static var lastEndedStartedAt: TimeInterval = 0
 
     static var p1A5Enabled: Bool {
         ProcessInfo.processInfo.environment["REMOTE_ORBIT_P1A5_FRONT_EDGE"] == "1"
@@ -25,6 +27,8 @@ enum VoiceTimingLogger {
         startedAt = ProcessInfo.processInfo.systemUptime
         timeline = [:]
         frontEdgeUnderrunStats = P1A5FrontEdgeUnderrunStats()
+        lastEndedSessionID = nil
+        lastEndedStartedAt = 0
         lock.unlock()
         let timestamp = P1A4MonotonicClock.nowNanoseconds()
         record("T0_voice_trigger_down", timestampNanoseconds: timestamp)
@@ -111,6 +115,29 @@ enum VoiceTimingLogger {
         )
     }
 
+    static func timelineEventName(for event: String) -> String? {
+        switch event {
+        case "STOP_REQUESTED": return "T5_stop_requested"
+        case "PHYSICAL_UP": return "T5_physical_up"
+        case "AUDIO_STOP": return "T5_audio_stop_received"
+        case "AUDIO_DRAIN_BEGIN", "OUTPUT_DRAIN_BEGIN":
+            return "T6_audio_drain_begin"
+        case "QUEUE_EMPTY": return "T6_queue_empty"
+        case "DRAIN_FINISH": return "T7_audio_drain_end"
+        case "AUDIO_PIPELINE_CLOSED": return "T8_audio_pipeline_closed"
+        case "OPTION_UP_REQUESTED": return "T9_option_up_requested"
+        case "OPTION_UP_EMITTED": return "T10_option_up_emitted"
+        default: return nil
+        }
+    }
+
+    static func recordQueueEmpty(timestampNanoseconds: UInt64) {
+        recordIfAbsent(
+            "T6_queue_empty",
+            timestampNanoseconds: timestampNanoseconds
+        )
+    }
+
     static func mark(_ event: String, sessionID: UUID? = nil) {
         lock.lock()
         guard let activeSessionID,
@@ -123,17 +150,38 @@ enum VoiceTimingLogger {
         let sessionUUID = activeSessionID.uuidString
         lock.unlock()
         let nowNanoseconds = P1A4MonotonicClock.nowNanoseconds()
-        let timelineEvent: String?
-        switch event {
-        case "STOP_REQUESTED": timelineEvent = "T5_stop_requested"
-        case "AUDIO_DRAIN_BEGIN": timelineEvent = "T6_audio_drain_begin"
-        case "DRAIN_FINISH": timelineEvent = "T7_audio_drain_end"
-        case "AUDIO_PIPELINE_CLOSED": timelineEvent = "T8_audio_pipeline_closed"
-        default: timelineEvent = nil
-        }
-        if let timelineEvent {
+        if let timelineEvent = timelineEventName(for: event) {
             record(timelineEvent, timestampNanoseconds: nowNanoseconds)
         }
+        print(
+            "[VOICE][\(shortID)][TIMING] \(event) "
+                + String(format: "+%.1fms", elapsedMS)
+                + " monotonic_ns=\(nowNanoseconds)"
+                + " session_id=\(sessionUUID)"
+                + " wall_clock=\(P1A4MonotonicClock.wallClockISO8601())"
+        )
+    }
+
+    /// A transport close can legitimately occur after Option-Up has completed
+    /// the gesture and ended the normal voice timeline. Keep that close
+    /// observable without reopening or extending the gesture state machine.
+    static func markForSession(_ event: String, sessionID: UUID) {
+        lock.lock()
+        if activeSessionID == sessionID {
+            lock.unlock()
+            mark(event, sessionID: sessionID)
+            return
+        }
+        guard activeSessionID == nil,
+              lastEndedSessionID == sessionID else {
+            lock.unlock()
+            return
+        }
+        let elapsedMS = (ProcessInfo.processInfo.systemUptime - lastEndedStartedAt) * 1_000
+        let shortID = String(sessionID.uuidString.prefix(4))
+        let sessionUUID = sessionID.uuidString
+        lock.unlock()
+        let nowNanoseconds = P1A4MonotonicClock.nowNanoseconds()
         print(
             "[VOICE][\(shortID)][TIMING] \(event) "
                 + String(format: "+%.1fms", elapsedMS)
@@ -146,6 +194,8 @@ enum VoiceTimingLogger {
     static func end(sessionID: UUID) {
         lock.lock()
         if activeSessionID == sessionID {
+            lastEndedSessionID = sessionID
+            lastEndedStartedAt = startedAt
             activeSessionID = nil
         }
         let snapshot = timeline
@@ -160,9 +210,14 @@ enum VoiceTimingLogger {
             "T4_last_playout_frame_submitted",
             "T4R_last_playout_frame_rendered",
             "T5_stop_requested",
+            "T5_physical_up",
+            "T5_audio_stop_received",
             "T6_audio_drain_begin",
+            "T6_queue_empty",
             "T7_audio_drain_end",
-            "T8_audio_pipeline_closed"
+            "T8_audio_pipeline_closed",
+            "T9_option_up_requested",
+            "T10_option_up_emitted"
         ]
         let values = orderedEvents.map { event in
             "\(event)=\(snapshot[event].map(String.init) ?? "NA")"
@@ -337,8 +392,9 @@ final class VoiceOptionTrigger {
     func sendUp(sessionID: UUID) -> Bool {
         guard activeSessionID == sessionID, isOptionDown else { return false }
         isOptionDown = false
-        activeSessionID = nil
         eventSink(false)
+        VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
+        activeSessionID = nil
         return true
     }
 
@@ -347,10 +403,11 @@ final class VoiceOptionTrigger {
         guard activeSessionID == sessionID else { return false }
         let wasDown = isOptionDown
         isOptionDown = false
-        activeSessionID = nil
         if wasDown {
             eventSink(false)
+            VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
         }
+        activeSessionID = nil
         return wasDown
     }
 

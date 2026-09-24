@@ -575,6 +575,7 @@ final class VoicePressCoordinator {
             let releasedSessionID = gestureID
             if let releasedSessionID {
                 physicalUpSessionID = releasedSessionID
+                VoiceTimingLogger.mark("PHYSICAL_UP", sessionID: releasedSessionID)
                 if usesHardwareOptionPath {
                     onHardwareOptionGatePhysicalUp?(releasedSessionID)
                 }
@@ -870,8 +871,8 @@ final class VoicePressCoordinator {
                   self.gestureID == sessionID,
                   self.longInputStarted else { return }
             self.remoteOutputDrainedSessionID = sessionID
-            self.completeLongInputIfReady(sessionID: sessionID)
             VoiceTimingLogger.mark("AUDIO_PIPELINE_CLOSED", sessionID: sessionID)
+            self.completeLongInputIfReady(sessionID: sessionID)
         }
         if let onRemoteOutputDrain {
             onRemoteOutputDrain(sessionID, completion)
@@ -891,6 +892,7 @@ final class VoicePressCoordinator {
         tailWorkItem?.cancel()
         tailWorkItem = nil
         tailSessionID = nil
+        VoiceTimingLogger.mark("OPTION_UP_REQUESTED", sessionID: sessionID)
         if usesHardwareOptionPath {
             onHardwareOptionGateOutputDrained?(sessionID)
             print("[PRESS] LONG end → Option UP after output drain")
@@ -1144,6 +1146,7 @@ final class VoiceKeyFilter {
         } else {
             events.forEach { $0.post(tap: .cghidEventTap) }
         }
+        VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: gestureID)
         print(
             "[VOICE] hardware Option-up released gesture=\(gestureID.uuidString) "
                 + "reason=\(reason)"
@@ -1159,6 +1162,7 @@ final class VoiceKeyFilter {
         } else {
             events.forEach { $0.post(tap: .cghidEventTap) }
         }
+        VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: gestureID)
         print(
             "[VOICE] hardware Option-up emergency release gesture="
                 + "\(gestureID.uuidString) reason=\(reason)"
