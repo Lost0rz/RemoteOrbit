@@ -861,6 +861,8 @@ final class VoicePressCoordinator {
         // drain. `setRemoteActive(false)` keeps already queued PCM alive.
         AudioPipe.shared.endRemoteCandidate()
         _ = setRemoteRouted(false)
+        VoiceTimingLogger.mark("STOP_REQUESTED", sessionID: sessionID)
+        VoiceTimingLogger.mark("OUTPUT_DRAIN_BEGIN", sessionID: sessionID)
         remoteOutputDrainRequestedSessionID = sessionID
 
         let completion = { [weak self] in
@@ -869,6 +871,7 @@ final class VoicePressCoordinator {
                   self.longInputStarted else { return }
             self.remoteOutputDrainedSessionID = sessionID
             self.completeLongInputIfReady(sessionID: sessionID)
+            VoiceTimingLogger.mark("AUDIO_PIPELINE_CLOSED", sessionID: sessionID)
         }
         if let onRemoteOutputDrain {
             onRemoteOutputDrain(sessionID, completion)
@@ -1676,6 +1679,24 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         AppStorage.prepare()
+        if ProcessInfo.processInfo.environment["REMOTE_ORBIT_DIAGNOSTICS"] == "1" {
+            let sourceHead = Bundle.main.object(
+                forInfoDictionaryKey: "RemoteOrbitDiagnosticSourceHead"
+            ) as? String ?? "UNSTAMPED"
+            let receiverFinalizationInstrumentation =
+                ProcessInfo.processInfo.environment["REMOTE_ORBIT_P1A4_RECEIVER_FINALIZATION"] == "1"
+            let frontEdgeInstrumentation =
+                ProcessInfo.processInfo.environment["REMOTE_ORBIT_P1A5_FRONT_EDGE"] == "1"
+            let instrumentation = frontEdgeInstrumentation
+                ? "p1-a5-front-edge"
+                : receiverFinalizationInstrumentation
+                ? "p1-a4-receiver-finalization"
+                : "p0"
+            print(
+                "[AUDIO-PATH] DIAGNOSTIC_BUILD "
+                    + "head=\(sourceHead) instrumentation=\(instrumentation)"
+            )
+        }
         let appVersion = Bundle.main.object(
             forInfoDictionaryKey: "CFBundleShortVersionString"
         ) as? String ?? "development"

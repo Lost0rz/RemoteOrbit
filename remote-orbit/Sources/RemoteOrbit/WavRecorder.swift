@@ -109,6 +109,14 @@ final class WavRecorder {
     /// Convenience: returns the generated WAV basename.
     var filename: String { "\(basename).wav" }
 
+    var wavPath: String { wavURL.path }
+
+    var totalSamples: UInt64 {
+        ioQueue.sync { totalFrames }
+    }
+
+    var recordedSampleRate: UInt32 { sampleRate }
+
     private static func makeHeader(
         sampleRate: UInt32, channels: UInt16, bitsPerSample: UInt16, dataBytes: UInt32
     ) -> Data {

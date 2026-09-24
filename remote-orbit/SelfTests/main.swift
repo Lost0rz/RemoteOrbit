@@ -18,7 +18,7 @@ do {
         )
     )
 
-    let packet = Data([0x12, 0x34, 0xAB, 0xCD, 0x56, 0x78])
+    let packet = Data(repeating: 0x12, count: 120)
     protocolHandler.beginAudioStream(codec: .adpcm16k)
     let first = protocolHandler.decodeAudio(packet)
     require(first != nil, "first stream did not decode")
@@ -43,7 +43,7 @@ do {
         stepIndex: 20
     )
     protocolHandler.beginAudioStream(codec: .adpcm16k)
-    let synced = protocolHandler.decodeAudio(Data([0x12, 0x34]))
+    let synced = protocolHandler.decodeAudio(Data(repeating: 0x12, count: 120))
     require(synced?.sequence == 42, "AUDIO_START erased AUDIO_SYNC sequence")
     require(
         synced?.samples.first != first?.samples.first,
@@ -58,7 +58,7 @@ do {
         predictor: -2_000,
         stepIndex: 30
     )
-    _ = protocolHandler.decodeAudio(Data([0x77, 0x77]))
+    _ = protocolHandler.decodeAudio(Data(repeating: 0x77, count: 120))
     protocolHandler.endAudioStream()
     protocolHandler.beginAudioStream(codec: .adpcm16k)
     let afterActiveSync = protocolHandler.decodeAudio(packet)

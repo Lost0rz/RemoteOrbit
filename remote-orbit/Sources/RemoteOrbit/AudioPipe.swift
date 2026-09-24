@@ -57,7 +57,14 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var renderCallbackCount = 0
     private var renderedFrames = 0
     private var renderedPeak: Float = 0
+    private var diagnosticsCumulative = AudioPipeDiagnosticsCounters()
+    private var diagnosticsWindow = AudioPipeDiagnosticsCounters()
     private var diagnosticsTimer: Timer?
+    private var remoteDiagnosticsActive = false
+    private var remoteDiagnosticsSawActiveRoute = false
+    private var lastRemoteSubmittedMonotonicNanoseconds: UInt64?
+    private var lastRemoteRenderedMonotonicNanoseconds: UInt64?
+    private var p1A5StableRenderIntervals = 0
 
     private override init() {
         super.init()
@@ -100,6 +107,52 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         stateLock.lock()
         defer { stateLock.unlock() }
         return max(0, pendingOutput.count - pendingOutputIndex)
+    }
+
+    func beginRemoteAudioDiagnostics() {
+        stateLock.lock()
+        let totalDepth = max(0, pendingOutput.count - pendingOutputIndex)
+        let currentDepth = AudioRemoteQueueAttribution.remoteQueueDepth(
+            totalQueueFrames: totalDepth,
+            pendingRemoteFrames: pendingRemoteOutputFrames
+        )
+        remoteDiagnosticsActive = true
+        remoteDiagnosticsSawActiveRoute = remoteActive
+        diagnosticsCumulative.reset(currentQueueDepthFrames: currentDepth)
+        diagnosticsWindow.reset(currentQueueDepthFrames: currentDepth)
+        stateLock.unlock()
+    }
+
+    func endRemoteAudioDiagnostics() {
+        stateLock.lock()
+        remoteDiagnosticsActive = false
+        remoteDiagnosticsSawActiveRoute = false
+        stateLock.unlock()
+    }
+
+    func takeAudioDiagnosticsSnapshot(
+        resettingWindow: Bool = false
+    ) -> AudioPipeDiagnosticsSnapshot {
+        stateLock.lock()
+        let totalDepth = max(0, pendingOutput.count - pendingOutputIndex)
+        let currentDepth = AudioRemoteQueueAttribution.remoteQueueDepth(
+            totalQueueFrames: totalDepth,
+            pendingRemoteFrames: pendingRemoteOutputFrames
+        )
+        let counters = resettingWindow ? diagnosticsWindow : diagnosticsCumulative
+        let snapshot = counters.snapshot(
+            currentQueueDepthFrames: currentDepth,
+            sampleRate: Self.outputSampleRate,
+            lastRemoteSubmittedMonotonicNanoseconds:
+                lastRemoteSubmittedMonotonicNanoseconds,
+            lastRemoteRenderedMonotonicNanoseconds:
+                lastRemoteRenderedMonotonicNanoseconds
+        )
+        if resettingWindow {
+            diagnosticsWindow.reset(currentQueueDepthFrames: currentDepth)
+        }
+        stateLock.unlock()
+        return snapshot
     }
 
     func restartOutputDevice() {
@@ -200,6 +253,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         var prebuffer: [Int16] = []
         stateLock.lock()
         remoteActive = active
+        if active, remoteDiagnosticsActive {
+            remoteDiagnosticsSawActiveRoute = true
+        }
         if active {
             // A new voice session must never inherit a previous session's
             // samples. On deactivation, however, keep the already queued
@@ -208,6 +264,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             pendingOutput.removeAll(keepingCapacity: true)
             pendingOutputIndex = 0
             pendingRemoteOutputFrames = 0
+            lastRemoteSubmittedMonotonicNanoseconds = nil
+            lastRemoteRenderedMonotonicNanoseconds = nil
+            p1A5StableRenderIntervals = 0
             prebuffer = pendingRemotePrebuffer
             pendingRemotePrebuffer.removeAll(keepingCapacity: true)
         } else {
@@ -574,11 +633,27 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             stateLock.unlock()
             return
         }
-        compactOutputBufferIfNeeded()
+        compactOutputBufferIfNeeded(
+            recordRemoteDiagnostics: expectedRemoteMode
+        )
         pendingOutput.append(contentsOf: resampled)
         if expectedRemoteMode {
             scheduledRemoteBuffers += 1
             pendingRemoteOutputFrames += resampled.count
+            let submissionTimestamp = P1A4MonotonicClock.nowNanoseconds()
+            lastRemoteSubmittedMonotonicNanoseconds = submissionTimestamp
+            if VoiceTimingLogger.p1A5Enabled {
+                VoiceTimingLogger.recordIfAbsent(
+                    "F4_first_pcm_submitted",
+                    timestampNanoseconds: submissionTimestamp
+                )
+                if VoiceTimingLogger.hasEvent("F6_first_voiced_pcm_decoded") {
+                    VoiceTimingLogger.recordIfAbsent(
+                        "F7_first_voiced_pcm_submitted",
+                        timestampNanoseconds: submissionTimestamp
+                    )
+                }
+            }
         } else {
             scheduledMacBuffers += 1
         }
@@ -586,6 +661,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             scheduledPeak,
             resampled.reduce(0) { max($0, abs($1)) }
         )
+        recordQueueDepthLocked(pendingRemoteOutputFrames)
         stateLock.unlock()
     }
 
@@ -655,9 +731,48 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         var mono = [Float](repeating: 0, count: frameCount)
         var drainCompletion: (() -> Void)?
         stateLock.lock()
-        let available = pendingOutput.count - pendingOutputIndex
-        if available > 0 {
-            let take = min(frameCount, available)
+        let available = max(0, pendingOutput.count - pendingOutputIndex)
+        let availableRemoteFrames = AudioRemoteQueueAttribution.remoteQueueDepth(
+            totalQueueFrames: available,
+            pendingRemoteFrames: pendingRemoteOutputFrames
+        )
+        let renderAccounting = AudioPipeRenderAccounting.measure(
+            requestedFrames: frameCount,
+            availableRemoteFrames: availableRemoteFrames,
+            pendingRemoteFrames: pendingRemoteOutputFrames,
+            remoteActive: remoteActive,
+            remoteWasActive: remoteDiagnosticsSawActiveRoute,
+            localMicrophoneActive: localMicrophoneCaptureRequested
+        )
+        let recordRemoteCompaction = AudioRemoteQueueAttribution
+            .shouldRecordCompaction(
+                remoteActive: remoteActive,
+                pendingRemoteFrames: pendingRemoteOutputFrames
+            )
+        let fill = AudioRenderFillAccounting.measure(
+            requestedFrames: frameCount,
+            availableFrames: available
+        )
+        var frontEdgeUnderrun: (timestamp: UInt64, before: Int, after: Int)?
+        var reachedPlayoutStableTimestamp: UInt64?
+        if fill.filledFrames > 0 {
+            if remoteDiagnosticsSawActiveRoute {
+                let renderTimestamp = P1A4MonotonicClock.nowNanoseconds()
+                lastRemoteRenderedMonotonicNanoseconds = renderTimestamp
+                if VoiceTimingLogger.p1A5Enabled {
+                    VoiceTimingLogger.recordIfAbsent(
+                        "F5_first_pcm_rendered",
+                        timestampNanoseconds: renderTimestamp
+                    )
+                    if VoiceTimingLogger.hasEvent("F6_first_voiced_pcm_decoded") {
+                        VoiceTimingLogger.recordIfAbsent(
+                            "F8_first_voiced_pcm_rendered",
+                            timestampNanoseconds: renderTimestamp
+                        )
+                    }
+                }
+            }
+            let take = fill.filledFrames
             let start = pendingOutputIndex
             let end = start + take
             mono.replaceSubrange(
@@ -672,9 +787,33 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 pendingOutput[start..<end].reduce(0) { max($0, abs($1)) }
             )
             pendingOutputIndex = end
-            compactOutputBufferIfNeeded()
+            compactOutputBufferIfNeeded(
+                recordRemoteDiagnostics: recordRemoteCompaction
+            )
         }
-        let remaining = pendingOutput.count - pendingOutputIndex
+        let remaining = max(0, pendingOutput.count - pendingOutputIndex)
+        let queuedRemoteFramesAfter = AudioRemoteQueueAttribution.remoteQueueDepth(
+            totalQueueFrames: remaining,
+            pendingRemoteFrames: pendingRemoteOutputFrames
+        )
+        if VoiceTimingLogger.p1A5Enabled,
+           remoteActive,
+           remoteDiagnosticsActive {
+            if renderAccounting.activeUnderrunFrames > 0 {
+                p1A5StableRenderIntervals = 0
+                frontEdgeUnderrun = (
+                    P1A4MonotonicClock.nowNanoseconds(),
+                    availableRemoteFrames,
+                    queuedRemoteFramesAfter
+                )
+            } else if VoiceTimingLogger.hasEvent("F8_first_voiced_pcm_rendered") {
+                p1A5StableRenderIntervals += 1
+                if p1A5StableRenderIntervals >= 3 {
+                    reachedPlayoutStableTimestamp =
+                        P1A4MonotonicClock.nowNanoseconds()
+                }
+            }
+        }
         if Self.isOutputDrained(
             remoteActive: remoteActive,
             queuedFrames: remaining
@@ -682,9 +821,28 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             drainCompletion = remoteOutputDrainWaiter
             remoteOutputDrainWaiter = nil
         }
+        if remoteDiagnosticsActive {
+            diagnosticsCumulative.recordRender(renderAccounting)
+            diagnosticsWindow.recordRender(renderAccounting)
+            recordQueueDepthLocked(pendingRemoteOutputFrames)
+        }
         renderCallbackCount += 1
         stateLock.unlock()
 
+        if let frontEdgeUnderrun {
+            VoiceTimingLogger.recordFrontEdgeUnderrun(
+                timestampNanoseconds: frontEdgeUnderrun.timestamp,
+                durationMilliseconds: Double(frameCount) / Self.outputSampleRate * 1_000,
+                queuedFramesBefore: frontEdgeUnderrun.before,
+                queuedFramesAfter: frontEdgeUnderrun.after
+            )
+        }
+        if let reachedPlayoutStableTimestamp {
+            VoiceTimingLogger.recordIfAbsent(
+                "F9_playout_stable",
+                timestampNanoseconds: reachedPlayoutStableTimestamp
+            )
+        }
         if let drainCompletion {
             DispatchQueue.main.async(execute: drainCompletion)
         }
@@ -707,23 +865,51 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         }
     }
 
-    private func compactOutputBufferIfNeeded() {
+    private func compactOutputBufferIfNeeded(recordRemoteDiagnostics: Bool) {
         if pendingOutputIndex > 4_096 {
             pendingOutput.removeFirst(pendingOutputIndex)
             pendingOutputIndex = 0
+            if remoteDiagnosticsActive, recordRemoteDiagnostics {
+                diagnosticsCumulative.recordCompaction()
+                diagnosticsWindow.recordCompaction()
+            }
         }
         let maximumQueuedFrames = Int(Self.outputSampleRate * 2)
-        let available = pendingOutput.count - pendingOutputIndex
-        if available > maximumQueuedFrames {
-            let dropped = available - maximumQueuedFrames
-            pendingOutputIndex += dropped
+        let available = max(0, pendingOutput.count - pendingOutputIndex)
+        let overflow = AudioQueueOverflowAccounting.measure(
+            availableBefore: available,
+            maximumQueuedFrames: maximumQueuedFrames,
+            sampleRate: Int(Self.outputSampleRate)
+        )
+        if overflow.droppedFrames > 0 {
+            let remoteDroppedFrames = AudioRemoteQueueAttribution.remoteDroppedFrames(
+                totalDroppedFrames: overflow.droppedFrames,
+                pendingRemoteFrames: pendingRemoteOutputFrames,
+                sourceIsRemote: recordRemoteDiagnostics
+            )
+            pendingOutputIndex += overflow.droppedFrames
             pendingRemoteOutputFrames = max(
                 0,
-                pendingRemoteOutputFrames - dropped
+                pendingRemoteOutputFrames - overflow.droppedFrames
             )
+            if remoteDiagnosticsActive, remoteDroppedFrames > 0 {
+                diagnosticsCumulative.recordOverflow(remoteDroppedFrames)
+                diagnosticsWindow.recordOverflow(remoteDroppedFrames)
+            }
         }
+        recordQueueDepthLocked(pendingRemoteOutputFrames)
     }
 
+    private func recordQueueDepthLocked(_ pendingRemoteFrames: Int) {
+        guard remoteDiagnosticsActive else { return }
+        let totalQueueFrames = max(0, pendingOutput.count - pendingOutputIndex)
+        let remoteQueueDepth = AudioRemoteQueueAttribution.remoteQueueDepth(
+            totalQueueFrames: totalQueueFrames,
+            pendingRemoteFrames: pendingRemoteFrames
+        )
+        diagnosticsCumulative.recordQueueDepth(remoteQueueDepth)
+        diagnosticsWindow.recordQueueDepth(remoteQueueDepth)
+    }
     private static func findOutputDevice() -> (id: AudioDeviceID, name: String)? {
         var propertySize: UInt32 = 0
         var address = AudioObjectPropertyAddress(
