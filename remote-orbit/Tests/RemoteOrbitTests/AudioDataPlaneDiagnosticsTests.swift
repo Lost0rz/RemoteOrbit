@@ -27,6 +27,10 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
             VoiceTimingLogger.timelineEventName(for: "OPTION_UP_EMITTED"),
             "T10_option_up_emitted"
         )
+        XCTAssertEqual(
+            VoiceTimingLogger.timelineEventName(for: "PHYSICAL_UP"),
+            "T5_physical_up"
+        )
         XCTAssertNil(VoiceTimingLogger.timelineEventName(for: "unknown"))
     }
 

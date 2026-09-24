@@ -113,6 +113,23 @@ final class ATVVKeepAliveTelemetryTests: XCTestCase {
         XCTAssertTrue(line.contains("milliseconds_since_last_keepalive=4047.5"))
     }
 
+    func testPostReleaseGraceTelemetryIncludesSessionConfigurationElapsedAndReason() {
+        let line = ATVVKeepAliveTelemetry.postReleaseGraceLine(
+            event: "POST_RELEASE_GRACE_STARTED",
+            sessionID: "session-1",
+            configuredGraceMilliseconds: 1_000,
+            elapsedMilliseconds: 12_345.6,
+            reason: "physical_release"
+        )
+
+        XCTAssertEqual(
+            line,
+            "[AUDIO-PATH] POST_RELEASE_GRACE_STARTED "
+                + "session_id=session-1 configured_grace_ms=1000 "
+                + "elapsed_ms_from_AUDIO_START=12345.6 reason=physical_release"
+        )
+    }
+
     func testSessionOriginUsesOnlyObservedHostMicOpenState() {
         XCTAssertEqual(
             ATVVKeepAliveTelemetry.sessionOrigin(

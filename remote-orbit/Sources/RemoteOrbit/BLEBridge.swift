@@ -54,6 +54,17 @@ struct BLEVoiceTransportState {
         pendingPreCaptureRequested = false
     }
 
+    /// Keep the active ATVV intent through physical release until the
+    /// post-release grace owner commits the actual remote close.
+    func deferVoiceInputCloseForPostReleaseGrace() -> Bool {
+        voiceInputRequested || micOpenRequested
+    }
+
+    mutating func commitVoiceInputClose() {
+        cancelVoiceInput()
+        micOpenRequested = false
+    }
+
     mutating func cancelTransportPreparation() {
         guard !voiceInputRequested else { return }
         pendingPreCaptureRequested = false
@@ -128,6 +139,8 @@ final class BLEBridge: NSObject {
     private var handshakeTimeoutWorkItem: DispatchWorkItem?
     private var stopAfterVoiceWorkItem: DispatchWorkItem?
     private var audioStopDrainWorkItem: DispatchWorkItem?
+    private lazy var postReleaseGrace = PostReleaseCaptureGraceController()
+    private var stopTransportAfterRemoteAudioStop = false
     private let reconnectDelays: [TimeInterval] = [1, 2, 4, 8, 15, 30]
     private let scanTimeout: TimeInterval = 8
     private let connectTimeout: TimeInterval = 12
@@ -187,6 +200,9 @@ final class BLEBridge: NSObject {
     override init() {
         super.init()
         central = CBCentralManager(delegate: self, queue: .main)
+        postReleaseGrace.onExpire = { [weak self] sessionID, generation in
+            self?.expirePostReleaseGrace(sessionID: sessionID, generation: generation)
+        }
     }
 
     static func audioStartDisposition(
@@ -218,6 +234,7 @@ final class BLEBridge: NSObject {
     }
 
     func stop() {
+        cancelPostReleaseGrace(reason: "transport_stop")
         transportState.isStarted = false
         transportState.transportPrepared = false
         transportState.pendingPreCaptureRequested = false
@@ -228,6 +245,7 @@ final class BLEBridge: NSObject {
         stopAfterVoiceWorkItem = nil
         audioStopDrainWorkItem?.cancel()
         audioStopDrainWorkItem = nil
+        stopTransportAfterRemoteAudioStop = false
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
         scanTimeoutWorkItem?.cancel()
@@ -254,6 +272,8 @@ final class BLEBridge: NSObject {
             }
             return
         }
+        cancelPostReleaseGrace(reason: "new_transport_session")
+        stopTransportAfterRemoteAudioStop = false
         prewarmVoiceInputActive = true
         transportState.requestPendingPreCapture()
         stopAfterVoiceWorkItem?.cancel()
@@ -271,6 +291,8 @@ final class BLEBridge: NSObject {
             }
             return
         }
+        cancelPostReleaseGrace(reason: "new_voice_session")
+        stopTransportAfterRemoteAudioStop = false
         prewarmVoiceInputActive = false
         transportState.requestVoiceInput()
         stopAfterVoiceWorkItem?.cancel()
@@ -297,6 +319,7 @@ final class BLEBridge: NSObject {
             }
             return
         }
+        cancelPostReleaseGrace(reason: "transport_preparation_cancelled")
         guard !transportState.voiceInputRequested,
               !transportState.micOpenRequested else { return }
         transportState.cancelTransportPreparation()
@@ -323,20 +346,116 @@ final class BLEBridge: NSObject {
             cancelVoiceTransportPreparation()
             return
         }
-        transportState.cancelVoiceInput()
-        if transportState.micOpenRequested, transportState.atvvReady {
+        guard transportState.deferVoiceInputCloseForPostReleaseGrace() else {
+            cancelVoiceTransportPreparation()
+            return
+        }
+        guard !postReleaseGrace.isWaiting else { return }
+
+        let sessionID = VoiceTimingLogger.currentSessionID?.uuidString ?? streamSessionID
+        if sessionID != "NA" {
+            streamSessionID = sessionID
+        }
+        _ = postReleaseGrace.start(sessionID: sessionID)
+        print(postReleaseGraceLine(
+            event: "POST_RELEASE_GRACE_STARTED",
+            sessionID: sessionID,
+            reason: "physical_release"
+        ))
+    }
+
+    private var postReleaseGraceMilliseconds: Int {
+        Int((postReleaseGrace.duration * 1_000).rounded())
+    }
+
+    private func postReleaseGraceLine(
+        event: String,
+        sessionID: String,
+        reason: String
+    ) -> String {
+        ATVVKeepAliveTelemetry.postReleaseGraceLine(
+            event: event,
+            sessionID: sessionID,
+            configuredGraceMilliseconds: postReleaseGraceMilliseconds,
+            elapsedMilliseconds: currentStreamElapsedMilliseconds(),
+            reason: reason
+        )
+    }
+
+    @discardableResult
+    private func cancelPostReleaseGrace(reason: String) -> Bool {
+        guard let sessionID = postReleaseGrace.currentSessionID,
+              postReleaseGrace.cancel(sessionID: sessionID) else {
+            return false
+        }
+        print(postReleaseGraceLine(
+            event: "POST_RELEASE_GRACE_CANCELLED",
+            sessionID: sessionID,
+            reason: reason
+        ))
+        return true
+    }
+
+    private func cancelPostReleaseGraceIfIncompatibleSession() {
+        guard let graceSessionID = postReleaseGrace.currentSessionID,
+              let currentSessionID = VoiceTimingLogger.currentSessionID?.uuidString,
+              graceSessionID != currentSessionID else {
+            return
+        }
+        _ = cancelPostReleaseGrace(reason: "new_incompatible_audio_session")
+    }
+
+    private func expirePostReleaseGrace(sessionID: String, generation: UInt64) {
+        _ = generation
+        let currentLoggerSessionID = VoiceTimingLogger.currentSessionID?.uuidString
+        guard sessionID == streamSessionID || sessionID == currentLoggerSessionID else {
+            print(postReleaseGraceLine(
+                event: "POST_RELEASE_GRACE_CANCELLED",
+                sessionID: sessionID,
+                reason: "stale_session"
+            ))
+            return
+        }
+
+        print(postReleaseGraceLine(
+            event: "POST_RELEASE_GRACE_EXPIRED",
+            sessionID: sessionID,
+            reason: "grace_elapsed"
+        ))
+        sendMicCloseAfterPostReleaseGrace(sessionID: sessionID)
+    }
+
+    private func sendMicCloseAfterPostReleaseGrace(sessionID: String) {
+        let currentLoggerSessionID = VoiceTimingLogger.currentSessionID?.uuidString
+        guard sessionID == streamSessionID || sessionID == currentLoggerSessionID else {
+            return
+        }
+
+        stopAfterVoiceWorkItem?.cancel()
+        stopAfterVoiceWorkItem = nil
+        let hadMicOpen = transportState.micOpenRequested
+        transportState.commitVoiceInputClose()
+        if hadMicOpen, transportState.atvvReady {
             do {
                 let command = try protocolHandler.micCloseCommand(streamID: streamID)
                 writeCommand(command)
                 print("[BLE] TX micClose")
-                VoiceTimingLogger.mark("MIC_CLOSE_TX")
+                if let sessionUUID = UUID(uuidString: sessionID) {
+                    VoiceTimingLogger.markForSession("MIC_CLOSE_TX", sessionID: sessionUUID)
+                } else {
+                    VoiceTimingLogger.mark("MIC_CLOSE_TX")
+                }
             } catch {
                 print("[BLE] micClose error: \(error.localizedDescription)")
             }
         }
+        scheduleTransportStopAfterVoiceClose(hadMicOpen: hadMicOpen)
+    }
+
+    private func scheduleTransportStopAfterVoiceClose(hadMicOpen: Bool) {
         let closeDelay = prewarmVoiceInputActive
             ? prewarmCloseDelay
-            : (transportState.micOpenRequested ? transportCloseDelay : prewarmCloseDelay)
+            : (hadMicOpen ? transportCloseDelay : prewarmCloseDelay)
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.stopAfterVoiceWorkItem = nil
@@ -538,6 +657,7 @@ final class BLEBridge: NSObject {
     }
 
     private func clearTransportState(notify: Bool) {
+        cancelPostReleaseGrace(reason: "transport_reset")
         connectTimeoutWorkItem?.cancel()
         connectTimeoutWorkItem = nil
         handshakeTimeoutWorkItem?.cancel()
@@ -564,6 +684,7 @@ final class BLEBridge: NSObject {
         discoveredATVVCharacteristics.removeAll()
         capabilitiesRequested = false
         transportState.micOpenRequested = false
+        stopTransportAfterRemoteAudioStop = false
         let wasReady = transportState.atvvReady
         transportState.atvvReady = false
         transportState.transportPrepared = false
@@ -1073,6 +1194,7 @@ extension BLEBridge: CBPeripheralDelegate {
                 pendingAudioStopReason: pendingAudioStopReason
             ) {
             case .accepted:
+                cancelPostReleaseGraceIfIncompatibleSession()
                 break
             case let .ignoredDuringDrain(currentStreamID, incomingStreamID, reason):
                 let reasonText = reason.map { String(format: "0x%02x", $0) } ?? "none"
@@ -1169,6 +1291,10 @@ extension BLEBridge: CBPeripheralDelegate {
                 lastKeepAliveElapsedMilliseconds: lastKeepAliveElapsedMilliseconds,
                 millisecondsSinceLastKeepAlive: sinceLastKeepAlive
             ))
+            if cancelPostReleaseGrace(reason: "remote_audio_stop") {
+                stopTransportAfterRemoteAudioStop = true
+                transportState.commitVoiceInputClose()
+            }
             stopKeepAliveTimer()
             emitLongDurationSnapshot()
             stopLongDurationSnapshotTimer()
@@ -1524,6 +1650,10 @@ extension BLEBridge: CBPeripheralDelegate {
         let reason = pendingAudioStopReason ?? 0
         pendingAudioStopReason = nil
         print("[BLE] AUDIO_STOP drained reason=0x\(String(format: "%02x", reason))")
+        if stopTransportAfterRemoteAudioStop {
+            stopTransportAfterRemoteAudioStop = false
+            scheduleTransportStopAfterVoiceClose(hadMicOpen: true)
+        }
     }
 
     private func formatMilliseconds(_ value: Double?) -> String {

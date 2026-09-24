@@ -575,6 +575,7 @@ final class VoicePressCoordinator {
             let releasedSessionID = gestureID
             if let releasedSessionID {
                 physicalUpSessionID = releasedSessionID
+                VoiceTimingLogger.mark("PHYSICAL_UP", sessionID: releasedSessionID)
                 if usesHardwareOptionPath {
                     onHardwareOptionGatePhysicalUp?(releasedSessionID)
                 }

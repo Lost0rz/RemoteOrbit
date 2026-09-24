@@ -103,6 +103,20 @@ enum ATVVKeepAliveTelemetry {
             + "milliseconds_since_last_keepalive=\(formatElapsed(millisecondsSinceLastKeepAlive))"
     }
 
+    static func postReleaseGraceLine(
+        event: String,
+        sessionID: String,
+        configuredGraceMilliseconds: Int,
+        elapsedMilliseconds: Double,
+        reason: String
+    ) -> String {
+        "[AUDIO-PATH] \(event) "
+            + "session_id=\(sessionID) "
+            + "configured_grace_ms=\(configuredGraceMilliseconds) "
+            + String(format: "elapsed_ms_from_AUDIO_START=%.1f ", elapsedMilliseconds)
+            + "reason=\(reason)"
+    }
+
     static func sessionOrigin(
         micOpenRequested: Bool,
         voiceInputRequested: Bool
