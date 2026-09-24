@@ -2,6 +2,40 @@ import XCTest
 @testable import RemoteOrbit
 
 final class AudioDataPlaneDiagnosticsTests: XCTestCase {
+    func testVoiceTimingLoggerMapsTailEventsToDistinctTimelineFields() {
+        XCTAssertEqual(
+            VoiceTimingLogger.timelineEventName(for: "AUDIO_STOP"),
+            "T5_audio_stop_received"
+        )
+        XCTAssertEqual(
+            VoiceTimingLogger.timelineEventName(for: "QUEUE_EMPTY"),
+            "T6_queue_empty"
+        )
+        XCTAssertEqual(
+            VoiceTimingLogger.timelineEventName(for: "DRAIN_FINISH"),
+            "T7_audio_drain_end"
+        )
+        XCTAssertEqual(
+            VoiceTimingLogger.timelineEventName(for: "AUDIO_PIPELINE_CLOSED"),
+            "T8_audio_pipeline_closed"
+        )
+        XCTAssertEqual(
+            VoiceTimingLogger.timelineEventName(for: "OPTION_UP_REQUESTED"),
+            "T9_option_up_requested"
+        )
+        XCTAssertEqual(
+            VoiceTimingLogger.timelineEventName(for: "OPTION_UP_EMITTED"),
+            "T10_option_up_emitted"
+        )
+        XCTAssertNil(VoiceTimingLogger.timelineEventName(for: "unknown"))
+    }
+
+    func testOutputDrainBoundaryOnlyClaimsAppQueueEmpty() {
+        XCTAssertTrue(AudioPipe.isOutputDrained(remoteActive: false, queuedFrames: 0))
+        XCTAssertFalse(AudioPipe.isOutputDrained(remoteActive: false, queuedFrames: 1))
+        XCTAssertFalse(AudioPipe.isOutputDrained(remoteActive: true, queuedFrames: 0))
+    }
+
     func testLongDurationSnapshotUsesOutputFrameUnitsAndReportsBacklog() {
         let snapshot = AudioSessionTelemetrySnapshot(
             sessionID: "session-1",

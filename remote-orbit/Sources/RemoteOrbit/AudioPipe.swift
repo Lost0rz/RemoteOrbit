@@ -217,6 +217,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         stateLock.unlock()
 
         if drained {
+            VoiceTimingLogger.recordQueueEmpty(
+                timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
+            )
             DispatchQueue.main.async(execute: completion)
         }
     }
@@ -828,6 +831,11 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             remoteActive: remoteActive,
             queuedFrames: remaining
         ) {
+            if remoteOutputDrainWaiter != nil {
+                VoiceTimingLogger.recordQueueEmpty(
+                    timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
+                )
+            }
             drainCompletion = remoteOutputDrainWaiter
             remoteOutputDrainWaiter = nil
         }
