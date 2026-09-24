@@ -158,6 +158,9 @@ final class BLEBridge: NSObject {
     private var streamStartedAt = Date.distantPast
     private var streamStartedUptime: TimeInterval = 0
     private var streamSessionID = "NA"
+    private var streamSessionOrigin: ATVVSessionOrigin = .unknown
+    private var keepAliveSequence = 0
+    private var lastKeepAliveElapsedMilliseconds: Double?
     private var firstAudioAt: Date?
     private var lastAudioAt: Date?
     private var audioStopReceivedAt: Date?
@@ -593,10 +596,14 @@ final class BLEBridge: NSObject {
         // control packets; using write-without-response avoids serializing the
         // mic-open path behind an unnecessary ATT acknowledgement while still
         // falling back safely on firmware that only exposes write-with-response.
-        let type: CBCharacteristicWriteType = c.properties.contains(.writeWithoutResponse)
+        let type = commandWriteType(for: c)
+        p.writeValue(data, for: c, type: type)
+    }
+
+    private func commandWriteType(for characteristic: CBCharacteristic) -> CBCharacteristicWriteType {
+        characteristic.properties.contains(.writeWithoutResponse)
             ? .withoutResponse
             : .withResponse
-        p.writeValue(data, for: c, type: type)
     }
 
     private func requestMicOpenIfReady() {
@@ -617,15 +624,73 @@ final class BLEBridge: NSObject {
     /// streaming to keep the device's audio stream open during long
     /// voice-key holds.
     private func sendKeepAlive() {
-        guard isStreaming, let s = protocolHandler.codec else { return }
+        keepAliveSequence += 1
+        let elapsedMilliseconds = currentStreamElapsedMilliseconds()
+        let protocolVersion = protocolHandler.capabilities?.version.description ?? "UNKNOWN"
+        let reasons = ATVVKeepAliveGuard.rejectionReasons(
+            isStreaming: isStreaming,
+            codecPresent: protocolHandler.codec != nil,
+            peripheralPresent: peripheral != nil,
+            commandCharacteristicPresent: commandChar != nil
+        )
+        if !reasons.isEmpty {
+            print(ATVVKeepAliveTelemetry.attemptLine(
+                sessionID: streamSessionID,
+                elapsedMilliseconds: elapsedMilliseconds,
+                sequence: keepAliveSequence,
+                protocolVersion: protocolVersion,
+                streamID: streamID,
+                command: nil,
+                peripheralPresent: peripheral != nil,
+                commandCharacteristicPresent: commandChar != nil,
+                writeType: .notAttempted,
+                canSendWriteWithoutResponse: peripheral?.canSendWriteWithoutResponse,
+                result: .guardRejected,
+                guardReasons: reasons
+            ))
+            return
+        }
+
+        guard let p = peripheral, let c = commandChar else { return }
         do {
             let cmd = try protocolHandler.keepAliveCommand(streamID: streamID)
-            writeCommand(cmd)
-            // Quiet log; user only needs levels to debug.
+            let writeType = commandWriteType(for: c)
+            let writeTypeTelemetry: ATVVKeepAliveWriteType = writeType == .withoutResponse
+                ? .withoutResponse
+                : .withResponse
+            print(ATVVKeepAliveTelemetry.attemptLine(
+                sessionID: streamSessionID,
+                elapsedMilliseconds: elapsedMilliseconds,
+                sequence: keepAliveSequence,
+                protocolVersion: protocolVersion,
+                streamID: streamID,
+                command: cmd,
+                peripheralPresent: true,
+                commandCharacteristicPresent: true,
+                writeType: writeTypeTelemetry,
+                canSendWriteWithoutResponse: p.canSendWriteWithoutResponse,
+                result: .writeAttempted,
+                guardReasons: []
+            ))
+            p.writeValue(cmd, for: c, type: writeType)
+            lastKeepAliveElapsedMilliseconds = elapsedMilliseconds
         } catch {
+            print(ATVVKeepAliveTelemetry.attemptLine(
+                sessionID: streamSessionID,
+                elapsedMilliseconds: elapsedMilliseconds,
+                sequence: keepAliveSequence,
+                protocolVersion: protocolVersion,
+                streamID: streamID,
+                command: nil,
+                peripheralPresent: true,
+                commandCharacteristicPresent: true,
+                writeType: .notAttempted,
+                canSendWriteWithoutResponse: p.canSendWriteWithoutResponse,
+                result: .commandBuildFailed,
+                guardReasons: []
+            ))
             print("[BLE] keep-alive error: \(error.localizedDescription)")
         }
-        _ = s
     }
 
     /// Start a periodic timer that keeps the ATVV voice stream alive while
@@ -637,12 +702,37 @@ final class BLEBridge: NSObject {
             withTimeInterval: 4.0,
             repeats: true
         ) { [weak self] _ in
-            self?.sendKeepAlive()
+            guard let self else { return }
+            print(ATVVKeepAliveTelemetry.timerLine(
+                event: "KEEPALIVE_TIMER_FIRED",
+                sessionID: self.streamSessionID,
+                elapsedMilliseconds: self.currentStreamElapsedMilliseconds(),
+                timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
+            ))
+            self.sendKeepAlive()
         }
+        print(ATVVKeepAliveTelemetry.timerLine(
+            event: "KEEPALIVE_TIMER_STARTED",
+            sessionID: streamSessionID,
+            elapsedMilliseconds: currentStreamElapsedMilliseconds(),
+            timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
+        ))
     }
     private func stopKeepAliveTimer() {
+        guard keepAliveTimer != nil else { return }
         keepAliveTimer?.invalidate()
         keepAliveTimer = nil
+        print(ATVVKeepAliveTelemetry.timerLine(
+            event: "KEEPALIVE_TIMER_STOPPED",
+            sessionID: streamSessionID,
+            elapsedMilliseconds: currentStreamElapsedMilliseconds(),
+            timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
+        ))
+    }
+
+    private func currentStreamElapsedMilliseconds() -> Double {
+        guard streamStartedUptime > 0 else { return 0 }
+        return max(0, ProcessInfo.processInfo.systemUptime - streamStartedUptime) * 1_000
     }
 
     private func startAudioHealthWindow() {
@@ -975,7 +1065,7 @@ extension BLEBridge: CBPeripheralDelegate {
             } catch {
                 print("[BLE] caps error: \(error.localizedDescription)")
             }
-        case .audioStart(_, let codec, let sid):
+        case .audioStart(let reason, let codec, let sid):
             switch Self.audioStartDisposition(
                 drainPending: audioStopDrainWorkItem != nil,
                 currentStreamID: streamID,
@@ -1029,6 +1119,12 @@ extension BLEBridge: CBPeripheralDelegate {
             streamStartedAt = Date()
             streamStartedUptime = ProcessInfo.processInfo.systemUptime
             streamSessionID = VoiceTimingLogger.currentSessionID?.uuidString ?? "NA"
+            streamSessionOrigin = ATVVKeepAliveTelemetry.sessionOrigin(
+                micOpenRequested: transportState.micOpenRequested,
+                voiceInputRequested: transportState.voiceInputRequested
+            )
+            keepAliveSequence = 0
+            lastKeepAliveElapsedMilliseconds = nil
             audioStopReceivedAt = nil
             drainFinishedAt = nil
             startAudioHealthWindow()
@@ -1042,7 +1138,13 @@ extension BLEBridge: CBPeripheralDelegate {
                 ? WavRecorder.createNext(prefix: "remote-orbit")
                 : nil
             startKeepAliveTimer()
-            print("[BLE] AUDIO_START streamID=\(sid)")
+            print(
+                "[BLE] AUDIO_START "
+                    + "protocol_version=\(protocolHandler.capabilities?.version.description ?? "UNKNOWN") "
+                    + "audio_start_reason=0x\(String(format: "%02x", reason)) "
+                    + "codec=\(codec) stream_id=\(sid) streamID=\(sid) "
+                    + "session_origin=\(streamSessionOrigin.rawValue)"
+            )
             VoiceTimingLogger.mark("AUDIO_START")
         case .audioStop(let reason):
             guard isStreaming else {
@@ -1055,6 +1157,18 @@ extension BLEBridge: CBPeripheralDelegate {
             }
             pendingAudioStopReason = reason
             audioStopReceivedAt = Date()
+            let elapsedMilliseconds = currentStreamElapsedMilliseconds()
+            let sinceLastKeepAlive = lastKeepAliveElapsedMilliseconds.map {
+                elapsedMilliseconds - $0
+            }
+            print(ATVVKeepAliveTelemetry.audioStopLine(
+                sessionID: streamSessionID,
+                elapsedMilliseconds: elapsedMilliseconds,
+                reason: reason,
+                voiceKeyStillHeld: transportState.voiceInputRequested,
+                lastKeepAliveElapsedMilliseconds: lastKeepAliveElapsedMilliseconds,
+                millisecondsSinceLastKeepAlive: sinceLastKeepAlive
+            ))
             stopKeepAliveTimer()
             emitLongDurationSnapshot()
             stopLongDurationSnapshotTimer()
