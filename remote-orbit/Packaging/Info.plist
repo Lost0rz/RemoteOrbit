@@ -21,9 +21,9 @@
     <key>CFBundleIconName</key>
     <string>RemoteOrbit</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.2.12</string>
+	<string>0.2.13</string>
     <key>CFBundleVersion</key>
-	<string>41</string>
+	<string>42</string>
     <key>RemoteOrbitDiagnosticSourceHead</key>
     <string>UNSTAMPED</string>
     <key>LSMinimumSystemVersion</key>
