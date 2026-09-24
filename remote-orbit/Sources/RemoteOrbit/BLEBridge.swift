@@ -167,6 +167,8 @@ final class BLEBridge: NSObject {
     private var streamNotificationTelemetry = BLENotificationTelemetry()
     private var streamDecodeRejectCount = 0
     private var streamZeroSampleDecodeCount = 0
+    private var hasRecordedFirstP1A4AudioPacket = false
+    private var p1A5VoiceOnsetDetector = P1A5VoiceOnsetDetector()
     private var windowMaxNotificationGapMilliseconds: Double = 0
     private var healthWindow = AudioHealthWindowAccumulator(startedAt: 0)
     private var healthWindowTimer: Timer?
@@ -966,7 +968,15 @@ extension BLEBridge: CBPeripheralDelegate {
             streamNotificationTelemetry.reset()
             streamDecodeRejectCount = 0
             streamZeroSampleDecodeCount = 0
+            hasRecordedFirstP1A4AudioPacket = false
+            p1A5VoiceOnsetDetector.reset()
             windowMaxNotificationGapMilliseconds = 0
+            if VoiceTimingLogger.p1A5Enabled {
+                VoiceTimingLogger.recordIfAbsent(
+                    "F1_audio_pipeline_start_requested",
+                    timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
+                )
+            }
             AudioPipe.shared.beginRemoteAudioDiagnostics()
             streamAudioSyncCount = pendingAudioSyncCount
             pendingAudioSyncCount = 0
@@ -1000,6 +1010,7 @@ extension BLEBridge: CBPeripheralDelegate {
             stopAudioHealthWindow()
             emitAudioHealthWindow(closing: true)
             VoiceTimingLogger.mark("AUDIO_STOP")
+            VoiceTimingLogger.mark("AUDIO_DRAIN_BEGIN")
             print(
                 "[BLE] AUDIO_STOP received; draining audio tail " +
                     "for \(Int(audioStopDrainDelay * 1_000))ms " +
@@ -1057,6 +1068,28 @@ extension BLEBridge: CBPeripheralDelegate {
             return
         }
 
+        let packetTimestamp = P1A4MonotonicClock.nowNanoseconds()
+        // The first timestamp is the first received BLE audio notification;
+        // the last timestamp is overwritten for each packet without logging
+        // from the notification callback.
+        if !hasRecordedFirstP1A4AudioPacket {
+            VoiceTimingLogger.record(
+                "T1_first_ble_audio_packet",
+                timestampNanoseconds: packetTimestamp
+            )
+            hasRecordedFirstP1A4AudioPacket = true
+            if VoiceTimingLogger.p1A5Enabled {
+                VoiceTimingLogger.recordIfAbsent(
+                    "F2_first_ble_packet_received",
+                    timestampNanoseconds: packetTimestamp
+                )
+            }
+        }
+        VoiceTimingLogger.record(
+            "T2_last_ble_audio_packet_received",
+            timestampNanoseconds: packetTimestamp
+        )
+
         let now = Date()
         streamNotificationTelemetry.record(
             size: data.count,
@@ -1091,6 +1124,27 @@ extension BLEBridge: CBPeripheralDelegate {
         guard !frame.samples.isEmpty else {
             streamZeroSampleDecodeCount += 1
             return
+        }
+        let decodedTimestamp = P1A4MonotonicClock.nowNanoseconds()
+        VoiceTimingLogger.record(
+            "T3_last_decoded_pcm_frame",
+            timestampNanoseconds: decodedTimestamp
+        )
+        if VoiceTimingLogger.p1A5Enabled {
+            VoiceTimingLogger.recordIfAbsent(
+                "F3_first_pcm_decoded",
+                timestampNanoseconds: decodedTimestamp
+            )
+            if let candidate = p1A5VoiceOnsetDetector.analyze(
+                samples: frame.samples,
+                frameIndex: streamFrameCount,
+                timestampNanoseconds: decodedTimestamp
+            ) {
+                VoiceTimingLogger.recordVoiceOnset(
+                    candidate,
+                    detectedAtNanoseconds: decodedTimestamp
+                )
+            }
         }
         if let lastAudioAt {
             maxAudioFrameGap = max(maxAudioFrameGap, now.timeIntervalSince(lastAudioAt))
@@ -1228,6 +1282,18 @@ extension BLEBridge: CBPeripheralDelegate {
             elapsedSeconds: timing.measurementElapsedSeconds
         )
         let pipe = AudioPipe.shared.takeAudioDiagnosticsSnapshot()
+        if let timestamp = pipe.lastRemoteSubmittedMonotonicNanoseconds {
+            VoiceTimingLogger.record(
+                "T4_last_playout_frame_submitted",
+                timestampNanoseconds: timestamp
+            )
+        }
+        if let timestamp = pipe.lastRemoteRenderedMonotonicNanoseconds {
+            VoiceTimingLogger.record(
+                "T4R_last_playout_frame_rendered",
+                timestampNanoseconds: timestamp
+            )
+        }
         let queueDepthMinMS = Double(pipe.minQueueDepthFrames) / 48_000 * 1_000
         let queueDepthMaxMS = Double(pipe.maxQueueDepthFrames) / 48_000 * 1_000
         let queueDepthCurrentMS = Double(pipe.currentQueueDepthFrames) / 48_000 * 1_000

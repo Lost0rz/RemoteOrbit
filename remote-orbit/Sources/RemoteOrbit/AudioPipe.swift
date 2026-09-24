@@ -62,6 +62,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var diagnosticsTimer: Timer?
     private var remoteDiagnosticsActive = false
     private var remoteDiagnosticsSawActiveRoute = false
+    private var lastRemoteSubmittedMonotonicNanoseconds: UInt64?
+    private var lastRemoteRenderedMonotonicNanoseconds: UInt64?
+    private var p1A5StableRenderIntervals = 0
 
     private override init() {
         super.init()
@@ -139,7 +142,11 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         let counters = resettingWindow ? diagnosticsWindow : diagnosticsCumulative
         let snapshot = counters.snapshot(
             currentQueueDepthFrames: currentDepth,
-            sampleRate: Self.outputSampleRate
+            sampleRate: Self.outputSampleRate,
+            lastRemoteSubmittedMonotonicNanoseconds:
+                lastRemoteSubmittedMonotonicNanoseconds,
+            lastRemoteRenderedMonotonicNanoseconds:
+                lastRemoteRenderedMonotonicNanoseconds
         )
         if resettingWindow {
             diagnosticsWindow.reset(currentQueueDepthFrames: currentDepth)
@@ -257,6 +264,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             pendingOutput.removeAll(keepingCapacity: true)
             pendingOutputIndex = 0
             pendingRemoteOutputFrames = 0
+            lastRemoteSubmittedMonotonicNanoseconds = nil
+            lastRemoteRenderedMonotonicNanoseconds = nil
+            p1A5StableRenderIntervals = 0
             prebuffer = pendingRemotePrebuffer
             pendingRemotePrebuffer.removeAll(keepingCapacity: true)
         } else {
@@ -630,6 +640,20 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         if expectedRemoteMode {
             scheduledRemoteBuffers += 1
             pendingRemoteOutputFrames += resampled.count
+            let submissionTimestamp = P1A4MonotonicClock.nowNanoseconds()
+            lastRemoteSubmittedMonotonicNanoseconds = submissionTimestamp
+            if VoiceTimingLogger.p1A5Enabled {
+                VoiceTimingLogger.recordIfAbsent(
+                    "F4_first_pcm_submitted",
+                    timestampNanoseconds: submissionTimestamp
+                )
+                if VoiceTimingLogger.hasEvent("F6_first_voiced_pcm_decoded") {
+                    VoiceTimingLogger.recordIfAbsent(
+                        "F7_first_voiced_pcm_submitted",
+                        timestampNanoseconds: submissionTimestamp
+                    )
+                }
+            }
         } else {
             scheduledMacBuffers += 1
         }
@@ -729,7 +753,25 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             requestedFrames: frameCount,
             availableFrames: available
         )
+        var frontEdgeUnderrun: (timestamp: UInt64, before: Int, after: Int)?
+        var reachedPlayoutStableTimestamp: UInt64?
         if fill.filledFrames > 0 {
+            if remoteDiagnosticsSawActiveRoute {
+                let renderTimestamp = P1A4MonotonicClock.nowNanoseconds()
+                lastRemoteRenderedMonotonicNanoseconds = renderTimestamp
+                if VoiceTimingLogger.p1A5Enabled {
+                    VoiceTimingLogger.recordIfAbsent(
+                        "F5_first_pcm_rendered",
+                        timestampNanoseconds: renderTimestamp
+                    )
+                    if VoiceTimingLogger.hasEvent("F6_first_voiced_pcm_decoded") {
+                        VoiceTimingLogger.recordIfAbsent(
+                            "F8_first_voiced_pcm_rendered",
+                            timestampNanoseconds: renderTimestamp
+                        )
+                    }
+                }
+            }
             let take = fill.filledFrames
             let start = pendingOutputIndex
             let end = start + take
@@ -750,6 +792,28 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             )
         }
         let remaining = max(0, pendingOutput.count - pendingOutputIndex)
+        let queuedRemoteFramesAfter = AudioRemoteQueueAttribution.remoteQueueDepth(
+            totalQueueFrames: remaining,
+            pendingRemoteFrames: pendingRemoteOutputFrames
+        )
+        if VoiceTimingLogger.p1A5Enabled,
+           remoteActive,
+           remoteDiagnosticsActive {
+            if renderAccounting.activeUnderrunFrames > 0 {
+                p1A5StableRenderIntervals = 0
+                frontEdgeUnderrun = (
+                    P1A4MonotonicClock.nowNanoseconds(),
+                    availableRemoteFrames,
+                    queuedRemoteFramesAfter
+                )
+            } else if VoiceTimingLogger.hasEvent("F8_first_voiced_pcm_rendered") {
+                p1A5StableRenderIntervals += 1
+                if p1A5StableRenderIntervals >= 3 {
+                    reachedPlayoutStableTimestamp =
+                        P1A4MonotonicClock.nowNanoseconds()
+                }
+            }
+        }
         if Self.isOutputDrained(
             remoteActive: remoteActive,
             queuedFrames: remaining
@@ -765,6 +829,20 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         renderCallbackCount += 1
         stateLock.unlock()
 
+        if let frontEdgeUnderrun {
+            VoiceTimingLogger.recordFrontEdgeUnderrun(
+                timestampNanoseconds: frontEdgeUnderrun.timestamp,
+                durationMilliseconds: Double(frameCount) / Self.outputSampleRate * 1_000,
+                queuedFramesBefore: frontEdgeUnderrun.before,
+                queuedFramesAfter: frontEdgeUnderrun.after
+            )
+        }
+        if let reachedPlayoutStableTimestamp {
+            VoiceTimingLogger.recordIfAbsent(
+                "F9_playout_stable",
+                timestampNanoseconds: reachedPlayoutStableTimestamp
+            )
+        }
         if let drainCompletion {
             DispatchQueue.main.async(execute: drainCompletion)
         }

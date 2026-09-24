@@ -413,6 +413,8 @@ struct AudioPipeDiagnosticsSnapshot {
     let tailRenderedFrames: Int
     let tailEmptyCallbackCount: Int
     let idleRenderCallbackCount: Int
+    let lastRemoteSubmittedMonotonicNanoseconds: UInt64?
+    let lastRemoteRenderedMonotonicNanoseconds: UInt64?
 
     init(
         renderCallbackCount: Int,
@@ -429,7 +431,9 @@ struct AudioPipeDiagnosticsSnapshot {
         tailRenderedFrames: Int,
         tailEmptyCallbackCount: Int,
         idleRenderCallbackCount: Int,
-        sampleRate: Double
+        sampleRate: Double,
+        lastRemoteSubmittedMonotonicNanoseconds: UInt64? = nil,
+        lastRemoteRenderedMonotonicNanoseconds: UInt64? = nil
     ) {
         self.renderCallbackCount = renderCallbackCount
         self.renderRequestedFrames = renderRequestedFrames
@@ -451,6 +455,10 @@ struct AudioPipeDiagnosticsSnapshot {
         self.tailRenderedFrames = tailRenderedFrames
         self.tailEmptyCallbackCount = tailEmptyCallbackCount
         self.idleRenderCallbackCount = idleRenderCallbackCount
+        self.lastRemoteSubmittedMonotonicNanoseconds =
+            lastRemoteSubmittedMonotonicNanoseconds
+        self.lastRemoteRenderedMonotonicNanoseconds =
+            lastRemoteRenderedMonotonicNanoseconds
     }
 }
 
@@ -523,7 +531,12 @@ struct AudioPipeDiagnosticsCounters {
         compactionCount += 1
     }
 
-    func snapshot(currentQueueDepthFrames: Int, sampleRate: Double) -> AudioPipeDiagnosticsSnapshot {
+    func snapshot(
+        currentQueueDepthFrames: Int,
+        sampleRate: Double,
+        lastRemoteSubmittedMonotonicNanoseconds: UInt64? = nil,
+        lastRemoteRenderedMonotonicNanoseconds: UInt64? = nil
+    ) -> AudioPipeDiagnosticsSnapshot {
         AudioPipeDiagnosticsSnapshot(
             renderCallbackCount: renderCallbackCount,
             renderRequestedFrames: renderRequestedFrames,
@@ -539,7 +552,11 @@ struct AudioPipeDiagnosticsCounters {
             tailRenderedFrames: tailRenderedFrames,
             tailEmptyCallbackCount: tailEmptyCallbackCount,
             idleRenderCallbackCount: idleRenderCallbackCount,
-            sampleRate: sampleRate
+            sampleRate: sampleRate,
+            lastRemoteSubmittedMonotonicNanoseconds:
+                lastRemoteSubmittedMonotonicNanoseconds,
+            lastRemoteRenderedMonotonicNanoseconds:
+                lastRemoteRenderedMonotonicNanoseconds
         )
     }
 }
