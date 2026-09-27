@@ -343,13 +343,14 @@ final class VoiceOptionTrigger {
     typealias EventSink = (_ isDown: Bool) -> Void
     typealias KeyedEventSink = (_ key: VoiceTriggerKey, _ isDown: Bool) -> Void
 
-    static let shared = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+    private static let systemEventSink: KeyedEventSink = { key, isDown in
         if isDown {
             Key.voiceTriggerDown(key)
         } else {
             Key.voiceTriggerUp(key)
         }
-    })
+    }
+    static let shared = VoiceOptionTrigger(keyedEventSink: systemEventSink)
 
     private let eventSink: KeyedEventSink
     private(set) var voiceTriggerKey: VoiceTriggerKey = .leftOption
@@ -365,13 +366,7 @@ final class VoiceOptionTrigger {
     }
 
     convenience init() {
-        self.init(eventSink: { isDown in
-            if isDown {
-                Key.voiceTriggerDown(.leftOption)
-            } else {
-                Key.voiceTriggerUp(.leftOption)
-            }
-        })
+        self.init(keyedEventSink: Self.systemEventSink)
     }
 
     @discardableResult
