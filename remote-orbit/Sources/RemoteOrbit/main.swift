@@ -111,18 +111,21 @@ enum Key {
 
 // MARK: - Device-scoped voice-key mapping
 
-/// Map only the supported remote's F5 usage to a real left Option at the HID
-/// event-system layer. Doubao recognizes this physical mapping reliably.
-/// The event tap may briefly defer this mapped Option pair only when FloatTabs
+/// Map the supported remote's F5 usage to the selected VoiceTriggerKey at the
+/// HID event-system layer. Runtime currently passes .leftOption so the event
+/// tap continues to defer the same mapped Option pair only when FloatTabs
 /// needs to repair a stale WebKit text client.
 enum RemoteVoiceKeyMapping {
     private static let lock = NSLock()
     private static var enabled = false
     private static let matching = "{\"VendorID\":0x2717,\"ProductID\":0x32B8}"
-    private static let mapping =
-        "{\"UserKeyMapping\":[{\"HIDKeyboardModifierMappingSrc\":0x70000003E," +
-        "\"HIDKeyboardModifierMappingDst\":0x7000000E2}]}"
-    private static let emptyMapping = "{\"UserKeyMapping\":[]}"
+    private static let source = "0x70000003E"
+    static let emptyMappingJSON = "{\"UserKeyMapping\":[]}"
+
+    static func mappingJSON(for target: VoiceTriggerKey) -> String {
+        let destination = "0x" + String(target.hidutilDestination, radix: 16, uppercase: true)
+        return "{\"UserKeyMapping\":[{\"HIDKeyboardModifierMappingSrc\":\(source),\"HIDKeyboardModifierMappingDst\":\(destination)}]}"
+    }
 
     static var isEnabled: Bool {
         lock.lock()
@@ -131,12 +134,12 @@ enum RemoteVoiceKeyMapping {
     }
 
     @discardableResult
-    static func setEnabled(_ shouldEnable: Bool) -> Bool {
+    static func setEnabled(_ shouldEnable: Bool, target: VoiceTriggerKey) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/hidutil")
         process.arguments = [
             "property", "--matching", matching,
-            "--set", shouldEnable ? mapping : emptyMapping,
+            "--set", shouldEnable ? mappingJSON(for: target) : emptyMappingJSON,
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -157,7 +160,7 @@ enum RemoteVoiceKeyMapping {
         enabled = shouldEnable && succeeded
         lock.unlock()
         print(
-            "[HID-MAP] 遥控器语音键 → 左 Option " +
+            "[HID-MAP] 遥控器语音键 → \(target.displayName) " +
             (shouldEnable && succeeded ? "已启用" : shouldEnable ? "启用失败" : "已关闭")
         )
         return succeeded
@@ -1894,7 +1897,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // temporarily gates the resulting physical Option edge so short
             // disabled/custom bindings still get dropped before Doubao sees
             // them; long press replays the untouched HID event.
-            RemoteVoiceKeyMapping.setEnabled(active)
+            RemoteVoiceKeyMapping.setEnabled(active, target: .leftOption)
             self.updateStatus()
             if !active {
                 self.reconnectHeldButtons = Set(
@@ -2557,7 +2560,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         KeyInjector.releaseAll()
         ble.stop()
         AudioPipe.shared.stop()
-        RemoteVoiceKeyMapping.setEnabled(false)
+        RemoteVoiceKeyMapping.setEnabled(false, target: .leftOption)
     }
 
     @objc private func openKeyMapping() {
