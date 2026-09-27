@@ -68,20 +68,110 @@ final class VoiceOptionTriggerTests: XCTestCase {
     }
 
     func testStaleSyntheticTapCannotReleaseTheCurrentOwner() {
-        var events: [Bool] = []
-        let trigger = VoiceOptionTrigger { events.append($0) }
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
         let stale = UUID()
         let current = UUID()
 
+        XCTAssertTrue(trigger.configureVoiceTriggerKey(.rightControl))
         XCTAssertTrue(trigger.begin(sessionID: stale))
-        XCTAssertTrue(trigger.sendTap(sessionID: stale, duration: 0.03))
+        XCTAssertTrue(trigger.sendTap(sessionID: stale))
         XCTAssertTrue(trigger.begin(sessionID: current))
         XCTAssertTrue(trigger.sendDown(sessionID: current))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.06))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
 
-        XCTAssertEqual(events, [true, false, true])
+        XCTAssertEqual(events.map(\.key), [.rightControl, .rightControl, .rightControl])
+        XCTAssertEqual(events.map(\.isDown), [true, false, true])
         XCTAssertTrue(trigger.isOptionDown)
         XCTAssertTrue(trigger.sendUp(sessionID: current))
-        XCTAssertEqual(events, [true, false, true, false])
+        XCTAssertEqual(events.map(\.key), [
+            .rightControl, .rightControl, .rightControl, .rightControl,
+        ])
+        XCTAssertEqual(events.map(\.isDown), [true, false, true, false])
+    }
+
+    func testIdleConfigurationRoutesDownAndUpThroughEachSelectedKey() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let selectedKeys: [VoiceTriggerKey] = [
+            .leftOption,
+            .rightOption,
+            .leftControl,
+            .rightControl,
+        ]
+
+        for key in selectedKeys {
+            XCTAssertTrue(trigger.configureVoiceTriggerKey(key))
+            let sessionID = UUID()
+            XCTAssertTrue(trigger.begin(sessionID: sessionID))
+            XCTAssertTrue(trigger.sendDown(sessionID: sessionID))
+            XCTAssertTrue(trigger.sendUp(sessionID: sessionID))
+        }
+
+        XCTAssertEqual(events.map(\.key), [
+            .leftOption, .leftOption,
+            .rightOption, .rightOption,
+            .leftControl, .leftControl,
+            .rightControl, .rightControl,
+        ])
+        XCTAssertEqual(events.map(\.isDown), [true, false, true, false, true, false, true, false])
+    }
+
+    func testConfigurationIsRejectedWhileTriggerIsDown() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let sessionID = UUID()
+
+        XCTAssertTrue(trigger.configureVoiceTriggerKey(.leftControl))
+        XCTAssertTrue(trigger.begin(sessionID: sessionID))
+        XCTAssertTrue(trigger.sendDown(sessionID: sessionID))
+
+        XCTAssertFalse(trigger.configureVoiceTriggerKey(.rightControl))
+        XCTAssertEqual(trigger.voiceTriggerKey, .leftControl)
+        XCTAssertTrue(trigger.sendUp(sessionID: sessionID))
+        XCTAssertEqual(events.map(\.key), [.leftControl, .leftControl])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+    }
+
+    func testTapKeepsOneSelectedKeyAcrossTheDelayedRelease() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let sessionID = UUID()
+
+        XCTAssertTrue(trigger.configureVoiceTriggerKey(.rightControl))
+        XCTAssertTrue(trigger.begin(sessionID: sessionID))
+        XCTAssertTrue(trigger.sendTap(sessionID: sessionID, duration: 0.06))
+        XCTAssertFalse(trigger.configureVoiceTriggerKey(.rightOption))
+        XCTAssertEqual(trigger.voiceTriggerKey, .rightControl)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertEqual(events.map(\.key), [.rightControl, .rightControl])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+        XCTAssertNil(trigger.activeSessionID)
+    }
+
+    func testAbortBalancesTheSelectedSyntheticTriggerKey() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let sessionID = UUID()
+
+        XCTAssertTrue(trigger.configureVoiceTriggerKey(.rightControl))
+        XCTAssertTrue(trigger.begin(sessionID: sessionID))
+        XCTAssertTrue(trigger.sendDown(sessionID: sessionID))
+        XCTAssertTrue(trigger.abort(sessionID: sessionID))
+
+        XCTAssertEqual(events.map(\.key), [.rightControl, .rightControl])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+        XCTAssertNil(trigger.activeSessionID)
     }
 }

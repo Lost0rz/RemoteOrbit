@@ -341,31 +341,44 @@ final class HardwareOptionGate {
 /// session owns the trigger, so it cannot release the newer gesture.
 final class VoiceOptionTrigger {
     typealias EventSink = (_ isDown: Bool) -> Void
+    typealias KeyedEventSink = (_ key: VoiceTriggerKey, _ isDown: Bool) -> Void
 
-    static let shared = VoiceOptionTrigger { isDown in
+    static let shared = VoiceOptionTrigger(keyedEventSink: { key, isDown in
         if isDown {
-            Key.optionDown()
+            Key.voiceTriggerDown(key)
         } else {
-            Key.optionUp()
+            Key.voiceTriggerUp(key)
         }
-    }
+    })
 
-    private let eventSink: EventSink
+    private let eventSink: KeyedEventSink
+    private(set) var voiceTriggerKey: VoiceTriggerKey = .leftOption
     private(set) var activeSessionID: UUID?
     private(set) var isOptionDown = false
 
     init(eventSink: @escaping EventSink) {
-        self.eventSink = eventSink
+        self.eventSink = { _, isDown in eventSink(isDown) }
+    }
+
+    init(keyedEventSink: @escaping KeyedEventSink) {
+        self.eventSink = keyedEventSink
     }
 
     convenience init() {
-        self.init { isDown in
+        self.init(eventSink: { isDown in
             if isDown {
-                Key.optionDown()
+                Key.voiceTriggerDown(.leftOption)
             } else {
-                Key.optionUp()
+                Key.voiceTriggerUp(.leftOption)
             }
-        }
+        })
+    }
+
+    @discardableResult
+    func configureVoiceTriggerKey(_ key: VoiceTriggerKey) -> Bool {
+        guard activeSessionID == nil, !isOptionDown else { return false }
+        voiceTriggerKey = key
+        return true
     }
 
     @discardableResult
@@ -384,7 +397,7 @@ final class VoiceOptionTrigger {
     func sendDown(sessionID: UUID) -> Bool {
         guard activeSessionID == sessionID, !isOptionDown else { return false }
         isOptionDown = true
-        eventSink(true)
+        eventSink(voiceTriggerKey, true)
         return true
     }
 
@@ -392,7 +405,7 @@ final class VoiceOptionTrigger {
     func sendUp(sessionID: UUID) -> Bool {
         guard activeSessionID == sessionID, isOptionDown else { return false }
         isOptionDown = false
-        eventSink(false)
+        eventSink(voiceTriggerKey, false)
         VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
         activeSessionID = nil
         return true
@@ -404,7 +417,7 @@ final class VoiceOptionTrigger {
         let wasDown = isOptionDown
         isOptionDown = false
         if wasDown {
-            eventSink(false)
+            eventSink(voiceTriggerKey, false)
             VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
         }
         activeSessionID = nil

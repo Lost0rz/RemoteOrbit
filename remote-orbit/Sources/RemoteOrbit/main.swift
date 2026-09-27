@@ -46,33 +46,47 @@ enum Key {
 
     /// Walkie-talkie style: Option key down only (no matching up). Pair with `optionUp`.
     static func optionDown() {
-        postOption(keyDown: true)
+        voiceTriggerDown(.leftOption)
     }
     static func optionUp() {
-        postOption(keyDown: false)
+        voiceTriggerUp(.leftOption)
     }
-    /// A deliberate short Option click for Doubao's toggle mode.
-    ///
-    /// Posting down and up back-to-back is sometimes too fast for an input
-    /// method to classify as a real click, so keep the modifier down briefly.
-    static func optionTap(completion: (() -> Void)? = nil) {
-        optionDown()
+
+    static func voiceTriggerDown(_ key: VoiceTriggerKey) {
+        postVoiceTrigger(key, keyDown: true)
+    }
+
+    static func voiceTriggerUp(_ key: VoiceTriggerKey) {
+        postVoiceTrigger(key, keyDown: false)
+    }
+
+    /// A deliberate short modifier click for Doubao's toggle mode.
+    /// Keep the selected modifier down long enough for input methods to classify it.
+    static func voiceTriggerTap(
+        _ key: VoiceTriggerKey,
+        completion: (() -> Void)? = nil
+    ) {
+        voiceTriggerDown(key)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-            optionUp()
+            voiceTriggerUp(key)
             completion?()
         }
     }
 
-    /// Doubao needs both the modifier-state transition and a normal keyboard
-    /// event. The former makes macOS track left Option correctly; the latter
-    /// is what Doubao's global shortcut listener sees.
-    private static func postOption(keyDown: Bool) {
+    /// Preserve the existing Option API and its 60 ms click duration.
+    static func optionTap(completion: (() -> Void)? = nil) {
+        voiceTriggerTap(.leftOption, completion: completion)
+    }
+
+    /// Emit both the modifier-state transition and the normal keyboard event
+    /// using the selected key's Carbon virtual key code and modifier flag.
+    private static func postVoiceTrigger(_ key: VoiceTriggerKey, keyDown: Bool) {
         guard let source = CGEventSource(stateID: .hidSystemState) else { return }
-        let flags: CGEventFlags = keyDown ? .maskAlternate : []
+        let flags: CGEventFlags = keyDown ? key.cgEventFlag : []
 
         if let flagsEvent = CGEvent(
             keyboardEventSource: source,
-            virtualKey: VK.option,
+            virtualKey: key.cgKeyCode,
             keyDown: keyDown
         ) {
             flagsEvent.type = .flagsChanged
@@ -86,7 +100,7 @@ enum Key {
 
         if let keyEvent = CGEvent(
             keyboardEventSource: source,
-            virtualKey: VK.option,
+            virtualKey: key.cgKeyCode,
             keyDown: keyDown
         ) {
             keyEvent.flags = flags
@@ -997,7 +1011,8 @@ final class VoiceKeyFilter {
     private var tapSource: CFRunLoopSource?
     private var voiceKeyIsDown = false
     private let optionGate = HardwareOptionGate()
-    private let syntheticOptionTrigger = VoiceOptionTrigger.shared
+    private let syntheticOptionTrigger: VoiceOptionTrigger
+    private(set) var voiceTriggerKey: VoiceTriggerKey = .leftOption
     private var deferredOptionDownSeen = false
     private var deferredOptionUpSeen = false
     private var deferredOptionDownEvents: [CGEvent] = []
@@ -1009,6 +1024,32 @@ final class VoiceKeyFilter {
     private var hardwareOptionReleaseArmed = false
     var onVoiceKeyDown: (() -> Void)?
     var onVoiceKeyUp: (() -> Void)?
+
+    init(syntheticOptionTrigger: VoiceOptionTrigger = .shared) {
+        self.syntheticOptionTrigger = syntheticOptionTrigger
+    }
+
+    @discardableResult
+    func configureVoiceTriggerKey(_ key: VoiceTriggerKey) -> Bool {
+        guard optionGate.activeSessionID == nil,
+              heldHardwareOptionSessionID == nil,
+              !voiceKeyIsDown else {
+            return false
+        }
+        guard syntheticOptionTrigger.configureVoiceTriggerKey(key) else {
+            return false
+        }
+        voiceTriggerKey = key
+        return true
+    }
+
+    func matchesTriggerKeyCode(_ keyCode: CGKeyCode) -> Bool {
+        keyCode == voiceTriggerKey.cgKeyCode
+    }
+
+    func isTriggerModifierActive(flags: CGEventFlags) -> Bool {
+        flags.contains(voiceTriggerKey.cgEventFlag)
+    }
 
     private var optionDeferralActive: Bool {
         optionGate.activeSessionID != nil
@@ -1144,7 +1185,7 @@ final class VoiceKeyFilter {
         let events = heldHardwareOptionUpEvents
         clearHeldHardwareOption()
         if events.isEmpty {
-            Key.optionUp()
+            Key.voiceTriggerUp(voiceTriggerKey)
             print("[VOICE] hardware Option-up missing; emergency balancing up")
         } else {
             events.forEach { $0.post(tap: .cghidEventTap) }
@@ -1161,7 +1202,7 @@ final class VoiceKeyFilter {
         let events = heldHardwareOptionUpEvents
         clearHeldHardwareOption()
         if events.isEmpty {
-            Key.optionUp()
+            Key.voiceTriggerUp(voiceTriggerKey)
         } else {
             events.forEach { $0.post(tap: .cghidEventTap) }
         }
@@ -1246,11 +1287,11 @@ final class VoiceKeyFilter {
             // FloatTabs voice handoff is active, hold that generated Option
             // pair only; real keyboard Option events remain untouched outside
             // this narrow gesture window.
-            if keyCode == VK.option,
+            if filter.matchesTriggerKeyCode(keyCode),
                filter.optionDeferralActive {
                 switch type {
                 case .flagsChanged:
-                    if event.flags.contains(.maskAlternate) {
+                    if filter.isTriggerModifierActive(flags: event.flags) {
                         filter.deferredOptionDownSeen = true
                         let copiedEvent = event.copy()
                         _ = filter.optionGate.capture(
@@ -1304,12 +1345,12 @@ final class VoiceKeyFilter {
             // Once a long hardware replay has been selected and the raw HID
             // voice-key up is accepted, hold only that session's mapped
             // Option-up until AudioPipe confirms the queued PCM is drained.
-            if keyCode == VK.option,
+            if filter.matchesTriggerKeyCode(keyCode),
                filter.heldHardwareOptionSessionID != nil,
                filter.hardwareOptionReleaseArmed {
                 switch type {
                 case .flagsChanged:
-                    guard !event.flags.contains(.maskAlternate),
+                    guard !filter.isTriggerModifierActive(flags: event.flags),
                           !filter.heldHardwareOptionFlagsUpSeen else {
                         return nil
                     }
