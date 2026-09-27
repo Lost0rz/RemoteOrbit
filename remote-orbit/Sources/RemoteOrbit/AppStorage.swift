@@ -3,6 +3,7 @@ import Foundation
 enum AppStorage {
     static let loggingEnabledKey = "RemoteOrbit.loggingEnabled"
     static let recordingEnabledKey = "RemoteOrbit.recordingEnabled"
+    static let voiceTriggerKeyKey = "RemoteOrbit.voiceTriggerKey"
 
     static let logsDirectory: URL = {
         FileManager.default.homeDirectoryForCurrentUser
@@ -48,6 +49,7 @@ enum AppStorage {
         UserDefaults.standard.register(defaults: [
             loggingEnabledKey: false,
             recordingEnabledKey: false,
+            voiceTriggerKeyKey: VoiceTriggerKey.defaultValue.rawValue,
         ])
         ensureDirectory(logsDirectory)
         ensureDirectory(recordingsDirectory)
@@ -68,6 +70,23 @@ enum AppStorage {
     static var recordingEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: recordingEnabledKey) }
         set { UserDefaults.standard.set(newValue, forKey: recordingEnabledKey) }
+    }
+
+    static var voiceTriggerKey: VoiceTriggerKey {
+        get { readVoiceTriggerKey(from: UserDefaults.standard) }
+        set { writeVoiceTriggerKey(newValue, to: UserDefaults.standard) }
+    }
+
+    static func readVoiceTriggerKey(from defaults: UserDefaults) -> VoiceTriggerKey {
+        guard let rawValue = defaults.string(forKey: voiceTriggerKeyKey),
+              let key = VoiceTriggerKey(rawValue: rawValue) else {
+            return .defaultValue
+        }
+        return key
+    }
+
+    static func writeVoiceTriggerKey(_ key: VoiceTriggerKey, to defaults: UserDefaults) {
+        defaults.set(key.rawValue, forKey: voiceTriggerKeyKey)
     }
 
     static func ensureDirectory(_ url: URL) {
