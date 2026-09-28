@@ -8,12 +8,21 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+typealias VoiceTriggerChangeHandler = (
+    VoiceTriggerKey,
+    @escaping (VoiceTriggerApplyResult) -> Void
+) -> Void
+
 struct SettingsView: View {
     @ObservedObject var store: MappingStore
     var onRecordingChanged: (Bool) -> Void = { _ in }
+    private var onVoiceTriggerChanged: VoiceTriggerChangeHandler
     @State private var selectedSection: WorkspaceSection = .overview
     @State private var selectedButton: RemoteButton = .back
     @State private var mappingScope: MappingScope = .global
+    @State private var selectedVoiceTriggerKey: VoiceTriggerKey
+    @State private var isApplyingVoiceTriggerKey = false
+    @State private var voiceTriggerMessage: String?
     @State private var selectedTemplateTarget: TemplateTarget = .none
     @State private var recorderButton: RemoteButton?
     @State private var gestureRecorderTarget: GestureRecorderTarget?
@@ -31,6 +40,18 @@ struct SettingsView: View {
     @State private var configurationMessage: String?
     @State private var backupToRestore: MappingBackup?
     @State private var showRestoreBackupConfirm = false
+
+    init(
+        store: MappingStore,
+        initialVoiceTriggerKey: VoiceTriggerKey,
+        onRecordingChanged: @escaping (Bool) -> Void = { _ in },
+        onVoiceTriggerChanged: @escaping VoiceTriggerChangeHandler
+    ) {
+        self.store = store
+        self.onRecordingChanged = onRecordingChanged
+        self.onVoiceTriggerChanged = onVoiceTriggerChanged
+        _selectedVoiceTriggerKey = State(initialValue: initialVoiceTriggerKey)
+    }
 
     private enum MappingScope: Hashable {
         case global
@@ -1556,6 +1577,8 @@ struct SettingsView: View {
 
                 mappingConfigurationCard
 
+                voiceTriggerCard
+
                 workspaceCard(title: "应用设置", symbolName: "gearshape") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .top, spacing: 18) {
@@ -1632,6 +1655,65 @@ struct SettingsView: View {
 
             }
             .padding(28)
+        }
+    }
+
+    private var voiceTriggerCard: some View {
+        workspaceCard(title: "语音输入", symbolName: "keyboard") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("请选择与你当前输入法“语音输入”快捷键一致的按键。长按遥控器时仍使用遥控器麦克风。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Picker("语音触发键", selection: Binding(
+                    get: { selectedVoiceTriggerKey },
+                    set: { requestVoiceTriggerKeyChange($0) }
+                )) {
+                    ForEach(VoiceTriggerKey.allCases, id: \.self) { key in
+                        Text(key.displayName).tag(key)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(isApplyingVoiceTriggerKey)
+
+                if let voiceTriggerMessage {
+                    Text(voiceTriggerMessage)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    private func requestVoiceTriggerKeyChange(_ requestedKey: VoiceTriggerKey) {
+        guard !isApplyingVoiceTriggerKey else { return }
+        let oldKey = selectedVoiceTriggerKey
+        isApplyingVoiceTriggerKey = true
+        voiceTriggerMessage = nil
+
+        onVoiceTriggerChanged(requestedKey) { result in
+            switch result {
+            case .applied:
+                selectedVoiceTriggerKey = requestedKey
+                isApplyingVoiceTriggerKey = false
+                voiceTriggerMessage = nil
+            case .unchanged:
+                selectedVoiceTriggerKey = requestedKey
+                isApplyingVoiceTriggerKey = false
+                voiceTriggerMessage = nil
+            case .busy:
+                selectedVoiceTriggerKey = oldKey
+                isApplyingVoiceTriggerKey = false
+                voiceTriggerMessage = "当前正在进行语音输入，请结束后再切换快捷键。"
+            case .failed:
+                selectedVoiceTriggerKey = oldKey
+                isApplyingVoiceTriggerKey = false
+                voiceTriggerMessage = "快捷键切换失败，已恢复原设置。"
+            case .locked:
+                selectedVoiceTriggerKey = oldKey
+                isApplyingVoiceTriggerKey = false
+                voiceTriggerMessage = "语音快捷键运行时已锁定，请重新启动 RemoteOrbit 后重试。"
+            }
         }
     }
 

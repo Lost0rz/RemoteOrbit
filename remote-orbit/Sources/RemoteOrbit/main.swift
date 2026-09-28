@@ -2887,6 +2887,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             store: mappingStore,
             onRecordingChanged: { [weak self] enabled in
                 self?.ble.setRecordingEnabled(enabled)
+            },
+            initialVoiceTriggerKey: currentVoiceTriggerKey,
+            onVoiceTriggerChanged: { [weak self] key, completion in
+                guard let self else {
+                    completion(.locked)
+                    return
+                }
+                self.applyVoiceTriggerKey(key, completion: completion)
             }
         )
     }

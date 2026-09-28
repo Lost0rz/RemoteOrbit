@@ -13,7 +13,9 @@ final class SettingsWindow {
     /// 打开设置窗口（如果已打开则前置）。
     static func open(
         store: MappingStore,
-        onRecordingChanged: @escaping (Bool) -> Void = { _ in }
+        onRecordingChanged: @escaping (Bool) -> Void = { _ in },
+        initialVoiceTriggerKey: VoiceTriggerKey,
+        onVoiceTriggerChanged: @escaping VoiceTriggerChangeHandler
     ) {
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
@@ -23,7 +25,9 @@ final class SettingsWindow {
 
         let settingsView = SettingsView(
             store: store,
-            onRecordingChanged: onRecordingChanged
+            initialVoiceTriggerKey: initialVoiceTriggerKey,
+            onRecordingChanged: onRecordingChanged,
+            onVoiceTriggerChanged: onVoiceTriggerChanged
         )
         let hostingController = NSHostingController(rootView: settingsView)
 
