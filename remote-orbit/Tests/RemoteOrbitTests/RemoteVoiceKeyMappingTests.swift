@@ -30,6 +30,20 @@ final class RemoteVoiceKeyMappingTests: XCTestCase {
         )
     }
 
+    func testLeftCommandMappingUsesTheFrozenDestination() {
+        XCTAssertEqual(
+            RemoteVoiceKeyMapping.mappingJSON(for: .leftCommand),
+            "{\"UserKeyMapping\":[{\"HIDKeyboardModifierMappingSrc\":0x70000003E,\"HIDKeyboardModifierMappingDst\":0x7000000E3}]}"
+        )
+    }
+
+    func testRightCommandMappingUsesTheFrozenDestination() {
+        XCTAssertEqual(
+            RemoteVoiceKeyMapping.mappingJSON(for: .rightCommand),
+            "{\"UserKeyMapping\":[{\"HIDKeyboardModifierMappingSrc\":0x70000003E,\"HIDKeyboardModifierMappingDst\":0x7000000E7}]}"
+        )
+    }
+
     func testEmptyMappingRemainsUnchanged() {
         XCTAssertEqual(
             RemoteVoiceKeyMapping.emptyMappingJSON,

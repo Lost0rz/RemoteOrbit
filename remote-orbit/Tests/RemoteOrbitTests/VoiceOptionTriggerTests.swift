@@ -97,28 +97,22 @@ final class VoiceOptionTriggerTests: XCTestCase {
         let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
             events.append((key, isDown))
         })
-        let selectedKeys: [VoiceTriggerKey] = [
-            .leftOption,
-            .rightOption,
-            .leftControl,
-            .rightControl,
-        ]
+        var expectedKeys: [VoiceTriggerKey] = []
+        var expectedEdges: [Bool] = []
 
-        for key in selectedKeys {
+        for key in VoiceTriggerKey.allCases {
             XCTAssertTrue(trigger.configureVoiceTriggerKey(key))
             let sessionID = UUID()
             XCTAssertTrue(trigger.begin(sessionID: sessionID))
             XCTAssertTrue(trigger.sendDown(sessionID: sessionID))
             XCTAssertTrue(trigger.sendUp(sessionID: sessionID))
+
+            expectedKeys.append(contentsOf: [key, key])
+            expectedEdges.append(contentsOf: [true, false])
         }
 
-        XCTAssertEqual(events.map(\.key), [
-            .leftOption, .leftOption,
-            .rightOption, .rightOption,
-            .leftControl, .leftControl,
-            .rightControl, .rightControl,
-        ])
-        XCTAssertEqual(events.map(\.isDown), [true, false, true, false, true, false, true, false])
+        XCTAssertEqual(events.map(\.key), expectedKeys)
+        XCTAssertEqual(events.map(\.isDown), expectedEdges)
     }
 
     func testConfigurationIsRejectedWhileTriggerIsDown() {

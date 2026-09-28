@@ -23,7 +23,14 @@ final class VoiceTriggerKeyTests: XCTestCase {
     func testAllCasesUseTheFrozenContractOrder() {
         XCTAssertEqual(
             VoiceTriggerKey.allCases,
-            [.leftOption, .rightOption, .leftControl, .rightControl]
+            [
+                .leftOption,
+                .rightOption,
+                .leftControl,
+                .rightControl,
+                .leftCommand,
+                .rightCommand,
+            ]
         )
     }
 
@@ -75,6 +82,28 @@ final class VoiceTriggerKeyTests: XCTestCase {
         XCTAssertEqual(key.cgEventFlag, .maskControl)
     }
 
+    func testLeftCommandMetadataIsStable() {
+        let key = VoiceTriggerKey.leftCommand
+
+        XCTAssertEqual(key.rawValue, "left_command")
+        XCTAssertEqual(key.displayName, "左 Command")
+        XCTAssertEqual(key.hidUsage, 0xE3)
+        XCTAssertEqual(key.hidutilDestination, 0x7000000E3)
+        XCTAssertEqual(key.cgKeyCode, 55)
+        XCTAssertEqual(key.cgEventFlag, .maskCommand)
+    }
+
+    func testRightCommandMetadataIsStable() {
+        let key = VoiceTriggerKey.rightCommand
+
+        XCTAssertEqual(key.rawValue, "right_command")
+        XCTAssertEqual(key.displayName, "右 Command")
+        XCTAssertEqual(key.hidUsage, 0xE7)
+        XCTAssertEqual(key.hidutilDestination, 0x7000000E7)
+        XCTAssertEqual(key.cgKeyCode, 54)
+        XCTAssertEqual(key.cgEventFlag, .maskCommand)
+    }
+
     func testCodableRoundTripPreservesEverySupportedKey() throws {
         let encoder = JSONEncoder()
         let decoder = JSONDecoder()
@@ -101,5 +130,11 @@ final class VoiceTriggerKeyTests: XCTestCase {
 
         AppStorage.writeVoiceTriggerKey(.rightOption, to: defaults)
         XCTAssertEqual(AppStorage.readVoiceTriggerKey(from: defaults), .rightOption)
+
+        for key in [VoiceTriggerKey.leftCommand, .rightCommand] {
+            AppStorage.writeVoiceTriggerKey(key, to: defaults)
+            XCTAssertEqual(defaults.string(forKey: AppStorage.voiceTriggerKeyKey), key.rawValue)
+            XCTAssertEqual(AppStorage.readVoiceTriggerKey(from: defaults), key)
+        }
     }
 }
