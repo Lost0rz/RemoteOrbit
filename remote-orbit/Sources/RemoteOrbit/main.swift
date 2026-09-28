@@ -126,9 +126,7 @@ enum Key {
 // MARK: - Device-scoped voice-key mapping
 
 /// Map the supported remote's F5 usage to the selected VoiceTriggerKey at the
-/// HID event-system layer. Runtime currently passes .leftOption so the event
-/// tap continues to defer the same mapped Option pair only when FloatTabs
-/// needs to repair a stale WebKit text client.
+/// HID event-system layer. AppController supplies the runtime authority key.
 enum RemoteVoiceKeyMapping {
     private static let lock = NSLock()
     private static var enabled = false
@@ -321,6 +319,17 @@ final class VoicePressCoordinator {
 
     var currentStateForTesting: State {
         mode
+    }
+
+    var hasActiveVoiceOwnershipForTriggerReconfiguration: Bool {
+        mode != .idle
+            || pendingRepress != nil
+            || remoteRouted
+            || remoteStreaming
+            || remoteAudioAvailable
+            || longInputStarted
+            || tailWorkItem != nil
+            || deferredRepressAwaitingActivation
     }
 
     var tailDrainDelayForTesting: TimeInterval {
@@ -1022,6 +1031,7 @@ final class VoiceKeyFilter {
     private var heldHardwareOptionFlagsUpSeen = false
     private var heldHardwareOptionKeyUpSeen = false
     private var hardwareOptionReleaseArmed = false
+    private var voiceTriggerReconfigurationKeyCodes: Set<CGKeyCode>?
     var onVoiceKeyDown: (() -> Void)?
     var onVoiceKeyUp: (() -> Void)?
 
@@ -1041,6 +1051,35 @@ final class VoiceKeyFilter {
         }
         voiceTriggerKey = key
         return true
+    }
+
+    @discardableResult
+    func beginVoiceTriggerReconfiguration(
+        from oldKey: VoiceTriggerKey,
+        to newKey: VoiceTriggerKey
+    ) -> Bool {
+        guard voiceTriggerReconfigurationKeyCodes == nil,
+              optionGate.activeSessionID == nil,
+              heldHardwareOptionSessionID == nil,
+              !voiceKeyIsDown,
+              syntheticOptionTrigger.activeSessionID == nil,
+              !syntheticOptionTrigger.isOptionDown else {
+            return false
+        }
+        voiceTriggerReconfigurationKeyCodes = [
+            VK.voiceKey,
+            oldKey.cgKeyCode,
+            newKey.cgKeyCode,
+        ]
+        return true
+    }
+
+    func endVoiceTriggerReconfiguration() {
+        voiceTriggerReconfigurationKeyCodes = nil
+    }
+
+    func shouldSuppressDuringVoiceTriggerReconfiguration(keyCode: CGKeyCode) -> Bool {
+        voiceTriggerReconfigurationKeyCodes?.contains(keyCode) == true
     }
 
     func matchesTriggerKeyCode(_ keyCode: CGKeyCode) -> Bool {
@@ -1283,6 +1322,10 @@ final class VoiceKeyFilter {
                 return Unmanaged.passUnretained(event)
             }
 
+            if filter.shouldSuppressDuringVoiceTriggerReconfiguration(keyCode: keyCode) {
+                return nil
+            }
+
             // hidutil converts the remote's F5 usage into left Option. When a
             // FloatTabs voice handoff is active, hold that generated Option
             // pair only; real keyboard Option events remain untouched outside
@@ -1437,6 +1480,14 @@ final class VoiceKeyFilter {
 
 // MARK: - Menu bar UI
 
+enum VoiceTriggerApplyResult: Equatable {
+    case applied
+    case unchanged
+    case busy
+    case failed
+    case locked
+}
+
 final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var statusLabel: NSMenuItem!
@@ -1445,14 +1496,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var audioInputMenu: NSMenu!
     private var audioOutputMenu: NSMenu!
 
-    private var hidConnected = false
+    private(set) var hidConnected = false
     private var bleConnected = false
     private var remoteStreaming = false
     private var statusPulseTimer: Timer?
     private var statusPulsePhase = false
 
-    private let filter = VoiceKeyFilter()
-    private let voicePress = VoicePressCoordinator()
+    let filter: VoiceKeyFilter
+    let voicePress = VoicePressCoordinator()
     private let ble = BLEBridge()
     private let mappingStore = MappingStore()
     private let hidMonitor = HIDMonitor()
@@ -1470,16 +1521,228 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let voiceFocusTransactions = VoiceFocusTransactionTracker()
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
+    private(set) var currentVoiceTriggerKey: VoiceTriggerKey = .leftOption
+    private(set) var voiceTriggerReconfigurationInProgress = false
+    private(set) var voiceTriggerRuntimeLocked = false
+    private var pendingVoiceHIDMappingRefresh = false
+    private let isVoiceHIDMappingEnabled: () -> Bool
+    private let applyVoiceHIDMapping: (Bool, VoiceTriggerKey) -> Bool
+    private let readPersistedVoiceTriggerKey: () -> VoiceTriggerKey
+    private let persistVoiceTriggerKey: (VoiceTriggerKey) -> Void
+    private let voiceHIDMappingQueue = DispatchQueue(
+        label: "com.remoteorbit.voice-trigger-hid-mapping",
+        qos: .userInitiated
+    )
+
+    init(
+        filter: VoiceKeyFilter = VoiceKeyFilter(),
+        initiallyHIDConnected: Bool = false,
+        isVoiceHIDMappingEnabled: @escaping () -> Bool = {
+            RemoteVoiceKeyMapping.isEnabled
+        },
+        applyVoiceHIDMapping: @escaping (Bool, VoiceTriggerKey) -> Bool = {
+            RemoteVoiceKeyMapping.setEnabled($0, target: $1)
+        },
+        readPersistedVoiceTriggerKey: @escaping () -> VoiceTriggerKey = {
+            AppStorage.voiceTriggerKey
+        },
+        persistVoiceTriggerKey: @escaping (VoiceTriggerKey) -> Void = {
+            AppStorage.voiceTriggerKey = $0
+        }
+    ) {
+        self.filter = filter
+        self.hidConnected = initiallyHIDConnected
+        self.isVoiceHIDMappingEnabled = isVoiceHIDMappingEnabled
+        self.applyVoiceHIDMapping = applyVoiceHIDMapping
+        self.readPersistedVoiceTriggerKey = readPersistedVoiceTriggerKey
+        self.persistVoiceTriggerKey = persistVoiceTriggerKey
+        super.init()
+    }
+
+    @discardableResult
+    func restoreVoiceTriggerRuntime() -> Bool {
+        let restoredKey = readPersistedVoiceTriggerKey()
+        guard filter.configureVoiceTriggerKey(restoredKey) else {
+            voiceTriggerRuntimeLocked = true
+            print("[VOICE-KEY] startup restore failed; runtime locked")
+            return false
+        }
+        currentVoiceTriggerKey = restoredKey
+        print("[VOICE-KEY] startup restored target=\(restoredKey.displayName)")
+        return true
+    }
+
+    /// Runtime key changes are initiated on the main run loop so the EventTap
+    /// can enforce its bounded suppression gate while hidutil runs off-thread.
+    /// The completion is called on the main run loop for every result.
+    func applyVoiceTriggerKey(
+        _ newKey: VoiceTriggerKey,
+        completion: @escaping (VoiceTriggerApplyResult) -> Void
+    ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    completion(.locked)
+                    return
+                }
+                self.applyVoiceTriggerKey(newKey, completion: completion)
+            }
+            return
+        }
+
+        guard !voiceTriggerRuntimeLocked else {
+            completion(.locked)
+            return
+        }
+        guard !voiceTriggerReconfigurationInProgress else {
+            completion(.busy)
+            return
+        }
+        let oldKey = currentVoiceTriggerKey
+        guard newKey != oldKey else {
+            completion(.unchanged)
+            return
+        }
+        guard !voicePress.hasActiveVoiceOwnershipForTriggerReconfiguration else {
+            completion(.busy)
+            return
+        }
+        let hadHardwareMapping = isVoiceHIDMappingEnabled()
+        guard filter.beginVoiceTriggerReconfiguration(from: oldKey, to: newKey) else {
+            completion(.busy)
+            return
+        }
+        voiceTriggerReconfigurationInProgress = true
+
+        guard filter.configureVoiceTriggerKey(newKey) else {
+            filter.endVoiceTriggerReconfiguration()
+            voiceTriggerReconfigurationInProgress = false
+            completion(.busy)
+            return
+        }
+
+        guard hidConnected else {
+            currentVoiceTriggerKey = newKey
+            persistVoiceTriggerKey(newKey)
+            completeVoiceTriggerReconfiguration(.applied, completion: completion)
+            return
+        }
+
+        voiceHIDMappingQueue.async { [weak self] in
+            guard let self else { return }
+            let succeeded = self.applyVoiceHIDMapping(true, newKey)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard succeeded else {
+                    self.rollbackVoiceTriggerApply(
+                        oldKey: oldKey,
+                        hadHardwareMapping: hadHardwareMapping,
+                        completion: completion
+                    )
+                    return
+                }
+                self.currentVoiceTriggerKey = newKey
+                self.persistVoiceTriggerKey(newKey)
+                print("[VOICE-KEY] runtime target committed=\(newKey.displayName)")
+                self.completeVoiceTriggerReconfiguration(.applied, completion: completion)
+            }
+        }
+    }
+
+    private func rollbackVoiceTriggerApply(
+        oldKey: VoiceTriggerKey,
+        hadHardwareMapping: Bool,
+        completion: @escaping (VoiceTriggerApplyResult) -> Void
+    ) {
+        print("[VOICE-KEY] new HID mapping failed; rolling back to \(oldKey.displayName)")
+        let localRollbackSucceeded = filter.configureVoiceTriggerKey(oldKey)
+        guard hadHardwareMapping else {
+            guard localRollbackSucceeded else {
+                lockVoiceTriggerRuntime(reason: "local rollback failed")
+                completion(.locked)
+                return
+            }
+            completeVoiceTriggerReconfiguration(.failed, completion: completion)
+            return
+        }
+
+        voiceHIDMappingQueue.async { [weak self] in
+            guard let self else { return }
+            let hidRollbackSucceeded = self.applyVoiceHIDMapping(true, oldKey)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard localRollbackSucceeded && hidRollbackSucceeded else {
+                    self.lockVoiceTriggerRuntime(
+                        reason: localRollbackSucceeded
+                            ? "old HID mapping rollback failed"
+                            : "local and HID rollback did not both succeed"
+                    )
+                    completion(.locked)
+                    return
+                }
+                print("[VOICE-KEY] rollback restored target=\(oldKey.displayName)")
+                self.completeVoiceTriggerReconfiguration(.failed, completion: completion)
+            }
+        }
+    }
+
+    private func lockVoiceTriggerRuntime(reason: String) {
+        voiceTriggerRuntimeLocked = true
+        voiceTriggerReconfigurationInProgress = true
+        print("[VOICE-KEY] runtime locked; reconfiguration gate remains active: \(reason)")
+    }
+
+    private func completeVoiceTriggerReconfiguration(
+        _ result: VoiceTriggerApplyResult,
+        completion: @escaping (VoiceTriggerApplyResult) -> Void
+    ) {
+        guard !voiceTriggerRuntimeLocked else {
+            completion(.locked)
+            return
+        }
+        guard pendingVoiceHIDMappingRefresh else {
+            voiceTriggerReconfigurationInProgress = false
+            filter.endVoiceTriggerReconfiguration()
+            completion(result)
+            return
+        }
+
+        pendingVoiceHIDMappingRefresh = false
+        let shouldEnable = hidConnected
+        let target = currentVoiceTriggerKey
+        voiceHIDMappingQueue.async { [weak self] in
+            guard let self else { return }
+            let succeeded = self.applyVoiceHIDMapping(shouldEnable, target)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if shouldEnable && !succeeded {
+                    print("[HID-MAP] reconnect mapping failed; synthetic fallback remains available")
+                }
+                if self.pendingVoiceHIDMappingRefresh {
+                    self.completeVoiceTriggerReconfiguration(result, completion: completion)
+                    return
+                }
+                self.voiceTriggerReconfigurationInProgress = false
+                self.filter.endVoiceTriggerReconfiguration()
+                completion(result)
+            }
+        }
+    }
 
     static func bypassesShortClassification(for _: ButtonBinding) -> Bool {
         // A disabled short action still uses the normal classifier.
         false
     }
 
-    private func beginVoicePress(
+    func beginVoicePress(
         targetApplicationBundleIdentifier lockedTarget: String? = nil,
         shortBinding: ButtonBinding? = nil
     ) {
+        guard !voiceTriggerReconfigurationInProgress,
+              !voiceTriggerRuntimeLocked else {
+            print("[VOICE] press rejected during trigger reconfiguration or runtime lock")
+            return
+        }
         let target = lockedTarget
             ?? MappingStore.preferredApplicationBundleIdentifier()
         let needsFloatTabsFocus = FloatTabsCommandClient.shouldPrepareInputFocus(
@@ -1727,6 +1990,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         AppStorage.prepare()
+        _ = restoreVoiceTriggerRuntime()
         if ProcessInfo.processInfo.environment["REMOTE_ORBIT_DIAGNOSTICS"] == "1" {
             let sourceHead = Bundle.main.object(
                 forInfoDictionaryKey: "RemoteOrbitDiagnosticSourceHead"
@@ -1934,11 +2198,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.filter.skipVoiceKey = active
             self.hidConnected = active
-            // Restore the original device-scoped HID path. The event tap
-            // temporarily gates the resulting physical Option edge so short
-            // disabled/custom bindings still get dropped before Doubao sees
-            // them; long press replays the untouched HID event.
-            RemoteVoiceKeyMapping.setEnabled(active, target: .leftOption)
+            if self.voiceTriggerReconfigurationInProgress {
+                self.pendingVoiceHIDMappingRefresh = true
+            } else {
+                self.applyVoiceHIDMappingForConnection(active)
+            }
             self.updateStatus()
             if !active {
                 self.reconnectHeldButtons = Set(
@@ -2249,7 +2513,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hidMonitor.onStatusChange = { status in
             print("[HID] status: \(status)")
         }
-        hidMonitor.start()
 
         // Start the loopback engine eagerly so device binding is verified
         // before the first BLE audio packet arrives.
@@ -2259,10 +2522,23 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             try filter.start()
         } catch {
+            voiceTriggerRuntimeLocked = true
             let msg = error.localizedDescription
             setStatusSummary("状态 · \(msg)", color: .systemOrange)
             setStatusIcon(systemName: "exclamationmark.triangle", color: .systemOrange)
             print("[ERR] filter: \(msg)")
+        }
+
+        // The persisted target is configured and the EventTap is ready before
+        // a newly observed remote can activate its device-scoped HID mapping.
+        hidMonitor.start()
+    }
+
+    private func applyVoiceHIDMappingForConnection(_ active: Bool) {
+        let shouldEnable = active && !voiceTriggerRuntimeLocked
+        let succeeded = applyVoiceHIDMapping(shouldEnable, currentVoiceTriggerKey)
+        if shouldEnable && !succeeded {
+            print("[HID-MAP] connect mapping failed; synthetic fallback remains available")
         }
     }
 
@@ -2601,7 +2877,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         KeyInjector.releaseAll()
         ble.stop()
         AudioPipe.shared.stop()
-        RemoteVoiceKeyMapping.setEnabled(false, target: .leftOption)
+        voiceHIDMappingQueue.sync {
+            _ = applyVoiceHIDMapping(false, currentVoiceTriggerKey)
+        }
     }
 
     @objc private func openKeyMapping() {
