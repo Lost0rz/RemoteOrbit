@@ -1427,9 +1427,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
 
-    static func bypassesShortClassification(for _: ButtonBinding) -> Bool {
-        // A disabled short action still uses the normal classifier.
-        false
+    static func bypassesShortClassification(for binding: ButtonBinding) -> Bool {
+        // A disabled short action has no short branch to classify.
+        binding.isDisabled
     }
 
     private func beginVoicePress(
