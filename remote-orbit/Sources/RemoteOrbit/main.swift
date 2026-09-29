@@ -1427,9 +1427,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
 
-    static func bypassesShortClassification(for _: ButtonBinding) -> Bool {
-        // A disabled short action still uses the normal classifier.
-        false
+    static func bypassesShortClassification(for binding: ButtonBinding) -> Bool {
+        // A disabled short action has no short branch to classify.
+        binding.isDisabled
     }
 
     private func beginVoicePress(
@@ -1778,8 +1778,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         voicePress.onStateChanged = { [weak self] state in
             if state == .holding {
-                // Do not open ATVV for a short tap. The coordinator promotes
-                // only after the long-press threshold has been crossed.
+                // ATVV starts only after the gesture enters remote-microphone holding.
+                // Enabled short actions reach this state after the normal hold threshold;
+                // a disabled short action enters it immediately because there is no short
+                // branch to classify.
                 self?.ble.activateVoiceInput()
             }
             self?.updateVoiceHUD(for: state)

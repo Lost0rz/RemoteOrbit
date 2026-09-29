@@ -2,75 +2,75 @@ import XCTest
 @testable import RemoteOrbit
 
 final class DisabledShortClassifierTests: XCTestCase {
-    func testDisabledShortBindingDoesNotBypassClassifier() {
-        XCTAssertFalse(
+    func testDisabledShortBindingBypassesClassifier() {
+        XCTAssertTrue(
             AppController.bypassesShortClassification(
                 for: .preset(.disabled)
             )
         )
     }
 
-    func testDisabledShortReleaseStaysInsideClassifier() {
-        var states: [VoicePressCoordinator.State] = []
-        var shortActionCalled = false
-        var gateShortResult: (UUID, Bool)?
-        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in
-            XCTFail("disabled short press must not emit a synthetic Option event")
-        })
-        let sessionID = UUID()
-        press.onStateChanged = { states.append($0) }
-        press.onHardwareOptionGateShortResult = { gateShortResult = ($0, $1) }
-
-        XCTAssertTrue(
-            press.keyDown(
-                sessionID: sessionID,
-                onShortTap: { shortActionCalled = true },
-                bypassesShortClassification: AppController
-                    .bypassesShortClassification(for: .preset(.disabled)),
-                usesHardwareOption: true
-            )
-        )
-        XCTAssertEqual(press.currentStateForTesting, .pending)
-        XCTAssertTrue(press.keyUp())
-
-        XCTAssertEqual(states, [.pending, .idle])
-        XCTAssertTrue(shortActionCalled)
-        XCTAssertEqual(gateShortResult?.0, sessionID)
-        XCTAssertEqual(gateShortResult?.1, false)
-        XCTAssertFalse(press.hasPendingTailForTesting)
-        press.stop()
-    }
-
-    func testDisabledLongStillEntersHoldingAfterClassifierThreshold() {
-        var holdingCount = 0
-        var routePreparationCount = 0
+    func testDisabledKeyDownImmediatelyEntersHoldingAndPreparesRemoteRoute() {
+        var events: [String] = []
         let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
         press.onStateChanged = { state in
             if state == .holding {
-                holdingCount += 1
+                events.append("HOLD_CONFIRMED")
             }
         }
         press.onRemoteRoutePreparation = {
-            routePreparationCount += 1
+            events.append("REMOTE_ROUTE_PREPARATION")
         }
 
         XCTAssertTrue(
             press.keyDown(
                 sessionID: UUID(),
-                onShortTap: {},
+                bypassesShortClassification: AppController
+                    .bypassesShortClassification(for: .preset(.disabled)),
+                preparesRemoteTransport: true
+            )
+        )
+
+        XCTAssertEqual(press.currentStateForTesting, .holding)
+        XCTAssertEqual(events, ["HOLD_CONFIRMED", "REMOTE_ROUTE_PREPARATION"])
+        press.stop()
+    }
+
+    func testDisabledQuickReleaseDoesNotExecuteShortAction() {
+        var shortActionCalled = false
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                onShortTap: { shortActionCalled = true },
                 bypassesShortClassification: AppController
                     .bypassesShortClassification(for: .preset(.disabled))
             )
         )
-        waitForClassifierTiming(0.35)
+        XCTAssertTrue(press.keyUp())
 
-        XCTAssertEqual(press.currentStateForTesting, .holding)
-        XCTAssertEqual(holdingCount, 1)
-        XCTAssertEqual(routePreparationCount, 1)
+        XCTAssertFalse(shortActionCalled)
+        XCTAssertEqual(press.currentStateForTesting, .idle)
         press.stop()
     }
 
-    private func waitForClassifierTiming(_ interval: TimeInterval) {
-        RunLoop.main.run(until: Date().addingTimeInterval(interval))
+    func testVoiceKeyDefaultRemainsPendingForShortLongClassification() {
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
+
+        XCTAssertFalse(
+            AppController.bypassesShortClassification(for: .voiceKeyDefault)
+        )
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: AppController
+                    .bypassesShortClassification(for: .voiceKeyDefault)
+            )
+        )
+
+        XCTAssertEqual(press.currentStateForTesting, .pending)
+        XCTAssertTrue(press.keyUp())
+        press.stop()
     }
 }
