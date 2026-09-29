@@ -174,7 +174,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
     func testActiveControllerVoicePressRejectsChangeWithoutPersistence() {
         let harness = VoiceTriggerRuntimeHarness(persistedKey: .leftOption)
         harness.controller.beginVoicePress()
-        XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .pending)
+        XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .holding)
 
         XCTAssertEqual(apply(.rightCommand, to: harness.controller), .busy)
 

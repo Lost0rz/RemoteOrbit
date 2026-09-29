@@ -570,6 +570,7 @@ struct SettingsView: View {
 
             if selectedButton == .microphone {
                 microphoneSingleBehaviorCard
+                microphoneVoiceTriggerCard
                 microphoneBehaviorCard(currentBinding(for: selectedButton))
             } else if hasEditableScope {
                 visualSingleBehaviorCard
@@ -767,7 +768,7 @@ struct SettingsView: View {
 
                 Text(
                     "豆包模式只发送一次 Option，由电脑/外部麦克风完成输入；" +
-                    "Codex 模式改为调用 Codex 语音对话。长按仍单独使用遥控器麦克风。"
+                    "Codex 模式改为调用 Codex 语音对话。按住经过正常短/长按判定后使用遥控器麦克风。"
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1127,6 +1128,7 @@ struct SettingsView: View {
 
                 if selectedButton == .microphone {
                     bindingSummaryCard(currentBinding(for: selectedButton))
+                    microphoneVoiceTriggerCard
                 } else {
                     bindingActionCard(currentBinding(for: selectedButton))
                 }
@@ -1556,10 +1558,10 @@ struct SettingsView: View {
                     .font(.subheadline.weight(.semibold))
                 Text(
                     binding.isDisabled
-                        ? "单击已关闭；长按仍使用遥控器麦克风。"
+                        ? "单击已关闭；按下语音键后直接进入遥控器麦克风模式，无需等待长按判定。"
                         : binding == .preset(.chatGPTStartVoiceChat)
-                            ? "单击调用 Codex 语音对话；长按使用遥控器麦克风。"
-                            : "单击调用豆包输入法并使用电脑/外部麦克风；长按使用遥控器麦克风。"
+                            ? "单击调用 Codex 语音对话；按住经过正常短/长按判定后使用遥控器麦克风。"
+                            : "单击调用豆包输入法并使用电脑/外部麦克风；按住经过正常短/长按判定后使用遥控器麦克风。"
                 )
             }
             .font(.caption)
@@ -1576,8 +1578,6 @@ struct SettingsView: View {
                 installationCard
 
                 mappingConfigurationCard
-
-                voiceTriggerCard
 
                 workspaceCard(title: "应用设置", symbolName: "gearshape") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -1658,14 +1658,17 @@ struct SettingsView: View {
         }
     }
 
-    private var voiceTriggerCard: some View {
-        workspaceCard(title: "语音输入", symbolName: "keyboard") {
+    private var microphoneVoiceTriggerCard: some View {
+        workspaceCard(title: "语音输入触发键", symbolName: "keyboard") {
             VStack(alignment: .leading, spacing: 12) {
-                Text("请选择与你当前输入法“语音输入”快捷键一致的按键。长按遥控器时仍使用遥控器麦克风。")
+                Text("请选择与你当前输入法“语音输入”快捷键一致的按键。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("短按语音和遥控器麦克风语音共用此触发键。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Picker("语音触发键", selection: Binding(
+                Picker("触发键", selection: Binding(
                     get: { selectedVoiceTriggerKey },
                     set: { requestVoiceTriggerKeyChange($0) }
                 )) {
