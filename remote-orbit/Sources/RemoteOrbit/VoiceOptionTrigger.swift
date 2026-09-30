@@ -269,6 +269,12 @@ enum HardwareOptionResolution: Equatable {
     case noOptionEdge
 }
 
+enum PersistentShortTapDispatchResult: Equatable {
+    case emitted
+    case deferred(waitingOn: UUID)
+    case failed
+}
+
 final class HardwareOptionGate {
     private(set) var activeSessionID: UUID?
     private(set) var suppressedSessionID: UUID?
@@ -279,6 +285,11 @@ final class HardwareOptionGate {
     private var suppressedReleaseArmed = false
     private var suppressedOutputDrainCompleted = false
     private var suppressedReleaseQuietPeriodElapsed = false
+
+    var audioOnlySuppressionOwnerID: UUID? {
+        guard shortTapDiscardSessionID == nil else { return nil }
+        return suppressedSessionID
+    }
 
     @discardableResult
     func begin(sessionID: UUID) -> Bool {

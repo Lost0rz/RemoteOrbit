@@ -472,8 +472,21 @@ final class VoicePersistentSessionTests: XCTestCase {
                 purpose: purpose
             )
         }
+        press.onDeferredPersistentSessionTriggerTap = { sessionID, triggerKey, purpose in
+            filter.emitDeferredPersistentShortTap(
+                gestureID: sessionID,
+                triggerKey: triggerKey,
+                purpose: purpose
+            )
+        }
         press.onHardwareOptionGateCancel = {
             filter.cancelDeferredOption(gestureID: $0, reason: "cancel")
+        }
+        filter.onSuppressedHardwareTriggerSafelyClosed = { [weak press] ownerID in
+            press?.suppressedHardwareGateDidClose(ownerID: ownerID)
+        }
+        filter.onSuppressedHardwareTriggerInvalidated = { [weak press] ownerID, reason in
+            press?.suppressedHardwareGateWasInvalidated(ownerID: ownerID, reason: reason)
         }
         press.onHardwareOptionGatePhysicalUp = { filter.armHardwareOptionRelease(gestureID: $0) }
         press.onHardwareOptionGateOutputDrained = {

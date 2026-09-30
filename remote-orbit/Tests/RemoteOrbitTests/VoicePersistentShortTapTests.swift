@@ -207,6 +207,215 @@ final class VoicePersistentShortTapTests: XCTestCase {
         stop(harness)
     }
 
+    func testPersistentShortCloseWaitsForPriorAudioSuppressionOwner() {
+        let harness = makeHarness(key: .rightOption)
+        let openGestureID = shortTap(harness, usesHardwareOption: false)
+        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
+        XCTAssertEqual(harness.press.persistentSessionTriggerOwnerKeyForTesting, .rightOption)
+        XCTAssertTrue(harness.press.configurePersistentSessionTriggerKey(.leftControl))
+        XCTAssertTrue(harness.filter.resetSuppressedHardwareTrigger(
+            gestureID: openGestureID,
+            reason: "test-prepare-audio-suppression"
+        ))
+        waitForCoordinatorTiming(0.20)
+
+        let oldAudioOnlyOwner = UUID()
+        harness.filter.beginOptionDeferral(gestureID: oldAudioOnlyOwner)
+        guard let mappedDown = CGEvent(
+            keyboardEventSource: nil,
+            virtualKey: VoiceTriggerKey.rightOption.cgKeyCode,
+            keyDown: true
+        ) else {
+            XCTFail("could not create mapped trigger-down event")
+            stop(harness)
+            return
+        }
+        XCTAssertTrue(harness.filter.captureDeferredHardwareOptionEdge(
+            .down,
+            copiedEvent: mappedDown
+        ))
+        XCTAssertTrue(harness.filter.suppressDeferredHardwareTrigger(
+            gestureID: oldAudioOnlyOwner,
+            reason: "test-audio-only-hold"
+        ))
+        XCTAssertTrue(harness.filter.armSuppressedHardwareTriggerRelease(
+            gestureID: oldAudioOnlyOwner
+        ))
+        XCTAssertTrue(harness.filter.completeSuppressedHardwareTrigger(
+            gestureID: oldAudioOnlyOwner,
+            reason: "test-output-drained"
+        ))
+
+        let closeGestureID = UUID()
+        XCTAssertTrue(harness.press.keyDown(
+            sessionID: closeGestureID,
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: true
+        ))
+        XCTAssertTrue(harness.filter.shouldSuppressDiscardedHardwareTriggerEvent(
+            keyCode: VoiceTriggerKey.rightOption.cgKeyCode,
+            type: .keyDown
+        ))
+        XCTAssertTrue(harness.filter.shouldSuppressDiscardedHardwareTriggerEvent(
+            keyCode: VoiceTriggerKey.rightOption.cgKeyCode,
+            type: .keyUp
+        ))
+        waitForCoordinatorTiming(0.13)
+        XCTAssertTrue(harness.press.keyUp())
+
+        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
+        XCTAssertEqual(harness.filter.suppressedHardwareTriggerSessionID, oldAudioOnlyOwner)
+        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false])
+        XCTAssertTrue(harness.press.hasPendingPersistentToggleForTesting)
+        XCTAssertTrue(
+            harness.press.hasActiveVoiceOwnershipForTriggerReconfiguration,
+            "a classified short toggle waiting for its gate owner must remain active voice ownership"
+        )
+        XCTAssertTrue(harness.press.hasReleaseOrTailOwnershipForReconfiguration)
+        XCTAssertFalse(harness.press.configurePersistentSessionTriggerKey(.leftOption))
+        XCTAssertFalse(harness.press.keyDown(
+            sessionID: UUID(),
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: true
+        ))
+        XCTAssertEqual(harness.press.currentStateForTesting, .idle)
+        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false])
+
+        XCTAssertTrue(harness.filter.completeSuppressedHardwareTriggerQuietPeriod(
+            gestureID: oldAudioOnlyOwner
+        ))
+        waitForCoordinatorTiming(0.08)
+
+        XCTAssertFalse(harness.press.persistentSessionActiveForTesting)
+        XCTAssertFalse(harness.press.hasPendingPersistentToggleForTesting)
+        XCTAssertNil(harness.press.persistentSessionTriggerOwnerKeyForTesting)
+        XCTAssertNil(harness.filter.suppressedHardwareTriggerSessionID)
+        XCTAssertEqual(harness.recorder.values.map(\.0), [
+            .rightOption, .rightOption, .rightOption, .rightOption,
+        ])
+        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false, true, false])
+        XCTAssertFalse(harness.filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertFalse(harness.filter.completeSuppressedHardwareTriggerQuietPeriod(
+            gestureID: oldAudioOnlyOwner
+        ))
+        harness.press.suppressedHardwareGateDidClose(ownerID: oldAudioOnlyOwner)
+        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false, true, false])
+        stop(harness)
+    }
+
+    func testStopCancelsDeferredCloseBeforeLateGateCompletion() {
+        let (harness, oldOwner) = prepareDeferredPersistentClose()
+        let edgesBeforeStop = harness.recorder.values
+        XCTAssertTrue(harness.press.hasPendingPersistentToggleForTesting)
+
+        harness.press.stop()
+
+        XCTAssertFalse(harness.press.hasPendingPersistentToggleForTesting)
+        XCTAssertNil(harness.trigger.activeSessionID)
+        let modeAfterStop = harness.press.currentSessionModeForTesting
+        XCTAssertTrue(harness.filter.completeSuppressedHardwareTriggerQuietPeriod(
+            gestureID: oldOwner
+        ))
+        waitForCoordinatorTiming(0.08)
+
+        XCTAssertEqual(modeAfterStop, .idle)
+        XCTAssertEqual(harness.press.currentSessionModeForTesting, modeAfterStop)
+        XCTAssertEqual(harness.recorder.values.map(\.1), edgesBeforeStop.map(\.1))
+        stop(harness)
+    }
+
+    func testSuppressionInvalidationCancelsDeferredCloseWithoutStateCommit() {
+        let (harness, oldOwner) = prepareDeferredPersistentClose()
+        let edgesBeforeInvalidation = harness.recorder.values
+        XCTAssertTrue(harness.press.hasPendingPersistentToggleForTesting)
+
+        XCTAssertTrue(harness.filter.resetSuppressedHardwareTrigger(
+            gestureID: oldOwner,
+            reason: "device-removed"
+        ))
+
+        XCTAssertFalse(harness.press.hasPendingPersistentToggleForTesting)
+        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
+        XCTAssertEqual(harness.press.persistentSessionTriggerOwnerKeyForTesting, .rightOption)
+        XCTAssertNil(harness.trigger.activeSessionID)
+        harness.press.suppressedHardwareGateDidClose(ownerID: oldOwner)
+        XCTAssertEqual(harness.recorder.values.map(\.1), edgesBeforeInvalidation.map(\.1))
+        stop(harness)
+    }
+
+    func testDeviceRemovalCancelsDeferredCloseBeforeLateQuietCompletion() {
+        let (harness, oldOwner) = prepareDeferredPersistentClose()
+        let edgesBeforeRemoval = harness.recorder.values
+        XCTAssertTrue(harness.press.hasPendingPersistentToggleForTesting)
+
+        harness.press.handleTransportLoss(deviceRemoved: true)
+
+        XCTAssertFalse(harness.press.hasPendingPersistentToggleForTesting)
+        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
+        XCTAssertNil(harness.filter.suppressedHardwareTriggerSessionID)
+        XCTAssertFalse(harness.filter.completeSuppressedHardwareTriggerQuietPeriod(
+            gestureID: oldOwner
+        ))
+        harness.press.suppressedHardwareGateDidClose(ownerID: oldOwner)
+        XCTAssertEqual(harness.recorder.values.map(\.1), edgesBeforeRemoval.map(\.1))
+        stop(harness)
+    }
+
+    private func prepareDeferredPersistentClose() -> (Harness, UUID) {
+        let harness = makeHarness(key: .rightOption)
+        let openGestureID = shortTap(harness, usesHardwareOption: false)
+        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
+        XCTAssertTrue(harness.press.configurePersistentSessionTriggerKey(.leftControl))
+        XCTAssertTrue(harness.filter.resetSuppressedHardwareTrigger(
+            gestureID: openGestureID,
+            reason: "test-prepare-audio-suppression"
+        ))
+        waitForCoordinatorTiming(0.20)
+
+        let oldOwner = UUID()
+        harness.filter.beginOptionDeferral(gestureID: oldOwner)
+        guard let mappedDown = CGEvent(
+            keyboardEventSource: nil,
+            virtualKey: VoiceTriggerKey.rightOption.cgKeyCode,
+            keyDown: true
+        ) else {
+            XCTFail("could not create mapped trigger-down event")
+            return (harness, oldOwner)
+        }
+        XCTAssertTrue(harness.filter.captureDeferredHardwareOptionEdge(
+            .down,
+            copiedEvent: mappedDown
+        ))
+        XCTAssertTrue(harness.filter.suppressDeferredHardwareTrigger(
+            gestureID: oldOwner,
+            reason: "test-audio-only-hold"
+        ))
+        XCTAssertTrue(harness.filter.armSuppressedHardwareTriggerRelease(gestureID: oldOwner))
+        XCTAssertTrue(harness.filter.completeSuppressedHardwareTrigger(
+            gestureID: oldOwner,
+            reason: "test-output-drained"
+        ))
+
+        XCTAssertTrue(harness.press.keyDown(
+            sessionID: UUID(),
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: true
+        ))
+        XCTAssertTrue(harness.filter.shouldSuppressDiscardedHardwareTriggerEvent(
+            keyCode: VoiceTriggerKey.rightOption.cgKeyCode,
+            type: .keyDown
+        ))
+        XCTAssertTrue(harness.filter.shouldSuppressDiscardedHardwareTriggerEvent(
+            keyCode: VoiceTriggerKey.rightOption.cgKeyCode,
+            type: .keyUp
+        ))
+        waitForCoordinatorTiming(0.13)
+        XCTAssertTrue(harness.press.keyUp())
+        XCTAssertTrue(harness.press.hasPendingPersistentToggleForTesting)
+        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false])
+        return (harness, oldOwner)
+    }
+
     private func makeHarness(key: VoiceTriggerKey) -> Harness {
         let recorder = EventRecorder()
         let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
@@ -229,8 +438,27 @@ final class VoicePersistentShortTapTests: XCTestCase {
                 purpose: purpose
             )
         }
+        press.onDeferredPersistentSessionTriggerTap = { gestureID, triggerKey, purpose in
+            filter.emitDeferredPersistentShortTap(
+                gestureID: gestureID,
+                triggerKey: triggerKey,
+                purpose: purpose
+            )
+        }
         press.onHardwareOptionGateCancel = {
             filter.cancelDeferredOption(gestureID: $0, reason: "short-tap-test-cleanup")
+        }
+        press.onHardwareOptionGateResetSuppression = { ownerID in
+            _ = filter.resetSuppressedHardwareTrigger(
+                gestureID: ownerID,
+                reason: "short-tap-test-device-removal"
+            )
+        }
+        filter.onSuppressedHardwareTriggerSafelyClosed = { [weak press] ownerID in
+            press?.suppressedHardwareGateDidClose(ownerID: ownerID)
+        }
+        filter.onSuppressedHardwareTriggerInvalidated = { [weak press] ownerID, reason in
+            press?.suppressedHardwareGateWasInvalidated(ownerID: ownerID, reason: reason)
         }
         return Harness(recorder: recorder, trigger: trigger, filter: filter, press: press)
     }

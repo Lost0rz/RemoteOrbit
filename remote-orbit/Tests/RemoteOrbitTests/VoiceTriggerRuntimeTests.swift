@@ -272,6 +272,102 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         ))
     }
 
+    func testBothTriggerReconfigurationsAreBusyWhilePersistentCloseIsDeferred() {
+        let harness = VoiceTriggerRuntimeHarness(
+            persistedKey: .leftOption,
+            persistedPersistentKey: .rightOption
+        )
+        XCTAssertTrue(harness.controller.restoreVoiceTriggerRuntime())
+
+        let press = harness.controller.voicePress
+        let filter = harness.filter
+        press.onHardwareOptionGateBegin = { filter.beginOptionDeferral(gestureID: $0) }
+        press.onPersistentSessionTriggerTap = { gestureID, key, purpose in
+            filter.emitPersistentShortTap(
+                gestureID: gestureID,
+                reason: "runtime-pending-toggle-test",
+                triggerKey: key,
+                purpose: purpose
+            )
+        }
+        press.onDeferredPersistentSessionTriggerTap = { gestureID, key, purpose in
+            filter.emitDeferredPersistentShortTap(
+                gestureID: gestureID,
+                triggerKey: key,
+                purpose: purpose
+            )
+        }
+        filter.onSuppressedHardwareTriggerSafelyClosed = { [weak press] ownerID in
+            press?.suppressedHardwareGateDidClose(ownerID: ownerID)
+        }
+        filter.onSuppressedHardwareTriggerInvalidated = { [weak press] ownerID, reason in
+            press?.suppressedHardwareGateWasInvalidated(ownerID: ownerID, reason: reason)
+        }
+
+        let openGestureID = UUID()
+        XCTAssertTrue(press.keyDown(
+            sessionID: openGestureID,
+            togglesPersistentVoiceSession: true
+        ))
+        XCTAssertTrue(press.keyUp())
+        waitForCoordinatorTiming(0.08)
+        XCTAssertTrue(press.persistentSessionActiveForTesting)
+
+        let oldOwner = UUID()
+        filter.beginOptionDeferral(gestureID: oldOwner)
+        guard let mappedDown = CGEvent(
+            keyboardEventSource: nil,
+            virtualKey: VoiceTriggerKey.leftOption.cgKeyCode,
+            keyDown: true
+        ) else {
+            XCTFail("could not create mapped trigger-down event")
+            press.stop()
+            return
+        }
+        XCTAssertTrue(filter.captureDeferredHardwareOptionEdge(.down, copiedEvent: mappedDown))
+        XCTAssertTrue(filter.suppressDeferredHardwareTrigger(
+            gestureID: oldOwner,
+            reason: "runtime-pending-toggle-test"
+        ))
+        XCTAssertTrue(filter.armSuppressedHardwareTriggerRelease(gestureID: oldOwner))
+        XCTAssertTrue(filter.completeSuppressedHardwareTrigger(
+            gestureID: oldOwner,
+            reason: "runtime-pending-toggle-test"
+        ))
+
+        XCTAssertTrue(press.keyDown(
+            sessionID: UUID(),
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: true
+        ))
+        XCTAssertTrue(filter.shouldSuppressDiscardedHardwareTriggerEvent(
+            keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
+            type: .keyDown
+        ))
+        XCTAssertTrue(filter.shouldSuppressDiscardedHardwareTriggerEvent(
+            keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
+            type: .keyUp
+        ))
+        waitForCoordinatorTiming(0.13)
+        XCTAssertTrue(press.keyUp())
+        XCTAssertTrue(press.hasPendingPersistentToggleForTesting)
+
+        XCTAssertEqual(apply(.rightCommand, to: harness.controller), .busyReleaseDrain)
+        XCTAssertEqual(applyPersistent(.leftControl, to: harness.controller), .busyReleaseDrain)
+        XCTAssertEqual(harness.controller.currentVoiceTriggerKey, .leftOption)
+        XCTAssertEqual(harness.controller.currentPersistentSessionTriggerKey, .rightOption)
+        XCTAssertEqual(harness.persistedKey, .leftOption)
+        XCTAssertEqual(harness.persistenceWriteCount, 0)
+        XCTAssertEqual(harness.persistentPersistenceWriteCount, 0)
+        XCTAssertTrue(harness.mappingCalls.isEmpty)
+
+        XCTAssertTrue(filter.resetSuppressedHardwareTrigger(
+            gestureID: oldOwner,
+            reason: "test-cleanup"
+        ))
+        press.stop()
+    }
+
     func testSameKeyIsNoOpEvenWhenAnExistingGestureOwnsTheTrigger() {
         let harness = VoiceTriggerRuntimeHarness(persistedKey: .leftOption)
         let sessionID = UUID()
