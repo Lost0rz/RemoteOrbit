@@ -459,11 +459,12 @@ final class VoicePersistentSessionTests: XCTestCase {
         press.onHardwareOptionGateShortReplay = { sessionID in
             filter.releaseDeferredOption(gestureID: sessionID, reason: "short-tap")
         }
-        press.onPersistentSessionTriggerTap = { sessionID, triggerKey in
+        press.onPersistentSessionTriggerTap = { sessionID, triggerKey, purpose in
             filter.emitPersistentShortTap(
                 gestureID: sessionID,
                 reason: "persistent-session-test",
-                triggerKey: triggerKey
+                triggerKey: triggerKey,
+                purpose: purpose
             )
         }
         press.onHardwareOptionGateCancel = {

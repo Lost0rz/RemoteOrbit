@@ -132,6 +132,10 @@ enum RemoteVoiceKeyMapping {
     private static var enabled = false
     private static let matching = "{\"VendorID\":0x2717,\"ProductID\":0x32B8}"
     private static let source = "0x70000003E"
+    private static let diagnosticReadbackQueue = DispatchQueue(
+        label: "com.remoteorbit.voice-trigger-hid-diagnostic-readback",
+        qos: .utility
+    )
     static let emptyMappingJSON = "{\"UserKeyMapping\":[]}"
 
     static func mappingJSON(for target: VoiceTriggerKey) -> String {
@@ -147,6 +151,18 @@ enum RemoteVoiceKeyMapping {
 
     @discardableResult
     static func setEnabled(_ shouldEnable: Bool, target: VoiceTriggerKey) -> Bool {
+        VoiceDiagnosticLogger.shared.log(
+            category: "hid",
+            event: "HID_APPLY_REQUEST",
+            key: target,
+            fields: [
+                "enabled": shouldEnable,
+                "source": source,
+                "target": shouldEnable ? String(format: "0x%llX", target.hidutilDestination) : "none",
+                "matching_vendor": "0x2717",
+                "matching_product": "0x32B8",
+            ]
+        )
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/hidutil")
         process.arguments = [
@@ -161,9 +177,21 @@ enum RemoteVoiceKeyMapping {
             process.waitUntilExit()
         } catch {
             print("[HID-MAP] 执行 hidutil 失败: \(error.localizedDescription)")
+            VoiceDiagnosticLogger.shared.log(
+                category: "hid",
+                event: "HID_APPLY_EXIT",
+                key: target,
+                fields: [
+                    "enabled": shouldEnable,
+                    "status": -1,
+                    "requested_target": shouldEnable ? String(format: "0x%llX", target.hidutilDestination) : "none",
+                    "error": error.localizedDescription,
+                ]
+            )
             lock.lock()
             enabled = false
             lock.unlock()
+            scheduleDiagnosticReadback(enabled: shouldEnable, target: target)
             return false
         }
 
@@ -175,7 +203,93 @@ enum RemoteVoiceKeyMapping {
             "[HID-MAP] 遥控器语音键 → \(target.displayName) " +
             (shouldEnable && succeeded ? "已启用" : shouldEnable ? "启用失败" : "已关闭")
         )
+        VoiceDiagnosticLogger.shared.log(
+            category: "hid",
+            event: "HID_APPLY_EXIT",
+            key: target,
+            fields: [
+                "enabled": shouldEnable,
+                "status": Int(process.terminationStatus),
+                "requested_target": shouldEnable ? String(format: "0x%llX", target.hidutilDestination) : "none",
+            ]
+        )
+        scheduleDiagnosticReadback(enabled: shouldEnable, target: target)
         return succeeded
+    }
+
+    private static func scheduleDiagnosticReadback(enabled shouldEnable: Bool, target: VoiceTriggerKey) {
+        diagnosticReadbackQueue.async {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/hidutil")
+            process.arguments = [
+                "property", "--matching", matching,
+                "--get", "UserKeyMapping",
+            ]
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+            let status: Int32
+            do {
+                try process.run()
+                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                status = process.terminationStatus
+                let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                VoiceDiagnosticLogger.shared.log(
+                    category: "hid",
+                    event: "HID_READBACK",
+                    key: target,
+                    fields: [
+                        "exit_status": Int(status),
+                        "stdout": stdout,
+                        "stderr": stderr,
+                        "requested_enabled": shouldEnable,
+                    ]
+                )
+                let verification = VoiceDiagnosticHIDMappingParser.verify(
+                    stdout: stdout,
+                    stderr: stderr,
+                    exitStatus: status,
+                    requested: shouldEnable ? target : nil
+                )
+                VoiceDiagnosticLogger.shared.log(
+                    category: "hid",
+                    event: "HID_VERIFY",
+                    key: target,
+                    fields: [
+                        "requested": shouldEnable ? String(format: "0x%llX", target.hidutilDestination) : "none",
+                        "observed": VoiceDiagnosticHIDMappingParser.observedVoiceDestination(in: stdout)
+                            .map { String(format: "0x%llX", $0) } ?? "none",
+                        "result": verification.rawValue,
+                    ]
+                )
+            } catch {
+                VoiceDiagnosticLogger.shared.log(
+                    category: "hid",
+                    event: "HID_READBACK",
+                    key: target,
+                    fields: [
+                        "exit_status": -1,
+                        "stdout": "",
+                        "stderr": error.localizedDescription,
+                        "requested_enabled": shouldEnable,
+                    ]
+                )
+                VoiceDiagnosticLogger.shared.log(
+                    category: "hid",
+                    event: "HID_VERIFY",
+                    key: target,
+                    fields: [
+                        "requested": shouldEnable ? String(format: "0x%llX", target.hidutilDestination) : "none",
+                        "observed": "none",
+                        "result": VoiceDiagnosticHIDVerification.unparseable.rawValue,
+                    ]
+                )
+            }
+        }
     }
 }
 
@@ -229,7 +343,7 @@ final class VoicePressCoordinator {
     /// event can arrive; ordinary BLE loss keeps waiting for physical up.
     var onHardwareOptionGateResetSuppression: ((UUID) -> Void)?
     var onHardwareOptionGateShortReplay: ((UUID) -> Void)?
-    var onPersistentSessionTriggerTap: ((UUID, VoiceTriggerKey) -> Bool)?
+    var onPersistentSessionTriggerTap: ((UUID, VoiceTriggerKey, String) -> Bool)?
     var onHardwareOptionGateCancel: ((UUID) -> Void)?
     /// Testable ordering seam: the state callback is where AppController
     /// requests BLE acquisition, and this callback marks route preparation.
@@ -305,9 +419,15 @@ final class VoicePressCoordinator {
     private var awaitingPhysicalVoiceKeyUp = false
     private var pendingVoiceUIHidden = false
     private let syntheticOptionTrigger: VoiceOptionTrigger
+    private let diagnosticLogger: VoiceDiagnosticLogger?
+    private var gesturePhysicalDownUptime: TimeInterval?
 
-    init(optionTrigger: VoiceOptionTrigger = .shared) {
+    init(
+        optionTrigger: VoiceOptionTrigger = .shared,
+        diagnosticLogger: VoiceDiagnosticLogger? = nil
+    ) {
         syntheticOptionTrigger = optionTrigger
+        self.diagnosticLogger = diagnosticLogger
     }
 
     /// Only these short actions need RemoteOrbit to capture the Mac's
@@ -391,6 +511,27 @@ final class VoicePressCoordinator {
 
     var persistentSessionTriggerOwnerKeyForTesting: VoiceTriggerKey? {
         persistentSessionTriggerOwnerKey
+    }
+
+    var diagnosticStateFields: [String: Any] {
+        [
+            "mode": modeName,
+            "persistent_session_mode": voiceSessionMode == .persistentOpen
+                ? "persistent_open" : "idle",
+            "gesture_id": gestureID?.uuidString ?? "none",
+            "pending_repress": pendingRepress != nil,
+            "remote_routed": remoteRouted,
+            "remote_streaming": remoteStreaming,
+            "remote_audio_available": remoteAudioAvailable,
+            "long_input_started": longInputStarted,
+            "tail_pending": tailWorkItem != nil,
+            "awaiting_physical_up": awaitingPhysicalVoiceKeyUp,
+            "momentary_config": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
+            "persistent_config": persistentSessionTriggerKey.rawValue,
+            "persistent_owner": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
+            "synthetic_owner": syntheticOptionTrigger.activeSessionID?.uuidString ?? "none",
+            "synthetic_down": syntheticOptionTrigger.isOptionDown,
+        ]
     }
 
     @discardableResult
@@ -515,8 +656,38 @@ final class VoicePressCoordinator {
         awaitingPhysicalVoiceKeyUp = false
         pendingVoiceUIHidden = preparesRemoteTransport
         gestureID = sessionID
+        gesturePhysicalDownUptime = physicalDownAt
         VoiceTimingLogger.begin(sessionID: sessionID)
         _ = syntheticOptionTrigger.begin(sessionID: sessionID)
+        let holdThreshold = isPersistentSessionSegment
+            ? Self.persistentHoldActivationThreshold
+            : Self.holdActivationThreshold
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "GESTURE_BEGIN",
+            gestureID: sessionID,
+            fields: [
+                "session_mode": voiceSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                "persistent_configured_key": persistentSessionTriggerKey.rawValue,
+                "persistent_owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
+                "momentary_configured_key": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
+                "policy": remoteSegmentTriggerPolicy == .audioOnly ? "audio_only" : "momentary_trigger",
+            ]
+        )
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "GESTURE_CLASSIFIER",
+            gestureID: sessionID,
+            key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
+            fields: [
+                "session_mode": voiceSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                "threshold_ms": Int(holdThreshold * 1000),
+                "momentary_key": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
+                "persistent_configured_key": persistentSessionTriggerKey.rawValue,
+                "persistent_owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
+                "bypasses_short_classification": bypassesShortClassification,
+            ]
+        )
         if usesHardwareOptionPath {
             onHardwareOptionGateBegin?(sessionID)
         }
@@ -525,6 +696,7 @@ final class VoicePressCoordinator {
         AudioPipe.shared.beginRemoteCandidate()
 
         if bypassesShortClassification {
+            logGestureClassification(result: "hold", sessionID: sessionID, policy: remoteSegmentTriggerPolicy)
             enterHoldingState()
             return true
         }
@@ -538,9 +710,6 @@ final class VoicePressCoordinator {
             0,
             ProcessInfo.processInfo.systemUptime - physicalDownAt
         )
-        let holdThreshold = isPersistentSessionSegment
-            ? Self.persistentHoldActivationThreshold
-            : Self.holdActivationThreshold
         let isLongPress = heldDuration >= holdThreshold
         let remainingHoldTime = holdThreshold - heldDuration
         guard !isLongPress else {
@@ -576,6 +745,10 @@ final class VoicePressCoordinator {
                     if usesHardwareOptionPath {
                         onHardwareOptionGatePhysicalUp?(currentGestureID)
                     }
+                    logPhysicalGestureRelease(
+                        sessionID: currentGestureID,
+                        policy: remoteSegmentTriggerPolicy
+                    )
                     if longInputStarted {
                         completeLongInputIfReady(sessionID: currentGestureID)
                     } else {
@@ -604,6 +777,13 @@ final class VoicePressCoordinator {
             let shouldTogglePersistentSession = shortInputTogglesPersistentVoiceSession
             shortInputTogglesPersistentVoiceSession = false
             let currentGestureID = gestureID
+            if let currentGestureID {
+                logGestureClassification(
+                    result: "short",
+                    sessionID: currentGestureID,
+                    policy: remoteSegmentTriggerPolicy
+                )
+            }
             let shouldUseHardwareOption = usesHardwareOptionPath
             gestureID = nil
             usesHardwareOptionPath = false
@@ -636,21 +816,39 @@ final class VoicePressCoordinator {
                     }
                 }
             } else if shouldTogglePersistentSession, let currentGestureID {
+                let previousSessionMode = voiceSessionMode
                 let nextSessionMode: VoiceSessionMode =
                     voiceSessionMode == .persistentOpen ? .idle : .persistentOpen
                 let triggerKey = nextSessionMode == .persistentOpen
                     ? persistentSessionTriggerKey
                     : persistentSessionTriggerOwnerKey
+                let triggerPurpose = nextSessionMode == .persistentOpen
+                    ? "persistent_open" : "persistent_close"
+                diagnosticLogger?.log(
+                    category: "voice",
+                    event: "PERSISTENT_TOGGLE_REQUEST",
+                    gestureID: currentGestureID,
+                    key: triggerKey,
+                    fields: [
+                        "current_mode": previousSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                        "configured_key": persistentSessionTriggerKey.rawValue,
+                        "owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
+                        "target_mode": nextSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                        "purpose": triggerPurpose,
+                    ]
+                )
                 let triggerSucceeded: Bool
                 if let triggerKey, let onPersistentSessionTriggerTap {
                     triggerSucceeded = onPersistentSessionTriggerTap(
                         currentGestureID,
-                        triggerKey
+                        triggerKey,
+                        triggerPurpose
                     )
                 } else if let triggerKey, !shouldUseHardwareOption {
                     triggerSucceeded = syntheticOptionTrigger.sendTap(
                         sessionID: currentGestureID,
-                        key: triggerKey
+                        key: triggerKey,
+                        purpose: triggerPurpose
                     )
                 } else {
                     triggerSucceeded = false
@@ -660,9 +858,44 @@ final class VoicePressCoordinator {
                     persistentSessionTriggerOwnerKey = nextSessionMode == .persistentOpen
                         ? triggerKey
                         : nil
+                    diagnosticLogger?.log(
+                        category: "voice",
+                        event: "PERSISTENT_TRIGGER_RESULT",
+                        gestureID: currentGestureID,
+                        key: triggerKey,
+                        fields: ["result": "success", "purpose": triggerPurpose]
+                    )
+                    var stateFields: [String: Any] = [
+                        "from": previousSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                        "to": nextSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                        "configured_key": persistentSessionTriggerKey.rawValue,
+                    ]
+                    if nextSessionMode == .persistentOpen {
+                        stateFields["owner_key"] = triggerKey?.rawValue ?? "none"
+                    } else {
+                        stateFields["closing_key"] = triggerKey?.rawValue ?? "none"
+                    }
+                    diagnosticLogger?.log(
+                        category: "voice",
+                        event: "PERSISTENT_STATE_CHANGE",
+                        gestureID: currentGestureID,
+                        key: triggerKey,
+                        fields: stateFields
+                    )
                     print("[PRESS] IME persistent session → \(nextSessionMode)")
                 } else {
                     _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
+                    diagnosticLogger?.log(
+                        category: "voice",
+                        event: "PERSISTENT_TRIGGER_RESULT",
+                        gestureID: currentGestureID,
+                        key: triggerKey,
+                        fields: [
+                            "result": "failed",
+                            "purpose": triggerPurpose,
+                            "state_unchanged": true,
+                        ]
+                    )
                     print("[PRESS] IME persistent session unchanged; configured trigger tap failed")
                 }
             } else if let action {
@@ -687,6 +920,7 @@ final class VoicePressCoordinator {
             shortTapAction = nil
             shortInputUsesLocalMicrophone = false
             let releasedSessionID = gestureID
+            let releasedPolicy = remoteSegmentTriggerPolicy
             if let releasedSessionID {
                 physicalUpSessionID = releasedSessionID
                 VoiceTimingLogger.mark("PHYSICAL_UP", sessionID: releasedSessionID)
@@ -707,12 +941,28 @@ final class VoicePressCoordinator {
                 print("[PRESS] LONG release → no remote audio; no Option dialog")
                 finishLongInput(sessionID: releasedSessionID)
             }
+            if let releasedSessionID, releasedPolicy == .audioOnly {
+                logPhysicalGestureRelease(sessionID: releasedSessionID, policy: releasedPolicy)
+            }
+            if let releasedSessionID, releasedPolicy == .momentaryTrigger {
+                logPhysicalGestureRelease(sessionID: releasedSessionID, policy: releasedPolicy)
+            }
             return true
         }
     }
 
     func setRemoteStreaming(_ streaming: Bool) {
         remoteStreaming = streaming
+        diagnosticLogger?.log(
+            category: "voice",
+            event: streaming ? "AUDIO_START" : "AUDIO_STOP",
+            gestureID: gestureID,
+            fields: [
+                "session_mode": voiceSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                "remote_streaming": streaming,
+                "remote_routed": remoteRouted,
+            ]
+        )
         if !streaming {
             remoteAudioAvailable = false
             onRemoteAudioChanged?(false)
@@ -763,6 +1013,20 @@ final class VoicePressCoordinator {
         remoteAudioAvailable = true
         if let currentGestureID = gestureID {
             VoiceTimingLogger.mark("AUDIO_FIRST", sessionID: currentGestureID)
+            diagnosticLogger?.log(
+                category: "voice",
+                event: "AUDIO_FIRST",
+                gestureID: currentGestureID,
+                fields: ["session_mode": voiceSessionMode == .persistentOpen ? "persistent_open" : "idle"]
+            )
+            if remoteSegmentTriggerPolicy == .audioOnly {
+                diagnosticLogger?.log(
+                    category: "voice",
+                    event: "PERSISTENT_SEGMENT_AUDIO_FIRST",
+                    gestureID: currentGestureID,
+                    fields: ["owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none"]
+                )
+            }
         }
         if mode == .holding {
             onRemoteAudioChanged?(true)
@@ -904,6 +1168,13 @@ final class VoicePressCoordinator {
     private func promoteToLongPress() {
         guard mode == .pending else { return }
         holdWorkItem = nil
+        if let currentGestureID = gestureID {
+            logGestureClassification(
+                result: "hold",
+                sessionID: currentGestureID,
+                policy: remoteSegmentTriggerPolicy
+            )
+        }
         enterHoldingState()
     }
 
@@ -946,18 +1217,45 @@ final class VoicePressCoordinator {
         longInputStarted = true
         guard let currentGestureID = gestureID else { return }
         if remoteSegmentTriggerPolicy == .audioOnly {
+            diagnosticLogger?.log(
+                category: "voice",
+                event: "PERSISTENT_SEGMENT_BEGIN",
+                gestureID: currentGestureID,
+                key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
+                fields: [
+                    "owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
+                    "momentary_physical_key": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
+                    "policy": "audio_only",
+                    "trigger_edge_emitted": false,
+                    "first_pcm": true,
+                ]
+            )
             print("[PRESS] persistent IME segment audio ready; no trigger edge")
         } else if usesHardwareOptionPath {
             print("[PRESS] LONG audio ready → Option DOWN; source=remote")
-            print("[PRESS] LONG uses hardware-held left Option")
+            print("[PRESS] LONG uses hardware-held \(syntheticOptionTrigger.momentaryVoiceTriggerKey.displayName)")
             onHardwareOptionGateLongReady?(currentGestureID)
             VoiceTimingLogger.mark("OPTION_GATE_RELEASE", sessionID: currentGestureID)
+            diagnosticLogger?.log(
+                category: "voice",
+                event: "MOMENTARY_HOLD_READY",
+                gestureID: currentGestureID,
+                key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
+                fields: ["source": "hardware", "first_pcm": true]
+            )
         } else {
             // Fallback for systems where hidutil could not be applied.
             print("[PRESS] LONG audio ready → Option DOWN; source=remote")
-            print("[PRESS] LONG uses synthetic left Option")
+            print("[PRESS] LONG uses synthetic \(syntheticOptionTrigger.momentaryVoiceTriggerKey.displayName)")
             _ = syntheticOptionTrigger.sendDown(sessionID: currentGestureID)
             VoiceTimingLogger.mark("OPTION_GATE_RELEASE", sessionID: currentGestureID)
+            diagnosticLogger?.log(
+                category: "voice",
+                event: "MOMENTARY_HOLD_READY",
+                gestureID: currentGestureID,
+                key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
+                fields: ["source": "synthetic", "first_pcm": true]
+            )
         }
     }
 
@@ -1065,6 +1363,15 @@ final class VoicePressCoordinator {
         _ = setRemoteRouted(false)
         VoiceTimingLogger.mark("STOP_REQUESTED", sessionID: sessionID)
         VoiceTimingLogger.mark("OUTPUT_DRAIN_BEGIN", sessionID: sessionID)
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "OUTPUT_DRAIN_BEGIN",
+            gestureID: sessionID,
+            fields: [
+                "session_mode": voiceSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                "tail_pending": tailWorkItem != nil,
+            ]
+        )
         remoteOutputDrainRequestedSessionID = sessionID
 
         let completion = { [weak self] in
@@ -1073,6 +1380,12 @@ final class VoicePressCoordinator {
                   self.longInputStarted else { return }
             self.remoteOutputDrainedSessionID = sessionID
             VoiceTimingLogger.mark("AUDIO_PIPELINE_CLOSED", sessionID: sessionID)
+            self.diagnosticLogger?.log(
+                category: "voice",
+                event: "OUTPUT_DRAIN_COMPLETE",
+                gestureID: sessionID,
+                fields: ["session_mode": self.voiceSessionMode == .persistentOpen ? "persistent_open" : "idle"]
+            )
             self.completeLongInputIfReady(sessionID: sessionID)
         }
         if let onRemoteOutputDrain {
@@ -1108,6 +1421,15 @@ final class VoicePressCoordinator {
                 }
             }
             print("[PRESS] persistent IME segment ended without trigger edge")
+            diagnosticLogger?.log(
+                category: "voice",
+                event: "PERSISTENT_SEGMENT_COMPLETE",
+                gestureID: sessionID,
+                fields: [
+                    "owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
+                    "session_remains_open": voiceSessionMode == .persistentOpen,
+                ]
+            )
         } else if usesHardwareOptionPath {
             onHardwareOptionGateOutputDrained?(sessionID)
             print("[PRESS] LONG end → Option UP after output drain")
@@ -1115,6 +1437,15 @@ final class VoicePressCoordinator {
             print("[PRESS] LONG end → synthetic Option UP after output drain")
         } else {
             _ = syntheticOptionTrigger.abort(sessionID: sessionID)
+        }
+        if remoteSegmentTriggerPolicy == .momentaryTrigger {
+            diagnosticLogger?.log(
+                category: "voice",
+                event: "MOMENTARY_COMPLETE",
+                gestureID: sessionID,
+                key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
+                fields: ["source": usesHardwareOptionPath ? "hardware" : "synthetic"]
+            )
         }
         longInputStarted = false
         remoteAudioAvailable = false
@@ -1139,6 +1470,18 @@ final class VoicePressCoordinator {
     }
 
     private func completeVoiceRouteWithoutAudio(sessionID: UUID) {
+        if remoteSegmentTriggerPolicy == .audioOnly {
+            diagnosticLogger?.log(
+                category: "voice",
+                event: "PERSISTENT_SEGMENT_COMPLETE",
+                gestureID: sessionID,
+                fields: [
+                    "owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
+                    "session_remains_open": voiceSessionMode == .persistentOpen,
+                    "first_pcm": false,
+                ]
+            )
+        }
         if remoteSegmentTriggerPolicy == .audioOnly,
            usesHardwareOptionPath,
            audioOnlyHardwareTriggerSuppressed {
@@ -1205,6 +1548,50 @@ final class VoicePressCoordinator {
         case .holding: return "holding"
         }
     }
+
+    private func logGestureClassification(
+        result: String,
+        sessionID: UUID,
+        policy: RemoteSegmentTriggerPolicy
+    ) {
+        let heldDuration = max(
+            0,
+            ProcessInfo.processInfo.systemUptime - (gesturePhysicalDownUptime ?? ProcessInfo.processInfo.systemUptime)
+        )
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "GESTURE_CLASSIFIED",
+            gestureID: sessionID,
+            fields: [
+                "result": result,
+                "held_ms": Int(heldDuration * 1000),
+                "policy": policy == .audioOnly ? "audio_only" : "momentary_trigger",
+            ]
+        )
+    }
+
+    private func logPhysicalGestureRelease(
+        sessionID: UUID,
+        policy: RemoteSegmentTriggerPolicy
+    ) {
+        if policy == .audioOnly {
+            diagnosticLogger?.log(
+                category: "voice",
+                event: "PERSISTENT_SEGMENT_RELEASE",
+                gestureID: sessionID,
+                key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
+                fields: ["owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none"]
+            )
+        } else {
+            diagnosticLogger?.log(
+                category: "voice",
+                event: "MOMENTARY_RELEASE",
+                gestureID: sessionID,
+                key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
+                fields: ["tail_pending": tailWorkItem != nil]
+            )
+        }
+    }
 }
 
 // MARK: - F5 → Option hold filter (CGEvent tap)
@@ -1228,6 +1615,7 @@ final class VoiceKeyFilter {
     private var voiceKeyIsDown = false
     private let optionGate = HardwareOptionGate()
     private let syntheticOptionTrigger: VoiceOptionTrigger
+    private let diagnosticLogger: VoiceDiagnosticLogger?
     private(set) var momentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
     /// Compatibility alias for callers that historically meant the mapped
     /// remote-microphone key.
@@ -1268,8 +1656,23 @@ final class VoiceKeyFilter {
     var onVoiceKeyDown: (() -> Void)?
     var onVoiceKeyUp: (() -> Void)?
 
-    init(syntheticOptionTrigger: VoiceOptionTrigger = .shared) {
+    var diagnosticStateFields: [String: Any] {
+        [
+            "filter_active_gate": optionGate.activeSessionID?.uuidString ?? "none",
+            "filter_suppressed_owner": optionGate.suppressedSessionID?.uuidString ?? "none",
+            "held_hardware_owner": heldHardwareOptionSessionID?.uuidString ?? "none",
+            "filter_configured_key": momentaryVoiceTriggerKey.rawValue,
+            "synthetic_owner": syntheticOptionTrigger.activeSessionID?.uuidString ?? "none",
+            "synthetic_down": syntheticOptionTrigger.isOptionDown,
+        ]
+    }
+
+    init(
+        syntheticOptionTrigger: VoiceOptionTrigger = .shared,
+        diagnosticLogger: VoiceDiagnosticLogger? = nil
+    ) {
         self.syntheticOptionTrigger = syntheticOptionTrigger
+        self.diagnosticLogger = diagnosticLogger
     }
 
     @discardableResult
@@ -1354,7 +1757,83 @@ final class VoiceKeyFilter {
                 deferredOptionUpEvents.append(copiedEvent)
             }
         }
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_CAPTURE",
+            gestureID: optionGate.activeSessionID,
+            key: momentaryVoiceTriggerKey,
+            fields: ["edge": edge == .down ? "down" : "up"]
+        )
         return true
+    }
+
+    func recordMappedTriggerEventForTesting(
+        keyCode: CGKeyCode,
+        eventType: CGEventType,
+        flags: CGEventFlags,
+        syntheticMarker: Bool,
+        action: String
+    ) {
+        logMappedTriggerEvent(
+            keyCode: keyCode,
+            eventType: eventType,
+            flags: flags,
+            syntheticMarker: syntheticMarker,
+            action: action
+        )
+    }
+
+    private func logMappedTriggerEvent(
+        keyCode: CGKeyCode,
+        eventType: CGEventType,
+        flags: CGEventFlags,
+        syntheticMarker: Bool,
+        action: String
+    ) {
+        guard let observed = VoiceTriggerKey.allCases.first(where: { $0.cgKeyCode == keyCode }) else {
+            return
+        }
+        let owner = optionGate.activeSessionID
+            ?? optionGate.suppressedSessionID
+            ?? heldHardwareOptionSessionID
+        let eventName: String
+        switch eventType {
+        case .keyDown: eventName = "key_down"
+        case .keyUp: eventName = "key_up"
+        case .flagsChanged: eventName = "flags_changed"
+        default: eventName = "other_\(eventType.rawValue)"
+        }
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "MAPPED_TRIGGER_EVENT",
+            gestureID: owner,
+            key: observed,
+            fields: [
+                "key_code": Int(keyCode),
+                "event_type": eventName,
+                "flags": UInt64(flags.rawValue),
+                "synthetic_marker": syntheticMarker,
+                "filter_configured_key": momentaryVoiceTriggerKey.rawValue,
+                "gate_state": optionGate.activeSessionID != nil ? "deferring"
+                    : optionGate.suppressedSessionID != nil ? "suppressed"
+                    : heldHardwareOptionSessionID != nil ? "holding_release" : "none",
+                "action": action,
+            ]
+        )
+        if !syntheticMarker, observed != momentaryVoiceTriggerKey {
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "MAPPED_TRIGGER_MISMATCH",
+                gestureID: owner,
+                key: observed,
+                fields: [
+                    "observed": observed.rawValue,
+                    "configured": momentaryVoiceTriggerKey.rawValue,
+                    "event_type": eventName,
+                    "action": action,
+                ]
+            )
+        }
     }
 
     /// Discard a captured mapped down and transfer its later release to a
@@ -1379,6 +1858,13 @@ final class VoiceKeyFilter {
         print(
             "[VOICE] mapped trigger suppressed gesture=\(gestureID.uuidString) "
                 + "reason=\(reason)"
+        )
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_SUPPRESS",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey,
+            fields: ["reason": reason]
         )
         return true
     }
@@ -1440,6 +1926,13 @@ final class VoiceKeyFilter {
         guard optionGate.markSuppressedOutputDrainCompleted(sessionID: gestureID) else {
             return false
         }
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_OUTPUT_DRAINED",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey,
+            fields: ["reason": reason, "gate_state": "suppressed"]
+        )
         _ = completeSuppressedHardwareTriggerIfSafe(gestureID: gestureID, reason: reason)
         return true
     }
@@ -1450,6 +1943,13 @@ final class VoiceKeyFilter {
     ) -> Bool {
         guard optionGate.completeSuppressed(sessionID: gestureID) else { return false }
         cancelSuppressedTriggerReleaseCompletion()
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_CLOSED",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey,
+            fields: ["reason": reason, "gate_state": "suppressed"]
+        )
         print(
             "[VOICE] mapped trigger suppression completed "
                 + "gesture=\(gestureID.uuidString) reason=\(reason)"
@@ -1470,6 +1970,13 @@ final class VoiceKeyFilter {
             return false
         }
         cancelSuppressedTriggerReleaseCompletion()
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_CLOSED",
+            gestureID: owner,
+            key: momentaryVoiceTriggerKey,
+            fields: ["reason": reason, "gate_state": "suppressed_reset"]
+        )
         print(
             "[VOICE] mapped trigger suppression reset "
                 + "gesture=\(owner.uuidString) reason=\(reason)"
@@ -1518,21 +2025,40 @@ final class VoiceKeyFilter {
     func emitPersistentShortTap(
         gestureID: UUID,
         reason: String,
-        triggerKey: VoiceTriggerKey
+        triggerKey: VoiceTriggerKey,
+        purpose: String = "persistent_toggle"
     ) -> Bool {
         cancelSuppressedTriggerReleaseCompletion()
         guard optionGate.beginShortTapDiscard(sessionID: gestureID) else {
             _ = syntheticOptionTrigger.abort(sessionID: gestureID)
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "OPTION_GATE_STALE_EVENT",
+                gestureID: gestureID,
+                fields: [
+                    "owner": optionGate.suppressedSessionID?.uuidString
+                        ?? optionGate.activeSessionID?.uuidString ?? "none",
+                    "incoming": gestureID.uuidString,
+                ]
+            )
             return false
         }
         deferredOptionDownSeen = false
         deferredOptionUpSeen = false
         deferredOptionDownEvents.removeAll(keepingCapacity: true)
         deferredOptionUpEvents.removeAll(keepingCapacity: true)
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_SHORT_DISCARD",
+            gestureID: gestureID,
+            key: triggerKey,
+            fields: ["reason": reason]
+        )
         scheduleSuppressedTriggerReleaseCompletion(sessionID: gestureID)
         let emitted = syntheticOptionTrigger.sendTap(
             sessionID: gestureID,
-            key: triggerKey
+            key: triggerKey,
+            purpose: purpose
         )
         print(
             "[VOICE] persistent short trigger \(emitted ? "emitted" : "failed") "
@@ -1557,9 +2083,23 @@ final class VoiceKeyFilter {
                 reason: "new-voice-gesture"
             )
         }
-        guard optionGate.suppressedSessionID == nil else { return }
+        if let owner = optionGate.suppressedSessionID {
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "OPTION_GATE_STALE_EVENT",
+                gestureID: owner,
+                fields: ["owner": owner.uuidString, "incoming": gestureID.uuidString]
+            )
+            return
+        }
         if let heldSessionID = heldHardwareOptionSessionID,
            heldSessionID != gestureID {
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "OPTION_GATE_STALE_EVENT",
+                gestureID: heldSessionID,
+                fields: ["owner": heldSessionID.uuidString, "incoming": gestureID.uuidString]
+            )
             abortHeldHardwareOption(
                 gestureID: heldSessionID,
                 reason: "superseded"
@@ -1567,18 +2107,41 @@ final class VoiceKeyFilter {
         }
         if let activeGestureID = optionGate.activeSessionID,
            activeGestureID != gestureID {
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "OPTION_GATE_STALE_EVENT",
+                gestureID: activeGestureID,
+                fields: ["owner": activeGestureID.uuidString, "incoming": gestureID.uuidString]
+            )
             cancelDeferredOption(
                 gestureID: activeGestureID,
                 reason: "superseded"
             )
         }
-        guard optionGate.begin(sessionID: gestureID) else { return }
+        guard optionGate.begin(sessionID: gestureID) else {
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "OPTION_GATE_STALE_EVENT",
+                gestureID: optionGate.activeSessionID,
+                fields: [
+                    "owner": optionGate.activeSessionID?.uuidString ?? "none",
+                    "incoming": gestureID.uuidString,
+                ]
+            )
+            return
+        }
         _ = syntheticOptionTrigger.begin(sessionID: gestureID)
         deferredOptionDownSeen = false
         deferredOptionUpSeen = false
         deferredOptionDownEvents.removeAll(keepingCapacity: true)
         deferredOptionUpEvents.removeAll(keepingCapacity: true)
         print("[VOICE] option gate armed gesture=\(gestureID.uuidString)")
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_BEGIN",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey
+        )
     }
 
     /// Drop any older physical gate before a new gesture selects its Option
@@ -1605,6 +2168,15 @@ final class VoiceKeyFilter {
             print(
                 "[VOICE] ignored stale option release gesture=\(gestureID.uuidString) "
                     + "active=\(optionGate.activeSessionID?.uuidString ?? "none")"
+            )
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "OPTION_GATE_STALE_EVENT",
+                gestureID: gestureID,
+                fields: [
+                    "owner": optionGate.activeSessionID?.uuidString ?? "none",
+                    "incoming": gestureID.uuidString,
+                ]
             )
             return
         }
@@ -1640,6 +2212,13 @@ final class VoiceKeyFilter {
                 heldHardwareOptionKeyUpSeen = false
                 hardwareOptionReleaseArmed = false
             }
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "OPTION_GATE_REPLAY",
+                gestureID: gestureID,
+                key: momentaryVoiceTriggerKey,
+                fields: ["option_down_seen": optionDownSeen, "option_up_seen": optionUpSeen]
+            )
         case .syntheticTap:
             _ = syntheticOptionTrigger.sendTap(sessionID: gestureID)
         case .syntheticDown:
@@ -1652,10 +2231,23 @@ final class VoiceKeyFilter {
                 + "optionDown=\(optionDownSeen) optionUp=\(optionUpSeen) "
                 + "resolution=\(String(describing: resolution))"
         )
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_CLOSED",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey,
+            fields: ["reason": reason, "resolution": String(describing: resolution)]
+        )
     }
 
     /// Called after the raw HID microphone-up was accepted for this gesture.
     func armHardwareOptionRelease(gestureID: UUID) {
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_PHYSICAL_UP",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey
+        )
         _ = armSuppressedHardwareTriggerRelease(gestureID: gestureID)
         guard heldHardwareOptionSessionID == gestureID else { return }
         hardwareOptionReleaseArmed = true
@@ -1678,8 +2270,24 @@ final class VoiceKeyFilter {
                     + "\(gestureID.uuidString) active="
                     + "\(heldHardwareOptionSessionID?.uuidString ?? "none")"
             )
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "OPTION_GATE_STALE_EVENT",
+                gestureID: gestureID,
+                fields: [
+                    "owner": heldHardwareOptionSessionID?.uuidString ?? "none",
+                    "incoming": gestureID.uuidString,
+                ]
+            )
             return
         }
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_OUTPUT_DRAINED",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey,
+            fields: ["reason": reason]
+        )
         let events = heldHardwareOptionUpEvents
         clearHeldHardwareOption()
         if events.isEmpty {
@@ -1692,6 +2300,13 @@ final class VoiceKeyFilter {
         print(
             "[VOICE] hardware Option-up released gesture=\(gestureID.uuidString) "
                 + "reason=\(reason)"
+        )
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_CLOSED",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey,
+            fields: ["reason": reason, "gate_state": "held_release"]
         )
     }
 
@@ -1736,6 +2351,13 @@ final class VoiceKeyFilter {
         print(
             "[VOICE] option gate cancelled gesture=\(gestureID.uuidString) reason=\(reason)"
         )
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_CLOSED",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey,
+            fields: ["reason": reason, "gate_state": "cancelled"]
+        )
     }
 
     func start() throws {
@@ -1778,10 +2400,37 @@ final class VoiceKeyFilter {
             // 跳过 App 自身合成的事件（防止递归拦截）
             let userData = event.getIntegerValueField(.eventSourceUserData)
             if userData == Key.syntheticMarker {
+                filter.logMappedTriggerEvent(
+                    keyCode: keyCode,
+                    eventType: type,
+                    flags: event.flags,
+                    syntheticMarker: true,
+                    action: "pass"
+                )
                 return Unmanaged.passUnretained(event)
             }
 
+            if keyCode == VK.voiceKey && (type == .keyDown || type == .keyUp) {
+                filter.diagnosticLogger?.log(
+                    category: "filter",
+                    event: "RAW_VOICE_KEY",
+                    fields: [
+                        "edge": type == .keyDown ? "down" : "up",
+                        "gesture_id": NSNull(),
+                        "key_code": Int(keyCode),
+                        "flags": UInt64(event.flags.rawValue),
+                    ]
+                )
+            }
+
             if filter.shouldSuppressDuringVoiceTriggerReconfiguration(keyCode: keyCode) {
+                filter.logMappedTriggerEvent(
+                    keyCode: keyCode,
+                    eventType: type,
+                    flags: event.flags,
+                    syntheticMarker: false,
+                    action: "reconfiguration_suppress"
+                )
                 return nil
             }
 
@@ -1790,6 +2439,13 @@ final class VoiceKeyFilter {
                 type: type,
                 eventFlags: event.flags
             ) {
+                filter.logMappedTriggerEvent(
+                    keyCode: keyCode,
+                    eventType: type,
+                    flags: event.flags,
+                    syntheticMarker: false,
+                    action: "suppress"
+                )
                 return nil
             }
 
@@ -1799,36 +2455,55 @@ final class VoiceKeyFilter {
             // this narrow gesture window.
             if filter.matchesTriggerKeyCode(keyCode),
                filter.optionDeferralActive {
+                var action = "suppress"
                 switch type {
                 case .flagsChanged:
                     if filter.isTriggerModifierActive(flags: event.flags) {
-                        _ = filter.captureDeferredHardwareOptionEdge(
+                        let captured = filter.captureDeferredHardwareOptionEdge(
                             .down,
                             copiedEvent: event.copy()
                         )
+                        action = captured ? "defer_down" : "suppress"
                     } else if filter.deferredOptionDownSeen {
-                        _ = filter.captureDeferredHardwareOptionEdge(
+                        let captured = filter.captureDeferredHardwareOptionEdge(
                             .up,
                             copiedEvent: event.copy()
                         )
+                        action = captured ? "defer_up" : "suppress"
                     }
                 case .keyDown:
-                    _ = filter.captureDeferredHardwareOptionEdge(
+                    let captured = filter.captureDeferredHardwareOptionEdge(
                         .down,
                         copiedEvent: event.copy()
                     )
+                    action = captured ? "defer_down" : "suppress"
                 case .keyUp:
                     if filter.deferredOptionDownSeen {
-                        _ = filter.captureDeferredHardwareOptionEdge(
+                        let captured = filter.captureDeferredHardwareOptionEdge(
                             .up,
                             copiedEvent: event.copy()
                         )
+                        action = captured ? "defer_up" : "suppress"
                     } else {
+                        filter.logMappedTriggerEvent(
+                            keyCode: keyCode,
+                            eventType: type,
+                            flags: event.flags,
+                            syntheticMarker: false,
+                            action: "unmatched_pass"
+                        )
                         return Unmanaged.passUnretained(event)
                     }
                 default:
                     break
                 }
+                filter.logMappedTriggerEvent(
+                    keyCode: keyCode,
+                    eventType: type,
+                    flags: event.flags,
+                    syntheticMarker: false,
+                    action: action
+                )
                 return nil
             }
 
@@ -1842,20 +2517,48 @@ final class VoiceKeyFilter {
                 case .flagsChanged:
                     guard !filter.isTriggerModifierActive(flags: event.flags),
                           !filter.heldHardwareOptionFlagsUpSeen else {
+                        filter.logMappedTriggerEvent(
+                            keyCode: keyCode,
+                            eventType: type,
+                            flags: event.flags,
+                            syntheticMarker: false,
+                            action: "suppress"
+                        )
                         return nil
                     }
                     filter.heldHardwareOptionFlagsUpSeen = true
                 case .keyUp:
                     guard !filter.heldHardwareOptionKeyUpSeen else {
+                        filter.logMappedTriggerEvent(
+                            keyCode: keyCode,
+                            eventType: type,
+                            flags: event.flags,
+                            syntheticMarker: false,
+                            action: "suppress"
+                        )
                         return nil
                     }
                     filter.heldHardwareOptionKeyUpSeen = true
                 default:
+                    filter.logMappedTriggerEvent(
+                        keyCode: keyCode,
+                        eventType: type,
+                        flags: event.flags,
+                        syntheticMarker: false,
+                        action: "pass"
+                    )
                     return Unmanaged.passUnretained(event)
                 }
                 if let copiedEvent = event.copy() {
                     filter.heldHardwareOptionUpEvents.append(copiedEvent)
                 }
+                filter.logMappedTriggerEvent(
+                    keyCode: keyCode,
+                    eventType: type,
+                    flags: event.flags,
+                    syntheticMarker: false,
+                    action: "hold_release"
+                )
                 return nil
             }
 
@@ -1881,6 +2584,13 @@ final class VoiceKeyFilter {
                 }
             }
 
+            filter.logMappedTriggerEvent(
+                keyCode: keyCode,
+                eventType: type,
+                flags: event.flags,
+                syntheticMarker: false,
+                action: "pass"
+            )
             return Unmanaged.passUnretained(event)
         }
         guard let tap = CGEvent.tapCreate(
@@ -1959,6 +2669,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     let filter: VoiceKeyFilter
     let voicePress: VoicePressCoordinator
+    private let diagnosticLogger: VoiceDiagnosticLogger
     private let ble = BLEBridge()
     private let mappingStore = MappingStore()
     private let hidMonitor = HIDMonitor()
@@ -1996,8 +2707,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     )
 
     init(
-        filter: VoiceKeyFilter = VoiceKeyFilter(),
-        voicePress: VoicePressCoordinator = VoicePressCoordinator(),
+        filter: VoiceKeyFilter = VoiceKeyFilter(diagnosticLogger: .shared),
+        voicePress: VoicePressCoordinator = VoicePressCoordinator(diagnosticLogger: .shared),
         initiallyHIDConnected: Bool = false,
         isVoiceHIDMappingEnabled: @escaping () -> Bool = {
             RemoteVoiceKeyMapping.isEnabled
@@ -2016,10 +2727,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         },
         persistPersistentSessionTriggerKey: @escaping (VoiceTriggerKey) -> Void = {
             AppStorage.persistentSessionTriggerKey = $0
-        }
+        },
+        diagnosticLogger: VoiceDiagnosticLogger = .shared
     ) {
         self.filter = filter
         self.voicePress = voicePress
+        self.diagnosticLogger = diagnosticLogger
         self.hidConnected = initiallyHIDConnected
         self.isVoiceHIDMappingEnabled = isVoiceHIDMappingEnabled
         self.applyVoiceHIDMapping = applyVoiceHIDMapping
@@ -2033,15 +2746,36 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @discardableResult
     func restoreVoiceTriggerRuntime() -> Bool {
         let restoredMomentaryKey = readPersistedVoiceTriggerKey()
+        let restoredPersistentKey = readPersistedPersistentSessionTriggerKey()
+        diagnosticLogger.log(
+            category: "configuration",
+            event: "RUNTIME_RESTORE_BEGIN",
+            fields: [
+                "persisted_persistent": restoredPersistentKey.rawValue,
+                "persisted_momentary": restoredMomentaryKey.rawValue,
+                "persisted_legacy": UserDefaults.standard.string(
+                    forKey: AppStorage.voiceTriggerKeyKey
+                ) ?? "none",
+            ]
+        )
         guard filter.configureVoiceTriggerKey(restoredMomentaryKey) else {
             voiceTriggerRuntimeLocked = true
             print("[VOICE-KEY] startup restore failed; runtime locked")
+            diagnosticLogger.log(
+                category: "configuration",
+                event: "RUNTIME_RESTORE_FAIL",
+                fields: ["reason": "momentary_filter_configure_failed"]
+            )
             return false
         }
-        let restoredPersistentKey = readPersistedPersistentSessionTriggerKey()
         guard voicePress.configurePersistentSessionTriggerKey(restoredPersistentKey) else {
             voiceTriggerRuntimeLocked = true
             print("[VOICE-KEY] persistent startup restore failed; runtime locked")
+            diagnosticLogger.log(
+                category: "configuration",
+                event: "RUNTIME_RESTORE_FAIL",
+                fields: ["reason": "persistent_controller_configure_failed"]
+            )
             return false
         }
         currentMomentaryVoiceTriggerKey = restoredMomentaryKey
@@ -2049,6 +2783,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         print(
             "[VOICE-KEY] startup restored momentary=\(restoredMomentaryKey.displayName) "
                 + "persistent=\(restoredPersistentKey.displayName)"
+        )
+        diagnosticLogger.log(
+            category: "configuration",
+            event: "RUNTIME_RESTORE_COMMIT",
+            key: restoredMomentaryKey,
+            fields: [
+                "controller_persistent": currentPersistentSessionTriggerKey.rawValue,
+                "controller_momentary": currentMomentaryVoiceTriggerKey.rawValue,
+                "filter_momentary": filter.momentaryVoiceTriggerKey.rawValue,
+                "synthetic_momentary": voicePress.diagnosticStateFields["momentary_config"] as? String ?? "unknown",
+                "persisted_persistent": restoredPersistentKey.rawValue,
+                "persisted_momentary": restoredMomentaryKey.rawValue,
+            ]
         )
         return true
     }
@@ -2067,28 +2814,56 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        let oldKey = currentPersistentSessionTriggerKey
+        diagnosticLogger.log(
+            category: "configuration",
+            event: "PERSISTENT_RECONFIG_REQUEST",
+            key: newKey,
+            fields: [
+                "old": oldKey.rawValue,
+                "new": newKey.rawValue,
+                "session_mode": voicePress.persistentSessionActiveForTesting ? "persistent_open" : "idle",
+                "session_owner": voicePress.persistentSessionTriggerOwnerKeyForTesting?.rawValue ?? "none",
+            ]
+        )
         guard !voiceTriggerRuntimeLocked else {
+            logReconfigurationBusy(reason: "runtime_locked", event: "PERSISTENT_RECONFIG_REJECTED")
             completion(.locked)
             return
         }
         guard !voiceTriggerReconfigurationInProgress else {
+            logReconfigurationBusy(reason: "reconfiguration_busy", event: "PERSISTENT_RECONFIG_REJECTED")
             completion(.busy)
             return
         }
-        guard newKey != currentPersistentSessionTriggerKey else {
+        guard newKey != oldKey else {
             completion(.unchanged)
             return
         }
         if let busy = voiceConfigurationBusyResult() {
+            logReconfigurationBusy(reason: applyResultReason(busy), event: "PERSISTENT_RECONFIG_REJECTED")
             completion(busy)
             return
         }
         guard voicePress.configurePersistentSessionTriggerKey(newKey) else {
+            logReconfigurationBusy(reason: "reconfiguration_busy", event: "PERSISTENT_RECONFIG_REJECTED")
             completion(.busy)
             return
         }
         currentPersistentSessionTriggerKey = newKey
         persistPersistentSessionTriggerKey(newKey)
+        diagnosticLogger.log(
+            category: "configuration",
+            event: "PERSISTENT_RECONFIG_COMMIT",
+            key: newKey,
+            fields: [
+                "old": oldKey.rawValue,
+                "new": newKey.rawValue,
+                "configured_key_changed": true,
+                "session_owner": voicePress.persistentSessionTriggerOwnerKeyForTesting?.rawValue ?? "none",
+                "open_owner_unchanged": voicePress.persistentSessionActiveForTesting,
+            ]
+        )
         completion(.applied)
     }
 
@@ -2110,36 +2885,67 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
 
+        let oldKey = currentMomentaryVoiceTriggerKey
+        diagnosticLogger.log(
+            category: "configuration",
+            event: "MOMENTARY_RECONFIG_REQUEST",
+            key: newKey,
+            fields: [
+                "old": oldKey.rawValue,
+                "new": newKey.rawValue,
+                "hid_connected": hidConnected,
+                "mapping_enabled": RemoteVoiceKeyMapping.isEnabled,
+            ]
+        )
         guard !voiceTriggerRuntimeLocked else {
+            logReconfigurationBusy(reason: "runtime_locked", event: "MOMENTARY_RECONFIG_REJECTED")
             completion(.locked)
             return
         }
         guard !voiceTriggerReconfigurationInProgress else {
+            logReconfigurationBusy(reason: "reconfiguration_busy", event: "MOMENTARY_RECONFIG_REJECTED")
             completion(.busy)
             return
         }
-        let oldKey = currentMomentaryVoiceTriggerKey
         guard newKey != oldKey else {
             completion(.unchanged)
             return
         }
         if let busy = voiceConfigurationBusyResult() {
+            logReconfigurationBusy(reason: applyResultReason(busy), event: "MOMENTARY_RECONFIG_REJECTED")
             completion(busy)
             return
         }
         let hadHardwareMapping = isVoiceHIDMappingEnabled()
         guard filter.beginVoiceTriggerReconfiguration(from: oldKey, to: newKey) else {
+            logReconfigurationBusy(reason: "reconfiguration_busy", event: "MOMENTARY_RECONFIG_REJECTED")
             completion(.busy)
             return
         }
         voiceTriggerReconfigurationInProgress = true
+        diagnosticLogger.log(
+            category: "configuration",
+            event: "FILTER_RECONFIG_BEGIN",
+            key: newKey,
+            fields: ["old": oldKey.rawValue, "new": newKey.rawValue]
+        )
 
         guard filter.configureVoiceTriggerKey(newKey) else {
             filter.endVoiceTriggerReconfiguration()
             voiceTriggerReconfigurationInProgress = false
+            logReconfigurationBusy(reason: "reconfiguration_busy", event: "MOMENTARY_RECONFIG_REJECTED")
             completion(.busy)
             return
         }
+        diagnosticLogger.log(
+            category: "configuration",
+            event: "FILTER_RECONFIG_COMMIT",
+            key: newKey,
+            fields: [
+                "filter_key": filter.momentaryVoiceTriggerKey.rawValue,
+                "synthetic_key": voicePress.diagnosticStateFields["momentary_config"] as? String ?? "unknown",
+            ]
+        )
 
         guard hidConnected else {
             currentMomentaryVoiceTriggerKey = newKey
@@ -2187,6 +2993,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hadHardwareMapping: Bool,
         completion: @escaping (VoiceTriggerApplyResult) -> Void
     ) {
+        diagnosticLogger.log(
+            category: "configuration",
+            event: "MOMENTARY_RECONFIG_ROLLBACK_BEGIN",
+            key: oldKey,
+            fields: ["requested_key": currentMomentaryVoiceTriggerKey.rawValue]
+        )
         print("[VOICE-KEY] new HID mapping failed; rolling back to \(oldKey.displayName)")
         let localRollbackSucceeded = filter.configureVoiceTriggerKey(oldKey)
         guard hadHardwareMapping else {
@@ -2223,6 +3035,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         voiceTriggerRuntimeLocked = true
         voiceTriggerReconfigurationInProgress = true
         print("[VOICE-KEY] runtime locked; reconfiguration gate remains active: \(reason)")
+        var fields = voicePress.diagnosticStateFields
+        fields.merge(filter.diagnosticStateFields) { _, new in new }
+        fields["reason"] = reason
+        diagnosticLogger.log(
+            category: "configuration",
+            event: "MOMENTARY_RUNTIME_LOCKED",
+            fields: fields
+        )
     }
 
     private func completeVoiceTriggerReconfiguration(
@@ -2236,6 +3056,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard pendingVoiceHIDMappingRefresh else {
             voiceTriggerReconfigurationInProgress = false
             filter.endVoiceTriggerReconfiguration()
+            logMomentaryReconfigurationFinish(result)
             completion(result)
             return
         }
@@ -2257,9 +3078,55 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
                 self.voiceTriggerReconfigurationInProgress = false
                 self.filter.endVoiceTriggerReconfiguration()
+                self.logMomentaryReconfigurationFinish(result)
                 completion(result)
             }
         }
+    }
+
+    private func applyResultReason(_ result: VoiceTriggerApplyResult) -> String {
+        switch result {
+        case .busyActiveHold: "active_hold"
+        case .busyReleaseDrain: "release_drain"
+        case .locked: "runtime_locked"
+        case .busy: "reconfiguration_busy"
+        case .applied, .unchanged, .failed: "unknown"
+        }
+    }
+
+    private func logReconfigurationBusy(reason: String, event: String) {
+        var fields = voicePress.diagnosticStateFields
+        fields.merge(filter.diagnosticStateFields) { _, new in new }
+        fields["reason"] = reason
+        diagnosticLogger.log(
+            category: "configuration",
+            event: "VOICE_RECONFIG_BUSY",
+            fields: fields
+        )
+        diagnosticLogger.log(
+            category: "configuration",
+            event: event,
+            fields: fields
+        )
+    }
+
+    private func logMomentaryReconfigurationFinish(_ result: VoiceTriggerApplyResult) {
+        guard result == .applied || result == .failed else { return }
+        let event = result == .applied
+            ? "MOMENTARY_RECONFIG_COMMIT" : "MOMENTARY_RECONFIG_ROLLBACK_COMMIT"
+        diagnosticLogger.log(
+            category: "configuration",
+            event: event,
+            key: currentMomentaryVoiceTriggerKey,
+            fields: [
+                "controller": currentMomentaryVoiceTriggerKey.rawValue,
+                "filter": filter.momentaryVoiceTriggerKey.rawValue,
+                "synthetic": voicePress.diagnosticStateFields["momentary_config"] as? String ?? "unknown",
+                "persisted": readPersistedVoiceTriggerKey().rawValue,
+                "hid_connected": hidConnected,
+                "mapping_enabled": RemoteVoiceKeyMapping.isEnabled,
+            ]
+        )
     }
 
     static func bypassesShortClassification(for binding: ButtonBinding) -> Bool {
@@ -2520,6 +3387,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         AppStorage.prepare()
+        diagnosticLogger.startRun(fields: [
+            "persisted_persistent": readPersistedPersistentSessionTriggerKey().rawValue,
+            "persisted_momentary": readPersistedVoiceTriggerKey().rawValue,
+            "persisted_legacy": UserDefaults.standard.string(
+                forKey: AppStorage.voiceTriggerKeyKey
+            ) ?? "none",
+        ])
         _ = restoreVoiceTriggerRuntime()
         if ProcessInfo.processInfo.environment["REMOTE_ORBIT_DIAGNOSTICS"] == "1" {
             let sourceHead = Bundle.main.object(
@@ -2666,11 +3540,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 reason: "short-configured-trigger"
             )
         }
-        voicePress.onPersistentSessionTriggerTap = { [weak self] gestureID, triggerKey in
+        voicePress.onPersistentSessionTriggerTap = { [weak self] gestureID, triggerKey, purpose in
             self?.filter.emitPersistentShortTap(
                 gestureID: gestureID,
                 reason: "persistent-session-toggle",
-                triggerKey: triggerKey
+                triggerKey: triggerKey,
+                purpose: purpose
             ) ?? false
         }
         voicePress.onHardwareOptionGateCancel = { [weak self] gestureID in

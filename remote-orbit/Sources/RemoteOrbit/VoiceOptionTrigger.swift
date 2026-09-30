@@ -490,9 +490,13 @@ final class VoiceOptionTrigger {
             Key.voiceTriggerUp(key)
         }
     }
-    static let shared = VoiceOptionTrigger(keyedEventSink: systemEventSink)
+    static let shared = VoiceOptionTrigger(
+        keyedEventSink: systemEventSink,
+        diagnosticLogger: .shared
+    )
 
     private let eventSink: KeyedEventSink
+    private let diagnosticLogger: VoiceDiagnosticLogger?
     private(set) var momentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
     /// Compatibility alias for callers that historically meant the mapped
     /// remote-microphone trigger.
@@ -500,13 +504,22 @@ final class VoiceOptionTrigger {
     private(set) var activeSessionID: UUID?
     private(set) var isOptionDown = false
     private var activeTriggerKey: VoiceTriggerKey?
+    private var activePurpose: String?
 
-    init(eventSink: @escaping EventSink) {
+    init(
+        eventSink: @escaping EventSink,
+        diagnosticLogger: VoiceDiagnosticLogger? = nil
+    ) {
         self.eventSink = { _, isDown in eventSink(isDown) }
+        self.diagnosticLogger = diagnosticLogger
     }
 
-    init(keyedEventSink: @escaping KeyedEventSink) {
+    init(
+        keyedEventSink: @escaping KeyedEventSink,
+        diagnosticLogger: VoiceDiagnosticLogger? = nil
+    ) {
         self.eventSink = keyedEventSink
+        self.diagnosticLogger = diagnosticLogger
     }
 
     convenience init() {
@@ -529,16 +542,31 @@ final class VoiceOptionTrigger {
             activeSessionID = sessionID
             isOptionDown = false
             activeTriggerKey = nil
+            activePurpose = nil
+            diagnosticLogger?.log(
+                category: "synthetic",
+                event: "SYNTHETIC_OWNER_BEGIN",
+                gestureID: sessionID,
+                key: momentaryVoiceTriggerKey,
+                fields: ["configured_momentary": momentaryVoiceTriggerKey.rawValue]
+            )
         }
         return true
     }
 
     @discardableResult
-    func sendDown(sessionID: UUID) -> Bool {
+    func sendDown(sessionID: UUID, purpose: String = "momentary_hold") -> Bool {
         guard activeSessionID == sessionID, !isOptionDown else { return false }
         isOptionDown = true
         activeTriggerKey = momentaryVoiceTriggerKey
+        activePurpose = purpose
         eventSink(momentaryVoiceTriggerKey, true)
+        logSyntheticEdge(
+            "SYNTHETIC_TRIGGER_DOWN",
+            sessionID: sessionID,
+            purpose: purpose,
+            key: momentaryVoiceTriggerKey
+        )
         return true
     }
 
@@ -546,8 +574,17 @@ final class VoiceOptionTrigger {
     func sendUp(sessionID: UUID) -> Bool {
         guard activeSessionID == sessionID, isOptionDown else { return false }
         isOptionDown = false
-        eventSink(activeTriggerKey ?? momentaryVoiceTriggerKey, false)
+        let key = activeTriggerKey ?? momentaryVoiceTriggerKey
+        let purpose = activePurpose ?? "momentary_hold"
+        eventSink(key, false)
+        logSyntheticEdge(
+            "SYNTHETIC_TRIGGER_UP",
+            sessionID: sessionID,
+            purpose: purpose,
+            key: key
+        )
         activeTriggerKey = nil
+        activePurpose = nil
         VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
         activeSessionID = nil
         return true
@@ -558,11 +595,27 @@ final class VoiceOptionTrigger {
         guard activeSessionID == sessionID else { return false }
         let wasDown = isOptionDown
         isOptionDown = false
+        let key = activeTriggerKey ?? momentaryVoiceTriggerKey
+        let purpose = activePurpose ?? "momentary_hold"
         if wasDown {
-            eventSink(activeTriggerKey ?? momentaryVoiceTriggerKey, false)
+            eventSink(key, false)
+            logSyntheticEdge(
+                "SYNTHETIC_TRIGGER_UP",
+                sessionID: sessionID,
+                purpose: purpose,
+                key: key
+            )
             VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
         }
+        diagnosticLogger?.log(
+            category: "synthetic",
+            event: "SYNTHETIC_OWNER_ABORT",
+            gestureID: sessionID,
+            key: wasDown ? key : nil,
+            fields: ["was_down": wasDown, "purpose": purpose]
+        )
         activeTriggerKey = nil
+        activePurpose = nil
         activeSessionID = nil
         return wasDown
     }
@@ -575,19 +628,26 @@ final class VoiceOptionTrigger {
 
     @discardableResult
     func sendTap(sessionID: UUID, duration: TimeInterval = 0.06) -> Bool {
-        sendTap(sessionID: sessionID, key: momentaryVoiceTriggerKey, duration: duration)
+        sendTap(
+            sessionID: sessionID,
+            key: momentaryVoiceTriggerKey,
+            duration: duration,
+            purpose: "momentary_tap"
+        )
     }
 
     @discardableResult
     func sendTap(
         sessionID: UUID,
         key: VoiceTriggerKey,
-        duration: TimeInterval = 0.06
+        duration: TimeInterval = 0.06,
+        purpose: String = "momentary_tap"
     ) -> Bool {
         guard activeSessionID == sessionID else { return false }
         guard !isOptionDown else { return false }
         isOptionDown = true
         activeTriggerKey = key
+        activePurpose = purpose
         eventSink(key, true)
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
             guard let self,
@@ -596,10 +656,38 @@ final class VoiceOptionTrigger {
                   self.activeTriggerKey == key else { return }
             self.isOptionDown = false
             self.eventSink(key, false)
+            self.logSyntheticEdge(
+                "SYNTHETIC_TRIGGER_UP",
+                sessionID: sessionID,
+                purpose: purpose,
+                key: key
+            )
             self.activeTriggerKey = nil
+            self.activePurpose = nil
             VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
             self.activeSessionID = nil
         }
+        logSyntheticEdge(
+            "SYNTHETIC_TRIGGER_DOWN",
+            sessionID: sessionID,
+            purpose: purpose,
+            key: key
+        )
         return true
+    }
+
+    private func logSyntheticEdge(
+        _ event: String,
+        sessionID: UUID,
+        purpose: String,
+        key: VoiceTriggerKey
+    ) {
+        diagnosticLogger?.log(
+            category: "synthetic",
+            event: event,
+            gestureID: sessionID,
+            key: key,
+            fields: ["purpose": purpose]
+        )
     }
 }

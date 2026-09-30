@@ -23,6 +23,19 @@ enum VoiceTriggerKey: String, CaseIterable, Codable, Equatable, Identifiable {
         }
     }
 
+    /// Stable English label for machine-readable diagnostic logs. Keep this
+    /// separate from the localized settings label above.
+    var diagnosticDisplayName: String {
+        switch self {
+        case .leftOption: return "Left Option"
+        case .rightOption: return "Right Option"
+        case .leftControl: return "Left Control"
+        case .rightControl: return "Right Control"
+        case .leftCommand: return "Left Command"
+        case .rightCommand: return "Right Command"
+        }
+    }
+
     var hidUsage: UInt16 {
         switch self {
         case .leftOption: return 0xE2
