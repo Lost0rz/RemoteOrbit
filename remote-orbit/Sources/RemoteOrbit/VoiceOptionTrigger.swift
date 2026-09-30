@@ -276,6 +276,8 @@ final class HardwareOptionGate {
     private var upSeen = false
     private var copiedDownPresent = false
     private var suppressedReleaseArmed = false
+    private var suppressedOutputDrainCompleted = false
+    private var suppressedReleaseQuietPeriodElapsed = false
 
     @discardableResult
     func begin(sessionID: UUID) -> Bool {
@@ -343,6 +345,8 @@ final class HardwareOptionGate {
         }
         suppressedSessionID = sessionID
         suppressedReleaseArmed = false
+        suppressedOutputDrainCompleted = false
+        suppressedReleaseQuietPeriodElapsed = false
         clearActive()
         return true
     }
@@ -354,8 +358,38 @@ final class HardwareOptionGate {
 
     @discardableResult
     func armSuppressedRelease(sessionID: UUID) -> Bool {
-        guard suppressedSessionID == sessionID else { return false }
+        guard suppressedSessionID == sessionID,
+              !suppressedReleaseArmed else { return false }
         suppressedReleaseArmed = true
+        suppressedReleaseQuietPeriodElapsed = false
+        return true
+    }
+
+    @discardableResult
+    func observeSuppressedReleaseEdge(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == sessionID else { return false }
+        suppressedReleaseQuietPeriodElapsed = false
+        return true
+    }
+
+    @discardableResult
+    func markSuppressedOutputDrainCompleted(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == sessionID,
+              suppressedReleaseArmed,
+              !suppressedOutputDrainCompleted else {
+            return false
+        }
+        suppressedOutputDrainCompleted = true
+        return true
+    }
+
+    @discardableResult
+    func markSuppressedReleaseQuietPeriodElapsed(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == sessionID,
+              suppressedReleaseArmed else {
+            return false
+        }
+        suppressedReleaseQuietPeriodElapsed = true
         return true
     }
 
@@ -364,7 +398,9 @@ final class HardwareOptionGate {
     @discardableResult
     func completeSuppressed(sessionID: UUID) -> Bool {
         guard suppressedSessionID == sessionID,
-              suppressedReleaseArmed else {
+              suppressedReleaseArmed,
+              suppressedOutputDrainCompleted,
+              suppressedReleaseQuietPeriodElapsed else {
             return false
         }
         clearSuppressed()
@@ -388,6 +424,8 @@ final class HardwareOptionGate {
     private func clearSuppressed() {
         suppressedSessionID = nil
         suppressedReleaseArmed = false
+        suppressedOutputDrainCompleted = false
+        suppressedReleaseQuietPeriodElapsed = false
     }
 }
 

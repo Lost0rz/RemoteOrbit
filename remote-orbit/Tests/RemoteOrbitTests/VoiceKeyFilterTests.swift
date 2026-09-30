@@ -178,11 +178,28 @@ final class VoiceKeyFilterTests: XCTestCase {
         )
         XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, sessionID)
         XCTAssertTrue(
+            filter.shouldSuppressDiscardedHardwareTriggerEvent(
+                keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
+                type: .keyUp
+            )
+        )
+        XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, sessionID)
+        XCTAssertTrue(
+            filter.shouldSuppressDiscardedHardwareTriggerEvent(
+                keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
+                type: .flagsChanged,
+                eventFlags: []
+            )
+        )
+        XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, sessionID)
+        XCTAssertTrue(
             filter.completeSuppressedHardwareTrigger(
                 gestureID: sessionID,
                 reason: "output-drained"
             )
         )
+        XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, sessionID)
+        waitForFilterTiming(0.85)
         XCTAssertNil(filter.suppressedHardwareTriggerSessionID)
         XCTAssertFalse(
             filter.completeSuppressedHardwareTrigger(
@@ -270,5 +287,9 @@ final class VoiceKeyFilterTests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    private func waitForFilterTiming(_ interval: TimeInterval) {
+        RunLoop.current.run(until: Date().addingTimeInterval(interval))
     }
 }

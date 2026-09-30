@@ -255,7 +255,7 @@ final class VoicePressCoordinator {
     // BLE bridge keeps accepting packets during its drain window. Keep the
     // output route alive long enough for those final frames to render even
     // when the physical Option edge has already been released.
-    private let tailDrainDelay: TimeInterval = 0.80
+    static let tailDrainDelay: TimeInterval = 0.80
     // Physical release bounce is independent from the audio tail. Do not use
     // the tail-drain duration as a press lockout: a completed route must allow
     // the next real gesture immediately after this small debounce window.
@@ -352,7 +352,7 @@ final class VoicePressCoordinator {
     }
 
     var tailDrainDelayForTesting: TimeInterval {
-        tailDrainDelay
+        Self.tailDrainDelay
     }
 
     var hasPendingTailForTesting: Bool {
@@ -769,6 +769,8 @@ final class VoicePressCoordinator {
     }
 
     private func stopCurrentVoiceState(preservingDeferredRepress: Bool) {
+        let shouldResetSuppressedHardwareTrigger =
+            remoteSegmentTriggerPolicy == .audioOnly && audioOnlyHardwareTriggerSuppressed
         holdWorkItem?.cancel()
         holdWorkItem = nil
         tailWorkItem?.cancel()
@@ -791,7 +793,11 @@ final class VoicePressCoordinator {
         resetAudioOnlyHardwareTriggerOnDrain = false
         let stoppedSessionID = gestureID
         if let currentGestureID = gestureID {
-            onHardwareOptionGateCancel?(currentGestureID)
+            if shouldResetSuppressedHardwareTrigger {
+                onHardwareOptionGateResetSuppression?(currentGestureID)
+            } else {
+                onHardwareOptionGateCancel?(currentGestureID)
+            }
             _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
         } else {
             _ = syntheticOptionTrigger.reset()
@@ -902,7 +908,7 @@ final class VoicePressCoordinator {
         }
         tailWorkItem = work
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + tailDrainDelay,
+            deadline: .now() + Self.tailDrainDelay,
             execute: work
         )
     }
@@ -1154,6 +1160,8 @@ final class VoiceKeyFilter {
     private var heldHardwareOptionFlagsUpSeen = false
     private var heldHardwareOptionKeyUpSeen = false
     private var hardwareOptionReleaseArmed = false
+    private var suppressedTriggerReleaseCompletionWorkItem: DispatchWorkItem?
+    private var suppressedTriggerReleaseCompletionToken: UUID?
     private var voiceTriggerReconfigurationKeyCodes: Set<CGKeyCode>?
     var suppressedHardwareTriggerSessionID: UUID? {
         optionGate.suppressedSessionID
@@ -1265,6 +1273,7 @@ final class VoiceKeyFilter {
         gestureID: UUID,
         reason: String
     ) -> Bool {
+        cancelSuppressedTriggerReleaseCompletion()
         guard optionGate.suppress(sessionID: gestureID) else { return false }
         _ = syntheticOptionTrigger.abort(sessionID: gestureID)
         deferredOptionDownSeen = false
@@ -1283,14 +1292,25 @@ final class VoiceKeyFilter {
     @discardableResult
     func shouldSuppressDiscardedHardwareTriggerEvent(
         keyCode: CGKeyCode,
-        type: CGEventType
+        type: CGEventType,
+        eventFlags: CGEventFlags? = nil
     ) -> Bool {
         guard matchesTriggerKeyCode(keyCode),
-              optionGate.suppressedSessionID != nil else {
+              let owner = optionGate.suppressedSessionID else {
             return false
         }
         switch type {
-        case .keyDown, .keyUp, .flagsChanged:
+        case .keyDown:
+            return true
+        case .keyUp:
+            _ = optionGate.observeSuppressedReleaseEdge(sessionID: owner)
+            scheduleSuppressedTriggerReleaseCompletion(sessionID: owner)
+            return true
+        case .flagsChanged:
+            if let eventFlags, !isTriggerModifierActive(flags: eventFlags) {
+                _ = optionGate.observeSuppressedReleaseEdge(sessionID: owner)
+                scheduleSuppressedTriggerReleaseCompletion(sessionID: owner)
+            }
             return true
         default:
             return false
@@ -1299,19 +1319,31 @@ final class VoiceKeyFilter {
 
     @discardableResult
     func armSuppressedHardwareTriggerRelease(gestureID: UUID) -> Bool {
-        optionGate.armSuppressedRelease(sessionID: gestureID)
+        guard optionGate.armSuppressedRelease(sessionID: gestureID) else { return false }
+        scheduleSuppressedTriggerReleaseCompletion(sessionID: gestureID)
+        return true
     }
 
-    /// Clear suppression ownership after physical-up plus output drain. This
-    /// only changes internal state; a discarded down must never be balanced.
+    /// Mark output drain complete. Suppression remains active until the raw
+    /// release and a quiet window after the last mapped release component.
     @discardableResult
     func completeSuppressedHardwareTrigger(
         gestureID: UUID,
         reason: String
     ) -> Bool {
-        guard optionGate.completeSuppressed(sessionID: gestureID) else {
+        guard optionGate.markSuppressedOutputDrainCompleted(sessionID: gestureID) else {
             return false
         }
+        _ = completeSuppressedHardwareTriggerIfSafe(gestureID: gestureID, reason: reason)
+        return true
+    }
+
+    private func completeSuppressedHardwareTriggerIfSafe(
+        gestureID: UUID,
+        reason: String
+    ) -> Bool {
+        guard optionGate.completeSuppressed(sessionID: gestureID) else { return false }
+        cancelSuppressedTriggerReleaseCompletion()
         print(
             "[VOICE] mapped trigger suppression completed "
                 + "gesture=\(gestureID.uuidString) reason=\(reason)"
@@ -1331,11 +1363,46 @@ final class VoiceKeyFilter {
               optionGate.resetSuppressed(sessionID: owner) else {
             return false
         }
+        cancelSuppressedTriggerReleaseCompletion()
         print(
             "[VOICE] mapped trigger suppression reset "
                 + "gesture=\(owner.uuidString) reason=\(reason)"
         )
         return true
+    }
+
+    private func scheduleSuppressedTriggerReleaseCompletion(sessionID: UUID) {
+        suppressedTriggerReleaseCompletionWorkItem?.cancel()
+        let token = UUID()
+        suppressedTriggerReleaseCompletionToken = token
+        let work = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.suppressedTriggerReleaseCompletionToken == token else {
+                return
+            }
+            self.suppressedTriggerReleaseCompletionWorkItem = nil
+            self.suppressedTriggerReleaseCompletionToken = nil
+            guard self.optionGate.markSuppressedReleaseQuietPeriodElapsed(
+                sessionID: sessionID
+            ) else {
+                return
+            }
+            _ = self.completeSuppressedHardwareTriggerIfSafe(
+                gestureID: sessionID,
+                reason: "mapped-release-quiet-window"
+            )
+        }
+        suppressedTriggerReleaseCompletionWorkItem = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + VoicePressCoordinator.tailDrainDelay,
+            execute: work
+        )
+    }
+
+    private func cancelSuppressedTriggerReleaseCompletion() {
+        suppressedTriggerReleaseCompletionWorkItem?.cancel()
+        suppressedTriggerReleaseCompletionWorkItem = nil
+        suppressedTriggerReleaseCompletionToken = nil
     }
 
     /// HIDMonitor 活跃时跳过语音键处理（防止双重触发）。
@@ -1578,7 +1645,8 @@ final class VoiceKeyFilter {
 
             if filter.shouldSuppressDiscardedHardwareTriggerEvent(
                 keyCode: keyCode,
-                type: type
+                type: type,
+                eventFlags: event.flags
             ) {
                 return nil
             }
@@ -2369,7 +2437,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         voicePress.onHardwareOptionGateResetSuppression = { [weak self] gestureID in
             _ = self?.filter.resetSuppressedHardwareTrigger(
                 gestureID: gestureID,
-                reason: "hid-device-removed-after-audio-drain"
+                reason: "explicit-persistent-suppression-reset"
             )
         }
         voicePress.onHardwareOptionGateShortResult = { [weak self] gestureID, shouldRelease in

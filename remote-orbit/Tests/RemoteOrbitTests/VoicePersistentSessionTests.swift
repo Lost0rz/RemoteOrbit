@@ -92,6 +92,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         XCTAssertTrue(press.keyUp())
         XCTAssertTrue(press.hasPendingTailForTesting)
         press.invokeTailCompletionForTesting(sessionID: gestureID)
+        waitForCoordinatorTiming(0.85)
 
         XCTAssertFalse(press.hasRemoteAudio)
         XCTAssertTrue(press.persistentSessionActiveForTesting)
@@ -133,10 +134,62 @@ final class VoicePersistentSessionTests: XCTestCase {
         )
         XCTAssertTrue(press.keyUp())
 
+        waitForCoordinatorTiming(0.85)
         XCTAssertNil(filter.suppressedHardwareTriggerSessionID)
         XCTAssertTrue(press.persistentSessionActiveForTesting)
         XCTAssertEqual(events.map(\.1), [true, false])
         press.stop()
+    }
+
+    func testNoPCMPhysicalReleaseKeepsLateMappedReleaseSuppressed() {
+        var events: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in events.append((key, down)) })
+        let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        wireHardwareGate(press, filter: filter)
+        openPersistentSession(press)
+        let gestureID = UUID()
+        press.keyDown(sessionID: gestureID, togglesPersistentVoiceSession: true, usesHardwareOption: true)
+        captureMappedDown(filter)
+        waitForCoordinatorTiming(0.35)
+        XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
+        XCTAssertTrue(press.keyUp())
+        XCTAssertTrue(filter.shouldSuppressDiscardedHardwareTriggerEvent(
+            keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
+            type: .keyUp
+        ), "late mapped release after no-PCM cleanup must remain swallowed")
+        XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
+        XCTAssertTrue(filter.shouldSuppressDiscardedHardwareTriggerEvent(
+            keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
+            type: .flagsChanged,
+            eventFlags: []
+        ), "second mapped release representation must also be swallowed")
+        XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
+        XCTAssertTrue(press.persistentSessionActiveForTesting)
+        XCTAssertEqual(events.map(\.1), [true, false])
+        XCTAssertNil(trigger.activeSessionID)
+        XCTAssertFalse(trigger.isOptionDown)
+        press.stop()
+    }
+
+    func testStopDuringActiveSuppressionClearsOwnerWithoutTriggerEdges() {
+        var events: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in events.append((key, down)) })
+        let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        wireHardwareGate(press, filter: filter)
+        openPersistentSession(press)
+        let gestureID = UUID()
+        press.keyDown(sessionID: gestureID, togglesPersistentVoiceSession: true, usesHardwareOption: true)
+        captureMappedDown(filter)
+        waitForCoordinatorTiming(0.35)
+        XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
+        press.stop()
+        XCTAssertFalse(press.persistentSessionActiveForTesting)
+        XCTAssertNil(filter.suppressedHardwareTriggerSessionID)
+        XCTAssertNil(trigger.activeSessionID)
+        XCTAssertFalse(trigger.isOptionDown)
+        XCTAssertEqual(events.map(\.1), [true, false])
     }
 
     func testPersistentSessionAcceptsMultipleAudioOnlySegmentsThenClosesByTap() {
@@ -165,6 +218,7 @@ final class VoicePersistentSessionTests: XCTestCase {
             XCTAssertEqual(events.map(\.1), [true, false])
             XCTAssertTrue(press.keyUp())
             press.invokeTailCompletionForTesting(sessionID: gestureID)
+            waitForCoordinatorTiming(0.85)
             XCTAssertTrue(press.persistentSessionActiveForTesting)
             XCTAssertNil(filter.suppressedHardwareTriggerSessionID)
         }
@@ -258,6 +312,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         XCTAssertTrue(press.persistentSessionActiveForTesting)
         XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
         XCTAssertTrue(press.keyUp())
+        waitForCoordinatorTiming(0.85)
         XCTAssertNil(filter.suppressedHardwareTriggerSessionID)
         XCTAssertEqual(events.map(\.1), [true, false])
         press.stop()
