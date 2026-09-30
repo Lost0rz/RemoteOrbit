@@ -682,12 +682,20 @@ final class VoiceOptionTrigger {
         purpose: String,
         key: VoiceTriggerKey
     ) {
+        let effectiveFlags = event == "SYNTHETIC_TRIGGER_DOWN"
+            ? key.syntheticModifierFlags
+            : []
         diagnosticLogger?.log(
             category: "synthetic",
             event: event,
             gestureID: sessionID,
             key: key,
-            fields: ["purpose": purpose]
+            fields: [
+                "purpose": purpose,
+                "generic_flag": String(format: "0x%llX", key.cgEventFlag.rawValue),
+                "device_side_flag": String(format: "0x%llX", key.deviceSideCGEventFlag.rawValue),
+                "effective_flags_raw": String(format: "0x%llX", effectiveFlags.rawValue),
+            ]
         )
     }
 }

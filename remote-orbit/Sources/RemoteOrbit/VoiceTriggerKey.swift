@@ -1,4 +1,5 @@
 import CoreGraphics
+import IOKit.hidsystem
 
 enum VoiceTriggerKey: String, CaseIterable, Codable, Equatable, Identifiable {
     case leftOption = "left_option"
@@ -75,5 +76,28 @@ enum VoiceTriggerKey: String, CaseIterable, Codable, Equatable, Identifiable {
         case .leftControl, .rightControl: return .maskControl
         case .leftCommand, .rightCommand: return .maskCommand
         }
+    }
+
+    var deviceSideCGEventFlag: CGEventFlags {
+        let mask: UInt64
+        switch self {
+        case .leftOption:
+            mask = UInt64(NX_DEVICELALTKEYMASK)
+        case .rightOption:
+            mask = UInt64(NX_DEVICERALTKEYMASK)
+        case .leftControl:
+            mask = UInt64(NX_DEVICELCTLKEYMASK)
+        case .rightControl:
+            mask = UInt64(NX_DEVICERCTLKEYMASK)
+        case .leftCommand:
+            mask = UInt64(NX_DEVICELCMDKEYMASK)
+        case .rightCommand:
+            mask = UInt64(NX_DEVICERCMDKEYMASK)
+        }
+        return CGEventFlags(rawValue: mask)
+    }
+
+    var syntheticModifierFlags: CGEventFlags {
+        cgEventFlag.union(deviceSideCGEventFlag)
     }
 }

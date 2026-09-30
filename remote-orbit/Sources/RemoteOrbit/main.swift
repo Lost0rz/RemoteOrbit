@@ -82,7 +82,7 @@ enum Key {
     /// using the selected key's Carbon virtual key code and modifier flag.
     private static func postVoiceTrigger(_ key: VoiceTriggerKey, keyDown: Bool) {
         guard let source = CGEventSource(stateID: .hidSystemState) else { return }
-        let flags: CGEventFlags = keyDown ? key.cgEventFlag : []
+        let flags: CGEventFlags = keyDown ? key.syntheticModifierFlags : []
 
         if let flagsEvent = CGEvent(
             keyboardEventSource: source,

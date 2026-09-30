@@ -112,6 +112,36 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
         XCTAssertEqual(events[1]["hid_destination"] as? String, "0x7000000E2")
     }
 
+    func testSyntheticTriggerDiagnosticsIncludeModifierIdentityAndEffectiveFlags() throws {
+        let fileURL = temporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let logger = makeLogger(fileURL: fileURL)
+        logger.startRun()
+        var emitted: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(
+            keyedEventSink: { key, isDown in emitted.append((key, isDown)) },
+            diagnosticLogger: logger
+        )
+        let sessionID = UUID()
+
+        XCTAssertTrue(trigger.configureVoiceTriggerKey(.rightOption))
+        XCTAssertTrue(trigger.begin(sessionID: sessionID))
+        XCTAssertTrue(trigger.sendDown(sessionID: sessionID, purpose: "identity_test"))
+        XCTAssertTrue(trigger.sendUp(sessionID: sessionID))
+        logger.flush()
+
+        let events = try records(at: fileURL).filter {
+            ["SYNTHETIC_TRIGGER_DOWN", "SYNTHETIC_TRIGGER_UP"].contains($0["event"] as? String ?? "")
+        }
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events[0]["generic_flag"] as? String, "0x\(String(VoiceTriggerKey.rightOption.cgEventFlag.rawValue, radix: 16, uppercase: true))")
+        XCTAssertEqual(events[0]["device_side_flag"] as? String, "0x\(String(VoiceTriggerKey.rightOption.deviceSideCGEventFlag.rawValue, radix: 16, uppercase: true))")
+        XCTAssertEqual(events[0]["effective_flags_raw"] as? String, "0x\(String(VoiceTriggerKey.rightOption.syntheticModifierFlags.rawValue, radix: 16, uppercase: true))")
+        XCTAssertEqual(events[1]["effective_flags_raw"] as? String, "0x0")
+        XCTAssertEqual(emitted.map(\.0), [.rightOption, .rightOption])
+        XCTAssertEqual(emitted.map(\.1), [true, false])
+    }
+
     func testHIDReadbackParserDistinguishesMatchMismatchEmptyAndInvalid() {
         let rightMapping = """
         {"UserKeyMapping":[{"HIDKeyboardModifierMappingSrc":"0x70000003E","HIDKeyboardModifierMappingDst":"0x7000000E6"}]}

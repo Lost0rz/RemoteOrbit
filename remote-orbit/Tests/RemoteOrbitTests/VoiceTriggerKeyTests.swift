@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import IOKit.hidsystem
 import XCTest
 @testable import RemoteOrbit
 
@@ -102,6 +103,77 @@ final class VoiceTriggerKeyTests: XCTestCase {
         XCTAssertEqual(key.hidutilDestination, 0x7000000E7)
         XCTAssertEqual(key.cgKeyCode, 54)
         XCTAssertEqual(key.cgEventFlag, .maskCommand)
+    }
+
+    func testSyntheticModifierFlagsPreserveDeviceSideIdentityForEveryKey() {
+        let cases: [(
+            key: VoiceTriggerKey,
+            genericFlag: CGEventFlags,
+            deviceSideFlag: CGEventFlags,
+            oppositeDeviceSideFlag: CGEventFlags
+        )] = [
+            (
+                .leftOption,
+                .maskAlternate,
+                CGEventFlags(rawValue: UInt64(NX_DEVICELALTKEYMASK)),
+                CGEventFlags(rawValue: UInt64(NX_DEVICERALTKEYMASK))
+            ),
+            (
+                .rightOption,
+                .maskAlternate,
+                CGEventFlags(rawValue: UInt64(NX_DEVICERALTKEYMASK)),
+                CGEventFlags(rawValue: UInt64(NX_DEVICELALTKEYMASK))
+            ),
+            (
+                .leftControl,
+                .maskControl,
+                CGEventFlags(rawValue: UInt64(NX_DEVICELCTLKEYMASK)),
+                CGEventFlags(rawValue: UInt64(NX_DEVICERCTLKEYMASK))
+            ),
+            (
+                .rightControl,
+                .maskControl,
+                CGEventFlags(rawValue: UInt64(NX_DEVICERCTLKEYMASK)),
+                CGEventFlags(rawValue: UInt64(NX_DEVICELCTLKEYMASK))
+            ),
+            (
+                .leftCommand,
+                .maskCommand,
+                CGEventFlags(rawValue: UInt64(NX_DEVICELCMDKEYMASK)),
+                CGEventFlags(rawValue: UInt64(NX_DEVICERCMDKEYMASK))
+            ),
+            (
+                .rightCommand,
+                .maskCommand,
+                CGEventFlags(rawValue: UInt64(NX_DEVICERCMDKEYMASK)),
+                CGEventFlags(rawValue: UInt64(NX_DEVICELCMDKEYMASK))
+            ),
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(testCase.key.cgEventFlag, testCase.genericFlag)
+            XCTAssertEqual(testCase.key.deviceSideCGEventFlag, testCase.deviceSideFlag)
+            XCTAssertTrue(testCase.key.syntheticModifierFlags.contains(testCase.genericFlag))
+            XCTAssertTrue(testCase.key.syntheticModifierFlags.contains(testCase.deviceSideFlag))
+            XCTAssertFalse(testCase.key.syntheticModifierFlags.contains(testCase.oppositeDeviceSideFlag))
+            XCTAssertEqual(
+                testCase.key.syntheticModifierFlags,
+                testCase.genericFlag.union(testCase.deviceSideFlag)
+            )
+        }
+
+        XCTAssertNotEqual(
+            VoiceTriggerKey.leftOption.syntheticModifierFlags,
+            VoiceTriggerKey.rightOption.syntheticModifierFlags
+        )
+        XCTAssertNotEqual(
+            VoiceTriggerKey.leftControl.syntheticModifierFlags,
+            VoiceTriggerKey.rightControl.syntheticModifierFlags
+        )
+        XCTAssertNotEqual(
+            VoiceTriggerKey.leftCommand.syntheticModifierFlags,
+            VoiceTriggerKey.rightCommand.syntheticModifierFlags
+        )
     }
 
     func testCodableRoundTripPreservesEverySupportedKey() throws {
