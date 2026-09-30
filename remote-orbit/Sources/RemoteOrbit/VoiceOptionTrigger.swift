@@ -269,14 +269,31 @@ enum HardwareOptionResolution: Equatable {
     case noOptionEdge
 }
 
+enum PersistentShortTapDispatchResult: Equatable {
+    case emitted
+    case deferred(waitingOn: UUID)
+    case failed
+}
+
 final class HardwareOptionGate {
     private(set) var activeSessionID: UUID?
+    private(set) var suppressedSessionID: UUID?
+    private(set) var shortTapDiscardSessionID: UUID?
     private var downSeen = false
     private var upSeen = false
     private var copiedDownPresent = false
+    private var suppressedReleaseArmed = false
+    private var suppressedOutputDrainCompleted = false
+    private var suppressedReleaseQuietPeriodElapsed = false
+
+    var audioOnlySuppressionOwnerID: UUID? {
+        guard shortTapDiscardSessionID == nil else { return nil }
+        return suppressedSessionID
+    }
 
     @discardableResult
     func begin(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == nil else { return false }
         if let activeSessionID, activeSessionID != sessionID {
             _ = cancel(sessionID: activeSessionID)
         }
@@ -317,22 +334,156 @@ final class HardwareOptionGate {
         } else {
             resolution = .syntheticDown
         }
-        clear()
+        clearActive()
         return resolution
     }
 
     @discardableResult
     func cancel(sessionID: UUID) -> Bool {
         guard activeSessionID == sessionID else { return false }
-        clear()
+        clearActive()
         return true
     }
 
-    private func clear() {
+    /// Discard a captured physical trigger down while retaining ownership of
+    /// its later mapped release. This transition never resolves to replay or
+    /// asks the synthetic trigger owner to balance the discarded down.
+    @discardableResult
+    func suppress(sessionID: UUID) -> Bool {
+        guard activeSessionID == sessionID,
+              downSeen,
+              suppressedSessionID == nil else {
+            return false
+        }
+        suppressedSessionID = sessionID
+        shortTapDiscardSessionID = nil
+        suppressedReleaseArmed = false
+        suppressedOutputDrainCompleted = false
+        suppressedReleaseQuietPeriodElapsed = false
+        clearActive()
+        return true
+    }
+
+    /// Transfer a classified persistent-session short gesture into bounded
+    /// discard ownership, even when no mapped edge arrived before raw HID-up.
+    /// A previous short-tap discard may be re-owned by a later short toggle;
+    /// an audio-only suppression owner may not be replaced this way.
+    @discardableResult
+    func beginShortTapDiscard(sessionID: UUID) -> Bool {
+        if suppressedSessionID != nil {
+            guard shortTapDiscardSessionID != nil else { return false }
+            suppressedSessionID = sessionID
+        } else {
+            guard activeSessionID == nil || activeSessionID == sessionID else { return false }
+            suppressedSessionID = sessionID
+        }
+        if activeSessionID == sessionID {
+            clearActive()
+        }
+        shortTapDiscardSessionID = sessionID
+        suppressedReleaseArmed = true
+        suppressedOutputDrainCompleted = true
+        suppressedReleaseQuietPeriodElapsed = false
+        return true
+    }
+
+    /// A persistent long segment that begins while the preceding short-tap
+    /// quiet window is active inherits that discard owner as audio-only
+    /// suppression for its own gesture lifecycle.
+    @discardableResult
+    func transferShortTapDiscardToAudioOnlySuppression(sessionID: UUID) -> Bool {
+        guard shortTapDiscardSessionID != nil else { return false }
+        suppressedSessionID = sessionID
+        shortTapDiscardSessionID = nil
+        if activeSessionID == sessionID {
+            clearActive()
+        }
+        suppressedReleaseArmed = false
+        suppressedOutputDrainCompleted = false
+        suppressedReleaseQuietPeriodElapsed = false
+        return true
+    }
+
+    @discardableResult
+    func ownsSuppressedRelease(sessionID: UUID) -> Bool {
+        suppressedSessionID == sessionID
+    }
+
+    func isShortTapDiscardSession(sessionID: UUID) -> Bool {
+        shortTapDiscardSessionID == sessionID
+    }
+
+    @discardableResult
+    func armSuppressedRelease(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == sessionID,
+              !suppressedReleaseArmed else { return false }
+        suppressedReleaseArmed = true
+        suppressedReleaseQuietPeriodElapsed = false
+        return true
+    }
+
+    @discardableResult
+    func observeSuppressedReleaseEdge(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == sessionID else { return false }
+        suppressedReleaseQuietPeriodElapsed = false
+        return true
+    }
+
+    @discardableResult
+    func markSuppressedOutputDrainCompleted(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == sessionID,
+              suppressedReleaseArmed,
+              !suppressedOutputDrainCompleted else {
+            return false
+        }
+        suppressedOutputDrainCompleted = true
+        return true
+    }
+
+    @discardableResult
+    func markSuppressedReleaseQuietPeriodElapsed(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == sessionID,
+              suppressedReleaseArmed else {
+            return false
+        }
+        suppressedReleaseQuietPeriodElapsed = true
+        return true
+    }
+
+    /// Complete suppressed ownership only after the matching physical release
+    /// has been accepted and the caller's output-drain barrier has completed.
+    @discardableResult
+    func completeSuppressed(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == sessionID,
+              suppressedReleaseArmed,
+              suppressedOutputDrainCompleted,
+              suppressedReleaseQuietPeriodElapsed else {
+            return false
+        }
+        clearSuppressed()
+        return true
+    }
+
+    @discardableResult
+    func resetSuppressed(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == sessionID else { return false }
+        clearSuppressed()
+        return true
+    }
+
+    private func clearActive() {
         activeSessionID = nil
         downSeen = false
         upSeen = false
         copiedDownPresent = false
+    }
+
+    private func clearSuppressed() {
+        suppressedSessionID = nil
+        shortTapDiscardSessionID = nil
+        suppressedReleaseArmed = false
+        suppressedOutputDrainCompleted = false
+        suppressedReleaseQuietPeriodElapsed = false
     }
 }
 
@@ -341,31 +492,56 @@ final class HardwareOptionGate {
 /// session owns the trigger, so it cannot release the newer gesture.
 final class VoiceOptionTrigger {
     typealias EventSink = (_ isDown: Bool) -> Void
+    typealias KeyedEventSink = (_ key: VoiceTriggerKey, _ isDown: Bool) -> Void
 
-    static let shared = VoiceOptionTrigger { isDown in
+    private static let systemEventSink: KeyedEventSink = { key, isDown in
         if isDown {
-            Key.optionDown()
+            Key.voiceTriggerDown(key)
         } else {
-            Key.optionUp()
+            Key.voiceTriggerUp(key)
         }
     }
+    static let shared = VoiceOptionTrigger(
+        keyedEventSink: systemEventSink,
+        diagnosticLogger: .shared
+    )
 
-    private let eventSink: EventSink
+    private let eventSink: KeyedEventSink
+    private let diagnosticLogger: VoiceDiagnosticLogger?
+    private(set) var momentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
+    /// Compatibility alias for callers that historically meant the mapped
+    /// remote-microphone trigger.
+    var voiceTriggerKey: VoiceTriggerKey { momentaryVoiceTriggerKey }
     private(set) var activeSessionID: UUID?
     private(set) var isOptionDown = false
+    private var activeTriggerKey: VoiceTriggerKey?
+    private var activePurpose: String?
 
-    init(eventSink: @escaping EventSink) {
-        self.eventSink = eventSink
+    init(
+        eventSink: @escaping EventSink,
+        diagnosticLogger: VoiceDiagnosticLogger? = nil
+    ) {
+        self.eventSink = { _, isDown in eventSink(isDown) }
+        self.diagnosticLogger = diagnosticLogger
+    }
+
+    init(
+        keyedEventSink: @escaping KeyedEventSink,
+        diagnosticLogger: VoiceDiagnosticLogger? = nil
+    ) {
+        self.eventSink = keyedEventSink
+        self.diagnosticLogger = diagnosticLogger
     }
 
     convenience init() {
-        self.init { isDown in
-            if isDown {
-                Key.optionDown()
-            } else {
-                Key.optionUp()
-            }
-        }
+        self.init(keyedEventSink: Self.systemEventSink)
+    }
+
+    @discardableResult
+    func configureVoiceTriggerKey(_ key: VoiceTriggerKey) -> Bool {
+        guard activeSessionID == nil, !isOptionDown else { return false }
+        momentaryVoiceTriggerKey = key
+        return true
     }
 
     @discardableResult
@@ -376,15 +552,32 @@ final class VoiceOptionTrigger {
         if activeSessionID != sessionID {
             activeSessionID = sessionID
             isOptionDown = false
+            activeTriggerKey = nil
+            activePurpose = nil
+            diagnosticLogger?.log(
+                category: "synthetic",
+                event: "SYNTHETIC_OWNER_BEGIN",
+                gestureID: sessionID,
+                key: momentaryVoiceTriggerKey,
+                fields: ["configured_momentary": momentaryVoiceTriggerKey.rawValue]
+            )
         }
         return true
     }
 
     @discardableResult
-    func sendDown(sessionID: UUID) -> Bool {
+    func sendDown(sessionID: UUID, purpose: String = "momentary_hold") -> Bool {
         guard activeSessionID == sessionID, !isOptionDown else { return false }
         isOptionDown = true
-        eventSink(true)
+        activeTriggerKey = momentaryVoiceTriggerKey
+        activePurpose = purpose
+        eventSink(momentaryVoiceTriggerKey, true)
+        logSyntheticEdge(
+            "SYNTHETIC_TRIGGER_DOWN",
+            sessionID: sessionID,
+            purpose: purpose,
+            key: momentaryVoiceTriggerKey
+        )
         return true
     }
 
@@ -392,7 +585,17 @@ final class VoiceOptionTrigger {
     func sendUp(sessionID: UUID) -> Bool {
         guard activeSessionID == sessionID, isOptionDown else { return false }
         isOptionDown = false
-        eventSink(false)
+        let key = activeTriggerKey ?? momentaryVoiceTriggerKey
+        let purpose = activePurpose ?? "momentary_hold"
+        eventSink(key, false)
+        logSyntheticEdge(
+            "SYNTHETIC_TRIGGER_UP",
+            sessionID: sessionID,
+            purpose: purpose,
+            key: key
+        )
+        activeTriggerKey = nil
+        activePurpose = nil
         VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
         activeSessionID = nil
         return true
@@ -403,10 +606,27 @@ final class VoiceOptionTrigger {
         guard activeSessionID == sessionID else { return false }
         let wasDown = isOptionDown
         isOptionDown = false
+        let key = activeTriggerKey ?? momentaryVoiceTriggerKey
+        let purpose = activePurpose ?? "momentary_hold"
         if wasDown {
-            eventSink(false)
+            eventSink(key, false)
+            logSyntheticEdge(
+                "SYNTHETIC_TRIGGER_UP",
+                sessionID: sessionID,
+                purpose: purpose,
+                key: key
+            )
             VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
         }
+        diagnosticLogger?.log(
+            category: "synthetic",
+            event: "SYNTHETIC_OWNER_ABORT",
+            gestureID: sessionID,
+            key: wasDown ? key : nil,
+            fields: ["was_down": wasDown, "purpose": purpose]
+        )
+        activeTriggerKey = nil
+        activePurpose = nil
         activeSessionID = nil
         return wasDown
     }
@@ -419,11 +639,74 @@ final class VoiceOptionTrigger {
 
     @discardableResult
     func sendTap(sessionID: UUID, duration: TimeInterval = 0.06) -> Bool {
+        sendTap(
+            sessionID: sessionID,
+            key: momentaryVoiceTriggerKey,
+            duration: duration,
+            purpose: "momentary_tap"
+        )
+    }
+
+    @discardableResult
+    func sendTap(
+        sessionID: UUID,
+        key: VoiceTriggerKey,
+        duration: TimeInterval = 0.06,
+        purpose: String = "momentary_tap"
+    ) -> Bool {
         guard activeSessionID == sessionID else { return false }
-        guard sendDown(sessionID: sessionID) else { return false }
+        guard !isOptionDown else { return false }
+        isOptionDown = true
+        activeTriggerKey = key
+        activePurpose = purpose
+        eventSink(key, true)
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
-            _ = self?.sendUp(sessionID: sessionID)
+            guard let self,
+                  self.activeSessionID == sessionID,
+                  self.isOptionDown,
+                  self.activeTriggerKey == key else { return }
+            self.isOptionDown = false
+            self.eventSink(key, false)
+            self.logSyntheticEdge(
+                "SYNTHETIC_TRIGGER_UP",
+                sessionID: sessionID,
+                purpose: purpose,
+                key: key
+            )
+            self.activeTriggerKey = nil
+            self.activePurpose = nil
+            VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
+            self.activeSessionID = nil
         }
+        logSyntheticEdge(
+            "SYNTHETIC_TRIGGER_DOWN",
+            sessionID: sessionID,
+            purpose: purpose,
+            key: key
+        )
         return true
+    }
+
+    private func logSyntheticEdge(
+        _ event: String,
+        sessionID: UUID,
+        purpose: String,
+        key: VoiceTriggerKey
+    ) {
+        let effectiveFlags = event == "SYNTHETIC_TRIGGER_DOWN"
+            ? key.syntheticModifierFlags
+            : []
+        diagnosticLogger?.log(
+            category: "synthetic",
+            event: event,
+            gestureID: sessionID,
+            key: key,
+            fields: [
+                "purpose": purpose,
+                "generic_flag": String(format: "0x%llX", key.cgEventFlag.rawValue),
+                "device_side_flag": String(format: "0x%llX", key.deviceSideCGEventFlag.rawValue),
+                "effective_flags_raw": String(format: "0x%llX", effectiveFlags.rawValue),
+            ]
+        )
     }
 }

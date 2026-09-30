@@ -3,6 +3,11 @@ import Foundation
 enum AppStorage {
     static let loggingEnabledKey = "RemoteOrbit.loggingEnabled"
     static let recordingEnabledKey = "RemoteOrbit.recordingEnabled"
+    /// Legacy preference retained as the compatibility alias for the
+    /// momentary remote-microphone trigger.
+    static let voiceTriggerKeyKey = "RemoteOrbit.voiceTriggerKey"
+    static let persistentSessionTriggerKeyKey = "RemoteOrbit.persistentSessionTriggerKey"
+    static let momentaryVoiceTriggerKeyKey = "RemoteOrbit.momentaryVoiceTriggerKey"
 
     static let logsDirectory: URL = {
         FileManager.default.homeDirectoryForCurrentUser
@@ -48,7 +53,9 @@ enum AppStorage {
         UserDefaults.standard.register(defaults: [
             loggingEnabledKey: false,
             recordingEnabledKey: false,
+            voiceTriggerKeyKey: VoiceTriggerKey.defaultValue.rawValue,
         ])
+        migrateVoiceTriggerKeys(from: UserDefaults.standard)
         ensureDirectory(logsDirectory)
         ensureDirectory(recordingsDirectory)
         ensureDirectory(mappingBackupsDirectory)
@@ -68,6 +75,90 @@ enum AppStorage {
     static var recordingEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: recordingEnabledKey) }
         set { UserDefaults.standard.set(newValue, forKey: recordingEnabledKey) }
+    }
+
+    static var voiceTriggerKey: VoiceTriggerKey {
+        get { readMomentaryVoiceTriggerKey(from: UserDefaults.standard) }
+        set { writeVoiceTriggerKey(newValue, to: UserDefaults.standard) }
+    }
+
+    static var persistentSessionTriggerKey: VoiceTriggerKey {
+        get { readPersistentSessionTriggerKey(from: UserDefaults.standard) }
+        set { writePersistentSessionTriggerKey(newValue, to: UserDefaults.standard) }
+    }
+
+    static var momentaryVoiceTriggerKey: VoiceTriggerKey {
+        get { readMomentaryVoiceTriggerKey(from: UserDefaults.standard) }
+        set { writeMomentaryVoiceTriggerKey(newValue, to: UserDefaults.standard) }
+    }
+
+    static func readVoiceTriggerKey(from defaults: UserDefaults) -> VoiceTriggerKey {
+        guard let rawValue = defaults.string(forKey: voiceTriggerKeyKey),
+              let key = VoiceTriggerKey(rawValue: rawValue) else {
+            return .defaultValue
+        }
+        return key
+    }
+
+    static func writeVoiceTriggerKey(_ key: VoiceTriggerKey, to defaults: UserDefaults) {
+        defaults.set(key.rawValue, forKey: voiceTriggerKeyKey)
+        defaults.set(key.rawValue, forKey: momentaryVoiceTriggerKeyKey)
+    }
+
+    static func readPersistentSessionTriggerKey(from defaults: UserDefaults) -> VoiceTriggerKey {
+        readSemanticTriggerKey(
+            persistentSessionTriggerKeyKey,
+            from: defaults
+        )
+    }
+
+    static func readMomentaryVoiceTriggerKey(from defaults: UserDefaults) -> VoiceTriggerKey {
+        readSemanticTriggerKey(
+            momentaryVoiceTriggerKeyKey,
+            from: defaults
+        )
+    }
+
+    static func writePersistentSessionTriggerKey(
+        _ key: VoiceTriggerKey,
+        to defaults: UserDefaults
+    ) {
+        defaults.set(key.rawValue, forKey: persistentSessionTriggerKeyKey)
+    }
+
+    static func writeMomentaryVoiceTriggerKey(
+        _ key: VoiceTriggerKey,
+        to defaults: UserDefaults
+    ) {
+        defaults.set(key.rawValue, forKey: momentaryVoiceTriggerKeyKey)
+        defaults.set(key.rawValue, forKey: voiceTriggerKeyKey)
+    }
+
+    static func migrateVoiceTriggerKeys(from defaults: UserDefaults) {
+        guard let legacyRawValue = defaults.string(forKey: voiceTriggerKeyKey),
+              let legacyKey = VoiceTriggerKey(rawValue: legacyRawValue) else {
+            return
+        }
+        if defaults.object(forKey: persistentSessionTriggerKeyKey) == nil {
+            defaults.set(legacyKey.rawValue, forKey: persistentSessionTriggerKeyKey)
+        }
+        if defaults.object(forKey: momentaryVoiceTriggerKeyKey) == nil {
+            defaults.set(legacyKey.rawValue, forKey: momentaryVoiceTriggerKeyKey)
+        }
+    }
+
+    private static func readSemanticTriggerKey(
+        _ key: String,
+        from defaults: UserDefaults
+    ) -> VoiceTriggerKey {
+        if defaults.object(forKey: key) == nil {
+            migrateVoiceTriggerKeys(from: defaults)
+        }
+        guard let rawValue = defaults.string(forKey: key),
+              let triggerKey = VoiceTriggerKey(rawValue: rawValue) else {
+            return .defaultValue
+        }
+        return triggerKey
     }
 
     static func ensureDirectory(_ url: URL) {

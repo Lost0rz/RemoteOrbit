@@ -1,0 +1,302 @@
+import CoreGraphics
+import Foundation
+import XCTest
+@testable import RemoteOrbit
+
+final class VoiceDiagnosticLoggerTests: XCTestCase {
+    func testFlushMakesQueuedEventReadableAsOneDurableJSONLRecord() throws {
+        let fileURL = temporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let logger = makeLogger(fileURL: fileURL)
+
+        logger.startRun(fields: ["persistent_config": "left_option"])
+        logger.log(
+            category: "voice",
+            event: "physical_down",
+            gestureID: UUID()
+        )
+        logger.flush()
+
+        let contents = try String(contentsOf: fileURL, encoding: .utf8)
+        let lines = contents.split(whereSeparator: \.isNewline)
+        XCTAssertEqual(lines.count, 2)
+        let event = try XCTUnwrap(parseRecord(String(lines[1])))
+        XCTAssertEqual(event["category"] as? String, "voice")
+        XCTAssertEqual(event["event"] as? String, "physical_down")
+        XCTAssertEqual(event["uptime"] as? Double, 42.5)
+        XCTAssertNotNil(event["ts"] as? String)
+        XCTAssertNotNil(event["gesture_id"] as? String)
+        XCTAssertEqual((event["seq"] as? NSNumber)?.uint64Value, 2)
+    }
+
+    func testLogReturnsWhileWriterQueueIsBlocked() throws {
+        let fileURL = temporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let writerEntered = DispatchSemaphore(value: 0)
+        let releaseWriter = DispatchSemaphore(value: 0)
+        let callerReturned = DispatchSemaphore(value: 0)
+        let logger = VoiceDiagnosticLogger(
+            fileURL: fileURL,
+            dateProvider: { Date(timeIntervalSince1970: 1_790_774_201.123) },
+            uptimeProvider: { 42.5 },
+            processIdentifierProvider: { 123 },
+            beforeQueuedEventWriteForTesting: {
+                writerEntered.signal()
+                releaseWriter.wait()
+            }
+        )
+        defer {
+            releaseWriter.signal()
+            logger.close()
+        }
+        logger.startRun()
+
+        DispatchQueue.global().async {
+            logger.log(category: "voice", event: "writer_blocked_probe")
+            callerReturned.signal()
+        }
+
+        XCTAssertEqual(writerEntered.wait(timeout: .now() + 3), .success)
+        // The writer remains held by releaseWriter until after this assertion.
+        XCTAssertEqual(callerReturned.wait(timeout: .now() + 3), .success)
+
+        releaseWriter.signal()
+        logger.flush()
+        XCTAssertTrue(try records(at: fileURL).contains {
+            $0["event"] as? String == "writer_blocked_probe"
+        })
+    }
+
+    func testQueuedRecordsHaveIncreasingSequenceAndPreserveOrder() throws {
+        let fileURL = temporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let logger = makeLogger(fileURL: fileURL)
+        logger.startRun()
+
+        logger.log(category: "test", event: "A")
+        logger.log(category: "test", event: "B")
+        logger.log(category: "test", event: "C")
+        logger.flush()
+
+        let records = try records(at: fileURL)
+        let sequences = try records.map { record -> UInt64 in
+            try XCTUnwrap((record["seq"] as? NSNumber)?.uint64Value)
+        }
+        XCTAssertEqual(sequences, [1, 2, 3, 4])
+        XCTAssertEqual(
+            records.compactMap { $0["event"] as? String },
+            ["RUN_START", "A", "B", "C"]
+        )
+    }
+
+    func testKeyIdentityIncludesRawDisplayCGAndHIDValues() throws {
+        let fileURL = temporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let logger = makeLogger(fileURL: fileURL)
+        logger.startRun()
+
+        logger.log(category: "voice", event: "key_identity", key: .rightOption)
+        logger.log(category: "voice", event: "key_identity", key: .leftOption)
+        logger.flush()
+
+        let events = try records(at: fileURL).filter {
+            $0["event"] as? String == "key_identity"
+        }
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events[0]["key"] as? String, "right_option")
+        XCTAssertEqual(events[0]["key_display_name"] as? String, "Right Option")
+        XCTAssertEqual(events[0]["cg_key_code"] as? Int, 61)
+        XCTAssertEqual(events[0]["hid_destination"] as? String, "0x7000000E6")
+        XCTAssertEqual(events[1]["key"] as? String, "left_option")
+        XCTAssertEqual(events[1]["cg_key_code"] as? Int, 58)
+        XCTAssertEqual(events[1]["hid_destination"] as? String, "0x7000000E2")
+    }
+
+    func testSyntheticTriggerDiagnosticsIncludeModifierIdentityAndEffectiveFlags() throws {
+        let fileURL = temporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let logger = makeLogger(fileURL: fileURL)
+        logger.startRun()
+        var emitted: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(
+            keyedEventSink: { key, isDown in emitted.append((key, isDown)) },
+            diagnosticLogger: logger
+        )
+        let sessionID = UUID()
+
+        XCTAssertTrue(trigger.configureVoiceTriggerKey(.rightOption))
+        XCTAssertTrue(trigger.begin(sessionID: sessionID))
+        XCTAssertTrue(trigger.sendDown(sessionID: sessionID, purpose: "identity_test"))
+        XCTAssertTrue(trigger.sendUp(sessionID: sessionID))
+        logger.flush()
+
+        let events = try records(at: fileURL).filter {
+            ["SYNTHETIC_TRIGGER_DOWN", "SYNTHETIC_TRIGGER_UP"].contains($0["event"] as? String ?? "")
+        }
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events[0]["generic_flag"] as? String, "0x\(String(VoiceTriggerKey.rightOption.cgEventFlag.rawValue, radix: 16, uppercase: true))")
+        XCTAssertEqual(events[0]["device_side_flag"] as? String, "0x\(String(VoiceTriggerKey.rightOption.deviceSideCGEventFlag.rawValue, radix: 16, uppercase: true))")
+        XCTAssertEqual(events[0]["effective_flags_raw"] as? String, "0x\(String(VoiceTriggerKey.rightOption.syntheticModifierFlags.rawValue, radix: 16, uppercase: true))")
+        XCTAssertEqual(events[1]["effective_flags_raw"] as? String, "0x0")
+        XCTAssertEqual(emitted.map(\.0), [.rightOption, .rightOption])
+        XCTAssertEqual(emitted.map(\.1), [true, false])
+    }
+
+    func testHIDReadbackParserDistinguishesMatchMismatchEmptyAndInvalid() {
+        let rightMapping = """
+        {"UserKeyMapping":[{"HIDKeyboardModifierMappingSrc":"0x70000003E","HIDKeyboardModifierMappingDst":"0x7000000E6"}]}
+        """
+        let leftMapping = """
+        UserKeyMapping: ({ HIDKeyboardModifierMappingSrc = 30064771134; HIDKeyboardModifierMappingDst = 30064771298; })
+        """
+
+        XCTAssertEqual(
+            VoiceDiagnosticHIDMappingParser.verify(
+                stdout: rightMapping,
+                stderr: "",
+                exitStatus: 0,
+                requested: .rightOption
+            ),
+            .match
+        )
+        XCTAssertEqual(
+            VoiceDiagnosticHIDMappingParser.verify(
+                stdout: leftMapping,
+                stderr: "",
+                exitStatus: 0,
+                requested: .rightOption
+            ),
+            .mismatch
+        )
+        XCTAssertEqual(
+            VoiceDiagnosticHIDMappingParser.verify(
+                stdout: "",
+                stderr: "",
+                exitStatus: 0,
+                requested: .rightOption
+            ),
+            .empty
+        )
+        XCTAssertEqual(
+            VoiceDiagnosticHIDMappingParser.verify(
+                stdout: "not a hid mapping",
+                stderr: "",
+                exitStatus: 0,
+                requested: .rightOption
+            ),
+            .unparseable
+        )
+    }
+
+    func testPersistentCloseDiagnosticUsesFrozenOpenOwnerAfterReconfiguration() throws {
+        let fileURL = temporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let logger = makeLogger(fileURL: fileURL)
+        logger.startRun()
+        let trigger = VoiceOptionTrigger(
+            keyedEventSink: { _, _ in },
+            diagnosticLogger: logger
+        )
+        let press = VoicePressCoordinator(
+            optionTrigger: trigger,
+            diagnosticLogger: logger
+        )
+
+        XCTAssertTrue(press.configurePersistentSessionTriggerKey(.rightOption))
+        shortPersistentToggle(press)
+        XCTAssertEqual(press.persistentSessionTriggerOwnerKeyForTesting, .rightOption)
+        XCTAssertTrue(press.configurePersistentSessionTriggerKey(.leftOption))
+        shortPersistentToggle(press)
+
+        logger.flush()
+        let changes = try records(at: fileURL).filter {
+            $0["event"] as? String == "PERSISTENT_STATE_CHANGE"
+        }
+        XCTAssertEqual(changes.count, 2)
+        XCTAssertEqual(changes[0]["to"] as? String, "persistent_open")
+        XCTAssertEqual(changes[0]["owner_key"] as? String, "right_option")
+        XCTAssertEqual(changes[1]["closing_key"] as? String, "right_option")
+        XCTAssertEqual(changes[1]["to"] as? String, "idle")
+    }
+
+    func testMappedTriggerMismatchIsLoggedWithObservedAndConfiguredKeys() throws {
+        let fileURL = temporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let logger = makeLogger(fileURL: fileURL)
+        logger.startRun()
+        let trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in })
+        let filter = VoiceKeyFilter(
+            syntheticOptionTrigger: trigger,
+            diagnosticLogger: logger
+        )
+        XCTAssertTrue(filter.configureVoiceTriggerKey(.leftOption))
+
+        filter.recordMappedTriggerEventForTesting(
+            keyCode: VoiceTriggerKey.rightOption.cgKeyCode,
+            eventType: .keyDown,
+            flags: [],
+            syntheticMarker: false,
+            action: "unmatched_pass"
+        )
+
+        logger.flush()
+        let events = try records(at: fileURL)
+        let mismatch = try XCTUnwrap(events.first {
+            $0["event"] as? String == "MAPPED_TRIGGER_MISMATCH"
+        })
+        XCTAssertEqual(mismatch["observed"] as? String, "right_option")
+        XCTAssertEqual(mismatch["configured"] as? String, "left_option")
+        XCTAssertEqual(mismatch["event_type"] as? String, "key_down")
+    }
+
+    func testOldHardCodedLeftOptionHoldMessagesAreRemoved() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = repositoryRoot
+            .appendingPathComponent("Sources/RemoteOrbit/main.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertFalse(source.contains("LONG uses hardware-held left Option"))
+        XCTAssertFalse(source.contains("LONG uses synthetic left Option"))
+    }
+
+    private func shortPersistentToggle(_ press: VoicePressCoordinator) {
+        XCTAssertTrue(press.keyDown(
+            sessionID: UUID(),
+            togglesPersistentVoiceSession: true
+        ))
+        XCTAssertTrue(press.keyUp())
+        RunLoop.current.run(until: Date().addingTimeInterval(0.10))
+    }
+
+    private func makeLogger(fileURL: URL) -> VoiceDiagnosticLogger {
+        VoiceDiagnosticLogger(
+            fileURL: fileURL,
+            dateProvider: { Date(timeIntervalSince1970: 1_790_774_201.123) },
+            uptimeProvider: { 42.5 },
+            processIdentifierProvider: { 123 }
+        )
+    }
+
+    private func temporaryLogURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("voice-diagnostic-\(UUID().uuidString).jsonl")
+    }
+
+    private func records(at fileURL: URL) throws -> [[String: Any]] {
+        let contents = try String(contentsOf: fileURL, encoding: .utf8)
+        return try contents
+            .split(whereSeparator: \.isNewline)
+            .map { line in
+                let object = try JSONSerialization.jsonObject(with: Data(line.utf8))
+                return try XCTUnwrap(object as? [String: Any])
+            }
+    }
+
+    private func parseRecord(_ line: String) throws -> [String: Any]? {
+        let object = try JSONSerialization.jsonObject(with: Data(line.utf8))
+        return object as? [String: Any]
+    }
+}

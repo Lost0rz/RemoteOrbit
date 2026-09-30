@@ -1145,7 +1145,7 @@ enum ButtonBinding: Codable, Equatable {
         switch self {
         case let .preset(action):  return action.displayName
         case let .shortcut(chord, _): return chord.displayName
-        case .voiceKeyDefault:     return "语音键默认（短按豆包外部麦克风，长按遥控器麦克风）"
+        case .voiceKeyDefault:     return "语音键默认（短按切换输入法持续会话，长按遥控器麦克风）"
         }
     }
 
@@ -1195,8 +1195,8 @@ enum ButtonBinding: Codable, Equatable {
 enum DefaultBindings {
     static let all: [RemoteButton: ButtonBinding] = [
         // The microphone key is a special two-mode gesture: a short press
-        // sends one Option tap for Doubao's physical/external microphone;
-        // VoicePressCoordinator owns the remote microphone long press.
+        // toggles the persistent IME session; VoicePressCoordinator owns the
+        // remote-microphone hold and its session-aware trigger policy.
         .microphone:  .voiceKeyDefault,
         .power:       .preset(.disabled),
         .up:          .preset(.arrowUp),

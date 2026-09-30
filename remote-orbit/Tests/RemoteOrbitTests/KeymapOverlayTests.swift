@@ -52,7 +52,7 @@ final class KeymapOverlayTests: XCTestCase {
         XCTAssertTrue(profile.usesAdvancedGestures)
     }
 
-    func testVoiceKeyDefaultShowsDoubaoShortAndRemoteLong() {
+    func testVoiceKeyDefaultShowsPersistentIMEAndRemoteLong() {
         let lines = KeymapPresentation.actionLines(
             for: .microphone,
             binding: .voiceKeyDefault,
@@ -62,7 +62,7 @@ final class KeymapOverlayTests: XCTestCase {
         XCTAssertEqual(lines.map(\.gesture), ["单击", "长按"])
         XCTAssertEqual(
             lines.map(\.action),
-            ["豆包输入（电脑/外部麦克风）", "遥控器语音输入"]
+            ["输入法持续会话", "遥控器语音输入"]
         )
     }
 
@@ -92,10 +92,8 @@ final class KeymapOverlayTests: XCTestCase {
     }
 
     func testOnlyShortVoiceInputsRequestTheLocalMicrophone() {
-        XCTAssertTrue(
-            VoicePressCoordinator.usesLocalMicrophone(
-                forShortBinding: .voiceKeyDefault
-            )
+        XCTAssertFalse(
+            VoicePressCoordinator.usesLocalMicrophone(forShortBinding: .voiceKeyDefault)
         )
         XCTAssertTrue(
             VoicePressCoordinator.usesLocalMicrophone(
@@ -119,19 +117,19 @@ final class KeymapOverlayTests: XCTestCase {
         )
     }
 
-    func testOnlyDefaultDoubaoShortInputUsesToggleLifecycle() {
+    func testOnlyDefaultVoiceBindingTogglesPersistentSession() {
         XCTAssertTrue(
-            VoicePressCoordinator.togglesLocalMicrophone(
+            VoicePressCoordinator.togglesPersistentVoiceSession(
                 forShortBinding: .voiceKeyDefault
             )
         )
         XCTAssertFalse(
-            VoicePressCoordinator.togglesLocalMicrophone(
+            VoicePressCoordinator.togglesPersistentVoiceSession(
                 forShortBinding: .preset(.chatGPTStartVoiceChat)
             )
         )
         XCTAssertFalse(
-            VoicePressCoordinator.togglesLocalMicrophone(
+            VoicePressCoordinator.togglesPersistentVoiceSession(
                 forShortBinding: .preset(.disabled)
             )
         )
