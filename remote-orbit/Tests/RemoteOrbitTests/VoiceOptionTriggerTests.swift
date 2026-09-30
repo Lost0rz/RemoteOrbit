@@ -67,6 +67,43 @@ final class VoiceOptionTriggerTests: XCTestCase {
         XCTAssertEqual(gate.resolve(sessionID: current), .hardwareReplay)
     }
 
+    func testSuppressCapturedHardwareDownTransfersToBoundedReleaseOwnership() {
+        let gate = HardwareOptionGate()
+        let session = UUID()
+
+        XCTAssertTrue(gate.begin(sessionID: session))
+        XCTAssertTrue(gate.capture(.down, copied: true))
+        XCTAssertTrue(gate.suppress(sessionID: session))
+
+        XCTAssertNil(gate.activeSessionID)
+        XCTAssertEqual(gate.suppressedSessionID, session)
+        XCTAssertFalse(gate.capture(.up, copied: true))
+        XCTAssertTrue(gate.ownsSuppressedRelease(sessionID: session))
+        XCTAssertFalse(gate.ownsSuppressedRelease(sessionID: UUID()))
+        XCTAssertEqual(gate.suppressedSessionID, session)
+        XCTAssertTrue(gate.armSuppressedRelease(sessionID: session))
+        XCTAssertTrue(gate.completeSuppressed(sessionID: session))
+        XCTAssertNil(gate.suppressedSessionID)
+    }
+
+    func testSuppressionRequiresMatchingActiveDownAndIgnoresStaleCompletion() {
+        let gate = HardwareOptionGate()
+        let session = UUID()
+        let other = UUID()
+
+        XCTAssertTrue(gate.begin(sessionID: session))
+        XCTAssertFalse(gate.suppress(sessionID: other))
+        XCTAssertFalse(gate.suppress(sessionID: session))
+        XCTAssertTrue(gate.capture(.down, copied: true))
+        XCTAssertTrue(gate.suppress(sessionID: session))
+        XCTAssertFalse(gate.armSuppressedRelease(sessionID: other))
+        XCTAssertFalse(gate.completeSuppressed(sessionID: other))
+        XCTAssertEqual(gate.suppressedSessionID, session)
+        XCTAssertFalse(gate.begin(sessionID: other))
+        XCTAssertTrue(gate.resetSuppressed(sessionID: session))
+        XCTAssertNil(gate.suppressedSessionID)
+    }
+
     func testStaleSyntheticTapCannotReleaseTheCurrentOwner() {
         var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
         let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in

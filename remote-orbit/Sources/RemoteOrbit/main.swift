@@ -1032,6 +1032,9 @@ final class VoiceKeyFilter {
     private var heldHardwareOptionKeyUpSeen = false
     private var hardwareOptionReleaseArmed = false
     private var voiceTriggerReconfigurationKeyCodes: Set<CGKeyCode>?
+    var suppressedHardwareTriggerSessionID: UUID? {
+        optionGate.suppressedSessionID
+    }
     var onVoiceKeyDown: (() -> Void)?
     var onVoiceKeyUp: (() -> Void)?
 
@@ -1042,6 +1045,7 @@ final class VoiceKeyFilter {
     @discardableResult
     func configureVoiceTriggerKey(_ key: VoiceTriggerKey) -> Bool {
         guard optionGate.activeSessionID == nil,
+              optionGate.suppressedSessionID == nil,
               heldHardwareOptionSessionID == nil,
               !voiceKeyIsDown else {
             return false
@@ -1060,6 +1064,7 @@ final class VoiceKeyFilter {
     ) -> Bool {
         guard voiceTriggerReconfigurationKeyCodes == nil,
               optionGate.activeSessionID == nil,
+              optionGate.suppressedSessionID == nil,
               heldHardwareOptionSessionID == nil,
               !voiceKeyIsDown,
               syntheticOptionTrigger.activeSessionID == nil,
@@ -1101,6 +1106,119 @@ final class VoiceKeyFilter {
         optionGate.activeSessionID == gestureID
     }
 
+    /// Record one deferred physical edge, keeping the capture decision in the
+    /// same narrow seam used by the event tap and focused tests.
+    @discardableResult
+    func captureDeferredHardwareOptionEdge(
+        _ edge: HardwareOptionEdge,
+        copiedEvent: CGEvent?
+    ) -> Bool {
+        guard optionGate.activeSessionID != nil else { return false }
+        if edge == .up, !deferredOptionDownSeen { return false }
+        guard optionGate.capture(edge, copied: copiedEvent != nil) else {
+            return false
+        }
+
+        switch edge {
+        case .down:
+            deferredOptionDownSeen = true
+            if let copiedEvent {
+                deferredOptionDownEvents.append(copiedEvent)
+            }
+        case .up:
+            deferredOptionUpSeen = true
+            if let copiedEvent {
+                deferredOptionUpEvents.append(copiedEvent)
+            }
+        }
+        return true
+    }
+
+    /// Discard a captured mapped down and transfer its later release to a
+    /// bounded, gesture-scoped suppression owner. Unlike cancellation, this
+    /// deliberately remains active after the deferral gate is closed.
+    @discardableResult
+    func suppressDeferredHardwareTrigger(
+        gestureID: UUID,
+        reason: String
+    ) -> Bool {
+        guard optionGate.suppress(sessionID: gestureID) else { return false }
+        _ = syntheticOptionTrigger.abort(sessionID: gestureID)
+        deferredOptionDownSeen = false
+        deferredOptionUpSeen = false
+        deferredOptionDownEvents.removeAll(keepingCapacity: true)
+        deferredOptionUpEvents.removeAll(keepingCapacity: true)
+        print(
+            "[VOICE] mapped trigger suppressed gesture=\(gestureID.uuidString) "
+                + "reason=\(reason)"
+        )
+        return true
+    }
+
+    /// Testable event-tap seam: consume only the configured modifier's
+    /// release components while a discarded down still owns the lifecycle.
+    @discardableResult
+    func shouldSuppressDiscardedHardwareTriggerRelease(
+        keyCode: CGKeyCode,
+        type: CGEventType,
+        flags: CGEventFlags
+    ) -> Bool {
+        guard matchesTriggerKeyCode(keyCode),
+              let sessionID = optionGate.suppressedSessionID else {
+            return false
+        }
+        switch type {
+        case .flagsChanged:
+            guard !isTriggerModifierActive(flags: flags) else { return false }
+            return optionGate.ownsSuppressedRelease(sessionID: sessionID)
+        case .keyUp:
+            return optionGate.ownsSuppressedRelease(sessionID: sessionID)
+        default:
+            return false
+        }
+    }
+
+    @discardableResult
+    func armSuppressedHardwareTriggerRelease(gestureID: UUID) -> Bool {
+        optionGate.armSuppressedRelease(sessionID: gestureID)
+    }
+
+    /// Clear suppression ownership after physical-up plus output drain. This
+    /// only changes internal state; a discarded down must never be balanced.
+    @discardableResult
+    func completeSuppressedHardwareTrigger(
+        gestureID: UUID,
+        reason: String
+    ) -> Bool {
+        guard optionGate.completeSuppressed(sessionID: gestureID) else {
+            return false
+        }
+        print(
+            "[VOICE] mapped trigger suppression completed "
+                + "gesture=\(gestureID.uuidString) reason=\(reason)"
+        )
+        return true
+    }
+
+    /// Explicit reset/supersede cleanup for suppressed ownership. No modifier
+    /// event is emitted because the physical down was discarded.
+    @discardableResult
+    func resetSuppressedHardwareTrigger(
+        gestureID: UUID? = nil,
+        reason: String
+    ) -> Bool {
+        guard let owner = optionGate.suppressedSessionID,
+              gestureID == nil || gestureID == owner,
+              optionGate.resetSuppressed(sessionID: owner) else {
+            return false
+        }
+        print(
+            "[VOICE] mapped trigger suppression reset "
+                + "gesture=\(owner.uuidString) reason=\(reason)"
+        )
+        return true
+    }
+
     /// HIDMonitor 活跃时跳过语音键处理（防止双重触发）。
     var skipVoiceKey = false
 
@@ -1111,6 +1229,7 @@ final class VoiceKeyFilter {
     /// This prevents the first Option edge from beating a stale WebKit text
     /// client without blocking the event-tap thread.
     func beginOptionDeferral(gestureID: UUID) {
+        guard optionGate.suppressedSessionID == nil else { return }
         if let heldSessionID = heldHardwareOptionSessionID,
            heldSessionID != gestureID {
             abortHeldHardwareOption(
@@ -1125,7 +1244,7 @@ final class VoiceKeyFilter {
                 reason: "superseded"
             )
         }
-        _ = optionGate.begin(sessionID: gestureID)
+        guard optionGate.begin(sessionID: gestureID) else { return }
         _ = syntheticOptionTrigger.begin(sessionID: gestureID)
         deferredOptionDownSeen = false
         deferredOptionUpSeen = false
@@ -1142,6 +1261,11 @@ final class VoiceKeyFilter {
             cancelDeferredOption(gestureID: gestureID, reason: reason)
         } else if let gestureID = heldHardwareOptionSessionID {
             abortHeldHardwareOption(gestureID: gestureID, reason: reason)
+        } else if let gestureID = optionGate.suppressedSessionID {
+            _ = resetSuppressedHardwareTrigger(
+                gestureID: gestureID,
+                reason: reason
+            )
         }
     }
 
@@ -1204,6 +1328,7 @@ final class VoiceKeyFilter {
 
     /// Called after the raw HID microphone-up was accepted for this gesture.
     func armHardwareOptionRelease(gestureID: UUID) {
+        _ = armSuppressedHardwareTriggerRelease(gestureID: gestureID)
         guard heldHardwareOptionSessionID == gestureID else { return }
         hardwareOptionReleaseArmed = true
         print("[VOICE] hardware Option-up armed gesture=\(gestureID.uuidString)")
@@ -1213,6 +1338,12 @@ final class VoiceKeyFilter {
     /// If macOS did not deliver a matching up, use the existing synthetic
     /// helper only as an emergency balancing edge.
     func releaseHeldHardwareOption(gestureID: UUID, reason: String) {
+        if completeSuppressedHardwareTrigger(
+            gestureID: gestureID,
+            reason: reason
+        ) {
+            return
+        }
         guard heldHardwareOptionSessionID == gestureID else {
             print(
                 "[VOICE] ignored stale hardware Option-up release gesture="
@@ -1326,6 +1457,14 @@ final class VoiceKeyFilter {
                 return nil
             }
 
+            if filter.shouldSuppressDiscardedHardwareTriggerRelease(
+                keyCode: keyCode,
+                type: type,
+                flags: event.flags
+            ) {
+                return nil
+            }
+
             // hidutil converts the remote's F5 usage into left Option. When a
             // FloatTabs voice handoff is active, hold that generated Option
             // pair only; real keyboard Option events remain untouched outside
@@ -1335,47 +1474,27 @@ final class VoiceKeyFilter {
                 switch type {
                 case .flagsChanged:
                     if filter.isTriggerModifierActive(flags: event.flags) {
-                        filter.deferredOptionDownSeen = true
-                        let copiedEvent = event.copy()
-                        _ = filter.optionGate.capture(
+                        _ = filter.captureDeferredHardwareOptionEdge(
                             .down,
-                            copied: copiedEvent != nil
+                            copiedEvent: event.copy()
                         )
-                        if let copiedEvent {
-                            filter.deferredOptionDownEvents.append(copiedEvent)
-                        }
                     } else if filter.deferredOptionDownSeen {
-                        filter.deferredOptionUpSeen = true
-                        let copiedEvent = event.copy()
-                        _ = filter.optionGate.capture(
+                        _ = filter.captureDeferredHardwareOptionEdge(
                             .up,
-                            copied: copiedEvent != nil
+                            copiedEvent: event.copy()
                         )
-                        if let copiedEvent {
-                            filter.deferredOptionUpEvents.append(copiedEvent)
-                        }
                     }
                 case .keyDown:
-                    filter.deferredOptionDownSeen = true
-                    let copiedEvent = event.copy()
-                    _ = filter.optionGate.capture(
+                    _ = filter.captureDeferredHardwareOptionEdge(
                         .down,
-                        copied: copiedEvent != nil
+                        copiedEvent: event.copy()
                     )
-                    if let copiedEvent {
-                        filter.deferredOptionDownEvents.append(copiedEvent)
-                    }
                 case .keyUp:
                     if filter.deferredOptionDownSeen {
-                        filter.deferredOptionUpSeen = true
-                        let copiedEvent = event.copy()
-                        _ = filter.optionGate.capture(
+                        _ = filter.captureDeferredHardwareOptionEdge(
                             .up,
-                            copied: copiedEvent != nil
+                            copiedEvent: event.copy()
                         )
-                        if let copiedEvent {
-                            filter.deferredOptionUpEvents.append(copiedEvent)
-                        }
                     } else {
                         return Unmanaged.passUnretained(event)
                     }
@@ -1464,6 +1583,12 @@ final class VoiceKeyFilter {
         }
         if let gestureID = heldHardwareOptionSessionID {
             abortHeldHardwareOption(gestureID: gestureID, reason: "stop")
+        }
+        if let gestureID = optionGate.suppressedSessionID {
+            _ = resetSuppressedHardwareTrigger(
+                gestureID: gestureID,
+                reason: "stop"
+            )
         }
         if voiceKeyIsDown {
             voiceKeyIsDown = false

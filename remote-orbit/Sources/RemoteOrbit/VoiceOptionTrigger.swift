@@ -271,12 +271,15 @@ enum HardwareOptionResolution: Equatable {
 
 final class HardwareOptionGate {
     private(set) var activeSessionID: UUID?
+    private(set) var suppressedSessionID: UUID?
     private var downSeen = false
     private var upSeen = false
     private var copiedDownPresent = false
+    private var suppressedReleaseArmed = false
 
     @discardableResult
     func begin(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == nil else { return false }
         if let activeSessionID, activeSessionID != sessionID {
             _ = cancel(sessionID: activeSessionID)
         }
@@ -317,22 +320,74 @@ final class HardwareOptionGate {
         } else {
             resolution = .syntheticDown
         }
-        clear()
+        clearActive()
         return resolution
     }
 
     @discardableResult
     func cancel(sessionID: UUID) -> Bool {
         guard activeSessionID == sessionID else { return false }
-        clear()
+        clearActive()
         return true
     }
 
-    private func clear() {
+    /// Discard a captured physical trigger down while retaining ownership of
+    /// its later mapped release. This transition never resolves to replay or
+    /// asks the synthetic trigger owner to balance the discarded down.
+    @discardableResult
+    func suppress(sessionID: UUID) -> Bool {
+        guard activeSessionID == sessionID,
+              downSeen,
+              suppressedSessionID == nil else {
+            return false
+        }
+        suppressedSessionID = sessionID
+        suppressedReleaseArmed = false
+        clearActive()
+        return true
+    }
+
+    @discardableResult
+    func ownsSuppressedRelease(sessionID: UUID) -> Bool {
+        suppressedSessionID == sessionID
+    }
+
+    @discardableResult
+    func armSuppressedRelease(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == sessionID else { return false }
+        suppressedReleaseArmed = true
+        return true
+    }
+
+    /// Complete suppressed ownership only after the matching physical release
+    /// has been accepted and the caller's output-drain barrier has completed.
+    @discardableResult
+    func completeSuppressed(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == sessionID,
+              suppressedReleaseArmed else {
+            return false
+        }
+        clearSuppressed()
+        return true
+    }
+
+    @discardableResult
+    func resetSuppressed(sessionID: UUID) -> Bool {
+        guard suppressedSessionID == sessionID else { return false }
+        clearSuppressed()
+        return true
+    }
+
+    private func clearActive() {
         activeSessionID = nil
         downSeen = false
         upSeen = false
         copiedDownPresent = false
+    }
+
+    private func clearSuppressed() {
+        suppressedSessionID = nil
+        suppressedReleaseArmed = false
     }
 }
 
