@@ -366,10 +366,11 @@ final class VoicePressCoordinator {
     /// but once short-press behavior was restored that made an ordinary tap
     /// look like a long press and opened remote dictation unexpectedly.
     static let holdActivationThreshold: TimeInterval = 0.30
-    /// An already-open persistent IME session uses a shorter hold boundary so
-    /// a remote-microphone segment can begin promptly after a short-toggle
-    /// gesture has become a hold.
-    static let persistentHoldActivationThreshold: TimeInterval = 0.18
+    /// Persistent sessions prepare transport immediately while pending, but
+    /// use the same 300ms short-vs-hold semantic boundary so ordinary taps can
+    /// reliably close or reopen the session.
+    static let persistentHoldActivationThreshold: TimeInterval =
+        holdActivationThreshold
 
     static func isLongPress(heldDuration: TimeInterval) -> Bool {
         heldDuration >= holdActivationThreshold

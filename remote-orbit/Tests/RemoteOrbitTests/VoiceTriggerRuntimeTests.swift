@@ -246,7 +246,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         )
 
         XCTAssertEqual(apply(.rightCommand, to: harness.controller), .busyActiveHold)
-        waitForCoordinatorTiming(0.22)
+        waitForCoordinatorTiming(0.35)
         XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .holding)
         harness.controller.voicePress.setRemoteAudioAvailable()
         XCTAssertTrue(harness.controller.voicePress.keyUp())

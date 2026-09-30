@@ -36,6 +36,10 @@ final class VoicePersistentSessionTests: XCTestCase {
         XCTAssertEqual(events.map(\.0), [.leftOption, .leftOption])
         XCTAssertEqual(events.map(\.1), [true, false])
         XCTAssertEqual(routePreparations, 0)
+        XCTAssertFalse(
+            VoicePressCoordinator.isPersistentSessionLongPress(heldDuration: 0.185),
+            "a real-world 185ms persistent-open tap must remain short"
+        )
 
         waitForCoordinatorTiming(0.20)
         press.keyDown(sessionID: UUID(), togglesPersistentVoiceSession: true)
@@ -43,6 +47,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         waitForCoordinatorTiming(0.08)
 
         XCTAssertFalse(press.persistentSessionActiveForTesting)
+        XCTAssertEqual(press.currentSessionModeForTesting, .idle)
         XCTAssertEqual(events.map(\.1), [true, false, true, false])
         XCTAssertEqual(routePreparations, 0)
         press.stop()
@@ -83,7 +88,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         press.stop()
     }
 
-    func testPersistentSessionHoldUsesFastClassifierAndPreparesOnlyTransportWhilePending() {
+    func testPersistentSessionUsesSharedClassifierAndPreparesOnlyTransportWhilePending() {
         var events: [(VoiceTriggerKey, Bool)] = []
         let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in
             events.append((key, down))
@@ -108,17 +113,17 @@ final class VoicePersistentSessionTests: XCTestCase {
         XCTAssertEqual(press.currentStateForTesting, .pending)
         XCTAssertEqual(transportPreparations, 1)
         XCTAssertEqual(routePreparations, 0)
-        XCTAssertFalse(VoicePressCoordinator.isLongPress(heldDuration: 0.20))
-        XCTAssertTrue(VoicePressCoordinator.isPersistentSessionLongPress(heldDuration: 0.18))
-        XCTAssertTrue(VoicePressCoordinator.isLongPress(heldDuration: 0.30))
-        waitForCoordinatorTiming(0.22)
-
-        XCTAssertEqual(press.currentStateForTesting, .holding)
-        XCTAssertEqual(press.remoteSegmentTriggerPolicyForTesting, .audioOnly)
-        XCTAssertEqual(routePreparations, 1)
-        XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
-        XCTAssertEqual(events.map(\.1), [true, false])
-        press.setRemoteAudioAvailable()
+        XCTAssertEqual(events.map(\.1), [true, false], "no input trigger before hold commit")
+        XCTAssertFalse(press.hasRemoteAudio)
+        XCTAssertFalse(VoicePressCoordinator.isLongPress(heldDuration: 0.299))
+        XCTAssertTrue(VoicePressCoordinator.isLongPress(heldDuration: 0.300))
+        XCTAssertFalse(VoicePressCoordinator.isPersistentSessionLongPress(heldDuration: 0.185))
+        XCTAssertFalse(VoicePressCoordinator.isPersistentSessionLongPress(heldDuration: 0.250))
+        XCTAssertFalse(VoicePressCoordinator.isPersistentSessionLongPress(heldDuration: 0.299))
+        XCTAssertTrue(VoicePressCoordinator.isPersistentSessionLongPress(heldDuration: 0.300))
+        XCTAssertEqual(press.currentStateForTesting, .pending)
+        XCTAssertEqual(routePreparations, 0)
+        XCTAssertNil(filter.suppressedHardwareTriggerSessionID)
         XCTAssertEqual(events.map(\.1), [true, false])
         XCTAssertTrue(press.keyUp())
         press.stop()
