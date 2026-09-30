@@ -185,6 +185,28 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         harness.controller.voicePress.stop()
     }
 
+    func testPersistentVoiceSessionRejectsTriggerReconfigurationWithoutMutation() {
+        let harness = VoiceTriggerRuntimeHarness(persistedKey: .leftOption)
+        XCTAssertTrue(
+            harness.controller.voicePress.keyDown(
+                sessionID: UUID(),
+                togglesPersistentVoiceSession: true
+            )
+        )
+        XCTAssertTrue(harness.controller.voicePress.keyUp())
+        XCTAssertTrue(harness.controller.voicePress.persistentSessionActiveForTesting)
+
+        XCTAssertEqual(apply(.rightCommand, to: harness.controller), .busy)
+
+        XCTAssertEqual(harness.controller.currentVoiceTriggerKey, .leftOption)
+        XCTAssertEqual(harness.controller.filter.voiceTriggerKey, .leftOption)
+        XCTAssertEqual(harness.trigger.voiceTriggerKey, .leftOption)
+        XCTAssertEqual(harness.persistedKey, .leftOption)
+        XCTAssertEqual(harness.persistenceWriteCount, 0)
+        XCTAssertTrue(harness.mappingCalls.isEmpty)
+        harness.controller.voicePress.stop()
+    }
+
     func testSameKeyIsNoOpEvenWhenAnExistingGestureOwnsTheTrigger() {
         let harness = VoiceTriggerRuntimeHarness(persistedKey: .leftOption)
         let sessionID = UUID()
@@ -318,6 +340,7 @@ private final class VoiceTriggerRuntimeHarness {
         controller = nil
         controller = AppController(
             filter: filter,
+            voicePress: VoicePressCoordinator(optionTrigger: trigger),
             initiallyHIDConnected: connected,
             isVoiceHIDMappingEnabled: { [self] in
                 lock.lock()

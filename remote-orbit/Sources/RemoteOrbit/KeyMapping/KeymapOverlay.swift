@@ -98,7 +98,7 @@ struct KeymapPresentation: Equatable {
                 KeymapActionLine(
                     id: "\(button.rawValue)-single-voice",
                     gesture: "单击",
-                    action: "豆包输入（电脑/外部麦克风）"
+                    action: "输入法持续会话"
                 )
             )
         } else {

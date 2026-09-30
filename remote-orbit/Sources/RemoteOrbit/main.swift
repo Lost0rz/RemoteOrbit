@@ -3,7 +3,7 @@
 // 1. Voice key (HID F5) → device-scoped physical left-Option mapping
 //    (synthetic Option remains only as a fallback if hidutil cannot apply)
 // 2. ATVV voice stream over BLE → decoded ADPCM → RemoteOrbit Mic 2ch
-//    → macOS audio input → Doubao hears the selected source
+//    → voice application hears the selected source
 //
 // macOS-only. Requires:
 //   * 2 Pro paired in System Settings → Bluetooth
@@ -11,7 +11,7 @@
 //     Accessibility) for the CGEvent tap that filters F6
 //   * RemoteOrbitAudio.driver installed and visible as RemoteOrbit Mic 2ch in
 //     System Settings → Sound → Input/Output
-//   * Doubao IME configured for Option-as-voice-mode trigger
+//   * configurable IME trigger and persistent voice-input session
 //
 // Run:   swift run
 // Quit:  menu bar icon → 退出, or Ctrl+C
@@ -60,7 +60,7 @@ enum Key {
         postVoiceTrigger(key, keyDown: false)
     }
 
-    /// A deliberate short modifier click for Doubao's toggle mode.
+    /// A deliberate short modifier click for a persistent voice-input session.
     /// Keep the selected modifier down long enough for input methods to classify it.
     static func voiceTriggerTap(
         _ key: VoiceTriggerKey,
@@ -181,15 +181,19 @@ enum RemoteVoiceKeyMapping {
 
 // MARK: - Voice-button gesture state machine
 
-/// The physical voice button exposes two independent input paths:
-///
-/// * short tap: one Doubao Option tap, using the Mac/external microphone
-/// * hold: remote ATVV microphone + Option hold
-///
-/// The remote transport is opened only after the hold threshold, so a short
-/// tap never selects the RemoteOrbit virtual microphone. A configured Codex
-/// voice action may replace the short tap, but it remains inside this
-/// classifier rather than becoming a normal one-button injection.
+/// The physical voice button exposes a persistent IME session toggle and a
+/// remote-microphone hold. A hold inside an open IME session is audio-only;
+/// outside that session, the momentary trigger behavior remains unchanged.
+enum VoiceSessionMode: Equatable {
+    case idle
+    case persistentOpen
+}
+
+enum RemoteSegmentTriggerPolicy: Equatable {
+    case momentaryTrigger
+    case audioOnly
+}
+
 final class VoicePressCoordinator {
     enum State: Equatable {
         case idle
@@ -202,7 +206,7 @@ final class VoicePressCoordinator {
         let physicalDownAt: TimeInterval
         let onShortTap: (() -> Void)?
         let usesLocalMicrophone: Bool
-        let togglesLocalMicrophone: Bool
+        let togglesPersistentVoiceSession: Bool
         let bypassesShortClassification: Bool
         let usesHardwareOption: Bool
         let preparesRemoteTransport: Bool
@@ -218,6 +222,12 @@ final class VoicePressCoordinator {
     /// until the gesture state decides whether to replay or drop them.
     var onHardwareOptionGateBegin: ((UUID) -> Void)?
     var onHardwareOptionGateLongReady: ((UUID) -> Void)?
+    /// Discard the mapped trigger when a persistent IME hold becomes an
+    /// audio-only remote segment.
+    var onHardwareOptionGateSuppressForAudioOnly: ((UUID) -> Bool)?
+    /// Reset suppression only when HID device removal proves no matching up
+    /// event can arrive; ordinary BLE loss keeps waiting for physical up.
+    var onHardwareOptionGateResetSuppression: ((UUID) -> Void)?
     var onHardwareOptionGateShortResult: ((UUID, Bool) -> Void)?
     var onHardwareOptionGateCancel: ((UUID) -> Void)?
     /// Testable ordering seam: the state callback is where AppController
@@ -233,13 +243,13 @@ final class VoicePressCoordinator {
     /// Release a replayed hardware Option-up after output drain.
     var onHardwareOptionGateOutputDrained: ((UUID) -> Void)?
 
-    /// This is the short-vs-long classifier. A quick tap invokes Doubao's
-    /// computer/external-microphone input (or the optional Codex short action);
+    /// This is the short-vs-long classifier. A quick default tap toggles the
+    /// persistent IME session (or invokes the configured Codex short action);
     /// a hold starts remote dictation after the original 300 ms window.
     ///
     /// Keep this at 300 ms: the old hold-only experiment lowered it to 120 ms,
     /// but once short-press behavior was restored that made an ordinary tap
-    /// look like a long press and opened Doubao unexpectedly.
+    /// look like a long press and opened remote dictation unexpectedly.
     static let holdActivationThreshold: TimeInterval = 0.30
     // The remote usually sends AUDIO_STOP just before the HID key-up, and the
     // BLE bridge keeps accepting packets during its drain window. Keep the
@@ -266,13 +276,11 @@ final class VoicePressCoordinator {
     private var deferredRepressActivationWorkItem: DispatchWorkItem?
     private var shortTapAction: (() -> Void)?
     private var shortInputUsesLocalMicrophone = false
-    private var shortInputClosesLocalMicrophoneSession = false
-    private var shortInputTogglesLocalMicrophone = false
-    /// The default Doubao short action is a toggle: the first tap opens the
-    /// external-microphone input and the next tap closes it. Keep this state
-    /// separate from the current physical gesture so a closing tap never
-    /// starts AVCapture again while it is waiting to send Option-up.
-    private var localShortVoiceSessionActive = false
+    private var shortInputTogglesPersistentVoiceSession = false
+    private(set) var voiceSessionMode: VoiceSessionMode = .idle
+    private var remoteSegmentTriggerPolicy: RemoteSegmentTriggerPolicy = .momentaryTrigger
+    private var audioOnlyHardwareTriggerSuppressed = false
+    private var resetAudioOnlyHardwareTriggerOnDrain = false
     private var gestureID: UUID?
     private var pendingShortPreparationID: UUID?
     private var usesHardwareOptionPath = false
@@ -292,8 +300,6 @@ final class VoicePressCoordinator {
     /// independent and must never inherit this requirement.
     static func usesLocalMicrophone(forShortBinding binding: ButtonBinding) -> Bool {
         switch binding {
-        case .voiceKeyDefault:
-            return true
         case .preset(.chatGPTStartVoiceChat), .preset(.chatGPTStartDictation):
             return true
         default:
@@ -301,7 +307,7 @@ final class VoicePressCoordinator {
         }
     }
 
-    static func togglesLocalMicrophone(forShortBinding binding: ButtonBinding) -> Bool {
+    static func togglesPersistentVoiceSession(forShortBinding binding: ButtonBinding) -> Bool {
         binding == .voiceKeyDefault
     }
 
@@ -321,8 +327,21 @@ final class VoicePressCoordinator {
         mode
     }
 
+    var persistentSessionActiveForTesting: Bool {
+        voiceSessionMode == .persistentOpen
+    }
+
+    var currentSessionModeForTesting: VoiceSessionMode {
+        voiceSessionMode
+    }
+
+    var remoteSegmentTriggerPolicyForTesting: RemoteSegmentTriggerPolicy {
+        remoteSegmentTriggerPolicy
+    }
+
     var hasActiveVoiceOwnershipForTriggerReconfiguration: Bool {
-        mode != .idle
+        voiceSessionMode != .idle
+            || mode != .idle
             || pendingRepress != nil
             || remoteRouted
             || remoteStreaming
@@ -353,7 +372,7 @@ final class VoicePressCoordinator {
         sessionID: UUID,
         onShortTap: (() -> Void)? = nil,
         usesLocalMicrophone: Bool = false,
-        togglesLocalMicrophone: Bool = false,
+        togglesPersistentVoiceSession: Bool = false,
         bypassesShortClassification: Bool = false,
         usesHardwareOption: Bool = false,
         preparesRemoteTransport: Bool = false
@@ -371,7 +390,7 @@ final class VoicePressCoordinator {
             )
             return false
         }
-        guard mode == .idle else { return false }
+        guard mode == .idle, !awaitingPhysicalVoiceKeyUp else { return false }
         if remoteRouted || longInputStarted || tailWorkItem != nil {
             if pendingRepress == nil {
                 pendingRepress = PendingRepress(
@@ -379,7 +398,7 @@ final class VoicePressCoordinator {
                     physicalDownAt: physicalDownAt,
                     onShortTap: onShortTap,
                     usesLocalMicrophone: usesLocalMicrophone,
-                    togglesLocalMicrophone: togglesLocalMicrophone,
+                    togglesPersistentVoiceSession: togglesPersistentVoiceSession,
                     bypassesShortClassification: bypassesShortClassification,
                     usesHardwareOption: usesHardwareOption,
                     preparesRemoteTransport: preparesRemoteTransport
@@ -411,7 +430,7 @@ final class VoicePressCoordinator {
             physicalDownAt: physicalDownAt,
             onShortTap: onShortTap,
             usesLocalMicrophone: usesLocalMicrophone,
-            togglesLocalMicrophone: togglesLocalMicrophone,
+            togglesPersistentVoiceSession: togglesPersistentVoiceSession,
             bypassesShortClassification: bypassesShortClassification,
             usesHardwareOption: usesHardwareOption,
             preparesRemoteTransport: preparesRemoteTransport
@@ -423,26 +442,23 @@ final class VoicePressCoordinator {
         physicalDownAt: TimeInterval,
         onShortTap: (() -> Void)?,
         usesLocalMicrophone: Bool,
-        togglesLocalMicrophone: Bool,
+        togglesPersistentVoiceSession: Bool,
         bypassesShortClassification: Bool,
         usesHardwareOption: Bool,
         preparesRemoteTransport: Bool
     ) -> Bool {
-        // A new physical press owns the voice key now. Do not keep a local
-        // session left by an earlier short tap alive during the classifier:
-        // if this press becomes a hold, the physical mic must be closed from
-        // the first edge, not only after the 300 ms timer fires. When the
-        // default Doubao toggle is already open, remember that this tap is a
-        // close operation so keyUp can send Option immediately without
-        // reopening AVCapture first.
+        // Local capture is only used by explicit Codex short actions.
         pendingShortPreparationID = nil
         AudioPipe.shared.setLocalMicrophoneCaptureEnabled(false)
         shortTapAction = onShortTap
-        shortInputClosesLocalMicrophoneSession =
-            togglesLocalMicrophone && localShortVoiceSessionActive
-        shortInputTogglesLocalMicrophone = togglesLocalMicrophone
-        shortInputUsesLocalMicrophone =
-            usesLocalMicrophone && !shortInputClosesLocalMicrophoneSession
+        shortInputTogglesPersistentVoiceSession = togglesPersistentVoiceSession
+        shortInputUsesLocalMicrophone = usesLocalMicrophone
+        remoteSegmentTriggerPolicy =
+            togglesPersistentVoiceSession && voiceSessionMode == .persistentOpen
+                ? .audioOnly
+                : .momentaryTrigger
+        audioOnlyHardwareTriggerSuppressed = false
+        resetAudioOnlyHardwareTriggerOnDrain = false
         usesHardwareOptionPath = usesHardwareOption
         remoteOutputDrainRequestedSessionID = nil
         remoteOutputDrainedSessionID = nil
@@ -503,7 +519,11 @@ final class VoicePressCoordinator {
                     if usesHardwareOptionPath {
                         onHardwareOptionGatePhysicalUp?(currentGestureID)
                     }
-                    completeLongInputIfReady(sessionID: currentGestureID)
+                    if longInputStarted {
+                        completeLongInputIfReady(sessionID: currentGestureID)
+                    } else {
+                        completeVoiceRouteWithoutAudio(sessionID: currentGestureID)
+                    }
                 }
                 print("[PRESS] completed route consumed pending physical voice-key release")
                 return true
@@ -524,10 +544,8 @@ final class VoicePressCoordinator {
             shortTapAction = nil
             let shouldPrepareLocalMicrophone = shortInputUsesLocalMicrophone
             shortInputUsesLocalMicrophone = false
-            let shouldCloseLocalMicrophoneSession = shortInputClosesLocalMicrophoneSession
-            shortInputClosesLocalMicrophoneSession = false
-            let shouldTrackLocalMicrophoneSession = shortInputTogglesLocalMicrophone
-            shortInputTogglesLocalMicrophone = false
+            let shouldTogglePersistentSession = shortInputTogglesPersistentVoiceSession
+            shortInputTogglesPersistentVoiceSession = false
             let currentGestureID = gestureID
             let shouldUseHardwareOption = usesHardwareOptionPath
             gestureID = nil
@@ -539,37 +557,20 @@ final class VoicePressCoordinator {
             if let currentGestureID {
                 VoiceTimingLogger.end(sessionID: currentGestureID)
             }
-            if shouldCloseLocalMicrophoneSession {
-                // The default short action is a toggle. The local capture was
-                // already stopped at keyDown to keep a possible long hold
-                // isolated; do not start it again just to deliver the close
-                // click.
-                localShortVoiceSessionActive = false
-                print("[PRESS] SHORT release → closing Doubao without microphone restart")
-                if let currentGestureID {
-                    onHardwareOptionGateShortResult?(currentGestureID, true)
-                    emitShortPress(
-                        sessionID: currentGestureID,
-                        usesHardwareOption: shouldUseHardwareOption
-                    )
-                }
-            } else if shouldPrepareLocalMicrophone, let currentGestureID {
+            if shouldPrepareLocalMicrophone, let currentGestureID {
                 pendingShortPreparationID = currentGestureID
                 print("[PRESS] SHORT release → preparing local microphone")
                 AudioPipe.shared.setLocalMicrophoneCaptureEnabled(true) { [weak self] in
                     guard let self,
                           self.pendingShortPreparationID == currentGestureID else { return }
                     self.pendingShortPreparationID = nil
-                    if shouldTrackLocalMicrophoneSession {
-                        self.localShortVoiceSessionActive = true
-                    }
                     if let action {
                         print("[PRESS] SHORT local microphone ready → configured voice action")
                         self.onHardwareOptionGateShortResult?(currentGestureID, false)
                         _ = self.syntheticOptionTrigger.abort(sessionID: currentGestureID)
                         action()
                     } else {
-                        print("[PRESS] SHORT local microphone ready → Doubao")
+                        print("[PRESS] SHORT local microphone ready → configured trigger")
                         self.onHardwareOptionGateShortResult?(currentGestureID, true)
                         self.emitShortPress(
                             sessionID: currentGestureID,
@@ -577,6 +578,16 @@ final class VoicePressCoordinator {
                         )
                     }
                 }
+            } else if shouldTogglePersistentSession, let currentGestureID {
+                let nextSessionMode: VoiceSessionMode =
+                    voiceSessionMode == .persistentOpen ? .idle : .persistentOpen
+                onHardwareOptionGateShortResult?(currentGestureID, true)
+                emitShortPress(
+                    sessionID: currentGestureID,
+                    usesHardwareOption: shouldUseHardwareOption
+                )
+                voiceSessionMode = nextSessionMode
+                print("[PRESS] IME persistent session → \(nextSessionMode)")
             } else if let action {
                 print("[PRESS] SHORT release → configured voice action")
                 if let currentGestureID {
@@ -585,7 +596,7 @@ final class VoicePressCoordinator {
                 }
                 action()
             } else {
-                print("[PRESS] SHORT release → Doubao")
+                print("[PRESS] SHORT release → configured voice trigger")
                 if let currentGestureID {
                     onHardwareOptionGateShortResult?(currentGestureID, true)
                     emitShortPress(
@@ -606,12 +617,6 @@ final class VoicePressCoordinator {
                     onHardwareOptionGatePhysicalUp?(releasedSessionID)
                 }
             }
-            if let currentGestureID = gestureID, !longInputStarted {
-                onHardwareOptionGateCancel?(currentGestureID)
-                _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
-                gestureID = nil
-                usesHardwareOptionPath = false
-            }
             setMode(.idle)
             let physicalUpAt = Date()
             lastPhysicalUpAt = physicalUpAt
@@ -620,10 +625,10 @@ final class VoicePressCoordinator {
             )
             if longInputStarted {
                 print("[PRESS] LONG release → finish immediately")
-                scheduleLongFinish(sessionID: gestureID)
+                scheduleLongFinish(sessionID: releasedSessionID)
             } else {
                 print("[PRESS] LONG release → no remote audio; no Option dialog")
-                finishLongInput(sessionID: nil)
+                finishLongInput(sessionID: releasedSessionID)
             }
             return true
         }
@@ -642,6 +647,13 @@ final class VoicePressCoordinator {
                     awaitingPhysicalVoiceKeyUp = true
                     setMode(.idle)
                     requestRemoteOutputDrain(sessionID: gestureID)
+                } else if remoteSegmentTriggerPolicy == .audioOnly {
+                    // Keep the captured mapped edge owned until the physical
+                    // voice-key release can arm its suppressed-up lifecycle.
+                    awaitingPhysicalVoiceKeyUp = true
+                    setRemoteRouted(false)
+                    AudioPipe.shared.endRemoteCandidate()
+                    setMode(.idle)
                 } else {
                     if let currentGestureID = gestureID {
                         onHardwareOptionGateCancel?(currentGestureID)
@@ -658,8 +670,8 @@ final class VoicePressCoordinator {
             }
         }
         // BLE availability is informational only. HID owns gesture lifetime
-        // and routing policy; transient ATVV stop/start events must never
-        // toggle Doubao or fall back to the physical mic during a hold.
+        // and routing policy; transient ATVV events never toggle the IME
+        // session or fall back to the physical mic during a hold.
         print(
             "[PRESS] ATVV streaming=\(streaming); " +
             "gesture=\(modeName); routed=\(remoteRouted)"
@@ -695,6 +707,67 @@ final class VoicePressCoordinator {
         stopCurrentVoiceState(preservingDeferredRepress: true)
     }
 
+    /// End the current transport segment while retaining a persistent IME
+    /// session. A transport loss is a segment boundary, never a session tap.
+    func handleTransportLoss(deviceRemoved: Bool = false) {
+        guard voiceSessionMode == .persistentOpen else {
+            stopCurrentVoiceStatePreservingDeferredRepress()
+            return
+        }
+
+        remoteStreaming = false
+        remoteAudioAvailable = false
+        onRemoteAudioChanged?(false)
+        holdWorkItem?.cancel()
+        holdWorkItem = nil
+        tailWorkItem?.cancel()
+        tailWorkItem = nil
+        tailSessionID = nil
+
+        guard let sessionID = gestureID else {
+            setRemoteRouted(false)
+            AudioPipe.shared.endRemoteCandidate()
+            if mode != .idle {
+                setMode(.idle)
+            }
+            shortTapAction = nil
+            shortInputUsesLocalMicrophone = false
+            shortInputTogglesPersistentVoiceSession = false
+            pendingVoiceUIHidden = false
+            return
+        }
+
+        print("[PRESS] transport lost; ending persistent remote segment")
+        if physicalUpSessionID != sessionID {
+            if deviceRemoved {
+                // A removed HID device cannot deliver its matching key-up.
+                // Its suppression owner is explicitly reset after audio drain.
+                resetAudioOnlyHardwareTriggerOnDrain = true
+                physicalUpSessionID = sessionID
+                awaitingPhysicalVoiceKeyUp = false
+                let physicalUpAt = Date()
+                lastPhysicalUpAt = physicalUpAt
+                releaseBounceDebounceUntil = physicalUpAt.addingTimeInterval(
+                    releaseBounceDebounce
+                )
+            } else {
+                // A BLE loss alone does not prove that the physical key is up.
+                awaitingPhysicalVoiceKeyUp = true
+            }
+        }
+        if mode != .idle {
+            setMode(.idle)
+        }
+        if longInputStarted {
+            requestRemoteOutputDrain(sessionID: sessionID)
+        } else if physicalUpSessionID == sessionID {
+            completeVoiceRouteWithoutAudio(sessionID: sessionID)
+        } else {
+            setRemoteRouted(false)
+            AudioPipe.shared.endRemoteCandidate()
+        }
+    }
+
     private func stopCurrentVoiceState(preservingDeferredRepress: Bool) {
         holdWorkItem?.cancel()
         holdWorkItem = nil
@@ -711,9 +784,11 @@ final class VoicePressCoordinator {
         lastPhysicalUpAt = nil
         shortTapAction = nil
         shortInputUsesLocalMicrophone = false
-        shortInputClosesLocalMicrophoneSession = false
-        shortInputTogglesLocalMicrophone = false
-        localShortVoiceSessionActive = false
+        shortInputTogglesPersistentVoiceSession = false
+        voiceSessionMode = .idle
+        remoteSegmentTriggerPolicy = .momentaryTrigger
+        audioOnlyHardwareTriggerSuppressed = false
+        resetAudioOnlyHardwareTriggerOnDrain = false
         let stoppedSessionID = gestureID
         if let currentGestureID = gestureID {
             onHardwareOptionGateCancel?(currentGestureID)
@@ -750,8 +825,21 @@ final class VoicePressCoordinator {
 
     private func enterHoldingState() {
         guard let currentGestureID = gestureID else { return }
+        shortTapAction = nil
+        shortInputUsesLocalMicrophone = false
+        shortInputTogglesPersistentVoiceSession = false
         VoiceTimingLogger.mark("HOLD_CONFIRMED", sessionID: currentGestureID)
         VoiceTimingLogger.mark("BLE_START_REQUEST", sessionID: currentGestureID)
+        if remoteSegmentTriggerPolicy == .audioOnly, usesHardwareOptionPath {
+            audioOnlyHardwareTriggerSuppressed =
+                onHardwareOptionGateSuppressForAudioOnly?(currentGestureID) ?? false
+            if !audioOnlyHardwareTriggerSuppressed {
+                print(
+                    "[PRESS] audio-only trigger suppression transfer unavailable; "
+                        + "keeping the mapped edge behind its active gate"
+                )
+            }
+        }
         setMode(.holding)
 
         // Route selection follows the physical HID hold, not BLE notifications.
@@ -772,14 +860,17 @@ final class VoicePressCoordinator {
     private func beginLongInput() {
         guard mode == .holding, !longInputStarted else { return }
         longInputStarted = true
-        print("[PRESS] LONG audio ready → Option DOWN; source=remote")
         guard let currentGestureID = gestureID else { return }
-        if usesHardwareOptionPath {
+        if remoteSegmentTriggerPolicy == .audioOnly {
+            print("[PRESS] persistent IME segment audio ready; no trigger edge")
+        } else if usesHardwareOptionPath {
+            print("[PRESS] LONG audio ready → Option DOWN; source=remote")
             print("[PRESS] LONG uses hardware-held left Option")
             onHardwareOptionGateLongReady?(currentGestureID)
             VoiceTimingLogger.mark("OPTION_GATE_RELEASE", sessionID: currentGestureID)
         } else {
             // Fallback for systems where hidutil could not be applied.
+            print("[PRESS] LONG audio ready → Option DOWN; source=remote")
             print("[PRESS] LONG uses synthetic left Option")
             _ = syntheticOptionTrigger.sendDown(sessionID: currentGestureID)
             VoiceTimingLogger.mark("OPTION_GATE_RELEASE", sessionID: currentGestureID)
@@ -835,7 +926,7 @@ final class VoicePressCoordinator {
             physicalDownAt: pendingRepress.physicalDownAt,
             onShortTap: pendingRepress.onShortTap,
             usesLocalMicrophone: pendingRepress.usesLocalMicrophone,
-            togglesLocalMicrophone: pendingRepress.togglesLocalMicrophone,
+            togglesPersistentVoiceSession: pendingRepress.togglesPersistentVoiceSession,
             bypassesShortClassification: pendingRepress.bypassesShortClassification,
             usesHardwareOption: pendingRepress.usesHardwareOption,
             preparesRemoteTransport: pendingRepress.preparesRemoteTransport
@@ -919,7 +1010,21 @@ final class VoicePressCoordinator {
         tailWorkItem = nil
         tailSessionID = nil
         VoiceTimingLogger.mark("OPTION_UP_REQUESTED", sessionID: sessionID)
-        if usesHardwareOptionPath {
+        if remoteSegmentTriggerPolicy == .audioOnly {
+            _ = syntheticOptionTrigger.abort(sessionID: sessionID)
+            if usesHardwareOptionPath {
+                if audioOnlyHardwareTriggerSuppressed {
+                    if resetAudioOnlyHardwareTriggerOnDrain {
+                        onHardwareOptionGateResetSuppression?(sessionID)
+                    } else {
+                        onHardwareOptionGateOutputDrained?(sessionID)
+                    }
+                } else {
+                    onHardwareOptionGateCancel?(sessionID)
+                }
+            }
+            print("[PRESS] persistent IME segment ended without trigger edge")
+        } else if usesHardwareOptionPath {
             onHardwareOptionGateOutputDrained?(sessionID)
             print("[PRESS] LONG end → Option UP after output drain")
         } else if syntheticOptionTrigger.sendUp(sessionID: sessionID) {
@@ -936,6 +1041,11 @@ final class VoicePressCoordinator {
         physicalUpSessionID = nil
         awaitingPhysicalVoiceKeyUp = false
         pendingVoiceUIHidden = false
+        shortInputUsesLocalMicrophone = false
+        shortInputTogglesPersistentVoiceSession = false
+        remoteSegmentTriggerPolicy = .momentaryTrigger
+        audioOnlyHardwareTriggerSuppressed = false
+        resetAudioOnlyHardwareTriggerOnDrain = false
         if mode != .idle {
             setMode(.idle)
         }
@@ -945,7 +1055,17 @@ final class VoicePressCoordinator {
     }
 
     private func completeVoiceRouteWithoutAudio(sessionID: UUID) {
-        onHardwareOptionGateCancel?(sessionID)
+        if remoteSegmentTriggerPolicy == .audioOnly,
+           usesHardwareOptionPath,
+           audioOnlyHardwareTriggerSuppressed {
+            if resetAudioOnlyHardwareTriggerOnDrain {
+                onHardwareOptionGateResetSuppression?(sessionID)
+            } else {
+                onHardwareOptionGateOutputDrained?(sessionID)
+            }
+        } else {
+            onHardwareOptionGateCancel?(sessionID)
+        }
         _ = syntheticOptionTrigger.abort(sessionID: sessionID)
         _ = setRemoteRouted(false)
         AudioPipe.shared.endRemoteCandidate()
@@ -958,22 +1078,25 @@ final class VoicePressCoordinator {
         physicalUpSessionID = nil
         awaitingPhysicalVoiceKeyUp = false
         pendingVoiceUIHidden = false
+        shortInputUsesLocalMicrophone = false
+        shortInputTogglesPersistentVoiceSession = false
+        remoteSegmentTriggerPolicy = .momentaryTrigger
+        audioOnlyHardwareTriggerSuppressed = false
+        resetAudioOnlyHardwareTriggerOnDrain = false
         VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
         VoiceTimingLogger.end(sessionID: sessionID)
         scheduleDeferredRepressActivation()
     }
 
-    /// Preserve the original Doubao integration: one short voice-key press
-    /// is a single Option tap, which lets Doubao use the physical microphone
-    /// selected by macOS/RemoteOrbit's stable virtual input path.
+    /// Emit one configured-trigger tap for opening or closing the IME session.
     private func emitShortPress(
         sessionID: UUID,
         usesHardwareOption: Bool
     ) {
         if usesHardwareOption {
-            print("[PRESS] SHORT → hardware Option tap; source=Doubao Mac/external microphone")
+            print("[PRESS] SHORT → hardware trigger tap; persistent IME session")
         } else {
-            print("[PRESS] SHORT → synthetic Option tap; source=Doubao Mac/external microphone")
+            print("[PRESS] SHORT → synthetic trigger tap; persistent IME session")
             _ = syntheticOptionTrigger.sendTap(sessionID: sessionID)
         }
     }
@@ -1623,7 +1746,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusPulsePhase = false
 
     let filter: VoiceKeyFilter
-    let voicePress = VoicePressCoordinator()
+    let voicePress: VoicePressCoordinator
     private let ble = BLEBridge()
     private let mappingStore = MappingStore()
     private let hidMonitor = HIDMonitor()
@@ -1656,6 +1779,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     init(
         filter: VoiceKeyFilter = VoiceKeyFilter(),
+        voicePress: VoicePressCoordinator = VoicePressCoordinator(),
         initiallyHIDConnected: Bool = false,
         isVoiceHIDMappingEnabled: @escaping () -> Bool = {
             RemoteVoiceKeyMapping.isEnabled
@@ -1671,6 +1795,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     ) {
         self.filter = filter
+        self.voicePress = voicePress
         self.hidConnected = initiallyHIDConnected
         self.isVoiceHIDMappingEnabled = isVoiceHIDMappingEnabled
         self.applyVoiceHIDMapping = applyVoiceHIDMapping
@@ -1876,12 +2001,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let needsFocusPreparation = needsFloatTabsFocus || needsCodexFocus
         let gestureID = UUID()
         // Gate every gesture while the real HID mapping is active. Otherwise
-        // a disabled short slot could still leak the mapped Option into
-        // Doubao before the 300 ms classifier resolves the press.
+        // a disabled short slot could still leak the mapped trigger before
+        // the 300 ms classifier resolves the press.
         // VoiceKeyFilter is the fallback path used while the HID monitor is
-        // unavailable. It used to pass nil here, which accidentally meant
-        // “use the Doubao default” even when the user disabled the single-tap
-        // slot. Resolve the same app-scoped binding used by HID before
+        // unavailable. Resolve the same app-scoped binding used by HID before
         // deciding the short action.
         let resolvedShortBinding = shortBinding
             ?? mappingStore.binding(for: .microphone, appBundleIdentifier: target)
@@ -1892,7 +2015,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let usesLocalMicrophone = VoicePressCoordinator.usesLocalMicrophone(
             forShortBinding: resolvedShortBinding
         )
-        let togglesLocalMicrophone = VoicePressCoordinator.togglesLocalMicrophone(
+        let togglesPersistentVoiceSession = VoicePressCoordinator.togglesPersistentVoiceSession(
             forShortBinding: resolvedShortBinding
         )
         let bypassesShortClassification = Self.bypassesShortClassification(
@@ -1911,12 +2034,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let shortTapAction: (() -> Void)?
         switch resolvedShortBinding {
         case .voiceKeyDefault:
-            // nil deliberately selects VoicePressCoordinator's original
-            // Doubao Option-tap path: one tap, computer/external microphone.
+            // nil selects the coordinator's persistent IME session toggle.
             shortTapAction = nil
         case let binding where binding.isDisabled:
-            // A disabled short slot must not fall through to the Doubao
-            // default. The long remote-mic slot remains fully independent.
+            // A disabled short slot must not fall through to the IME toggle.
+            // The long remote-mic slot remains fully independent.
             shortTapAction = {
                 print("[PRESS] SHORT release → disabled by microphone mapping")
             }
@@ -1936,7 +2058,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             sessionID: gestureID,
             onShortTap: shortTapAction,
             usesLocalMicrophone: usesLocalMicrophone,
-            togglesLocalMicrophone: togglesLocalMicrophone,
+            togglesPersistentVoiceSession: togglesPersistentVoiceSession,
             bypassesShortClassification: bypassesShortClassification,
             usesHardwareOption: RemoteVoiceKeyMapping.isEnabled,
             preparesRemoteTransport: resolvedShortBinding.isDisabled
@@ -2238,12 +2360,24 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 reason: "remote-audio-ready"
             )
         }
+        voicePress.onHardwareOptionGateSuppressForAudioOnly = { [weak self] gestureID in
+            self?.filter.suppressDeferredHardwareTrigger(
+                gestureID: gestureID,
+                reason: "persistent-ime-audio-only"
+            ) ?? false
+        }
+        voicePress.onHardwareOptionGateResetSuppression = { [weak self] gestureID in
+            _ = self?.filter.resetSuppressedHardwareTrigger(
+                gestureID: gestureID,
+                reason: "hid-device-removed-after-audio-drain"
+            )
+        }
         voicePress.onHardwareOptionGateShortResult = { [weak self] gestureID, shouldRelease in
             guard let self else { return }
             if shouldRelease {
                 self.filter.releaseDeferredOption(
                     gestureID: gestureID,
-                    reason: "short-doubao"
+                    reason: "short-session-toggle"
                 )
             } else {
                 self.filter.cancelDeferredOption(
@@ -2289,9 +2423,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if !connected {
                 self?.remoteStreaming = false
                 // A BLE loss can happen before HID emits the matching key-up.
-                // Release A immediately, but preserve a deferred B until the
-                // old transport callback stack has returned to the run loop.
-                self?.voicePress.stopCurrentVoiceStatePreservingDeferredRepress()
+                // Persistent sessions retain ownership while their current
+                // segment drains; any deferred B waits for this callback stack.
+                self?.voicePress.handleTransportLoss()
             }
             self?.updateStatus()
         }
@@ -2341,10 +2475,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             + names.joined(separator: ", ")
                     )
                 }
-                // Device removal does not guarantee a final HID report. Stop
-                // voice and advanced gestures explicitly so a lost release
-                // cannot leave Option held or a repeat stream alive.
-                self.voicePress.stop()
+                // Device removal does not guarantee a final HID report. End
+                // the voice segment explicitly and let its drained cleanup
+                // reset any trigger suppression owned by the removed device.
+                self.voicePress.handleTransportLoss(deviceRemoved: true)
                 self.mappingStore.clearPressedBindings()
                 self.buttonGestureRecognizer.cancelAll()
                 self.repeatGestureHUDButtons.removeAll()
