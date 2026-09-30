@@ -391,12 +391,14 @@ final class VoicePersistentSessionTests: XCTestCase {
         press.onHardwareOptionGateLongReady = { sessionID in
             filter.releaseDeferredOption(gestureID: sessionID, reason: "first-pcm")
         }
-        press.onHardwareOptionGateShortResult = { sessionID, shouldRelease in
-            if shouldRelease {
-                filter.releaseDeferredOption(gestureID: sessionID, reason: "short-tap")
-            } else {
-                filter.cancelDeferredOption(gestureID: sessionID, reason: "short-action")
-            }
+        press.onHardwareOptionGateShortReplay = { sessionID in
+            filter.releaseDeferredOption(gestureID: sessionID, reason: "short-tap")
+        }
+        press.onPersistentSessionTriggerTap = { sessionID in
+            filter.emitPersistentShortTap(
+                gestureID: sessionID,
+                reason: "persistent-session-test"
+            )
         }
         press.onHardwareOptionGateCancel = {
             filter.cancelDeferredOption(gestureID: $0, reason: "cancel")
@@ -421,11 +423,13 @@ final class VoicePersistentSessionTests: XCTestCase {
             XCTFail("could not create mapped trigger-down event", file: file, line: line)
             return
         }
-        XCTAssertTrue(
-            filter.captureDeferredHardwareOptionEdge(.down, copiedEvent: event),
-            file: file,
-            line: line
-        )
+        if filter.shouldSuppressDiscardedHardwareTriggerEvent(
+            keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
+            type: .keyDown
+        ) {
+            return
+        }
+        XCTAssertTrue(filter.captureDeferredHardwareOptionEdge(.down, copiedEvent: event), file: file, line: line)
     }
 
     private func waitForCoordinatorTiming(_ interval: TimeInterval) {

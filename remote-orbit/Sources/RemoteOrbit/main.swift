@@ -228,7 +228,8 @@ final class VoicePressCoordinator {
     /// Reset suppression only when HID device removal proves no matching up
     /// event can arrive; ordinary BLE loss keeps waiting for physical up.
     var onHardwareOptionGateResetSuppression: ((UUID) -> Void)?
-    var onHardwareOptionGateShortResult: ((UUID, Bool) -> Void)?
+    var onHardwareOptionGateShortReplay: ((UUID) -> Void)?
+    var onPersistentSessionTriggerTap: ((UUID) -> Bool)?
     var onHardwareOptionGateCancel: ((UUID) -> Void)?
     /// Testable ordering seam: the state callback is where AppController
     /// requests BLE acquisition, and this callback marks route preparation.
@@ -251,6 +252,10 @@ final class VoicePressCoordinator {
     /// but once short-press behavior was restored that made an ordinary tap
     /// look like a long press and opened remote dictation unexpectedly.
     static let holdActivationThreshold: TimeInterval = 0.30
+
+    static func isLongPress(heldDuration: TimeInterval) -> Bool {
+        heldDuration >= holdActivationThreshold
+    }
     // The remote usually sends AUDIO_STOP just before the HID key-up, and the
     // BLE bridge keeps accepting packets during its drain window. Keep the
     // output route alive long enough for those final frames to render even
@@ -489,7 +494,7 @@ final class VoicePressCoordinator {
             ProcessInfo.processInfo.systemUptime - physicalDownAt
         )
         let remainingHoldTime = Self.holdActivationThreshold - heldDuration
-        guard remainingHoldTime > 0 else {
+        guard !Self.isLongPress(heldDuration: heldDuration) else {
             promoteToLongPress()
             return true
         }
@@ -566,12 +571,12 @@ final class VoicePressCoordinator {
                     self.pendingShortPreparationID = nil
                     if let action {
                         print("[PRESS] SHORT local microphone ready → configured voice action")
-                        self.onHardwareOptionGateShortResult?(currentGestureID, false)
+                        self.onHardwareOptionGateCancel?(currentGestureID)
                         _ = self.syntheticOptionTrigger.abort(sessionID: currentGestureID)
                         action()
                     } else {
                         print("[PRESS] SHORT local microphone ready → configured trigger")
-                        self.onHardwareOptionGateShortResult?(currentGestureID, true)
+                        self.onHardwareOptionGateShortReplay?(currentGestureID)
                         self.emitShortPress(
                             sessionID: currentGestureID,
                             usesHardwareOption: shouldUseHardwareOption
@@ -581,24 +586,32 @@ final class VoicePressCoordinator {
             } else if shouldTogglePersistentSession, let currentGestureID {
                 let nextSessionMode: VoiceSessionMode =
                     voiceSessionMode == .persistentOpen ? .idle : .persistentOpen
-                onHardwareOptionGateShortResult?(currentGestureID, true)
-                emitShortPress(
-                    sessionID: currentGestureID,
-                    usesHardwareOption: shouldUseHardwareOption
-                )
-                voiceSessionMode = nextSessionMode
-                print("[PRESS] IME persistent session → \(nextSessionMode)")
+                let triggerSucceeded: Bool
+                if let onPersistentSessionTriggerTap {
+                    triggerSucceeded = onPersistentSessionTriggerTap(currentGestureID)
+                } else if !shouldUseHardwareOption {
+                    triggerSucceeded = syntheticOptionTrigger.sendTap(sessionID: currentGestureID)
+                } else {
+                    triggerSucceeded = false
+                }
+                if triggerSucceeded {
+                    voiceSessionMode = nextSessionMode
+                    print("[PRESS] IME persistent session → \(nextSessionMode)")
+                } else {
+                    _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
+                    print("[PRESS] IME persistent session unchanged; configured trigger tap failed")
+                }
             } else if let action {
                 print("[PRESS] SHORT release → configured voice action")
                 if let currentGestureID {
-                    onHardwareOptionGateShortResult?(currentGestureID, false)
+                    onHardwareOptionGateCancel?(currentGestureID)
                     _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
                 }
                 action()
             } else {
                 print("[PRESS] SHORT release → configured voice trigger")
                 if let currentGestureID {
-                    onHardwareOptionGateShortResult?(currentGestureID, true)
+                    onHardwareOptionGateShortReplay?(currentGestureID)
                     emitShortPress(
                         sessionID: currentGestureID,
                         usesHardwareOption: shouldUseHardwareOption
@@ -1274,7 +1287,11 @@ final class VoiceKeyFilter {
         reason: String
     ) -> Bool {
         cancelSuppressedTriggerReleaseCompletion()
-        guard optionGate.suppress(sessionID: gestureID) else { return false }
+        let transferredShortTapDiscard =
+            optionGate.transferShortTapDiscardToAudioOnlySuppression(sessionID: gestureID)
+        guard transferredShortTapDiscard || optionGate.suppress(sessionID: gestureID) else {
+            return false
+        }
         _ = syntheticOptionTrigger.abort(sessionID: gestureID)
         deferredOptionDownSeen = false
         deferredOptionUpSeen = false
@@ -1298,6 +1315,16 @@ final class VoiceKeyFilter {
         guard matchesTriggerKeyCode(keyCode),
               let owner = optionGate.suppressedSessionID else {
             return false
+        }
+        if optionGate.isShortTapDiscardSession(sessionID: owner) {
+            switch type {
+            case .keyDown, .keyUp, .flagsChanged:
+                _ = optionGate.observeSuppressedReleaseEdge(sessionID: owner)
+                scheduleSuppressedTriggerReleaseCompletion(sessionID: owner)
+                return true
+            default:
+                return false
+            }
         }
         switch type {
         case .keyDown:
@@ -1405,6 +1432,29 @@ final class VoiceKeyFilter {
         suppressedTriggerReleaseCompletionToken = nil
     }
 
+    /// Emit the persistent-session semantic tap while taking ownership of all
+    /// physical mapped edges for a bounded quiet window. The physical gate is
+    /// discarded even when no mapped edge arrived before raw HID-up.
+    @discardableResult
+    func emitPersistentShortTap(gestureID: UUID, reason: String) -> Bool {
+        cancelSuppressedTriggerReleaseCompletion()
+        guard optionGate.beginShortTapDiscard(sessionID: gestureID) else {
+            _ = syntheticOptionTrigger.abort(sessionID: gestureID)
+            return false
+        }
+        deferredOptionDownSeen = false
+        deferredOptionUpSeen = false
+        deferredOptionDownEvents.removeAll(keepingCapacity: true)
+        deferredOptionUpEvents.removeAll(keepingCapacity: true)
+        scheduleSuppressedTriggerReleaseCompletion(sessionID: gestureID)
+        let emitted = syntheticOptionTrigger.sendTap(sessionID: gestureID)
+        print(
+            "[VOICE] persistent short trigger \(emitted ? "emitted" : "failed") "
+                + "gesture=\(gestureID.uuidString) reason=\(reason)"
+        )
+        return emitted
+    }
+
     /// HIDMonitor 活跃时跳过语音键处理（防止双重触发）。
     var skipVoiceKey = false
 
@@ -1415,6 +1465,12 @@ final class VoiceKeyFilter {
     /// This prevents the first Option edge from beating a stale WebKit text
     /// client without blocking the event-tap thread.
     func beginOptionDeferral(gestureID: UUID) {
+        if let shortTapOwner = optionGate.shortTapDiscardSessionID {
+            _ = resetSuppressedHardwareTrigger(
+                gestureID: shortTapOwner,
+                reason: "new-voice-gesture"
+            )
+        }
         guard optionGate.suppressedSessionID == nil else { return }
         if let heldSessionID = heldHardwareOptionSessionID,
            heldSessionID != gestureID {
@@ -2440,19 +2496,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 reason: "explicit-persistent-suppression-reset"
             )
         }
-        voicePress.onHardwareOptionGateShortResult = { [weak self] gestureID, shouldRelease in
-            guard let self else { return }
-            if shouldRelease {
-                self.filter.releaseDeferredOption(
-                    gestureID: gestureID,
-                    reason: "short-session-toggle"
-                )
-            } else {
-                self.filter.cancelDeferredOption(
-                    gestureID: gestureID,
-                    reason: "short-binding-disabled-or-custom"
-                )
-            }
+        voicePress.onHardwareOptionGateShortReplay = { [weak self] gestureID in
+            self?.filter.releaseDeferredOption(
+                gestureID: gestureID,
+                reason: "short-configured-trigger"
+            )
+        }
+        voicePress.onPersistentSessionTriggerTap = { [weak self] gestureID in
+            self?.filter.emitPersistentShortTap(
+                gestureID: gestureID,
+                reason: "persistent-session-toggle"
+            ) ?? false
         }
         voicePress.onHardwareOptionGateCancel = { [weak self] gestureID in
             self?.filter.cancelDeferredOption(

@@ -187,14 +187,14 @@ final class VoicePressCoordinatorTests: XCTestCase {
         press.stop()
     }
 
-    func testHardwareShortReleasesPhysicalGateWithoutSyntheticEvents() {
+    func testHardwareShortReplaysPhysicalGateWithoutSyntheticEvents() {
         var events: [Bool] = []
         let press = VoicePressCoordinator(
             optionTrigger: VoiceOptionTrigger { events.append($0) }
         )
-        var shortResult: (UUID, Bool)?
-        press.onHardwareOptionGateShortResult = { sessionID, shouldRelease in
-            shortResult = (sessionID, shouldRelease)
+        var replayedSessionID: UUID?
+        press.onHardwareOptionGateShortReplay = { sessionID in
+            replayedSessionID = sessionID
         }
 
         let sessionID = UUID()
@@ -206,8 +206,7 @@ final class VoicePressCoordinatorTests: XCTestCase {
         )
         press.keyUp()
 
-        XCTAssertEqual(shortResult?.0, sessionID)
-        XCTAssertEqual(shortResult?.1, true)
+        XCTAssertEqual(replayedSessionID, sessionID)
         XCTAssertTrue(events.isEmpty)
         press.stop()
     }

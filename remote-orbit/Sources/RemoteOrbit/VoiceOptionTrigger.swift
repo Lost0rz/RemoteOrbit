@@ -272,6 +272,7 @@ enum HardwareOptionResolution: Equatable {
 final class HardwareOptionGate {
     private(set) var activeSessionID: UUID?
     private(set) var suppressedSessionID: UUID?
+    private(set) var shortTapDiscardSessionID: UUID?
     private var downSeen = false
     private var upSeen = false
     private var copiedDownPresent = false
@@ -344,6 +345,7 @@ final class HardwareOptionGate {
             return false
         }
         suppressedSessionID = sessionID
+        shortTapDiscardSessionID = nil
         suppressedReleaseArmed = false
         suppressedOutputDrainCompleted = false
         suppressedReleaseQuietPeriodElapsed = false
@@ -351,9 +353,53 @@ final class HardwareOptionGate {
         return true
     }
 
+    /// Transfer a classified persistent-session short gesture into bounded
+    /// discard ownership, even when no mapped edge arrived before raw HID-up.
+    /// A previous short-tap discard may be re-owned by a later short toggle;
+    /// an audio-only suppression owner may not be replaced this way.
+    @discardableResult
+    func beginShortTapDiscard(sessionID: UUID) -> Bool {
+        if suppressedSessionID != nil {
+            guard shortTapDiscardSessionID != nil else { return false }
+            suppressedSessionID = sessionID
+        } else {
+            guard activeSessionID == nil || activeSessionID == sessionID else { return false }
+            suppressedSessionID = sessionID
+        }
+        if activeSessionID == sessionID {
+            clearActive()
+        }
+        shortTapDiscardSessionID = sessionID
+        suppressedReleaseArmed = true
+        suppressedOutputDrainCompleted = true
+        suppressedReleaseQuietPeriodElapsed = false
+        return true
+    }
+
+    /// A persistent long segment that begins while the preceding short-tap
+    /// quiet window is active inherits that discard owner as audio-only
+    /// suppression for its own gesture lifecycle.
+    @discardableResult
+    func transferShortTapDiscardToAudioOnlySuppression(sessionID: UUID) -> Bool {
+        guard shortTapDiscardSessionID != nil else { return false }
+        suppressedSessionID = sessionID
+        shortTapDiscardSessionID = nil
+        if activeSessionID == sessionID {
+            clearActive()
+        }
+        suppressedReleaseArmed = false
+        suppressedOutputDrainCompleted = false
+        suppressedReleaseQuietPeriodElapsed = false
+        return true
+    }
+
     @discardableResult
     func ownsSuppressedRelease(sessionID: UUID) -> Bool {
         suppressedSessionID == sessionID
+    }
+
+    func isShortTapDiscardSession(sessionID: UUID) -> Bool {
+        shortTapDiscardSessionID == sessionID
     }
 
     @discardableResult
@@ -423,6 +469,7 @@ final class HardwareOptionGate {
 
     private func clearSuppressed() {
         suppressedSessionID = nil
+        shortTapDiscardSessionID = nil
         suppressedReleaseArmed = false
         suppressedOutputDrainCompleted = false
         suppressedReleaseQuietPeriodElapsed = false
