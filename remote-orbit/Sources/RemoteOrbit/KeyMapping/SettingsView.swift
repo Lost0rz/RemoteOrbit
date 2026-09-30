@@ -86,7 +86,7 @@ struct SettingsView: View {
     /// shortcut slot. Keep the small UI choice separate from ButtonAction so
     /// the long-press remote microphone remains independent.
     private enum MicrophoneShortInputMode: String, CaseIterable, Identifiable {
-        case doubao
+        case persistentIME
         case codexVoiceChat
 
         var id: String { rawValue }
@@ -744,7 +744,7 @@ struct SettingsView: View {
                             case .preset(.chatGPTStartVoiceChat):
                                 return MicrophoneShortInputMode.codexVoiceChat
                             default:
-                                return MicrophoneShortInputMode.doubao
+                                return MicrophoneShortInputMode.persistentIME
                             }
                         },
                         set: { mode in
@@ -757,8 +757,8 @@ struct SettingsView: View {
                         }
                     )
                 ) {
-                    Text("豆包 · 电脑/外部麦克风")
-                        .tag(MicrophoneShortInputMode.doubao)
+                    Text("输入法 · 持续会话")
+                        .tag(MicrophoneShortInputMode.persistentIME)
                     Text("Codex · 语音对话")
                         .tag(MicrophoneShortInputMode.codexVoiceChat)
                 }
@@ -767,8 +767,8 @@ struct SettingsView: View {
                 .disabled(!isEnabled || isGloballyPinned)
 
                 Text(
-                    "豆包模式只发送一次 Option，由电脑/外部麦克风完成输入；" +
-                    "Codex 模式改为调用 Codex 语音对话。按住经过正常短/长按判定后使用遥控器麦克风。"
+                    "输入法模式：短按开启持续会话；会话中每次按住并释放都使用一个遥控器麦克风片段，再次短按结束会话。" +
+                    "Codex 模式调用 Codex 语音对话；按住仍使用遥控器麦克风。"
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1561,7 +1561,7 @@ struct SettingsView: View {
                         ? "单击已关闭；按下语音键后直接进入遥控器麦克风模式，无需等待长按判定。"
                         : binding == .preset(.chatGPTStartVoiceChat)
                             ? "单击调用 Codex 语音对话；按住经过正常短/长按判定后使用遥控器麦克风。"
-                            : "单击调用豆包输入法并使用电脑/外部麦克风；按住经过正常短/长按判定后使用遥控器麦克风。"
+                            : "短按切换输入法持续会话；会话开启后可重复按住和释放来录制遥控器麦克风片段，再次短按结束会话。"
                 )
             }
             .font(.caption)
