@@ -12,17 +12,22 @@ typealias VoiceTriggerChangeHandler = (
     VoiceTriggerKey,
     @escaping (VoiceTriggerApplyResult) -> Void
 ) -> Void
+typealias PersistentSessionTriggerKeyChangeHandler = VoiceTriggerChangeHandler
 
 struct SettingsView: View {
     @ObservedObject var store: MappingStore
     var onRecordingChanged: (Bool) -> Void = { _ in }
     private var onVoiceTriggerChanged: VoiceTriggerChangeHandler
+    private var onPersistentSessionTriggerKeyChanged: PersistentSessionTriggerKeyChangeHandler
     @State private var selectedSection: WorkspaceSection = .overview
     @State private var selectedButton: RemoteButton = .back
     @State private var mappingScope: MappingScope = .global
-    @State private var selectedVoiceTriggerKey: VoiceTriggerKey
-    @State private var isApplyingVoiceTriggerKey = false
-    @State private var voiceTriggerMessage: String?
+    @State private var selectedMomentaryVoiceTriggerKey: VoiceTriggerKey
+    @State private var isApplyingMomentaryVoiceTriggerKey = false
+    @State private var momentaryVoiceTriggerMessage: String?
+    @State private var selectedPersistentSessionTriggerKey: VoiceTriggerKey
+    @State private var isApplyingPersistentSessionTriggerKey = false
+    @State private var persistentSessionTriggerMessage: String?
     @State private var selectedTemplateTarget: TemplateTarget = .none
     @State private var recorderButton: RemoteButton?
     @State private var gestureRecorderTarget: GestureRecorderTarget?
@@ -43,14 +48,18 @@ struct SettingsView: View {
 
     init(
         store: MappingStore,
-        initialVoiceTriggerKey: VoiceTriggerKey,
+        initialMomentaryVoiceTriggerKey: VoiceTriggerKey,
+        initialPersistentSessionTriggerKey: VoiceTriggerKey,
         onRecordingChanged: @escaping (Bool) -> Void = { _ in },
-        onVoiceTriggerChanged: @escaping VoiceTriggerChangeHandler
+        onVoiceTriggerChanged: @escaping VoiceTriggerChangeHandler,
+        onPersistentSessionTriggerKeyChanged: @escaping PersistentSessionTriggerKeyChangeHandler
     ) {
         self.store = store
         self.onRecordingChanged = onRecordingChanged
         self.onVoiceTriggerChanged = onVoiceTriggerChanged
-        _selectedVoiceTriggerKey = State(initialValue: initialVoiceTriggerKey)
+        self.onPersistentSessionTriggerKeyChanged = onPersistentSessionTriggerKeyChanged
+        _selectedMomentaryVoiceTriggerKey = State(initialValue: initialMomentaryVoiceTriggerKey)
+        _selectedPersistentSessionTriggerKey = State(initialValue: initialPersistentSessionTriggerKey)
     }
 
     private enum MappingScope: Hashable {
@@ -570,7 +579,7 @@ struct SettingsView: View {
 
             if selectedButton == .microphone {
                 microphoneSingleBehaviorCard
-                microphoneBehaviorCard(currentBinding(for: selectedButton))
+                microphoneMomentaryTriggerCard(currentBinding(for: selectedButton))
             } else if hasEditableScope {
                 visualSingleBehaviorCard
                 visualAdditionalBehaviorCard
@@ -717,7 +726,6 @@ struct SettingsView: View {
         let binding = currentBinding(for: selectedButton)
         let isEnabled = !binding.isDisabled
         let isPersistentIME = binding == .voiceKeyDefault
-        let triggerKeyLabel = isPersistentIME ? "持续会话激活键" : "遥控器语音触发键"
         let isGloballyPinned = mappingScope != .global &&
             store.isGloballyPinned(selectedButton, slot: .single)
         return workspaceCard(title: "单击 · 外部语音输入", symbolName: "mic.circle.fill") {
@@ -768,12 +776,12 @@ struct SettingsView: View {
                 .disabled(!isEnabled || isGloballyPinned)
 
                 HStack(spacing: 10) {
-                    Text(triggerKeyLabel)
+                    Text("持续会话激活键")
                         .font(.caption.weight(.medium))
                     Spacer(minLength: 0)
-                    Picker(triggerKeyLabel, selection: Binding(
-                        get: { selectedVoiceTriggerKey },
-                        set: { requestVoiceTriggerKeyChange($0) }
+                    Picker("持续会话激活键", selection: Binding(
+                        get: { selectedPersistentSessionTriggerKey },
+                        set: { requestPersistentSessionTriggerKeyChange($0) }
                     )) {
                         ForEach(VoiceTriggerKey.allCases, id: \.self) { key in
                             Text(key.displayName).tag(key)
@@ -781,21 +789,21 @@ struct SettingsView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
-                    .accessibilityLabel(triggerKeyLabel)
-                    .disabled(isApplyingVoiceTriggerKey)
+                    .accessibilityLabel("持续会话激活键")
+                    .disabled(isApplyingPersistentSessionTriggerKey)
                 }
-                if let voiceTriggerMessage {
-                    Text(voiceTriggerMessage)
+                if let persistentSessionTriggerMessage {
+                    Text(persistentSessionTriggerMessage)
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
 
                 Text(
                     isPersistentIME
-                        ? "请将输入法的语音输入快捷键设为 \(selectedVoiceTriggerKey.displayName)。短按开启或结束持续会话；会话中按住和释放会录制遥控器麦克风片段。"
+                        ? "请将输入法的语音输入快捷键设为 \(selectedPersistentSessionTriggerKey.displayName)。短按开启或结束持续会话；会话中按住和释放会录制遥控器麦克风片段。"
                         : binding.isDisabled
-                            ? "单击已关闭；按下语音键后直接进入遥控器麦克风，并使用 \(selectedVoiceTriggerKey.displayName) 作为触发键。"
-                            : "短按调用 Codex 语音对话；长按进入遥控器麦克风时使用 \(selectedVoiceTriggerKey.displayName) 作为语音触发键。"
+                            ? "单击已关闭；持续会话激活键仍保留独立配置。"
+                            : "短按调用 Codex 语音对话；持续会话激活键仍保留独立配置。"
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1155,7 +1163,7 @@ struct SettingsView: View {
 
                 if selectedButton == .microphone {
                     microphoneSingleBehaviorCard
-                    microphoneBehaviorCard(currentBinding(for: selectedButton))
+                    microphoneMomentaryTriggerCard(currentBinding(for: selectedButton))
                 } else {
                     bindingActionCard(currentBinding(for: selectedButton))
                 }
@@ -1180,10 +1188,6 @@ struct SettingsView: View {
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
-                }
-
-                if selectedButton == .microphone {
-                    microphoneBehaviorCard(currentBinding(for: selectedButton))
                 }
 
                 if isScrollAction(currentBinding(for: selectedButton)) {
@@ -1548,28 +1552,40 @@ struct SettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    private func microphoneBehaviorCard(_ binding: ButtonBinding) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "mic.circle.fill")
-                .font(.title3)
-                .foregroundStyle(Color.accentColor)
-            VStack(alignment: .leading, spacing: 5) {
-                Text("语音键的独立逻辑")
-                    .font(.subheadline.weight(.semibold))
+    private func microphoneMomentaryTriggerCard(_ binding: ButtonBinding) -> some View {
+        workspaceCard(title: "直接长按 · 遥控器麦克风", symbolName: "mic.circle.fill") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Text("直接长按激活键")
+                        .font(.caption.weight(.medium))
+                    Spacer(minLength: 0)
+                    Picker("直接长按激活键", selection: Binding(
+                        get: { selectedMomentaryVoiceTriggerKey },
+                        set: { requestVoiceTriggerKeyChange($0) }
+                    )) {
+                        ForEach(VoiceTriggerKey.allCases, id: \.self) { key in
+                            Text(key.displayName).tag(key)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .accessibilityLabel("直接长按激活键")
+                    .disabled(isApplyingMomentaryVoiceTriggerKey)
+                }
+                if let momentaryVoiceTriggerMessage {
+                    Text(momentaryVoiceTriggerMessage)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
                 Text(
                     binding.isDisabled
-                        ? "单击已关闭；按下语音键后直接进入遥控器麦克风模式，并使用 \(selectedVoiceTriggerKey.displayName) 作为触发键。"
-                        : binding == .preset(.chatGPTStartVoiceChat)
-                            ? "单击调用 Codex 语音对话；长按经过正常判定后，遥控器麦克风使用 \(selectedVoiceTriggerKey.displayName) 触发。"
-                            : "短按使用 \(selectedVoiceTriggerKey.displayName) 切换输入法持续会话；会话开启后可重复按住和释放来录制遥控器麦克风片段。"
+                        ? "单击已关闭；长按立即进入遥控器麦克风。"
+                        : "长按经判定后进入遥控器麦克风，并使用此键激活语音输入。持续会话已打开时，长按只录制麦克风片段。"
                 )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
-        .padding(14)
-        .background(Color.blue.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var diagnosticsPage: some View {
@@ -1659,33 +1675,77 @@ struct SettingsView: View {
     }
 
     private func requestVoiceTriggerKeyChange(_ requestedKey: VoiceTriggerKey) {
-        guard !isApplyingVoiceTriggerKey else { return }
-        let oldKey = selectedVoiceTriggerKey
-        isApplyingVoiceTriggerKey = true
-        voiceTriggerMessage = nil
+        guard !isApplyingMomentaryVoiceTriggerKey else { return }
+        let oldKey = selectedMomentaryVoiceTriggerKey
+        isApplyingMomentaryVoiceTriggerKey = true
+        momentaryVoiceTriggerMessage = nil
 
         onVoiceTriggerChanged(requestedKey) { result in
             switch result {
             case .applied:
-                selectedVoiceTriggerKey = requestedKey
-                isApplyingVoiceTriggerKey = false
-                voiceTriggerMessage = nil
+                selectedMomentaryVoiceTriggerKey = requestedKey
+                isApplyingMomentaryVoiceTriggerKey = false
+                momentaryVoiceTriggerMessage = nil
             case .unchanged:
-                selectedVoiceTriggerKey = requestedKey
-                isApplyingVoiceTriggerKey = false
-                voiceTriggerMessage = nil
+                selectedMomentaryVoiceTriggerKey = requestedKey
+                isApplyingMomentaryVoiceTriggerKey = false
+                momentaryVoiceTriggerMessage = nil
             case .busy:
-                selectedVoiceTriggerKey = oldKey
-                isApplyingVoiceTriggerKey = false
-                voiceTriggerMessage = "当前正在进行语音输入，请结束后再切换快捷键。"
+                selectedMomentaryVoiceTriggerKey = oldKey
+                isApplyingMomentaryVoiceTriggerKey = false
+                momentaryVoiceTriggerMessage = "当前正在进行语音输入，请结束后再切换快捷键。"
+            case .busyActiveHold:
+                selectedMomentaryVoiceTriggerKey = oldKey
+                isApplyingMomentaryVoiceTriggerKey = false
+                momentaryVoiceTriggerMessage = "语音键仍按住，请先松开再切换激活键。"
+            case .busyReleaseDrain:
+                selectedMomentaryVoiceTriggerKey = oldKey
+                isApplyingMomentaryVoiceTriggerKey = false
+                momentaryVoiceTriggerMessage = "语音键已松开，等待按键释放或音频收尾完成后再切换。"
             case .failed:
-                selectedVoiceTriggerKey = oldKey
-                isApplyingVoiceTriggerKey = false
-                voiceTriggerMessage = "快捷键切换失败，已恢复原设置。"
+                selectedMomentaryVoiceTriggerKey = oldKey
+                isApplyingMomentaryVoiceTriggerKey = false
+                momentaryVoiceTriggerMessage = "快捷键切换失败，已恢复原设置。"
             case .locked:
-                selectedVoiceTriggerKey = oldKey
-                isApplyingVoiceTriggerKey = false
-                voiceTriggerMessage = "语音快捷键运行时已锁定，请重新启动 RemoteOrbit 后重试。"
+                selectedMomentaryVoiceTriggerKey = oldKey
+                isApplyingMomentaryVoiceTriggerKey = false
+                momentaryVoiceTriggerMessage = "语音快捷键运行时已锁定，请重新启动 RemoteOrbit 后重试。"
+            }
+        }
+    }
+
+    private func requestPersistentSessionTriggerKeyChange(_ requestedKey: VoiceTriggerKey) {
+        guard !isApplyingPersistentSessionTriggerKey else { return }
+        let oldKey = selectedPersistentSessionTriggerKey
+        isApplyingPersistentSessionTriggerKey = true
+        persistentSessionTriggerMessage = nil
+
+        onPersistentSessionTriggerKeyChanged(requestedKey) { result in
+            switch result {
+            case .applied, .unchanged:
+                selectedPersistentSessionTriggerKey = requestedKey
+                isApplyingPersistentSessionTriggerKey = false
+                persistentSessionTriggerMessage = nil
+            case .busy:
+                selectedPersistentSessionTriggerKey = oldKey
+                isApplyingPersistentSessionTriggerKey = false
+                persistentSessionTriggerMessage = "当前语音按键仍有活动所有权，完成后再切换。"
+            case .busyActiveHold:
+                selectedPersistentSessionTriggerKey = oldKey
+                isApplyingPersistentSessionTriggerKey = false
+                persistentSessionTriggerMessage = "语音键仍按住，请先松开再切换激活键。"
+            case .busyReleaseDrain:
+                selectedPersistentSessionTriggerKey = oldKey
+                isApplyingPersistentSessionTriggerKey = false
+                persistentSessionTriggerMessage = "语音键已松开，等待按键释放或音频收尾完成后再切换。"
+            case .failed:
+                selectedPersistentSessionTriggerKey = oldKey
+                isApplyingPersistentSessionTriggerKey = false
+                persistentSessionTriggerMessage = "快捷键切换失败，已恢复原设置。"
+            case .locked:
+                selectedPersistentSessionTriggerKey = oldKey
+                isApplyingPersistentSessionTriggerKey = false
+                persistentSessionTriggerMessage = "语音快捷键运行时已锁定，请重新启动 RemoteOrbit 后重试。"
             }
         }
     }

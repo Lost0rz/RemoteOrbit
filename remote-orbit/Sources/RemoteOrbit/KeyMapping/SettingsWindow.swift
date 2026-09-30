@@ -14,8 +14,10 @@ final class SettingsWindow {
     static func open(
         store: MappingStore,
         onRecordingChanged: @escaping (Bool) -> Void = { _ in },
-        initialVoiceTriggerKey: VoiceTriggerKey,
-        onVoiceTriggerChanged: @escaping VoiceTriggerChangeHandler
+        initialMomentaryVoiceTriggerKey: VoiceTriggerKey,
+        initialPersistentSessionTriggerKey: VoiceTriggerKey,
+        onVoiceTriggerChanged: @escaping VoiceTriggerChangeHandler,
+        onPersistentSessionTriggerKeyChanged: @escaping PersistentSessionTriggerKeyChangeHandler
     ) {
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
@@ -25,9 +27,11 @@ final class SettingsWindow {
 
         let settingsView = SettingsView(
             store: store,
-            initialVoiceTriggerKey: initialVoiceTriggerKey,
+            initialMomentaryVoiceTriggerKey: initialMomentaryVoiceTriggerKey,
+            initialPersistentSessionTriggerKey: initialPersistentSessionTriggerKey,
             onRecordingChanged: onRecordingChanged,
-            onVoiceTriggerChanged: onVoiceTriggerChanged
+            onVoiceTriggerChanged: onVoiceTriggerChanged,
+            onPersistentSessionTriggerKeyChanged: onPersistentSessionTriggerKeyChanged
         )
         let hostingController = NSHostingController(rootView: settingsView)
 
