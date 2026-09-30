@@ -82,6 +82,17 @@ final class VoiceOptionTriggerTests: XCTestCase {
         XCTAssertFalse(gate.ownsSuppressedRelease(sessionID: UUID()))
         XCTAssertEqual(gate.suppressedSessionID, session)
         XCTAssertTrue(gate.armSuppressedRelease(sessionID: session))
+        // Physical-up alone is insufficient.
+        XCTAssertFalse(gate.completeSuppressed(sessionID: session))
+        XCTAssertEqual(gate.suppressedSessionID, session)
+
+        // Output drain alone is still insufficient.
+        XCTAssertTrue(gate.markSuppressedOutputDrainCompleted(sessionID: session))
+        XCTAssertFalse(gate.completeSuppressed(sessionID: session))
+        XCTAssertEqual(gate.suppressedSessionID, session)
+
+        // Ownership closes only after the mapped-release quiet window.
+        XCTAssertTrue(gate.markSuppressedReleaseQuietPeriodElapsed(sessionID: session))
         XCTAssertTrue(gate.completeSuppressed(sessionID: session))
         XCTAssertNil(gate.suppressedSessionID)
     }
