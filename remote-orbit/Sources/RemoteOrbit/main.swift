@@ -1155,24 +1155,20 @@ final class VoiceKeyFilter {
         return true
     }
 
-    /// Testable event-tap seam: consume only the configured modifier's
-    /// release components while a discarded down still owns the lifecycle.
+    /// Testable event-tap seam: consume every configured-trigger edge while a
+    /// discarded down still owns the lifecycle.
     @discardableResult
-    func shouldSuppressDiscardedHardwareTriggerRelease(
+    func shouldSuppressDiscardedHardwareTriggerEvent(
         keyCode: CGKeyCode,
-        type: CGEventType,
-        flags: CGEventFlags
+        type: CGEventType
     ) -> Bool {
         guard matchesTriggerKeyCode(keyCode),
-              let sessionID = optionGate.suppressedSessionID else {
+              optionGate.suppressedSessionID != nil else {
             return false
         }
         switch type {
-        case .flagsChanged:
-            guard !isTriggerModifierActive(flags: flags) else { return false }
-            return optionGate.ownsSuppressedRelease(sessionID: sessionID)
-        case .keyUp:
-            return optionGate.ownsSuppressedRelease(sessionID: sessionID)
+        case .keyDown, .keyUp, .flagsChanged:
+            return true
         default:
             return false
         }
@@ -1457,10 +1453,9 @@ final class VoiceKeyFilter {
                 return nil
             }
 
-            if filter.shouldSuppressDiscardedHardwareTriggerRelease(
+            if filter.shouldSuppressDiscardedHardwareTriggerEvent(
                 keyCode: keyCode,
-                type: type,
-                flags: event.flags
+                type: type
             ) {
                 return nil
             }

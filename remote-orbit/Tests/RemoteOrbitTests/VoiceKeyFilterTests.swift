@@ -57,12 +57,65 @@ final class VoiceKeyFilterTests: XCTestCase {
         _ = trigger.abort(sessionID: sessionID)
     }
 
-    func testSuppressedMappedReleaseIsSwallowedOnlyForConfiguredTrigger() {
+    func testSuppressedMappedTriggerEdgesAreSwallowedForAllConfiguredKeys() {
+        for key in VoiceTriggerKey.allCases {
+            let trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in })
+            let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
+            XCTAssertTrue(filter.configureVoiceTriggerKey(key), "key=\(key)")
+
+            let sessionID = UUID()
+            filter.beginOptionDeferral(gestureID: sessionID)
+            captureDeferredMappedDown(in: filter, key: key)
+            XCTAssertTrue(
+                filter.suppressDeferredHardwareTrigger(
+                    gestureID: sessionID,
+                    reason: "test-audio-only"
+                ),
+                "key=\(key)"
+            )
+
+            XCTAssertFalse(filter.isOptionDeferralActive(for: sessionID), "key=\(key)")
+            XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, sessionID, "key=\(key)")
+            XCTAssertNil(trigger.activeSessionID, "key=\(key)")
+            XCTAssertFalse(trigger.isOptionDown, "key=\(key)")
+
+            XCTAssertTrue(
+                filter.shouldSuppressDiscardedHardwareTriggerEvent(
+                    keyCode: key.cgKeyCode,
+                    type: .keyDown
+                ),
+                "matching keyDown must be swallowed for key=\(key)"
+            )
+            XCTAssertTrue(
+                filter.shouldSuppressDiscardedHardwareTriggerEvent(
+                    keyCode: key.cgKeyCode,
+                    type: .flagsChanged
+                ),
+                "matching active flagsChanged must be swallowed for key=\(key)"
+            )
+            XCTAssertTrue(
+                filter.shouldSuppressDiscardedHardwareTriggerEvent(
+                    keyCode: key.cgKeyCode,
+                    type: .flagsChanged
+                ),
+                "matching inactive flagsChanged must be swallowed for key=\(key)"
+            )
+            XCTAssertTrue(
+                filter.shouldSuppressDiscardedHardwareTriggerEvent(
+                    keyCode: key.cgKeyCode,
+                    type: .keyUp
+                ),
+                "matching keyUp must be swallowed for key=\(key)"
+            )
+            XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, sessionID, "key=\(key)")
+        }
+    }
+
+    func testSuppressedMappedTriggerDoesNotSuppressUnrelatedKey() {
         let trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in })
         let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
         let sessionID = UUID()
         filter.beginOptionDeferral(gestureID: sessionID)
-
         captureDeferredMappedDown(in: filter)
         XCTAssertTrue(
             filter.suppressDeferredHardwareTrigger(
@@ -71,40 +124,12 @@ final class VoiceKeyFilterTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(filter.isOptionDeferralActive(for: sessionID))
-        XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, sessionID)
-        XCTAssertNil(trigger.activeSessionID)
-        XCTAssertFalse(trigger.isOptionDown)
-
-        XCTAssertTrue(
-            filter.shouldSuppressDiscardedHardwareTriggerRelease(
-                keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
-                type: .flagsChanged,
-                flags: []
-            )
-        )
-        XCTAssertTrue(
-            filter.shouldSuppressDiscardedHardwareTriggerRelease(
-                keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
-                type: .keyUp,
-                flags: []
-            )
-        )
         XCTAssertFalse(
-            filter.shouldSuppressDiscardedHardwareTriggerRelease(
-                keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
-                type: .flagsChanged,
-                flags: VoiceTriggerKey.leftOption.cgEventFlag
-            )
-        )
-        XCTAssertFalse(
-            filter.shouldSuppressDiscardedHardwareTriggerRelease(
+            filter.shouldSuppressDiscardedHardwareTriggerEvent(
                 keyCode: 0,
-                type: .keyUp,
-                flags: []
+                type: .keyDown
             )
         )
-        XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, sessionID)
     }
 
     func testSuppressedOwnershipWaitsForPhysicalUpAndOutputDrain() {
@@ -228,12 +253,13 @@ final class VoiceKeyFilterTests: XCTestCase {
 
     private func captureDeferredMappedDown(
         in filter: VoiceKeyFilter,
+        key: VoiceTriggerKey = .leftOption,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         guard let event = CGEvent(
             keyboardEventSource: nil,
-            virtualKey: VoiceTriggerKey.leftOption.cgKeyCode,
+            virtualKey: key.cgKeyCode,
             keyDown: true
         ) else {
             XCTFail("could not create test trigger-down event", file: file, line: line)
