@@ -216,4 +216,21 @@ final class VoiceOptionTriggerTests: XCTestCase {
         XCTAssertEqual(events.map(\.isDown), [true, false])
         XCTAssertNil(trigger.activeSessionID)
     }
+
+    func testPersistentSemanticTapUsesItsCapturedKeyIndependentOfMomentaryKey() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let sessionID = UUID()
+
+        XCTAssertTrue(trigger.configureVoiceTriggerKey(.rightControl))
+        XCTAssertTrue(trigger.begin(sessionID: sessionID))
+        XCTAssertTrue(trigger.sendTap(sessionID: sessionID, key: .leftCommand, duration: 0.01))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(trigger.momentaryVoiceTriggerKey, .rightControl)
+        XCTAssertEqual(events.map(\.key), [.leftCommand, .leftCommand])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+    }
 }

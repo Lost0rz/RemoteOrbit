@@ -229,7 +229,7 @@ final class VoicePressCoordinator {
     /// event can arrive; ordinary BLE loss keeps waiting for physical up.
     var onHardwareOptionGateResetSuppression: ((UUID) -> Void)?
     var onHardwareOptionGateShortReplay: ((UUID) -> Void)?
-    var onPersistentSessionTriggerTap: ((UUID) -> Bool)?
+    var onPersistentSessionTriggerTap: ((UUID, VoiceTriggerKey) -> Bool)?
     var onHardwareOptionGateCancel: ((UUID) -> Void)?
     /// Testable ordering seam: the state callback is where AppController
     /// requests BLE acquisition, and this callback marks route preparation.
@@ -252,9 +252,17 @@ final class VoicePressCoordinator {
     /// but once short-press behavior was restored that made an ordinary tap
     /// look like a long press and opened remote dictation unexpectedly.
     static let holdActivationThreshold: TimeInterval = 0.30
+    /// An already-open persistent IME session uses a shorter hold boundary so
+    /// a remote-microphone segment can begin promptly after a short-toggle
+    /// gesture has become a hold.
+    static let persistentHoldActivationThreshold: TimeInterval = 0.18
 
     static func isLongPress(heldDuration: TimeInterval) -> Bool {
         heldDuration >= holdActivationThreshold
+    }
+
+    static func isPersistentSessionLongPress(heldDuration: TimeInterval) -> Bool {
+        heldDuration >= persistentHoldActivationThreshold
     }
     // The remote usually sends AUDIO_STOP just before the HID key-up, and the
     // BLE bridge keeps accepting packets during its drain window. Keep the
@@ -283,6 +291,8 @@ final class VoicePressCoordinator {
     private var shortInputUsesLocalMicrophone = false
     private var shortInputTogglesPersistentVoiceSession = false
     private(set) var voiceSessionMode: VoiceSessionMode = .idle
+    private(set) var persistentSessionTriggerKey: VoiceTriggerKey = .defaultValue
+    private var persistentSessionTriggerOwnerKey: VoiceTriggerKey?
     private var remoteSegmentTriggerPolicy: RemoteSegmentTriggerPolicy = .momentaryTrigger
     private var audioOnlyHardwareTriggerSuppressed = false
     private var resetAudioOnlyHardwareTriggerOnDrain = false
@@ -345,15 +355,48 @@ final class VoicePressCoordinator {
     }
 
     var hasActiveVoiceOwnershipForTriggerReconfiguration: Bool {
-        voiceSessionMode != .idle
-            || mode != .idle
+        mode != .idle
             || pendingRepress != nil
+            || gestureID != nil
             || remoteRouted
             || remoteStreaming
             || remoteAudioAvailable
             || longInputStarted
             || tailWorkItem != nil
             || deferredRepressAwaitingActivation
+            || pendingShortPreparationID != nil
+            || awaitingPhysicalVoiceKeyUp
+            || physicalUpSessionID != nil
+            || remoteOutputDrainRequestedSessionID != nil
+    }
+
+    var hasVoiceKeyHeldForReconfiguration: Bool {
+        mode != .idle
+    }
+
+    var hasReleaseOrTailOwnershipForReconfiguration: Bool {
+        pendingRepress != nil
+            || gestureID != nil
+            || remoteRouted
+            || remoteStreaming
+            || remoteAudioAvailable
+            || longInputStarted
+            || tailWorkItem != nil
+            || deferredRepressAwaitingActivation
+            || pendingShortPreparationID != nil
+            || awaitingPhysicalVoiceKeyUp
+            || physicalUpSessionID != nil
+            || remoteOutputDrainRequestedSessionID != nil
+    }
+
+    var persistentSessionTriggerOwnerKeyForTesting: VoiceTriggerKey? {
+        persistentSessionTriggerOwnerKey
+    }
+
+    @discardableResult
+    func configurePersistentSessionTriggerKey(_ key: VoiceTriggerKey) -> Bool {
+        persistentSessionTriggerKey = key
+        return true
     }
 
     var tailDrainDelayForTesting: TimeInterval {
@@ -458,10 +501,11 @@ final class VoicePressCoordinator {
         shortTapAction = onShortTap
         shortInputTogglesPersistentVoiceSession = togglesPersistentVoiceSession
         shortInputUsesLocalMicrophone = usesLocalMicrophone
-        remoteSegmentTriggerPolicy =
+        let isPersistentSessionSegment =
             togglesPersistentVoiceSession && voiceSessionMode == .persistentOpen
-                ? .audioOnly
-                : .momentaryTrigger
+        remoteSegmentTriggerPolicy = isPersistentSessionSegment
+            ? .audioOnly
+            : .momentaryTrigger
         audioOnlyHardwareTriggerSuppressed = false
         resetAudioOnlyHardwareTriggerOnDrain = false
         usesHardwareOptionPath = usesHardwareOption
@@ -486,15 +530,20 @@ final class VoicePressCoordinator {
         }
 
         setMode(.pending)
-        if preparesRemoteTransport && !bypassesShortClassification {
+        if (preparesRemoteTransport || isPersistentSessionSegment)
+            && !bypassesShortClassification {
             onRemoteTransportPreparation?()
         }
         let heldDuration = max(
             0,
             ProcessInfo.processInfo.systemUptime - physicalDownAt
         )
-        let remainingHoldTime = Self.holdActivationThreshold - heldDuration
-        guard !Self.isLongPress(heldDuration: heldDuration) else {
+        let holdThreshold = isPersistentSessionSegment
+            ? Self.persistentHoldActivationThreshold
+            : Self.holdActivationThreshold
+        let isLongPress = heldDuration >= holdThreshold
+        let remainingHoldTime = holdThreshold - heldDuration
+        guard !isLongPress else {
             promoteToLongPress()
             return true
         }
@@ -506,7 +555,10 @@ final class VoicePressCoordinator {
             deadline: .now() + remainingHoldTime,
             execute: work
         )
-        print("[PRESS] pending; classifying short tap vs remote-mic hold in 300 ms")
+        print(
+            "[PRESS] pending; classifying short tap vs remote-mic hold in "
+                + "\(Int(holdThreshold * 1000)) ms"
+        )
         return true
     }
 
@@ -586,16 +638,28 @@ final class VoicePressCoordinator {
             } else if shouldTogglePersistentSession, let currentGestureID {
                 let nextSessionMode: VoiceSessionMode =
                     voiceSessionMode == .persistentOpen ? .idle : .persistentOpen
+                let triggerKey = nextSessionMode == .persistentOpen
+                    ? persistentSessionTriggerKey
+                    : persistentSessionTriggerOwnerKey
                 let triggerSucceeded: Bool
-                if let onPersistentSessionTriggerTap {
-                    triggerSucceeded = onPersistentSessionTriggerTap(currentGestureID)
-                } else if !shouldUseHardwareOption {
-                    triggerSucceeded = syntheticOptionTrigger.sendTap(sessionID: currentGestureID)
+                if let triggerKey, let onPersistentSessionTriggerTap {
+                    triggerSucceeded = onPersistentSessionTriggerTap(
+                        currentGestureID,
+                        triggerKey
+                    )
+                } else if let triggerKey, !shouldUseHardwareOption {
+                    triggerSucceeded = syntheticOptionTrigger.sendTap(
+                        sessionID: currentGestureID,
+                        key: triggerKey
+                    )
                 } else {
                     triggerSucceeded = false
                 }
                 if triggerSucceeded {
                     voiceSessionMode = nextSessionMode
+                    persistentSessionTriggerOwnerKey = nextSessionMode == .persistentOpen
+                        ? triggerKey
+                        : nil
                     print("[PRESS] IME persistent session → \(nextSessionMode)")
                 } else {
                     _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
@@ -801,6 +865,7 @@ final class VoicePressCoordinator {
         shortInputUsesLocalMicrophone = false
         shortInputTogglesPersistentVoiceSession = false
         voiceSessionMode = .idle
+        persistentSessionTriggerOwnerKey = nil
         remoteSegmentTriggerPolicy = .momentaryTrigger
         audioOnlyHardwareTriggerSuppressed = false
         resetAudioOnlyHardwareTriggerOnDrain = false
@@ -1163,7 +1228,10 @@ final class VoiceKeyFilter {
     private var voiceKeyIsDown = false
     private let optionGate = HardwareOptionGate()
     private let syntheticOptionTrigger: VoiceOptionTrigger
-    private(set) var voiceTriggerKey: VoiceTriggerKey = .leftOption
+    private(set) var momentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
+    /// Compatibility alias for callers that historically meant the mapped
+    /// remote-microphone key.
+    var voiceTriggerKey: VoiceTriggerKey { momentaryVoiceTriggerKey }
     private var deferredOptionDownSeen = false
     private var deferredOptionUpSeen = false
     private var deferredOptionDownEvents: [CGEvent] = []
@@ -1179,6 +1247,24 @@ final class VoiceKeyFilter {
     var suppressedHardwareTriggerSessionID: UUID? {
         optionGate.suppressedSessionID
     }
+    var hasActiveHardwareTriggerOwnership: Bool {
+        optionGate.activeSessionID != nil
+            || optionGate.suppressedSessionID != nil
+            || heldHardwareOptionSessionID != nil
+            || hardwareOptionReleaseArmed
+            || !heldHardwareOptionUpEvents.isEmpty
+            || voiceKeyIsDown
+    }
+    var hasSyntheticTriggerOwnership: Bool {
+        syntheticOptionTrigger.activeSessionID != nil
+            || syntheticOptionTrigger.isOptionDown
+    }
+    var isSyntheticTriggerDown: Bool {
+        syntheticOptionTrigger.isOptionDown
+    }
+    var isVoiceKeyHeld: Bool {
+        voiceKeyIsDown
+    }
     var onVoiceKeyDown: (() -> Void)?
     var onVoiceKeyUp: (() -> Void)?
 
@@ -1188,16 +1274,13 @@ final class VoiceKeyFilter {
 
     @discardableResult
     func configureVoiceTriggerKey(_ key: VoiceTriggerKey) -> Bool {
-        guard optionGate.activeSessionID == nil,
-              optionGate.suppressedSessionID == nil,
-              heldHardwareOptionSessionID == nil,
-              !voiceKeyIsDown else {
+        guard !hasActiveHardwareTriggerOwnership else {
             return false
         }
         guard syntheticOptionTrigger.configureVoiceTriggerKey(key) else {
             return false
         }
-        voiceTriggerKey = key
+        momentaryVoiceTriggerKey = key
         return true
     }
 
@@ -1207,12 +1290,8 @@ final class VoiceKeyFilter {
         to newKey: VoiceTriggerKey
     ) -> Bool {
         guard voiceTriggerReconfigurationKeyCodes == nil,
-              optionGate.activeSessionID == nil,
-              optionGate.suppressedSessionID == nil,
-              heldHardwareOptionSessionID == nil,
-              !voiceKeyIsDown,
-              syntheticOptionTrigger.activeSessionID == nil,
-              !syntheticOptionTrigger.isOptionDown else {
+              !hasActiveHardwareTriggerOwnership,
+              !hasSyntheticTriggerOwnership else {
             return false
         }
         voiceTriggerReconfigurationKeyCodes = [
@@ -1232,11 +1311,11 @@ final class VoiceKeyFilter {
     }
 
     func matchesTriggerKeyCode(_ keyCode: CGKeyCode) -> Bool {
-        keyCode == voiceTriggerKey.cgKeyCode
+        keyCode == momentaryVoiceTriggerKey.cgKeyCode
     }
 
     func isTriggerModifierActive(flags: CGEventFlags) -> Bool {
-        flags.contains(voiceTriggerKey.cgEventFlag)
+        flags.contains(momentaryVoiceTriggerKey.cgEventFlag)
     }
 
     private var optionDeferralActive: Bool {
@@ -1436,7 +1515,11 @@ final class VoiceKeyFilter {
     /// physical mapped edges for a bounded quiet window. The physical gate is
     /// discarded even when no mapped edge arrived before raw HID-up.
     @discardableResult
-    func emitPersistentShortTap(gestureID: UUID, reason: String) -> Bool {
+    func emitPersistentShortTap(
+        gestureID: UUID,
+        reason: String,
+        triggerKey: VoiceTriggerKey
+    ) -> Bool {
         cancelSuppressedTriggerReleaseCompletion()
         guard optionGate.beginShortTapDiscard(sessionID: gestureID) else {
             _ = syntheticOptionTrigger.abort(sessionID: gestureID)
@@ -1447,7 +1530,10 @@ final class VoiceKeyFilter {
         deferredOptionDownEvents.removeAll(keepingCapacity: true)
         deferredOptionUpEvents.removeAll(keepingCapacity: true)
         scheduleSuppressedTriggerReleaseCompletion(sessionID: gestureID)
-        let emitted = syntheticOptionTrigger.sendTap(sessionID: gestureID)
+        let emitted = syntheticOptionTrigger.sendTap(
+            sessionID: gestureID,
+            key: triggerKey
+        )
         print(
             "[VOICE] persistent short trigger \(emitted ? "emitted" : "failed") "
                 + "gesture=\(gestureID.uuidString) reason=\(reason)"
@@ -1597,7 +1683,7 @@ final class VoiceKeyFilter {
         let events = heldHardwareOptionUpEvents
         clearHeldHardwareOption()
         if events.isEmpty {
-            Key.voiceTriggerUp(voiceTriggerKey)
+            Key.voiceTriggerUp(momentaryVoiceTriggerKey)
             print("[VOICE] hardware Option-up missing; emergency balancing up")
         } else {
             events.forEach { $0.post(tap: .cghidEventTap) }
@@ -1614,7 +1700,7 @@ final class VoiceKeyFilter {
         let events = heldHardwareOptionUpEvents
         clearHeldHardwareOption()
         if events.isEmpty {
-            Key.voiceTriggerUp(voiceTriggerKey)
+            Key.voiceTriggerUp(momentaryVoiceTriggerKey)
         } else {
             events.forEach { $0.post(tap: .cghidEventTap) }
         }
@@ -1851,6 +1937,8 @@ enum VoiceTriggerApplyResult: Equatable {
     case applied
     case unchanged
     case busy
+    case busyActiveHold
+    case busyReleaseDrain
     case failed
     case locked
 }
@@ -1888,7 +1976,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let voiceFocusTransactions = VoiceFocusTransactionTracker()
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
-    private(set) var currentVoiceTriggerKey: VoiceTriggerKey = .leftOption
+    private(set) var currentMomentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
+    private(set) var currentPersistentSessionTriggerKey: VoiceTriggerKey = .leftOption
+    /// Compatibility alias: historical callers meant the mapped momentary
+    /// remote-microphone trigger.
+    var currentVoiceTriggerKey: VoiceTriggerKey { currentMomentaryVoiceTriggerKey }
     private(set) var voiceTriggerReconfigurationInProgress = false
     private(set) var voiceTriggerRuntimeLocked = false
     private var pendingVoiceHIDMappingRefresh = false
@@ -1896,6 +1988,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let applyVoiceHIDMapping: (Bool, VoiceTriggerKey) -> Bool
     private let readPersistedVoiceTriggerKey: () -> VoiceTriggerKey
     private let persistVoiceTriggerKey: (VoiceTriggerKey) -> Void
+    private let readPersistedPersistentSessionTriggerKey: () -> VoiceTriggerKey
+    private let persistPersistentSessionTriggerKey: (VoiceTriggerKey) -> Void
     private let voiceHIDMappingQueue = DispatchQueue(
         label: "com.remoteorbit.voice-trigger-hid-mapping",
         qos: .userInitiated
@@ -1912,10 +2006,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             RemoteVoiceKeyMapping.setEnabled($0, target: $1)
         },
         readPersistedVoiceTriggerKey: @escaping () -> VoiceTriggerKey = {
-            AppStorage.voiceTriggerKey
+            AppStorage.momentaryVoiceTriggerKey
         },
         persistVoiceTriggerKey: @escaping (VoiceTriggerKey) -> Void = {
-            AppStorage.voiceTriggerKey = $0
+            AppStorage.momentaryVoiceTriggerKey = $0
+        },
+        readPersistedPersistentSessionTriggerKey: @escaping () -> VoiceTriggerKey = {
+            AppStorage.persistentSessionTriggerKey
+        },
+        persistPersistentSessionTriggerKey: @escaping (VoiceTriggerKey) -> Void = {
+            AppStorage.persistentSessionTriggerKey = $0
         }
     ) {
         self.filter = filter
@@ -1925,20 +2025,71 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.applyVoiceHIDMapping = applyVoiceHIDMapping
         self.readPersistedVoiceTriggerKey = readPersistedVoiceTriggerKey
         self.persistVoiceTriggerKey = persistVoiceTriggerKey
+        self.readPersistedPersistentSessionTriggerKey = readPersistedPersistentSessionTriggerKey
+        self.persistPersistentSessionTriggerKey = persistPersistentSessionTriggerKey
         super.init()
     }
 
     @discardableResult
     func restoreVoiceTriggerRuntime() -> Bool {
-        let restoredKey = readPersistedVoiceTriggerKey()
-        guard filter.configureVoiceTriggerKey(restoredKey) else {
+        let restoredMomentaryKey = readPersistedVoiceTriggerKey()
+        guard filter.configureVoiceTriggerKey(restoredMomentaryKey) else {
             voiceTriggerRuntimeLocked = true
             print("[VOICE-KEY] startup restore failed; runtime locked")
             return false
         }
-        currentVoiceTriggerKey = restoredKey
-        print("[VOICE-KEY] startup restored target=\(restoredKey.displayName)")
+        let restoredPersistentKey = readPersistedPersistentSessionTriggerKey()
+        guard voicePress.configurePersistentSessionTriggerKey(restoredPersistentKey) else {
+            voiceTriggerRuntimeLocked = true
+            print("[VOICE-KEY] persistent startup restore failed; runtime locked")
+            return false
+        }
+        currentMomentaryVoiceTriggerKey = restoredMomentaryKey
+        currentPersistentSessionTriggerKey = restoredPersistentKey
+        print(
+            "[VOICE-KEY] startup restored momentary=\(restoredMomentaryKey.displayName) "
+                + "persistent=\(restoredPersistentKey.displayName)"
+        )
         return true
+    }
+
+    func applyPersistentSessionTriggerKey(
+        _ newKey: VoiceTriggerKey,
+        completion: @escaping (VoiceTriggerApplyResult) -> Void
+    ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    completion(.locked)
+                    return
+                }
+                self.applyPersistentSessionTriggerKey(newKey, completion: completion)
+            }
+            return
+        }
+        guard !voiceTriggerRuntimeLocked else {
+            completion(.locked)
+            return
+        }
+        guard !voiceTriggerReconfigurationInProgress else {
+            completion(.busy)
+            return
+        }
+        guard newKey != currentPersistentSessionTriggerKey else {
+            completion(.unchanged)
+            return
+        }
+        if let busy = voiceConfigurationBusyResult() {
+            completion(busy)
+            return
+        }
+        guard voicePress.configurePersistentSessionTriggerKey(newKey) else {
+            completion(.busy)
+            return
+        }
+        currentPersistentSessionTriggerKey = newKey
+        persistPersistentSessionTriggerKey(newKey)
+        completion(.applied)
     }
 
     /// Runtime key changes are initiated on the main run loop so the EventTap
@@ -1967,13 +2118,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             completion(.busy)
             return
         }
-        let oldKey = currentVoiceTriggerKey
+        let oldKey = currentMomentaryVoiceTriggerKey
         guard newKey != oldKey else {
             completion(.unchanged)
             return
         }
-        guard !voicePress.hasActiveVoiceOwnershipForTriggerReconfiguration else {
-            completion(.busy)
+        if let busy = voiceConfigurationBusyResult() {
+            completion(busy)
             return
         }
         let hadHardwareMapping = isVoiceHIDMappingEnabled()
@@ -1991,7 +2142,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         guard hidConnected else {
-            currentVoiceTriggerKey = newKey
+            currentMomentaryVoiceTriggerKey = newKey
             persistVoiceTriggerKey(newKey)
             completeVoiceTriggerReconfiguration(.applied, completion: completion)
             return
@@ -2010,12 +2161,25 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     )
                     return
                 }
-                self.currentVoiceTriggerKey = newKey
+                self.currentMomentaryVoiceTriggerKey = newKey
                 self.persistVoiceTriggerKey(newKey)
                 print("[VOICE-KEY] runtime target committed=\(newKey.displayName)")
                 self.completeVoiceTriggerReconfiguration(.applied, completion: completion)
             }
         }
+    }
+
+    private func voiceConfigurationBusyResult() -> VoiceTriggerApplyResult? {
+        if voicePress.hasVoiceKeyHeldForReconfiguration || filter.isVoiceKeyHeld {
+            return .busyActiveHold
+        }
+        if voicePress.hasReleaseOrTailOwnershipForReconfiguration
+            || filter.hasActiveHardwareTriggerOwnership
+            || filter.isSyntheticTriggerDown
+            || filter.hasSyntheticTriggerOwnership {
+            return .busyReleaseDrain
+        }
+        return nil
     }
 
     private func rollbackVoiceTriggerApply(
@@ -2078,7 +2242,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         pendingVoiceHIDMappingRefresh = false
         let shouldEnable = hidConnected
-        let target = currentVoiceTriggerKey
+        let target = currentMomentaryVoiceTriggerKey
         voiceHIDMappingQueue.async { [weak self] in
             guard let self else { return }
             let succeeded = self.applyVoiceHIDMapping(shouldEnable, target)
@@ -2502,10 +2666,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 reason: "short-configured-trigger"
             )
         }
-        voicePress.onPersistentSessionTriggerTap = { [weak self] gestureID in
+        voicePress.onPersistentSessionTriggerTap = { [weak self] gestureID, triggerKey in
             self?.filter.emitPersistentShortTap(
                 gestureID: gestureID,
-                reason: "persistent-session-toggle"
+                reason: "persistent-session-toggle",
+                triggerKey: triggerKey
             ) ?? false
         }
         voicePress.onHardwareOptionGateCancel = { [weak self] gestureID in
@@ -2914,7 +3079,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func applyVoiceHIDMappingForConnection(_ active: Bool) {
         let shouldEnable = active && !voiceTriggerRuntimeLocked
-        let succeeded = applyVoiceHIDMapping(shouldEnable, currentVoiceTriggerKey)
+        let succeeded = applyVoiceHIDMapping(shouldEnable, currentMomentaryVoiceTriggerKey)
         if shouldEnable && !succeeded {
             print("[HID-MAP] connect mapping failed; synthetic fallback remains available")
         }
@@ -3256,7 +3421,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ble.stop()
         AudioPipe.shared.stop()
         voiceHIDMappingQueue.sync {
-            _ = applyVoiceHIDMapping(false, currentVoiceTriggerKey)
+            _ = applyVoiceHIDMapping(false, currentMomentaryVoiceTriggerKey)
         }
     }
 
@@ -3266,13 +3431,21 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             onRecordingChanged: { [weak self] enabled in
                 self?.ble.setRecordingEnabled(enabled)
             },
-            initialVoiceTriggerKey: currentVoiceTriggerKey,
+            initialMomentaryVoiceTriggerKey: currentMomentaryVoiceTriggerKey,
+            initialPersistentSessionTriggerKey: currentPersistentSessionTriggerKey,
             onVoiceTriggerChanged: { [weak self] key, completion in
                 guard let self else {
                     completion(.locked)
                     return
                 }
                 self.applyVoiceTriggerKey(key, completion: completion)
+            },
+            onPersistentSessionTriggerKeyChanged: { [weak self] key, completion in
+                guard let self else {
+                    completion(.locked)
+                    return
+                }
+                self.applyPersistentSessionTriggerKey(key, completion: completion)
             }
         )
     }

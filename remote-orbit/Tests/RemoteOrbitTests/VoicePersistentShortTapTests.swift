@@ -178,6 +178,7 @@ final class VoicePersistentShortTapTests: XCTestCase {
         waitForCoordinatorTiming(0.08)
 
         XCTAssertFalse(harness.press.persistentSessionActiveForTesting)
+        XCTAssertNil(harness.press.persistentSessionTriggerOwnerKeyForTesting)
         XCTAssertTrue(harness.recorder.values.isEmpty)
         XCTAssertNil(harness.trigger.activeSessionID)
         stop(harness)
@@ -187,6 +188,7 @@ final class VoicePersistentShortTapTests: XCTestCase {
         let harness = makeHarness(key: .leftCommand)
         _ = shortTap(harness, usesHardwareOption: false)
         XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
+        XCTAssertEqual(harness.press.persistentSessionTriggerOwnerKeyForTesting, .leftCommand)
         waitForCoordinatorTiming(0.20)
 
         let gestureID = UUID()
@@ -201,6 +203,7 @@ final class VoicePersistentShortTapTests: XCTestCase {
         waitForCoordinatorTiming(0.08)
 
         XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
+        XCTAssertEqual(harness.press.persistentSessionTriggerOwnerKeyForTesting, .leftCommand)
         stop(harness)
     }
 
@@ -213,14 +216,16 @@ final class VoicePersistentShortTapTests: XCTestCase {
         let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
         XCTAssertTrue(filter.configureVoiceTriggerKey(key))
         let press = VoicePressCoordinator(optionTrigger: trigger)
+        XCTAssertTrue(press.configurePersistentSessionTriggerKey(key))
         press.onHardwareOptionGateBegin = { filter.beginOptionDeferral(gestureID: $0) }
         press.onHardwareOptionGateShortReplay = { gestureID in
             filter.releaseDeferredOption(gestureID: gestureID, reason: "short-tap-test")
         }
-        press.onPersistentSessionTriggerTap = { gestureID in
+        press.onPersistentSessionTriggerTap = { gestureID, triggerKey in
             filter.emitPersistentShortTap(
                 gestureID: gestureID,
-                reason: "persistent-short-tap-test"
+                reason: "persistent-short-tap-test",
+                triggerKey: triggerKey
             )
         }
         press.onHardwareOptionGateCancel = {

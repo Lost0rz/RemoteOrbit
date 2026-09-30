@@ -137,4 +137,32 @@ final class VoiceTriggerKeyTests: XCTestCase {
             XCTAssertEqual(AppStorage.readVoiceTriggerKey(from: defaults), key)
         }
     }
+
+    func testLegacyVoiceTriggerKeyMigratesToBothSemanticKeys() {
+        defaults.set(VoiceTriggerKey.rightCommand.rawValue, forKey: AppStorage.voiceTriggerKeyKey)
+
+        XCTAssertEqual(AppStorage.readPersistentSessionTriggerKey(from: defaults), .rightCommand)
+        XCTAssertEqual(AppStorage.readMomentaryVoiceTriggerKey(from: defaults), .rightCommand)
+        XCTAssertEqual(
+            defaults.string(forKey: AppStorage.persistentSessionTriggerKeyKey),
+            VoiceTriggerKey.rightCommand.rawValue
+        )
+        XCTAssertEqual(
+            defaults.string(forKey: AppStorage.momentaryVoiceTriggerKeyKey),
+            VoiceTriggerKey.rightCommand.rawValue
+        )
+    }
+
+    func testPersistentAndMomentaryTriggerKeysPersistIndependentlyAndKeepLegacyAlias() {
+        AppStorage.writePersistentSessionTriggerKey(.leftCommand, to: defaults)
+        AppStorage.writeMomentaryVoiceTriggerKey(.rightControl, to: defaults)
+
+        XCTAssertEqual(AppStorage.readPersistentSessionTriggerKey(from: defaults), .leftCommand)
+        XCTAssertEqual(AppStorage.readMomentaryVoiceTriggerKey(from: defaults), .rightControl)
+        XCTAssertEqual(AppStorage.readVoiceTriggerKey(from: defaults), .rightControl)
+        XCTAssertEqual(
+            defaults.string(forKey: AppStorage.voiceTriggerKeyKey),
+            VoiceTriggerKey.rightControl.rawValue
+        )
+    }
 }

@@ -493,9 +493,13 @@ final class VoiceOptionTrigger {
     static let shared = VoiceOptionTrigger(keyedEventSink: systemEventSink)
 
     private let eventSink: KeyedEventSink
-    private(set) var voiceTriggerKey: VoiceTriggerKey = .leftOption
+    private(set) var momentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
+    /// Compatibility alias for callers that historically meant the mapped
+    /// remote-microphone trigger.
+    var voiceTriggerKey: VoiceTriggerKey { momentaryVoiceTriggerKey }
     private(set) var activeSessionID: UUID?
     private(set) var isOptionDown = false
+    private var activeTriggerKey: VoiceTriggerKey?
 
     init(eventSink: @escaping EventSink) {
         self.eventSink = { _, isDown in eventSink(isDown) }
@@ -512,7 +516,7 @@ final class VoiceOptionTrigger {
     @discardableResult
     func configureVoiceTriggerKey(_ key: VoiceTriggerKey) -> Bool {
         guard activeSessionID == nil, !isOptionDown else { return false }
-        voiceTriggerKey = key
+        momentaryVoiceTriggerKey = key
         return true
     }
 
@@ -524,6 +528,7 @@ final class VoiceOptionTrigger {
         if activeSessionID != sessionID {
             activeSessionID = sessionID
             isOptionDown = false
+            activeTriggerKey = nil
         }
         return true
     }
@@ -532,7 +537,8 @@ final class VoiceOptionTrigger {
     func sendDown(sessionID: UUID) -> Bool {
         guard activeSessionID == sessionID, !isOptionDown else { return false }
         isOptionDown = true
-        eventSink(voiceTriggerKey, true)
+        activeTriggerKey = momentaryVoiceTriggerKey
+        eventSink(momentaryVoiceTriggerKey, true)
         return true
     }
 
@@ -540,7 +546,8 @@ final class VoiceOptionTrigger {
     func sendUp(sessionID: UUID) -> Bool {
         guard activeSessionID == sessionID, isOptionDown else { return false }
         isOptionDown = false
-        eventSink(voiceTriggerKey, false)
+        eventSink(activeTriggerKey ?? momentaryVoiceTriggerKey, false)
+        activeTriggerKey = nil
         VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
         activeSessionID = nil
         return true
@@ -552,9 +559,10 @@ final class VoiceOptionTrigger {
         let wasDown = isOptionDown
         isOptionDown = false
         if wasDown {
-            eventSink(voiceTriggerKey, false)
+            eventSink(activeTriggerKey ?? momentaryVoiceTriggerKey, false)
             VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
         }
+        activeTriggerKey = nil
         activeSessionID = nil
         return wasDown
     }
@@ -567,10 +575,30 @@ final class VoiceOptionTrigger {
 
     @discardableResult
     func sendTap(sessionID: UUID, duration: TimeInterval = 0.06) -> Bool {
+        sendTap(sessionID: sessionID, key: momentaryVoiceTriggerKey, duration: duration)
+    }
+
+    @discardableResult
+    func sendTap(
+        sessionID: UUID,
+        key: VoiceTriggerKey,
+        duration: TimeInterval = 0.06
+    ) -> Bool {
         guard activeSessionID == sessionID else { return false }
-        guard sendDown(sessionID: sessionID) else { return false }
+        guard !isOptionDown else { return false }
+        isOptionDown = true
+        activeTriggerKey = key
+        eventSink(key, true)
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
-            _ = self?.sendUp(sessionID: sessionID)
+            guard let self,
+                  self.activeSessionID == sessionID,
+                  self.isOptionDown,
+                  self.activeTriggerKey == key else { return }
+            self.isOptionDown = false
+            self.eventSink(key, false)
+            self.activeTriggerKey = nil
+            VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
+            self.activeSessionID = nil
         }
         return true
     }

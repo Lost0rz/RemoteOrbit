@@ -44,6 +44,27 @@ final class VoiceKeyFilterTests: XCTestCase {
         filter.cancelDeferredOption(gestureID: sessionID, reason: "test-cleanup")
     }
 
+    func testReadOnlyHardwareOwnershipReportsActiveAndSuppressedGates() {
+        let trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in })
+        let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
+        let sessionID = UUID()
+
+        XCTAssertFalse(filter.hasActiveHardwareTriggerOwnership)
+        filter.beginOptionDeferral(gestureID: sessionID)
+        XCTAssertTrue(filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertTrue(filter.captureDeferredHardwareOptionEdge(.down, copiedEvent: nil))
+        XCTAssertTrue(filter.suppressDeferredHardwareTrigger(
+            gestureID: sessionID,
+            reason: "ownership-test"
+        ))
+        XCTAssertTrue(filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertTrue(filter.resetSuppressedHardwareTrigger(
+            gestureID: sessionID,
+            reason: "ownership-test-cleanup"
+        ))
+        XCTAssertFalse(filter.hasActiveHardwareTriggerOwnership)
+    }
+
     func testFilterRejectsConfigurationWhenSyntheticTriggerAlreadyHasAnOwner() {
         let trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in })
         let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)

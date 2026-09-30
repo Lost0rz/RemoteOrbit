@@ -32,7 +32,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         openPersistentSession(press)
 
         XCTAssertTrue(press.persistentSessionActiveForTesting)
-        XCTAssertTrue(press.hasActiveVoiceOwnershipForTriggerReconfiguration)
+        XCTAssertFalse(press.hasActiveVoiceOwnershipForTriggerReconfiguration)
         XCTAssertEqual(events.map(\.0), [.leftOption, .leftOption])
         XCTAssertEqual(events.map(\.1), [true, false])
         XCTAssertEqual(routePreparations, 0)
@@ -56,6 +56,71 @@ final class VoicePersistentSessionTests: XCTestCase {
 
         XCTAssertTrue(press.persistentSessionActiveForTesting)
         XCTAssertEqual(press.currentSessionModeForTesting, .persistentOpen)
+        press.stop()
+    }
+
+    func testPersistentCloseUsesKeyCapturedWhenSessionOpened() {
+        var events: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in
+            events.append((key, down))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        XCTAssertTrue(press.configurePersistentSessionTriggerKey(.rightCommand))
+
+        openPersistentSession(press)
+        XCTAssertEqual(press.persistentSessionTriggerOwnerKeyForTesting, .rightCommand)
+        XCTAssertTrue(press.configurePersistentSessionTriggerKey(.leftControl))
+
+        waitForCoordinatorTiming(0.20)
+        press.keyDown(sessionID: UUID(), togglesPersistentVoiceSession: true)
+        XCTAssertTrue(press.keyUp())
+        waitForCoordinatorTiming(0.08)
+
+        XCTAssertEqual(events.map(\.0), [
+            .rightCommand, .rightCommand, .rightCommand, .rightCommand,
+        ])
+        XCTAssertNil(press.persistentSessionTriggerOwnerKeyForTesting)
+        press.stop()
+    }
+
+    func testPersistentSessionHoldUsesFastClassifierAndPreparesOnlyTransportWhilePending() {
+        var events: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in
+            events.append((key, down))
+        })
+        let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        wireHardwareGate(press, filter: filter)
+        var transportPreparations = 0
+        var routePreparations = 0
+        press.onRemoteTransportPreparation = { transportPreparations += 1 }
+        press.onRemoteRoutePreparation = { routePreparations += 1 }
+        openPersistentSession(press)
+
+        let gestureID = UUID()
+        XCTAssertTrue(press.keyDown(
+            sessionID: gestureID,
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: true,
+            preparesRemoteTransport: true
+        ))
+        captureMappedDown(filter)
+        XCTAssertEqual(press.currentStateForTesting, .pending)
+        XCTAssertEqual(transportPreparations, 1)
+        XCTAssertEqual(routePreparations, 0)
+        XCTAssertFalse(VoicePressCoordinator.isLongPress(heldDuration: 0.20))
+        XCTAssertTrue(VoicePressCoordinator.isPersistentSessionLongPress(heldDuration: 0.18))
+        XCTAssertTrue(VoicePressCoordinator.isLongPress(heldDuration: 0.30))
+        waitForCoordinatorTiming(0.22)
+
+        XCTAssertEqual(press.currentStateForTesting, .holding)
+        XCTAssertEqual(press.remoteSegmentTriggerPolicyForTesting, .audioOnly)
+        XCTAssertEqual(routePreparations, 1)
+        XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
+        XCTAssertEqual(events.map(\.1), [true, false])
+        press.setRemoteAudioAvailable()
+        XCTAssertEqual(events.map(\.1), [true, false])
+        XCTAssertTrue(press.keyUp())
         press.stop()
     }
 
@@ -355,11 +420,11 @@ final class VoicePersistentSessionTests: XCTestCase {
         press.stop()
     }
 
-    func testPersistentSettingsOwnershipBlocksVoiceTriggerReconfiguration() {
+    func testOpenPersistentSettingsSessionDoesNotBlockVoiceTriggerReconfiguration() {
         let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
         openPersistentSession(press)
 
-        XCTAssertTrue(press.hasActiveVoiceOwnershipForTriggerReconfiguration)
+        XCTAssertFalse(press.hasActiveVoiceOwnershipForTriggerReconfiguration)
         press.stop()
     }
 
@@ -394,10 +459,11 @@ final class VoicePersistentSessionTests: XCTestCase {
         press.onHardwareOptionGateShortReplay = { sessionID in
             filter.releaseDeferredOption(gestureID: sessionID, reason: "short-tap")
         }
-        press.onPersistentSessionTriggerTap = { sessionID in
+        press.onPersistentSessionTriggerTap = { sessionID, triggerKey in
             filter.emitPersistentShortTap(
                 gestureID: sessionID,
-                reason: "persistent-session-test"
+                reason: "persistent-session-test",
+                triggerKey: triggerKey
             )
         }
         press.onHardwareOptionGateCancel = {
