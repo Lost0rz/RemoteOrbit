@@ -570,7 +570,6 @@ struct SettingsView: View {
 
             if selectedButton == .microphone {
                 microphoneSingleBehaviorCard
-                microphoneVoiceTriggerCard
                 microphoneBehaviorCard(currentBinding(for: selectedButton))
             } else if hasEditableScope {
                 visualSingleBehaviorCard
@@ -717,6 +716,8 @@ struct SettingsView: View {
     private var microphoneSingleBehaviorCard: some View {
         let binding = currentBinding(for: selectedButton)
         let isEnabled = !binding.isDisabled
+        let isPersistentIME = binding == .voiceKeyDefault
+        let triggerKeyLabel = isPersistentIME ? "持续会话激活键" : "遥控器语音触发键"
         let isGloballyPinned = mappingScope != .global &&
             store.isGloballyPinned(selectedButton, slot: .single)
         return workspaceCard(title: "单击 · 外部语音输入", symbolName: "mic.circle.fill") {
@@ -766,9 +767,35 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .disabled(!isEnabled || isGloballyPinned)
 
+                HStack(spacing: 10) {
+                    Text(triggerKeyLabel)
+                        .font(.caption.weight(.medium))
+                    Spacer(minLength: 0)
+                    Picker(triggerKeyLabel, selection: Binding(
+                        get: { selectedVoiceTriggerKey },
+                        set: { requestVoiceTriggerKeyChange($0) }
+                    )) {
+                        ForEach(VoiceTriggerKey.allCases, id: \.self) { key in
+                            Text(key.displayName).tag(key)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .accessibilityLabel(triggerKeyLabel)
+                    .disabled(isApplyingVoiceTriggerKey)
+                }
+                if let voiceTriggerMessage {
+                    Text(voiceTriggerMessage)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
                 Text(
-                    "输入法模式：短按开启持续会话；会话中每次按住并释放都使用一个遥控器麦克风片段，再次短按结束会话。" +
-                    "Codex 模式调用 Codex 语音对话；按住仍使用遥控器麦克风。"
+                    isPersistentIME
+                        ? "请将输入法的语音输入快捷键设为 \(selectedVoiceTriggerKey.displayName)。短按开启或结束持续会话；会话中按住和释放会录制遥控器麦克风片段。"
+                        : binding.isDisabled
+                            ? "单击已关闭；按下语音键后直接进入遥控器麦克风，并使用 \(selectedVoiceTriggerKey.displayName) 作为触发键。"
+                            : "短按调用 Codex 语音对话；长按进入遥控器麦克风时使用 \(selectedVoiceTriggerKey.displayName) 作为语音触发键。"
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1127,8 +1154,8 @@ struct SettingsView: View {
                 }
 
                 if selectedButton == .microphone {
-                    bindingSummaryCard(currentBinding(for: selectedButton))
-                    microphoneVoiceTriggerCard
+                    microphoneSingleBehaviorCard
+                    microphoneBehaviorCard(currentBinding(for: selectedButton))
                 } else {
                     bindingActionCard(currentBinding(for: selectedButton))
                 }
@@ -1521,33 +1548,6 @@ struct SettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    private func bindingSummaryCard(_ binding: ButtonBinding) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: binding.isDisabled ? "minus.circle" : "checkmark.circle.fill")
-                .font(.title3)
-                .foregroundStyle(binding.isDisabled ? .secondary : Color.accentColor)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("当前生效")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(currentBindingLabel(for: binding))
-                    .font(.body.weight(.semibold))
-                    .lineLimit(2)
-            }
-            Spacer()
-            Text(mappingScope == .global ? "通用" : "程序模板")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color.secondary.opacity(0.10))
-                .clipShape(Capsule())
-        }
-        .padding(14)
-        .background(Color.accentColor.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
     private func microphoneBehaviorCard(_ binding: ButtonBinding) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "mic.circle.fill")
@@ -1558,10 +1558,10 @@ struct SettingsView: View {
                     .font(.subheadline.weight(.semibold))
                 Text(
                     binding.isDisabled
-                        ? "单击已关闭；按下语音键后直接进入遥控器麦克风模式，无需等待长按判定。"
+                        ? "单击已关闭；按下语音键后直接进入遥控器麦克风模式，并使用 \(selectedVoiceTriggerKey.displayName) 作为触发键。"
                         : binding == .preset(.chatGPTStartVoiceChat)
-                            ? "单击调用 Codex 语音对话；按住经过正常短/长按判定后使用遥控器麦克风。"
-                            : "短按切换输入法持续会话；会话开启后可重复按住和释放来录制遥控器麦克风片段，再次短按结束会话。"
+                            ? "单击调用 Codex 语音对话；长按经过正常判定后，遥控器麦克风使用 \(selectedVoiceTriggerKey.displayName) 触发。"
+                            : "短按使用 \(selectedVoiceTriggerKey.displayName) 切换输入法持续会话；会话开启后可重复按住和释放来录制遥控器麦克风片段。"
                 )
             }
             .font(.caption)
@@ -1655,36 +1655,6 @@ struct SettingsView: View {
 
             }
             .padding(28)
-        }
-    }
-
-    private var microphoneVoiceTriggerCard: some View {
-        workspaceCard(title: "语音输入触发键", symbolName: "keyboard") {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("请选择与你当前输入法“语音输入”快捷键一致的按键。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("短按语音和遥控器麦克风语音共用此触发键。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Picker("触发键", selection: Binding(
-                    get: { selectedVoiceTriggerKey },
-                    set: { requestVoiceTriggerKeyChange($0) }
-                )) {
-                    ForEach(VoiceTriggerKey.allCases, id: \.self) { key in
-                        Text(key.displayName).tag(key)
-                    }
-                }
-                .pickerStyle(.menu)
-                .disabled(isApplyingVoiceTriggerKey)
-
-                if let voiceTriggerMessage {
-                    Text(voiceTriggerMessage)
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
         }
     }
 
