@@ -127,22 +127,27 @@ enum VoiceDiagnosticHIDMappingParser {
     }
 }
 
-/// Appends one JSON object per line and synchronizes every write so voice-key
-/// evidence survives an app crash or a normal/forced process termination.
+/// Appends one JSON object per line. Calls to `log` only enqueue immutable event
+/// inputs; the serial writer queue owns formatting, serialization, and disk I/O.
 final class VoiceDiagnosticLogger {
     static let currentLogURL = AppStorage.logsDirectory
         .appendingPathComponent("voice-diagnostic-current.jsonl")
     static let shared = VoiceDiagnosticLogger(fileURL: currentLogURL)
 
     private let fileURL: URL
-    private let lock = NSLock()
+    private let writerQueue = DispatchQueue(
+        label: "com.remoteorbit.voice-diagnostic-writer",
+        qos: .utility
+    )
     private let dateProvider: () -> Date
     private let uptimeProvider: () -> TimeInterval
     private let processIdentifierProvider: () -> Int32
     private let binaryPathProvider: () -> String
+    private let beforeQueuedEventWriteForTesting: (() -> Void)?
     private var fileHandle: FileHandle?
     private var isActive = false
-    private let timestampFormatter: ISO8601DateFormatter
+    private var timestampFormatter: ISO8601DateFormatter?
+    private var sequenceNumber: UInt64 = 0
 
     init(
         fileURL: URL,
@@ -155,43 +160,47 @@ final class VoiceDiagnosticLogger {
         },
         binaryPathProvider: @escaping () -> String = {
             CommandLine.arguments.first ?? "unknown"
-        }
+        },
+        beforeQueuedEventWriteForTesting: (() -> Void)? = nil
     ) {
         self.fileURL = fileURL
         self.dateProvider = dateProvider
         self.uptimeProvider = uptimeProvider
         self.processIdentifierProvider = processIdentifierProvider
         self.binaryPathProvider = binaryPathProvider
-        timestampFormatter = ISO8601DateFormatter()
-        timestampFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        timestampFormatter.timeZone = .current
+        self.beforeQueuedEventWriteForTesting = beforeQueuedEventWriteForTesting
     }
 
     func startRun(fields: [String: Any] = [:]) {
-        lock.lock()
-        defer { lock.unlock() }
-        do {
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            if !FileManager.default.fileExists(atPath: fileURL.path) {
-                FileManager.default.createFile(atPath: fileURL.path, contents: nil)
-            }
-            let handle = try FileHandle(forWritingTo: fileURL)
-            try handle.truncate(atOffset: 0)
-            try handle.seekToEnd()
-            fileHandle?.closeFile()
-            fileHandle = handle
-            isActive = true
+        let timestamp = dateProvider()
+        let uptime = uptimeProvider()
+        var runFields = fields
+        runFields["pid"] = Int(processIdentifierProvider())
+        runFields["binary_path"] = binaryPathProvider()
 
-            var runFields = fields
-            runFields["pid"] = Int(processIdentifierProvider())
-            runFields["binary_path"] = binaryPathProvider()
-            appendLocked(category: "app", event: "RUN_START", fields: runFields)
-        } catch {
-            fileHandle = nil
-            isActive = false
+        writerQueue.sync {
+            do {
+                try FileManager.default.createDirectory(
+                    at: fileURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                if !FileManager.default.fileExists(atPath: fileURL.path) {
+                    FileManager.default.createFile(atPath: fileURL.path, contents: nil)
+                }
+                let handle = try FileHandle(forWritingTo: fileURL)
+                try handle.truncate(atOffset: 0)
+                try handle.seekToEnd()
+                try fileHandle?.close()
+                fileHandle = handle
+                isActive = true
+                sequenceNumber = 0
+                append(category: "app", event: "RUN_START", fields: runFields,
+                       timestamp: timestamp, uptime: uptime)
+            } catch {
+                try? fileHandle?.close()
+                fileHandle = nil
+                isActive = false
+            }
         }
     }
 
@@ -202,18 +211,48 @@ final class VoiceDiagnosticLogger {
         key: VoiceTriggerKey? = nil,
         fields: [String: Any] = [:]
     ) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard isActive, fileHandle != nil else { return }
+        // Capture event occurrence time before queue delay, but leave all
+        // formatting, serialization, and file operations to the writer queue.
+        let timestamp = dateProvider()
+        let uptime = uptimeProvider()
+        let capturedFields = fields
 
-        var eventFields = fields
-        if let gestureID {
-            eventFields["gesture_id"] = gestureID.uuidString
+        writerQueue.async { [weak self] in
+            guard let self else { return }
+            self.beforeQueuedEventWriteForTesting?()
+            guard self.isActive, self.fileHandle != nil else { return }
+            var eventFields = capturedFields
+            if let gestureID {
+                eventFields["gesture_id"] = gestureID.uuidString
+            }
+            if let key {
+                eventFields.merge(Self.keyFields(for: key)) { _, new in new }
+            }
+            self.append(
+                category: category,
+                event: event,
+                fields: eventFields,
+                timestamp: timestamp,
+                uptime: uptime
+            )
         }
-        if let key {
-            eventFields.merge(Self.keyFields(for: key)) { _, new in new }
+    }
+
+    /// Waits for previously enqueued records and makes them durable.
+    func flush() {
+        writerQueue.sync {
+            try? fileHandle?.synchronize()
         }
-        appendLocked(category: category, event: event, fields: eventFields)
+    }
+
+    /// Waits for queued records, makes them durable, and closes the log file.
+    func close() {
+        writerQueue.sync {
+            try? fileHandle?.synchronize()
+            try? fileHandle?.close()
+            fileHandle = nil
+            isActive = false
+        }
     }
 
     static func keyFields(for key: VoiceTriggerKey, prefix: String? = nil) -> [String: Any] {
@@ -229,11 +268,19 @@ final class VoiceDiagnosticLogger {
         ]
     }
 
-    private func appendLocked(category: String, event: String, fields: [String: Any]) {
+    private func append(
+        category: String,
+        event: String,
+        fields: [String: Any],
+        timestamp: Date,
+        uptime: TimeInterval
+    ) {
         guard let fileHandle else { return }
+        sequenceNumber += 1
         var record: [String: Any] = [
-            "ts": timestampFormatter.string(from: dateProvider()),
-            "uptime": uptimeProvider(),
+            "seq": sequenceNumber,
+            "ts": formatter().string(from: timestamp),
+            "uptime": uptime,
             "category": category,
             "event": event,
         ]
@@ -249,5 +296,16 @@ final class VoiceDiagnosticLogger {
         } catch {
             // Diagnostics are best-effort and must never alter input behavior.
         }
+    }
+
+    private func formatter() -> ISO8601DateFormatter {
+        if let timestampFormatter {
+            return timestampFormatter
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = .current
+        timestampFormatter = formatter
+        return formatter
     }
 }

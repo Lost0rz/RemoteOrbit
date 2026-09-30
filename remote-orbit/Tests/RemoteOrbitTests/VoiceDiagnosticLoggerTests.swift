@@ -4,7 +4,7 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceDiagnosticLoggerTests: XCTestCase {
-    func testEventIsImmediatelyReadableAsOneDurableJSONLRecord() throws {
+    func testFlushMakesQueuedEventReadableAsOneDurableJSONLRecord() throws {
         let fileURL = temporaryLogURL()
         defer { try? FileManager.default.removeItem(at: fileURL) }
         let logger = makeLogger(fileURL: fileURL)
@@ -15,6 +15,7 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
             event: "physical_down",
             gestureID: UUID()
         )
+        logger.flush()
 
         let contents = try String(contentsOf: fileURL, encoding: .utf8)
         let lines = contents.split(whereSeparator: \.isNewline)
@@ -25,6 +26,67 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
         XCTAssertEqual(event["uptime"] as? Double, 42.5)
         XCTAssertNotNil(event["ts"] as? String)
         XCTAssertNotNil(event["gesture_id"] as? String)
+        XCTAssertEqual((event["seq"] as? NSNumber)?.uint64Value, 2)
+    }
+
+    func testLogReturnsWhileWriterQueueIsBlocked() throws {
+        let fileURL = temporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let writerEntered = DispatchSemaphore(value: 0)
+        let releaseWriter = DispatchSemaphore(value: 0)
+        let callerReturned = DispatchSemaphore(value: 0)
+        let logger = VoiceDiagnosticLogger(
+            fileURL: fileURL,
+            dateProvider: { Date(timeIntervalSince1970: 1_790_774_201.123) },
+            uptimeProvider: { 42.5 },
+            processIdentifierProvider: { 123 },
+            beforeQueuedEventWriteForTesting: {
+                writerEntered.signal()
+                releaseWriter.wait()
+            }
+        )
+        defer {
+            releaseWriter.signal()
+            logger.close()
+        }
+        logger.startRun()
+
+        DispatchQueue.global().async {
+            logger.log(category: "voice", event: "writer_blocked_probe")
+            callerReturned.signal()
+        }
+
+        XCTAssertEqual(writerEntered.wait(timeout: .now() + 3), .success)
+        // The writer remains held by releaseWriter until after this assertion.
+        XCTAssertEqual(callerReturned.wait(timeout: .now() + 3), .success)
+
+        releaseWriter.signal()
+        logger.flush()
+        XCTAssertTrue(try records(at: fileURL).contains {
+            $0["event"] as? String == "writer_blocked_probe"
+        })
+    }
+
+    func testQueuedRecordsHaveIncreasingSequenceAndPreserveOrder() throws {
+        let fileURL = temporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let logger = makeLogger(fileURL: fileURL)
+        logger.startRun()
+
+        logger.log(category: "test", event: "A")
+        logger.log(category: "test", event: "B")
+        logger.log(category: "test", event: "C")
+        logger.flush()
+
+        let records = try records(at: fileURL)
+        let sequences = try records.map { record -> UInt64 in
+            try XCTUnwrap((record["seq"] as? NSNumber)?.uint64Value)
+        }
+        XCTAssertEqual(sequences, [1, 2, 3, 4])
+        XCTAssertEqual(
+            records.compactMap { $0["event"] as? String },
+            ["RUN_START", "A", "B", "C"]
+        )
     }
 
     func testKeyIdentityIncludesRawDisplayCGAndHIDValues() throws {
@@ -35,6 +97,7 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
 
         logger.log(category: "voice", event: "key_identity", key: .rightOption)
         logger.log(category: "voice", event: "key_identity", key: .leftOption)
+        logger.flush()
 
         let events = try records(at: fileURL).filter {
             $0["event"] as? String == "key_identity"
@@ -115,6 +178,7 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
         XCTAssertTrue(press.configurePersistentSessionTriggerKey(.leftOption))
         shortPersistentToggle(press)
 
+        logger.flush()
         let changes = try records(at: fileURL).filter {
             $0["event"] as? String == "PERSISTENT_STATE_CHANGE"
         }
@@ -145,6 +209,7 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
             action: "unmatched_pass"
         )
 
+        logger.flush()
         let events = try records(at: fileURL)
         let mismatch = try XCTUnwrap(events.first {
             $0["event"] as? String == "MAPPED_TRIGGER_MISMATCH"

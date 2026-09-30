@@ -4298,6 +4298,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         voiceHIDMappingQueue.sync {
             _ = applyVoiceHIDMapping(false, currentMomentaryVoiceTriggerKey)
         }
+        diagnosticLogger.close()
     }
 
     @objc private func openKeyMapping() {
