@@ -515,6 +515,7 @@ final class VoiceOptionTrigger {
     private(set) var isOptionDown = false
     private var activeTriggerKey: VoiceTriggerKey?
     private var activePurpose: String?
+    private var pendingTapCompletion: ((Bool) -> Void)?
 
     init(
         eventSink: @escaping EventSink,
@@ -566,21 +567,9 @@ final class VoiceOptionTrigger {
 
     @discardableResult
     func sendDown(sessionID: UUID, purpose: String = "momentary_hold") -> Bool {
-        sendDown(
-            sessionID: sessionID,
-            key: momentaryVoiceTriggerKey,
-            purpose: purpose
-        )
-    }
-
-    @discardableResult
-    func sendDown(
-        sessionID: UUID,
-        key: VoiceTriggerKey,
-        purpose: String = "momentary_hold"
-    ) -> Bool {
         guard activeSessionID == sessionID, !isOptionDown else { return false }
         isOptionDown = true
+        let key = momentaryVoiceTriggerKey
         activeTriggerKey = key
         activePurpose = purpose
         eventSink(key, true)
@@ -610,6 +599,7 @@ final class VoiceOptionTrigger {
         activePurpose = nil
         VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
         activeSessionID = nil
+        resolvePendingTapCompletion(false)
         return true
     }
 
@@ -640,6 +630,7 @@ final class VoiceOptionTrigger {
         activeTriggerKey = nil
         activePurpose = nil
         activeSessionID = nil
+        resolvePendingTapCompletion(false)
         return wasDown
     }
 
@@ -650,12 +641,17 @@ final class VoiceOptionTrigger {
     }
 
     @discardableResult
-    func sendTap(sessionID: UUID, duration: TimeInterval = 0.06) -> Bool {
+    func sendTap(
+        sessionID: UUID,
+        duration: TimeInterval = 0.06,
+        completion: ((Bool) -> Void)? = nil
+    ) -> Bool {
         sendTap(
             sessionID: sessionID,
             key: momentaryVoiceTriggerKey,
             duration: duration,
-            purpose: "momentary_tap"
+            purpose: "momentary_tap",
+            completion: completion
         )
     }
 
@@ -664,13 +660,15 @@ final class VoiceOptionTrigger {
         sessionID: UUID,
         key: VoiceTriggerKey,
         duration: TimeInterval = 0.06,
-        purpose: String = "momentary_tap"
+        purpose: String = "momentary_tap",
+        completion: ((Bool) -> Void)? = nil
     ) -> Bool {
         guard activeSessionID == sessionID else { return false }
         guard !isOptionDown else { return false }
         isOptionDown = true
         activeTriggerKey = key
         activePurpose = purpose
+        pendingTapCompletion = completion
         eventSink(key, true)
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
             guard let self,
@@ -689,6 +687,7 @@ final class VoiceOptionTrigger {
             self.activePurpose = nil
             VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: sessionID)
             self.activeSessionID = nil
+            self.resolvePendingTapCompletion(true)
         }
         logSyntheticEdge(
             "SYNTHETIC_TRIGGER_DOWN",
@@ -697,6 +696,12 @@ final class VoiceOptionTrigger {
             key: key
         )
         return true
+    }
+
+    private func resolvePendingTapCompletion(_ completed: Bool) {
+        let completion = pendingTapCompletion
+        pendingTapCompletion = nil
+        completion?(completed)
     }
 
     private func logSyntheticEdge(

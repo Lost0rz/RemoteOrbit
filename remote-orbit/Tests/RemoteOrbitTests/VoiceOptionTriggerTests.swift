@@ -163,28 +163,6 @@ final class VoiceOptionTriggerTests: XCTestCase {
         XCTAssertEqual(events.map(\.isDown), expectedEdges)
     }
 
-    func testKeyedHoldReleasesTheCapturedPersistentKey() {
-        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
-        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
-            events.append((key, isDown))
-        })
-        let sessionID = UUID()
-
-        XCTAssertTrue(trigger.configureVoiceTriggerKey(.leftOption))
-        XCTAssertTrue(trigger.begin(sessionID: sessionID))
-        XCTAssertTrue(trigger.sendDown(
-            sessionID: sessionID,
-            key: .rightOption,
-            purpose: "persistent_segment"
-        ))
-        XCTAssertFalse(trigger.configureVoiceTriggerKey(.rightCommand))
-        XCTAssertTrue(trigger.sendUp(sessionID: sessionID))
-
-        XCTAssertEqual(events.map(\.key), [.rightOption, .rightOption])
-        XCTAssertEqual(events.map(\.isDown), [true, false])
-        XCTAssertNil(trigger.activeSessionID)
-    }
-
     func testConfigurationIsRejectedWhileTriggerIsDown() {
         var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
         let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
@@ -254,5 +232,84 @@ final class VoiceOptionTriggerTests: XCTestCase {
         XCTAssertEqual(trigger.momentaryVoiceTriggerKey, .rightControl)
         XCTAssertEqual(events.map(\.key), [.leftCommand, .leftCommand])
         XCTAssertEqual(events.map(\.isDown), [true, false])
+    }
+
+    func testTapCompletionRunsAfterUpAndOwnerClear() {
+        var events: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in
+            events.append((key, down))
+        })
+        let sessionID = UUID()
+        var completionValues: [Bool] = []
+        var ownerWasClearAtCompletion = false
+
+        XCTAssertTrue(trigger.begin(sessionID: sessionID))
+        XCTAssertTrue(trigger.sendTap(
+            sessionID: sessionID,
+            key: .rightOption,
+            duration: 0.01,
+            purpose: "completion_test"
+        ) { success in
+            completionValues.append(success)
+            ownerWasClearAtCompletion = trigger.activeSessionID == nil
+                && !trigger.isOptionDown
+        })
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(events.map(\.1), [true, false])
+        XCTAssertEqual(completionValues, [true])
+        XCTAssertTrue(ownerWasClearAtCompletion)
+    }
+
+    func testAbortResolvesPendingTapCompletionFalseExactlyOnce() {
+        var events: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in
+            events.append((key, down))
+        })
+        let sessionID = UUID()
+        var completionValues: [Bool] = []
+
+        XCTAssertTrue(trigger.begin(sessionID: sessionID))
+        XCTAssertTrue(trigger.sendTap(
+            sessionID: sessionID,
+            key: .leftControl,
+            duration: 0.20,
+            purpose: "abort_test"
+        ) { completionValues.append($0) })
+        XCTAssertTrue(trigger.abort(sessionID: sessionID))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+
+        XCTAssertEqual(events.map(\.1), [true, false], "abort must balance DOWN")
+        XCTAssertEqual(completionValues, [false])
+        XCTAssertNil(trigger.activeSessionID)
+        XCTAssertFalse(trigger.isOptionDown)
+    }
+
+    func testSupersedingPendingTapBalancesDownAndResolvesFalseOnce() {
+        var events: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in
+            events.append((key, down))
+        })
+        let tapOwner = UUID()
+        let nextOwner = UUID()
+        var completionValues: [Bool] = []
+
+        XCTAssertTrue(trigger.begin(sessionID: tapOwner))
+        XCTAssertTrue(trigger.sendTap(
+            sessionID: tapOwner,
+            key: .rightOption,
+            duration: 0.20,
+            purpose: "superseded_tap"
+        ) { completionValues.append($0) })
+        XCTAssertTrue(trigger.begin(sessionID: nextOwner))
+        XCTAssertTrue(trigger.sendDown(sessionID: nextOwner))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+
+        XCTAssertEqual(events.map(\.0), [.rightOption, .rightOption, .leftOption])
+        XCTAssertEqual(events.map(\.1), [true, false, true])
+        XCTAssertEqual(completionValues, [false])
+        XCTAssertEqual(trigger.activeSessionID, nextOwner)
+        XCTAssertTrue(trigger.isOptionDown)
+        XCTAssertTrue(trigger.sendUp(sessionID: nextOwner))
     }
 }

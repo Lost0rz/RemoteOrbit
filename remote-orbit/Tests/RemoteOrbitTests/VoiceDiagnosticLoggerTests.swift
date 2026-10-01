@@ -188,7 +188,7 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
         )
     }
 
-    func testPersistentModeDiagnosticsDescribeInternalArmAndDisarmWithoutTriggerTap() throws {
+    func testPersistentModeDiagnosticsRecordExternalOpenAndFrozenOwnerCloseTaps() throws {
         let fileURL = temporaryLogURL()
         defer { try? FileManager.default.removeItem(at: fileURL) }
         let logger = makeLogger(fileURL: fileURL)
@@ -210,25 +210,28 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
 
         logger.flush()
         let events = try records(at: fileURL)
-        let armed = try XCTUnwrap(events.first {
-            $0["event"] as? String == "PERSISTENT_MODE_ARMED"
+        let openRequest = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SESSION_OPEN_REQUEST"
         })
-        let disarmed = try XCTUnwrap(events.first {
-            $0["event"] as? String == "PERSISTENT_MODE_DISARMED"
+        let opened = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SESSION_OPENED"
         })
-        XCTAssertEqual(armed["mode"] as? String, "persistent_armed")
-        XCTAssertEqual(disarmed["mode"] as? String, "idle")
-        XCTAssertEqual(armed["external_trigger_edges"] as? Int, 0)
-        XCTAssertEqual(disarmed["external_trigger_edges"] as? Int, 0)
-        XCTAssertTrue(emitted.isEmpty)
-        XCTAssertFalse(events.contains {
-            ["PERSISTENT_SEGMENT_TRIGGER_DOWN"].contains(
-                $0["event"] as? String ?? ""
-            )
+        let closeRequest = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SESSION_CLOSE_REQUEST"
         })
+        let closed = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SESSION_CLOSED"
+        })
+        XCTAssertEqual(openRequest["purpose"] as? String, "persistent_open")
+        XCTAssertEqual(opened["owner_key"] as? String, VoiceTriggerKey.rightOption.rawValue)
+        XCTAssertEqual(closeRequest["purpose"] as? String, "persistent_close")
+        XCTAssertEqual(closeRequest["key"] as? String, VoiceTriggerKey.rightOption.rawValue)
+        XCTAssertEqual(closed["owner_key"] as? String, VoiceTriggerKey.rightOption.rawValue)
+        XCTAssertEqual(emitted.map(\.0), Array(repeating: .rightOption, count: 4))
+        XCTAssertEqual(emitted.map(\.1), [true, false, true, false])
     }
 
-    func testPersistentSegmentDiagnosticsBracketOneCapturedTriggerTransaction() throws {
+    func testPersistentSegmentDiagnosticsBracketAudioOnlySegmentRotation() throws {
         let fileURL = temporaryLogURL()
         defer { try? FileManager.default.removeItem(at: fileURL) }
         let logger = makeLogger(fileURL: fileURL)
@@ -255,6 +258,7 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
         press.setRemoteAudioAvailable()
         XCTAssertTrue(press.keyUp())
         press.finishLongInput(sessionID: gestureID)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.20))
         logger.flush()
 
         let events = try records(at: fileURL).filter {
@@ -264,26 +268,53 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
         let firstPCM = try XCTUnwrap(events.first {
             $0["event"] as? String == "PERSISTENT_SEGMENT_FIRST_PCM"
         })
-        let down = try XCTUnwrap(events.first {
-            $0["event"] as? String == "PERSISTENT_SEGMENT_TRIGGER_DOWN"
-        })
         let begin = try XCTUnwrap(events.first {
             $0["event"] as? String == "PERSISTENT_SEGMENT_BEGIN"
+        })
+        let drained = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SEGMENT_DRAINED"
+        })
+        let closeBegin = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SESSION_ROTATE_CLOSE_BEGIN"
+        })
+        let closeComplete = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SESSION_ROTATE_CLOSE_COMPLETE"
+        })
+        let reopenBegin = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SESSION_ROTATE_REOPEN_BEGIN"
+        })
+        let reopenComplete = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SESSION_ROTATE_REOPEN_COMPLETE"
         })
         let complete = try XCTUnwrap(events.first {
             $0["event"] as? String == "PERSISTENT_SEGMENT_COMPLETE"
         })
-        XCTAssertLessThan(try XCTUnwrap(eventNames.firstIndex(of: "PERSISTENT_SEGMENT_FIRST_PCM")),
-                          try XCTUnwrap(eventNames.firstIndex(of: "PERSISTENT_SEGMENT_TRIGGER_DOWN")))
+        let expectedOrder = [
+            "PERSISTENT_SEGMENT_FIRST_PCM",
+            "PERSISTENT_SEGMENT_BEGIN",
+            "PERSISTENT_SEGMENT_DRAINED",
+            "PERSISTENT_SESSION_ROTATE_CLOSE_BEGIN",
+            "PERSISTENT_SESSION_ROTATE_CLOSE_COMPLETE",
+            "PERSISTENT_SESSION_ROTATE_REOPEN_BEGIN",
+            "PERSISTENT_SESSION_ROTATE_REOPEN_COMPLETE",
+            "PERSISTENT_SEGMENT_COMPLETE",
+        ]
+        let positions = try expectedOrder.map { name in
+            try XCTUnwrap(eventNames.firstIndex(of: name), "missing event \(name)")
+        }
+        XCTAssertEqual(positions, positions.sorted())
         XCTAssertEqual(firstPCM["key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
-        XCTAssertEqual(down["transaction_id"] as? String, gestureID.uuidString)
-        XCTAssertEqual(begin["trigger_down_emitted"] as? Bool, true)
-        XCTAssertEqual(begin["transaction_closed"] as? Bool, false)
-        XCTAssertEqual(complete["trigger_up_emitted"] as? Bool, true)
-        XCTAssertEqual(complete["transaction_closed"] as? Bool, true)
-        XCTAssertEqual(complete["transaction_id"] as? String, gestureID.uuidString)
-        XCTAssertEqual(emitted.map(\.0), [.rightCommand, .rightCommand])
-        XCTAssertEqual(emitted.map(\.1), [true, false])
+        XCTAssertEqual(begin["trigger_edge_emitted"] as? Bool, false)
+        XCTAssertEqual(drained["owner_key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
+        XCTAssertEqual(closeBegin["owner_key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
+        XCTAssertEqual(closeComplete["owner_key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
+        XCTAssertEqual(reopenBegin["owner_key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
+        XCTAssertEqual(reopenComplete["owner_key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
+        XCTAssertEqual(complete["owner_key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
+        XCTAssertEqual(complete["transaction_rotated"] as? Bool, true)
+        XCTAssertEqual(complete["session_remains_open"] as? Bool, true)
+        XCTAssertEqual(emitted.map(\.0), Array(repeating: .rightCommand, count: 6))
+        XCTAssertEqual(emitted.map(\.1), [true, false, true, false, true, false])
         press.stop()
     }
 

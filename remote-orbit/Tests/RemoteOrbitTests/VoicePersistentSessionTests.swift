@@ -20,7 +20,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         )
     }
 
-    func testPersistentModeArmAndDisarmAreInternalOnly() {
+    func testPersistentOpenAndCloseEachUseOneExternalTap() {
         var events: [(VoiceTriggerKey, Bool)] = []
         let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in
             events.append((key, down))
@@ -31,9 +31,10 @@ final class VoicePersistentSessionTests: XCTestCase {
 
         openPersistentSession(press)
 
-        XCTAssertTrue(press.persistentModeArmedForTesting)
+        XCTAssertTrue(press.persistentModeOpenForTesting)
         XCTAssertFalse(press.hasActiveVoiceOwnershipForTriggerReconfiguration)
-        XCTAssertTrue(events.isEmpty, "arming Persistent must not open an external ASR session")
+        XCTAssertEqual(events.map(\.0), [.leftOption, .leftOption])
+        XCTAssertEqual(events.map(\.1), [true, false])
         XCTAssertEqual(routePreparations, 0)
         XCTAssertFalse(
             VoicePressCoordinator.isPersistentSessionLongPress(heldDuration: 0.185),
@@ -45,9 +46,10 @@ final class VoicePersistentSessionTests: XCTestCase {
         XCTAssertTrue(press.keyUp())
         waitForCoordinatorTiming(0.08)
 
-        XCTAssertFalse(press.persistentModeArmedForTesting)
+        XCTAssertFalse(press.persistentModeOpenForTesting)
         XCTAssertEqual(press.currentSessionModeForTesting, .idle)
-        XCTAssertTrue(events.isEmpty, "disarming must not send a final cumulative-transcript trigger")
+        XCTAssertEqual(events.map(\.0), Array(repeating: .leftOption, count: 4))
+        XCTAssertEqual(events.map(\.1), [true, false, true, false])
         XCTAssertEqual(routePreparations, 0)
         press.stop()
     }
@@ -58,12 +60,12 @@ final class VoicePersistentSessionTests: XCTestCase {
 
         waitForCoordinatorTiming(0.35)
 
-        XCTAssertTrue(press.persistentModeArmedForTesting)
-        XCTAssertEqual(press.currentSessionModeForTesting, .persistentArmed)
+        XCTAssertTrue(press.persistentModeOpenForTesting)
+        XCTAssertEqual(press.currentSessionModeForTesting, .persistentOpen)
         press.stop()
     }
 
-    func testPersistentSegmentCapturesConfiguredKeyAtSegmentStart() {
+    func testPersistentSessionOwnerKeyRemainsFrozenAcrossSegmentRotation() {
         var events: [(VoiceTriggerKey, Bool)] = []
         let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in
             events.append((key, down))
@@ -72,20 +74,24 @@ final class VoicePersistentSessionTests: XCTestCase {
         XCTAssertTrue(press.configurePersistentSessionTriggerKey(.rightCommand))
 
         openPersistentSession(press)
+        XCTAssertEqual(press.persistentSessionTriggerOwnerKeyForTesting, .rightCommand)
         XCTAssertTrue(press.configurePersistentSessionTriggerKey(.leftControl))
+        XCTAssertEqual(press.persistentSessionTriggerOwnerKeyForTesting, .rightCommand)
 
         let gestureID = UUID()
         XCTAssertTrue(press.keyDown(sessionID: gestureID, togglesPersistentVoiceSession: true))
         waitForCoordinatorTiming(0.35)
         XCTAssertFalse(press.configurePersistentSessionTriggerKey(.rightOption))
         press.setRemoteAudioAvailable()
-        XCTAssertEqual(events.map(\.0), [.leftControl])
-        XCTAssertEqual(events.map(\.1), [true])
+        XCTAssertEqual(events.map(\.0), Array(repeating: .rightCommand, count: 2))
+        XCTAssertEqual(events.map(\.1), [true, false])
         XCTAssertTrue(press.keyUp())
         press.finishLongInput(sessionID: gestureID)
+        waitForCoordinatorTiming(0.20)
 
-        XCTAssertEqual(events.map(\.0), [.leftControl, .leftControl])
-        XCTAssertEqual(events.map(\.1), [true, false])
+        XCTAssertEqual(events.map(\.0), Array(repeating: .rightCommand, count: 6))
+        XCTAssertEqual(events.map(\.1), [true, false, true, false, true, false])
+        XCTAssertEqual(press.persistentSessionTriggerOwnerKeyForTesting, .rightCommand)
         XCTAssertTrue(press.configurePersistentSessionTriggerKey(.rightOption))
         press.stop()
     }
@@ -115,7 +121,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         XCTAssertEqual(press.currentStateForTesting, .pending)
         XCTAssertEqual(transportPreparations, 1)
         XCTAssertEqual(routePreparations, 0)
-        XCTAssertTrue(events.isEmpty, "arming a Persistent hold must not emit an open tap")
+        XCTAssertEqual(events.map(\.1), [true, false], "open TAP completes before hold admission")
         XCTAssertFalse(press.hasRemoteAudio)
         XCTAssertFalse(VoicePressCoordinator.isLongPress(heldDuration: 0.299))
         XCTAssertTrue(VoicePressCoordinator.isLongPress(heldDuration: 0.300))
@@ -126,7 +132,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         XCTAssertEqual(press.currentStateForTesting, .pending)
         XCTAssertEqual(routePreparations, 0)
         XCTAssertNil(filter.suppressedHardwareTriggerSessionID)
-        XCTAssertTrue(events.isEmpty)
+        XCTAssertEqual(events.map(\.1), [true, false])
         XCTAssertTrue(press.keyUp())
         press.stop()
     }
@@ -151,15 +157,15 @@ final class VoicePersistentSessionTests: XCTestCase {
         waitForCoordinatorTiming(0.35)
 
         XCTAssertEqual(press.currentStateForTesting, .holding)
-        XCTAssertEqual(press.remoteSegmentTriggerPolicyForTesting, .persistentSegmentTrigger)
+        XCTAssertEqual(press.remoteSegmentTriggerPolicyForTesting, .audioOnlyPersistentSegment)
         XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
-        XCTAssertTrue(events.isEmpty, "no trigger before first PCM")
+        XCTAssertEqual(events.map(\.1), [true, false], "segment audio must not add trigger edges")
 
         press.setRemoteAudioAvailable()
 
         XCTAssertTrue(press.hasRemoteAudio)
-        XCTAssertTrue(press.persistentModeArmedForTesting)
-        XCTAssertEqual(events.map(\.1), [true])
+        XCTAssertTrue(press.persistentModeOpenForTesting)
+        XCTAssertEqual(events.map(\.1), [true, false])
 
         XCTAssertTrue(press.keyUp())
         XCTAssertTrue(press.hasPendingTailForTesting)
@@ -167,9 +173,9 @@ final class VoicePersistentSessionTests: XCTestCase {
         waitForCoordinatorTiming(0.85)
 
         XCTAssertFalse(press.hasRemoteAudio)
-        XCTAssertTrue(press.persistentModeArmedForTesting)
+        XCTAssertTrue(press.persistentModeOpenForTesting)
         XCTAssertNil(filter.suppressedHardwareTriggerSessionID)
-        XCTAssertEqual(events.map(\.1), [true, false])
+        XCTAssertEqual(events.map(\.1), [true, false, true, false, true, false])
         press.stop()
     }
 
@@ -196,7 +202,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         press.setRemoteStreaming(false)
 
         XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
-        XCTAssertTrue(press.persistentModeArmedForTesting)
+        XCTAssertTrue(press.persistentModeOpenForTesting)
         XCTAssertFalse(
             press.keyDown(
                 sessionID: UUID(),
@@ -208,8 +214,8 @@ final class VoicePersistentSessionTests: XCTestCase {
 
         waitForCoordinatorTiming(0.85)
         XCTAssertNil(filter.suppressedHardwareTriggerSessionID)
-        XCTAssertTrue(press.persistentModeArmedForTesting)
-        XCTAssertTrue(events.isEmpty, "a no-PCM segment must not emit trigger edges")
+        XCTAssertTrue(press.persistentModeOpenForTesting)
+        XCTAssertEqual(events.map(\.1), [true, false], "no-PCM hold must not rotate")
         press.stop()
     }
 
@@ -237,8 +243,8 @@ final class VoicePersistentSessionTests: XCTestCase {
             eventFlags: []
         ), "second mapped release representation must also be swallowed")
         XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
-        XCTAssertTrue(press.persistentModeArmedForTesting)
-        XCTAssertTrue(events.isEmpty, "no-PCM cleanup must not emit trigger edges")
+        XCTAssertTrue(press.persistentModeOpenForTesting)
+        XCTAssertEqual(events.map(\.1), [true, false], "no-PCM cleanup must not rotate")
         XCTAssertNil(trigger.activeSessionID)
         XCTAssertFalse(trigger.isOptionDown)
         press.stop()
@@ -257,70 +263,14 @@ final class VoicePersistentSessionTests: XCTestCase {
         waitForCoordinatorTiming(0.35)
         XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
         press.stop()
-        XCTAssertFalse(press.persistentModeArmedForTesting)
+        XCTAssertFalse(press.persistentModeOpenForTesting)
         XCTAssertNil(filter.suppressedHardwareTriggerSessionID)
         XCTAssertNil(trigger.activeSessionID)
         XCTAssertFalse(trigger.isOptionDown)
-        XCTAssertTrue(events.isEmpty, "stop before first PCM must not emit trigger edges")
+        XCTAssertEqual(events.map(\.1), [true, false], "stop adds no segment trigger edges")
     }
 
-    func testPersistentArmedModeUsesIndependentTriggerTransactionForEverySegment() {
-        var events: [(VoiceTriggerKey, Bool)] = []
-        let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in
-            events.append((key, down))
-        })
-        let press = VoicePressCoordinator(optionTrigger: trigger)
-        press.onRemoteOutputDrain = { _, completion in completion() }
-        XCTAssertTrue(press.configurePersistentSessionTriggerKey(.rightCommand))
-        openPersistentSession(press)
-        XCTAssertTrue(events.isEmpty)
-
-        var expectedEdges: [Bool] = []
-        var previousGestureID: UUID?
-        for _ in 0..<2 {
-            waitForCoordinatorTiming(0.20)
-            let gestureID = UUID()
-            XCTAssertNotEqual(gestureID, previousGestureID)
-            previousGestureID = gestureID
-            press.keyDown(
-                sessionID: gestureID,
-                togglesPersistentVoiceSession: true
-            )
-            waitForCoordinatorTiming(0.35)
-            XCTAssertEqual(press.currentStateForTesting, .holding)
-            XCTAssertEqual(
-                events.map(\.1),
-                expectedEdges,
-                "each transaction must wait for first PCM before DOWN; events=\(events.map { "\($0.0.rawValue):\($0.1)" })"
-            )
-            press.setRemoteAudioAvailable()
-            XCTAssertTrue(press.hasRemoteAudio)
-            XCTAssertEqual(events.map(\.0).last, .rightCommand)
-            XCTAssertEqual(events.map(\.1).last, true)
-            expectedEdges.append(true)
-            XCTAssertTrue(press.keyUp())
-            press.finishLongInput(sessionID: gestureID)
-            XCTAssertEqual(Array(events.map(\.0).suffix(2)), [.rightCommand, .rightCommand])
-            XCTAssertEqual(Array(events.map(\.1).suffix(2)), [true, false])
-            expectedEdges.append(false)
-            XCTAssertTrue(press.persistentModeArmedForTesting)
-            XCTAssertNil(trigger.activeSessionID, "segment owner must close before the next gesture")
-            XCTAssertFalse(trigger.isOptionDown)
-        }
-
-        XCTAssertEqual(events.map(\.0), Array(repeating: .rightCommand, count: 4))
-        XCTAssertEqual(events.map(\.1), expectedEdges)
-        waitForCoordinatorTiming(0.20)
-        press.keyDown(sessionID: UUID(), togglesPersistentVoiceSession: true)
-        XCTAssertTrue(press.keyUp())
-        waitForCoordinatorTiming(0.08)
-
-        XCTAssertFalse(press.persistentModeArmedForTesting)
-        XCTAssertEqual(events.map(\.1), expectedEdges, "final disarm must add no external trigger")
-        press.stop()
-    }
-
-    func testPersistentSegmentUsesCapturedPersistentKeyAndSuppressesMappedMomentaryKey() {
+    func testAudioOnlyPersistentSegmentSuppressesMappedMomentaryKeyAndRotatesOwner() {
         var events: [(VoiceTriggerKey, Bool)] = []
         let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in
             events.append((key, down))
@@ -341,17 +291,19 @@ final class VoicePersistentSessionTests: XCTestCase {
         captureMappedDown(filter)
         waitForCoordinatorTiming(0.35)
         XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
-        XCTAssertTrue(events.isEmpty, "physical Momentary trigger must not leak or synthesize early")
+        XCTAssertEqual(events.map(\.0), [.rightOption, .rightOption])
+        XCTAssertEqual(events.map(\.1), [true, false], "physical Momentary trigger must not leak")
 
         press.setRemoteAudioAvailable()
-        XCTAssertEqual(events.map(\.0), [.rightOption])
-        XCTAssertEqual(events.map(\.1), [true])
+        XCTAssertEqual(events.map(\.0), [.rightOption, .rightOption])
+        XCTAssertEqual(events.map(\.1), [true, false])
         XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
 
         XCTAssertTrue(press.keyUp())
         press.finishLongInput(sessionID: gestureID)
-        XCTAssertEqual(events.map(\.0), [.rightOption, .rightOption])
-        XCTAssertEqual(events.map(\.1), [true, false])
+        waitForCoordinatorTiming(0.20)
+        XCTAssertEqual(events.map(\.0), Array(repeating: .rightOption, count: 6))
+        XCTAssertEqual(events.map(\.1), [true, false, true, false, true, false])
         press.stop()
         filter.stop()
     }
@@ -372,7 +324,8 @@ final class VoicePersistentSessionTests: XCTestCase {
         press.setRemoteAudioAvailable()
         XCTAssertTrue(press.keyUp())
         press.finishLongInput(sessionID: gestureID)
-        XCTAssertTrue(press.persistentModeArmedForTesting)
+        waitForCoordinatorTiming(0.20)
+        XCTAssertTrue(press.persistentModeOpenForTesting)
         XCTAssertTrue(press.configurePersistentSessionTriggerKey(.rightOption))
         XCTAssertTrue(trigger.configureVoiceTriggerKey(.rightOption))
         press.stop()
@@ -386,19 +339,19 @@ final class VoicePersistentSessionTests: XCTestCase {
         let press = VoicePressCoordinator(optionTrigger: trigger)
         XCTAssertTrue(press.configurePersistentSessionTriggerKey(.rightCommand))
         openPersistentSession(press)
-        XCTAssertTrue(events.isEmpty, "stopping an armed idle mode must be silent")
+        XCTAssertEqual(events.map(\.1), [true, false], "opening session used one TAP")
 
         let gestureID = UUID()
         XCTAssertTrue(press.keyDown(sessionID: gestureID, togglesPersistentVoiceSession: true))
         waitForCoordinatorTiming(0.35)
         press.setRemoteAudioAvailable()
-        XCTAssertEqual(events.map(\.0), [.rightCommand])
-        XCTAssertEqual(events.map(\.1), [true])
+        XCTAssertEqual(events.map(\.0), [.rightCommand, .rightCommand])
+        XCTAssertEqual(events.map(\.1), [true, false])
 
         press.stop()
 
         XCTAssertEqual(events.map(\.0), [.rightCommand, .rightCommand])
-        XCTAssertEqual(events.map(\.1), [true, false])
+        XCTAssertEqual(events.map(\.1), [true, false], "stop adds no segment edges")
         XCTAssertNil(trigger.activeSessionID)
         XCTAssertFalse(trigger.isOptionDown)
         XCTAssertEqual(press.currentSessionModeForTesting, .idle)
@@ -425,7 +378,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         press.invokeTailCompletionForTesting(sessionID: gestureID)
 
         XCTAssertEqual(events.map(\.1), [true, false])
-        XCTAssertFalse(press.persistentModeArmedForTesting)
+        XCTAssertFalse(press.persistentModeOpenForTesting)
         press.stop()
     }
 
@@ -439,8 +392,8 @@ final class VoicePersistentSessionTests: XCTestCase {
 
         press.stop()
 
-        XCTAssertFalse(press.persistentModeArmedForTesting)
-        XCTAssertTrue(events.isEmpty, "stopping an armed idle mode must not tap the trigger")
+        XCTAssertFalse(press.persistentModeOpenForTesting)
+        XCTAssertEqual(events.map(\.1), [true, false], "stop does not add another TAP")
     }
 
     func testTransportLossDrainsPersistentSegmentAndKeepsSessionOpen() {
@@ -470,20 +423,20 @@ final class VoicePersistentSessionTests: XCTestCase {
 
         press.handleTransportLoss()
 
-        XCTAssertTrue(press.persistentModeArmedForTesting)
+        XCTAssertTrue(press.persistentModeOpenForTesting)
         XCTAssertFalse(press.hasPendingTailForTesting)
         XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
-        XCTAssertEqual(events.map(\.1), [true], "UP must wait for the output drain")
+        XCTAssertEqual(events.map(\.1), [true, false], "audio-only session emits no hold edge")
 
         XCTAssertNotNil(completeOutputDrain)
         completeOutputDrain?()
 
-        XCTAssertTrue(press.persistentModeArmedForTesting)
+        XCTAssertTrue(press.persistentModeOpenForTesting)
         XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
         XCTAssertTrue(press.keyUp())
         waitForCoordinatorTiming(0.85)
         XCTAssertNil(filter.suppressedHardwareTriggerSessionID)
-        XCTAssertEqual(events.map(\.1), [true, false])
+        XCTAssertEqual(events.map(\.1), [true, false, true, false, true, false])
         press.stop()
     }
 
@@ -513,14 +466,15 @@ final class VoicePersistentSessionTests: XCTestCase {
 
         press.handleTransportLoss(deviceRemoved: true)
 
-        XCTAssertTrue(press.persistentModeArmedForTesting)
+        XCTAssertTrue(press.persistentModeOpenForTesting)
         XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
-        XCTAssertEqual(events.map(\.1), [true], "UP must wait for the output drain")
+        XCTAssertEqual(events.map(\.1), [true, false], "audio-only session emits no hold edge")
         completeOutputDrain?()
+        waitForCoordinatorTiming(0.20)
 
-        XCTAssertTrue(press.persistentModeArmedForTesting)
+        XCTAssertTrue(press.persistentModeOpenForTesting)
         XCTAssertNil(filter.suppressedHardwareTriggerSessionID)
-        XCTAssertEqual(events.map(\.1), [true, false])
+        XCTAssertEqual(events.map(\.1), [true, false, true, false, true, false])
         press.stop()
     }
 
@@ -540,7 +494,7 @@ final class VoicePersistentSessionTests: XCTestCase {
             )
         )
         XCTAssertTrue(press.keyUp())
-        waitForCoordinatorTiming(0.08)
+        waitForCoordinatorTiming(0.10)
     }
 
     private func wireHardwareGate(_ press: VoicePressCoordinator, filter: VoiceKeyFilter) {

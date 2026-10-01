@@ -194,8 +194,8 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             )
         )
         XCTAssertTrue(harness.controller.voicePress.keyUp())
-        XCTAssertTrue(harness.controller.voicePress.persistentModeArmedForTesting)
-        waitForCoordinatorTiming(0.08)
+        waitForCoordinatorTiming(0.10)
+        XCTAssertTrue(harness.controller.voicePress.persistentModeOpenForTesting)
 
         XCTAssertEqual(apply(.rightCommand, to: harness.controller), .applied)
 
@@ -220,12 +220,12 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             togglesPersistentVoiceSession: true
         )
         XCTAssertTrue(harness.controller.voicePress.keyUp())
-        XCTAssertTrue(harness.controller.voicePress.persistentModeArmedForTesting)
-        waitForCoordinatorTiming(0.08)
+        waitForCoordinatorTiming(0.10)
+        XCTAssertTrue(harness.controller.voicePress.persistentModeOpenForTesting)
 
         XCTAssertEqual(applyPersistent(.leftControl, to: harness.controller), .applied)
         XCTAssertEqual(harness.controller.currentPersistentSessionTriggerKey, .leftControl)
-        XCTAssertNil(harness.controller.voicePress.persistentSegmentTriggerKeyForTesting)
+        XCTAssertEqual(harness.controller.voicePress.persistentSessionTriggerOwnerKeyForTesting, .rightCommand)
         XCTAssertEqual(harness.controller.currentMomentaryVoiceTriggerKey, .leftOption)
         XCTAssertEqual(harness.momentaryPersistenceWriteCount, 0)
         XCTAssertEqual(harness.persistentPersistenceWriteCount, 1)
@@ -239,6 +239,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             togglesPersistentVoiceSession: true
         )
         XCTAssertTrue(harness.controller.voicePress.keyUp())
+        waitForCoordinatorTiming(0.10)
         harness.controller.voicePress.keyDown(
             sessionID: UUID(),
             togglesPersistentVoiceSession: true,
@@ -305,7 +306,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         ))
         XCTAssertTrue(press.keyUp())
         waitForCoordinatorTiming(0.08)
-        XCTAssertTrue(press.persistentModeArmedForTesting)
+        XCTAssertTrue(press.persistentModeOpenForTesting)
 
         let oldOwner = UUID()
         filter.beginOptionDeferral(gestureID: oldOwner)
