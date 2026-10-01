@@ -279,6 +279,198 @@ final class PersistentSessionRotationTests: XCTestCase {
         XCTAssertFalse(harness.trigger.isOptionDown)
     }
 
+    func testRapidShortReleaseBeforeRotationCompletesRetainsDisarmIntent() {
+        let harness = makeHarness(ownerKey: .rightCommand)
+        openSessionWithoutMappedOwner(harness)
+        let purposes = installTapRecorder(harness, segmentTapDuration: 0.18)
+        beginAudioSegment(harness)
+        waitForCoordinatorTiming(0.19)
+
+        let rapidGestureID = UUID()
+        XCTAssertTrue(harness.press.keyDown(
+            sessionID: rapidGestureID,
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: true
+        ))
+        XCTAssertTrue(harness.filter.isOptionDeferralActive(for: rapidGestureID))
+        XCTAssertTrue(sendMappedPair(harness.filter, gestureID: rapidGestureID).isEmpty)
+        XCTAssertTrue(harness.press.keyUp(), "physical UP before rotation completion must retain SHORT intent")
+        XCTAssertEqual(
+            purposes.values,
+            ["persistent_segment_close", "persistent_segment_reopen"],
+            "final DISARM must wait for rotation"
+        )
+
+        waitForCoordinatorTiming(0.65)
+
+        XCTAssertEqual(purposes.values, [
+            "persistent_segment_close",
+            "persistent_segment_reopen",
+            "persistent_close",
+        ])
+        XCTAssertEqual(harness.press.currentSessionModeForTesting, .idle)
+        XCTAssertNil(harness.press.persistentSessionTriggerOwnerKeyForTesting)
+        XCTAssertNil(harness.trigger.activeSessionID)
+        XCTAssertFalse(harness.trigger.isOptionDown)
+        XCTAssertEqual(harness.recorder.events.map(\.0), Array(repeating: .rightCommand, count: 8))
+        XCTAssertEqual(harness.recorder.events.map(\.1), [true, false, true, false, true, false, true, false])
+    }
+
+    func testRapidMappedMomentaryPairDuringRotationNeverLeaks() {
+        let harness = makeHarness(ownerKey: .rightOption)
+        XCTAssertTrue(harness.trigger.configureVoiceTriggerKey(.leftOption))
+        XCTAssertTrue(harness.filter.configureVoiceTriggerKey(.leftOption))
+        openSessionWithoutMappedOwner(harness)
+        let purposes = installTapRecorder(harness, segmentTapDuration: 0.16)
+        beginAudioSegment(harness)
+        waitForCoordinatorTiming(0.19)
+
+        let rapidGestureID = UUID()
+        XCTAssertTrue(harness.press.keyDown(
+            sessionID: rapidGestureID,
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: true
+        ))
+        let visibleKeys = sendMappedPair(harness.filter, gestureID: rapidGestureID)
+        XCTAssertTrue(visibleKeys.isEmpty, "mapped Left Option must be swallowed during rotation")
+        XCTAssertTrue(harness.press.keyUp())
+        waitForCoordinatorTiming(0.60)
+
+        XCTAssertEqual(purposes.values, [
+            "persistent_segment_close",
+            "persistent_segment_reopen",
+            "persistent_close",
+        ])
+        XCTAssertEqual(harness.recorder.events.map(\.0), Array(repeating: .rightOption, count: 8))
+        XCTAssertFalse(harness.recorder.events.contains { $0.0 == .leftOption })
+        XCTAssertEqual(harness.press.currentSessionModeForTesting, .idle)
+    }
+
+    func testRapidDownDoesNotAbortReopenTapOwner() {
+        let harness = makeHarness(ownerKey: .rightCommand)
+        openSessionWithoutMappedOwner(harness)
+        let purposes = installTapRecorder(harness, segmentTapDuration: 0.20)
+        beginAudioSegment(harness)
+        waitForCoordinatorTiming(0.22)
+        XCTAssertEqual(purposes.values, ["persistent_segment_close", "persistent_segment_reopen"])
+        let reopenOwner = harness.trigger.activeSessionID
+        XCTAssertNotNil(reopenOwner)
+        XCTAssertTrue(harness.trigger.isOptionDown)
+
+        let rapidGestureID = UUID()
+        XCTAssertTrue(harness.press.keyDown(
+            sessionID: rapidGestureID,
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: true
+        ))
+        XCTAssertEqual(harness.trigger.activeSessionID, reopenOwner)
+        XCTAssertTrue(harness.trigger.isOptionDown)
+        XCTAssertTrue(harness.filter.isOptionDeferralActive(for: rapidGestureID))
+        XCTAssertTrue(sendMappedPair(harness.filter, gestureID: rapidGestureID).isEmpty)
+        XCTAssertTrue(harness.press.keyUp())
+
+        waitForCoordinatorTiming(0.55)
+        XCTAssertEqual(purposes.values, [
+            "persistent_segment_close",
+            "persistent_segment_reopen",
+            "persistent_close",
+        ])
+        XCTAssertEqual(harness.recorder.events.map(\.1), Array(repeating: [true, false], count: 4).flatMap { $0 })
+        XCTAssertEqual(harness.press.currentSessionModeForTesting, .idle)
+    }
+
+    func testRapidLongReleaseDuringRotationIsDroppedWithoutDisarm() {
+        let harness = makeHarness(ownerKey: .leftControl)
+        openSessionWithoutMappedOwner(harness)
+        let purposes = installTapRecorder(harness, segmentTapDuration: 0.50)
+        beginAudioSegment(harness)
+        waitForCoordinatorTiming(0.19)
+
+        let heldGestureID = UUID()
+        XCTAssertTrue(harness.press.keyDown(
+            sessionID: heldGestureID,
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: true
+        ))
+        XCTAssertTrue(harness.filter.isOptionDeferralActive(for: heldGestureID))
+        XCTAssertTrue(sendMappedPair(harness.filter, gestureID: heldGestureID).isEmpty)
+        waitForCoordinatorTiming(0.32)
+        XCTAssertTrue(harness.press.keyUp())
+        waitForCoordinatorTiming(0.60)
+
+        XCTAssertEqual(purposes.values, ["persistent_segment_close", "persistent_segment_reopen"])
+        XCTAssertEqual(harness.press.currentSessionModeForTesting, .persistentOpen)
+        XCTAssertEqual(harness.press.persistentSessionTriggerOwnerKeyForTesting, .leftControl)
+        XCTAssertFalse(harness.recorder.events.contains { $0.0 == .leftOption })
+        harness.press.stop()
+    }
+
+    func testExistingSuppressionOwnerIsPreservedAndRapidDisarmClosesExactlyOnce() {
+        let harness = makeHarness(ownerKey: .rightOption)
+        XCTAssertTrue(harness.trigger.configureVoiceTriggerKey(.leftOption))
+        XCTAssertTrue(harness.filter.configureVoiceTriggerKey(.leftOption))
+        openSessionWithoutMappedOwner(harness)
+        let purposes = installTapRecorder(harness, segmentTapDuration: 0.10)
+        let segmentID = beginAudioSegment(harness, usesHardwareOption: true)
+        XCTAssertEqual(harness.filter.suppressedHardwareTriggerSessionID, segmentID)
+        waitForCoordinatorTiming(0.19)
+
+        let rapidGestureID = UUID()
+        XCTAssertTrue(harness.press.keyDown(
+            sessionID: rapidGestureID,
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: true
+        ))
+        XCTAssertEqual(harness.filter.suppressedHardwareTriggerSessionID, segmentID)
+        XCTAssertTrue(sendMappedPair(harness.filter, gestureID: rapidGestureID).isEmpty)
+        XCTAssertTrue(harness.press.keyUp())
+
+        waitForCoordinatorTiming(0.35)
+        XCTAssertEqual(purposes.values, ["persistent_segment_close", "persistent_segment_reopen"])
+        XCTAssertEqual(harness.press.currentSessionModeForTesting, .persistentOpen)
+        XCTAssertTrue(harness.filter.completeSuppressedHardwareTriggerQuietPeriod(gestureID: segmentID))
+        harness.press.suppressedHardwareGateDidClose(ownerID: segmentID)
+        waitForCoordinatorTiming(0.15)
+
+        XCTAssertEqual(purposes.values, [
+            "persistent_segment_close",
+            "persistent_segment_reopen",
+            "persistent_close",
+        ])
+        XCTAssertEqual(harness.recorder.events.map(\.0), Array(repeating: .rightOption, count: 8))
+        XCTAssertFalse(harness.recorder.events.contains { $0.0 == .leftOption })
+        XCTAssertEqual(harness.press.currentSessionModeForTesting, .idle)
+        XCTAssertNil(harness.press.persistentSessionTriggerOwnerKeyForTesting)
+    }
+
+    func testStopCancelsReleasedDeferredDisarmAndMappedGate() {
+        let harness = makeHarness(ownerKey: .rightCommand)
+        openSessionWithoutMappedOwner(harness)
+        let purposes = installTapRecorder(harness, segmentTapDuration: 0.24)
+        beginAudioSegment(harness)
+        waitForCoordinatorTiming(0.19)
+
+        let rapidGestureID = UUID()
+        XCTAssertTrue(harness.press.keyDown(
+            sessionID: rapidGestureID,
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: true
+        ))
+        XCTAssertTrue(harness.filter.isOptionDeferralActive(for: rapidGestureID))
+        XCTAssertTrue(sendMappedPair(harness.filter, gestureID: rapidGestureID).isEmpty)
+        XCTAssertTrue(harness.press.keyUp())
+        harness.press.stop()
+        waitForCoordinatorTiming(0.60)
+
+        XCTAssertEqual(harness.press.currentSessionModeForTesting, .idle)
+        XCTAssertNil(harness.press.persistentSessionTriggerOwnerKeyForTesting)
+        XCTAssertNil(harness.trigger.activeSessionID)
+        XCTAssertFalse(harness.trigger.isOptionDown)
+        XCTAssertFalse(harness.filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertEqual(purposes.values, ["persistent_segment_close"])
+        XCTAssertEqual(harness.recorder.events.map(\.1), [true, false, true, false])
+    }
+
     func testShortDisarmAddsOnlyOneCloseTap() {
         let harness = makeHarness(ownerKey: .leftCommand)
         togglePersistentSession(harness)
@@ -298,6 +490,10 @@ final class PersistentSessionRotationTests: XCTestCase {
         let press: VoicePressCoordinator
     }
 
+    private final class TapPurposeRecorder {
+        var values: [String] = []
+    }
+
     private func makeHarness(ownerKey: VoiceTriggerKey) -> Harness {
         let recorder = EventRecorder()
         let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in
@@ -314,6 +510,19 @@ final class PersistentSessionRotationTests: XCTestCase {
             filter.suppressDeferredPersistentModeToggle(gestureID: gestureID)
         }
         press.onHardwareOptionGateBegin = { filter.beginOptionDeferral(gestureID: $0) }
+        press.onDeferredMappedTriggerGateBegin = {
+            filter.beginDeferredMappedTriggerGateOnly(gestureID: $0)
+        }
+        press.onDeferredMappedTriggerGateDiscard = {
+            filter.discardDeferredMappedTriggerGateOnly(gestureID: $0)
+        }
+        press.onDeferredMappedTriggerGateCancel = { gestureID, waitingOn, reason in
+            filter.cancelDeferredMappedTriggerGateOnly(
+                gestureID: gestureID,
+                waitingOn: waitingOn,
+                reason: reason
+            )
+        }
         press.onHardwareOptionGateSuppressForPersistentSegment = { gestureID in
             filter.suppressDeferredHardwareTrigger(gestureID: gestureID, reason: "persistent-audio-only")
         }
@@ -349,16 +558,94 @@ final class PersistentSessionRotationTests: XCTestCase {
         waitForCoordinatorTiming(0.25)
     }
 
-    private func beginAudioSegment(_ harness: Harness) {
+    @discardableResult
+    private func beginAudioSegment(
+        _ harness: Harness,
+        usesHardwareOption: Bool = false
+    ) -> UUID {
         let segmentID = UUID()
         XCTAssertTrue(harness.press.keyDown(
             sessionID: segmentID,
-            togglesPersistentVoiceSession: true
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: usesHardwareOption
         ))
+        if usesHardwareOption {
+            XCTAssertTrue(harness.filter.captureDeferredHardwareOptionEdge(
+                .down,
+                copiedEvent: mappedEvent(.leftOption, isDown: true)
+            ))
+        }
         waitForCoordinatorTiming(0.35)
         harness.press.setRemoteAudioAvailable()
+        if usesHardwareOption {
+            XCTAssertTrue(harness.filter.shouldSuppressDiscardedHardwareTriggerEvent(
+                keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
+                type: .keyUp
+            ))
+        }
         XCTAssertTrue(harness.press.keyUp())
         harness.press.invokeTailCompletionForTesting(sessionID: segmentID)
+        return segmentID
+    }
+
+    private func openSessionWithoutMappedOwner(_ harness: Harness) {
+        togglePersistentSession(harness)
+        if let owner = harness.filter.suppressedHardwareTriggerSessionID {
+            _ = harness.filter.resetSuppressedHardwareTrigger(
+                gestureID: owner,
+                reason: "test-open-session-settled"
+            )
+        }
+    }
+
+    private func installTapRecorder(
+        _ harness: Harness,
+        segmentTapDuration: TimeInterval
+    ) -> TapPurposeRecorder {
+        let purposes = TapPurposeRecorder()
+        harness.press.persistentTapDispatchForTesting = { sessionID, key, purpose, completion in
+            purposes.values.append(purpose)
+            return harness.trigger.sendTap(
+                sessionID: sessionID,
+                key: key,
+                duration: purpose == "persistent_segment_close"
+                    || purpose == "persistent_segment_reopen"
+                    ? segmentTapDuration
+                    : 0.01,
+                purpose: purpose,
+                completion: completion
+            )
+        }
+        return purposes
+    }
+
+    private func sendMappedPair(
+        _ filter: VoiceKeyFilter,
+        gestureID: UUID
+    ) -> [VoiceTriggerKey] {
+        var visible: [VoiceTriggerKey] = []
+        for isDown in [true, false] {
+            let type: CGEventType = isDown ? .keyDown : .keyUp
+            if filter.shouldSuppressDiscardedHardwareTriggerEvent(
+                keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
+                type: type
+            ) {
+                continue
+            }
+            if filter.isOptionDeferralActive(for: gestureID),
+               filter.captureDeferredHardwareOptionEdge(
+                   isDown ? .down : .up,
+                   copiedEvent: mappedEvent(.leftOption, isDown: isDown)
+               ) {
+                continue
+            }
+            visible.append(.leftOption)
+        }
+        return visible
+    }
+
+    private func mappedEvent(_ key: VoiceTriggerKey, isDown: Bool) -> CGEvent? {
+        CGEvent(keyboardEventSource: nil, virtualKey: key.cgKeyCode, keyDown: isDown)
     }
 
     private func waitForCoordinatorTiming(_ interval: TimeInterval) {
