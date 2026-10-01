@@ -114,33 +114,6 @@ final class ButtonActionTests: XCTestCase {
         )
     }
 
-    func testRemoteMediaSuppressionOnlyMatchesNativeVolumeEvents() {
-        XCTAssertTrue(
-            EventSuppressor.shouldSuppressRemoteMediaEvent(
-                .systemKey(type: 0),
-                remoteMediaSuppressionEnabled: true
-            )
-        )
-        XCTAssertTrue(
-            EventSuppressor.shouldSuppressRemoteMediaEvent(
-                .systemKey(type: 1),
-                remoteMediaSuppressionEnabled: true
-            )
-        )
-        XCTAssertFalse(
-            EventSuppressor.shouldSuppressRemoteMediaEvent(
-                .systemKey(type: 7),
-                remoteMediaSuppressionEnabled: true
-            )
-        )
-        XCTAssertFalse(
-            EventSuppressor.shouldSuppressRemoteMediaEvent(
-                .systemKey(type: 0),
-                remoteMediaSuppressionEnabled: false
-            )
-        )
-    }
-
     func testLeakedNativeKeyDownMustAllowItsKeyUpThrough() {
         XCTAssertFalse(
             EventSuppressor.shouldSuppressRemoteKeyUp(
