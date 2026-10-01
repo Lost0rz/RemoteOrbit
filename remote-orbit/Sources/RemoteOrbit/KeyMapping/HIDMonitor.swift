@@ -264,7 +264,6 @@ final class HIDMonitor {
         activeDevice = device
         activeDeviceIsSeized = false
         eventSuppressor.setRemotePowerSuppressionEnabled(true)
-        eventSuppressor.setRemoteMediaSuppressionEnabled(true)
         updateStatus("遥控器已连接（兼容模式）")
         print("[HID] connected: monitored")
         onDeviceChange?(true)
@@ -276,7 +275,6 @@ final class HIDMonitor {
         self.activeDevice = nil
         activeDeviceIsSeized = false
         eventSuppressor.setRemotePowerSuppressionEnabled(false)
-        eventSuppressor.setRemoteMediaSuppressionEnabled(false)
         pendingReconnectUsages.formUnion(activeUsages)
         activeUsages.removeAll()
         repeatTimers.values.forEach { $0.cancel() }

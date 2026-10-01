@@ -52,7 +52,6 @@ final class EventSuppressor {
     /// filtered, leaving macOS in a stuck autorepeat state.
     private var suppressedNativeKeyDowns: Set<RemoteNativeEvent> = []
     private var remotePowerSuppressionEnabled = false
-    private var remoteMediaSuppressionEnabled = false
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
@@ -102,7 +101,6 @@ final class EventSuppressor {
         recentlyReleasedNativeEvents.removeAll()
         suppressedNativeKeyDowns.removeAll()
         remotePowerSuppressionEnabled = false
-        remoteMediaSuppressionEnabled = false
         lock.unlock()
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
@@ -122,19 +120,6 @@ final class EventSuppressor {
     func setRemotePowerSuppressionEnabled(_ enabled: Bool) {
         lock.lock()
         remotePowerSuppressionEnabled = enabled
-        lock.unlock()
-    }
-
-    /// In monitor mode the supported remote's volume HID reports can also be
-    /// translated by macOS into native system-defined media events. Those
-    /// events have no source-device identity, so allowing them through would
-    /// cause a duplicate volume change or a volume HUD while a semantic
-    /// mapping (such as FloatTabs tab switching) is being delivered. The
-    /// matching RemoteOrbit action is posted separately and synthetic events
-    /// are exempted by the marker check in `handle`.
-    func setRemoteMediaSuppressionEnabled(_ enabled: Bool) {
-        lock.lock()
-        remoteMediaSuppressionEnabled = enabled
         lock.unlock()
     }
 
@@ -195,7 +180,7 @@ final class EventSuppressor {
         lock.unlock()
     }
 
-    fileprivate func handle(type: CGEventType, event: CGEvent) -> Bool {
+    func handle(type: CGEventType, event: CGEvent) -> Bool {
         // 自动恢复被系统禁用的 tap
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let eventTap {
@@ -211,7 +196,6 @@ final class EventSuppressor {
 
         lock.lock()
         let powerSuppressionEnabled = remotePowerSuppressionEnabled
-        let mediaSuppressionEnabled = remoteMediaSuppressionEnabled
         lock.unlock()
         if Self.shouldSuppressRemotePowerEvent(
             descriptor.event,
@@ -219,13 +203,6 @@ final class EventSuppressor {
         ) {
             return true
         }
-        if Self.shouldSuppressRemoteMediaEvent(
-            descriptor.event,
-            remoteMediaSuppressionEnabled: mediaSuppressionEnabled
-        ) {
-            return true
-        }
-
         let now = ProcessInfo.processInfo.systemUptime
         lock.lock()
         removeExpiredEvents(now: now)
@@ -293,19 +270,6 @@ final class EventSuppressor {
         nativeKeyDownWasSuppressed: Bool
     ) -> Bool {
         hasPendingRelease && nativeKeyDownWasSuppressed
-    }
-
-    static func shouldSuppressRemoteMediaEvent(
-        _ event: RemoteNativeEvent,
-        remoteMediaSuppressionEnabled: Bool
-    ) -> Bool {
-        guard remoteMediaSuppressionEnabled else { return false }
-        switch event {
-        case .systemKey(type: 0), .systemKey(type: 1):
-            return true
-        default:
-            return false
-        }
     }
 
     private func descriptor(
