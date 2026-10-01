@@ -82,7 +82,7 @@ final class HIDMonitor {
     var onButtonEdgeAt: ((RemoteButton, Bool, TimeInterval) -> Void)?
 
     /// 被输入层防抖丢弃的边沿，仅用于诊断。
-    var onButtonEdgeSuppressed: ((RemoteButton, Bool) -> Void)?
+    var onButtonEdgeSuppressed: ((RemoteButton, Bool, TimeInterval, UInt64) -> Void)?
 
     /// 可重复按钮的后续重复回调。与真实按下边沿分开，便于上层根据映射
     /// 决定是保留一次点击，还是在按住时持续触发。
@@ -122,8 +122,14 @@ final class HIDMonitor {
     private var repeatTimers: [UInt16: DispatchSourceTimer] = [:]
     private var debouncedUsages = Set<UInt16>()
     private var edgeDebouncer = ButtonEdgeDebouncer()
+    private var hidReportSequence: UInt64 = 0
+    private let diagnosticLogger: VoiceDiagnosticLogger?
     private(set) var status = "按键映射未启用"
     private(set) var isRunning = false
+
+    init(diagnosticLogger: VoiceDiagnosticLogger? = .shared) {
+        self.diagnosticLogger = diagnosticLogger
+    }
 
     // MARK: - 权限
 
@@ -243,6 +249,10 @@ final class HIDMonitor {
             || pendingReconnectUsages.contains(button.hidUsage)
     }
 
+    var hasPendingReconnectMicrophone: Bool {
+        pendingReconnectUsages.contains(RemoteButton.microphone.hidUsage)
+    }
+
     // MARK: - 设备匹配/断开
 
     fileprivate func deviceDidMatch(result: IOReturn, device: IOHIDDevice) {
@@ -295,7 +305,26 @@ final class HIDMonitor {
 
     fileprivate func handleReport(reportID: UInt32, data: Data) {
         guard manager != nil else { return }
+        hidReportSequence &+= 1
+        let reportSequence = hidReportSequence
         guard let usages = Self.parseUsages(reportID: reportID, data: data) else { return }
+
+        if let fields = Self.microphoneTransitionDiagnosticFields(
+            reportID: reportID,
+            data: data,
+            parsedUsages: usages,
+            activeUsages: activeUsages,
+            pendingReconnectUsages: pendingReconnectUsages,
+            deviceActive: activeDevice != nil,
+            sequence: reportSequence,
+            uptime: ProcessInfo.processInfo.systemUptime
+        ) {
+            diagnosticLogger?.log(
+                category: "hid",
+                event: "RAW_HID_MIC_STATE",
+                fields: fields
+            )
+        }
 
         let pressed = usages.subtracting(activeUsages)
         let released = activeUsages.subtracting(usages)
@@ -338,11 +367,17 @@ final class HIDMonitor {
                 at: now,
                 debouncing: shouldDebounce
             ) else {
-                onButtonEdgeSuppressed?(button, isDown)
+                onButtonEdgeSuppressed?(button, isDown, now, reportSequence)
                 continue
             }
 
-            emitButtonEdge(button: button, isDown: isDown, at: now)
+            emitButtonEdge(
+                button: button,
+                isDown: isDown,
+                at: now,
+                rawReportSequence: reportSequence,
+                debouncing: shouldDebounce
+            )
             startRepeatIfNeeded(
                 usage: usage,
                 button: button,
@@ -365,12 +400,18 @@ final class HIDMonitor {
                 at: now,
                 debouncing: shouldDebounce
             ) else {
-                onButtonEdgeSuppressed?(button, isDown)
+                onButtonEdgeSuppressed?(button, isDown, now, reportSequence)
                 repeatTimers.removeValue(forKey: usage)?.cancel()
                 continue
             }
 
-            emitButtonEdge(button: button, isDown: isDown, at: now)
+            emitButtonEdge(
+                button: button,
+                isDown: isDown,
+                at: now,
+                rawReportSequence: reportSequence,
+                debouncing: shouldDebounce
+            )
             repeatTimers.removeValue(forKey: usage)?.cancel()
             print("[HID] button up: \(button.displayName)")
         }
@@ -396,13 +437,62 @@ final class HIDMonitor {
         return result
     }
 
+    /// Builds a transition-only record from the same parsed usage set used by
+    /// the input state machine. Keeping this pure seam makes the diagnostic
+    /// payload testable without changing report handling or edge decisions.
+    static func microphoneTransitionDiagnosticFields(
+        reportID: UInt32,
+        data: Data,
+        parsedUsages: Set<UInt16>,
+        activeUsages: Set<UInt16>,
+        pendingReconnectUsages: Set<UInt16>,
+        deviceActive: Bool,
+        sequence: UInt64,
+        uptime: TimeInterval
+    ) -> [String: Any]? {
+        let microphoneUsage = RemoteButton.microphone.hidUsage
+        let previousMicDown = activeUsages.contains(microphoneUsage)
+            || pendingReconnectUsages.contains(microphoneUsage)
+        let currentMicDown = parsedUsages.contains(microphoneUsage)
+        guard previousMicDown != currentMicDown else { return nil }
+
+        return [
+            "report_id": Int(reportID),
+            "report_length": data.count,
+            "raw_hex": data.map { String(format: "%02x", $0) }.joined(),
+            "parsed_usages": parsedUsages.sorted().map(Int.init),
+            "previous_mic_down": previousMicDown,
+            "current_mic_down": currentMicDown,
+            "computed_edge": currentMicDown ? "down" : "up",
+            "uptime": uptime,
+            "pending_reconnect_contains_mic": pendingReconnectUsages.contains(microphoneUsage),
+            "device_active": deviceActive,
+            "hid_report_sequence": sequence,
+        ]
+    }
+
     // MARK: - 按键重复
 
     private func emitButtonEdge(
         button: RemoteButton,
         isDown: Bool,
-        at timestamp: TimeInterval
+        at timestamp: TimeInterval,
+        rawReportSequence: UInt64,
+        debouncing: Bool
     ) {
+        if button == .microphone {
+            diagnosticLogger?.log(
+                category: "hid",
+                event: "HID_MIC_EDGE_EMITTED",
+                fields: [
+                    "edge": isDown ? "down" : "up",
+                    "event_uptime": timestamp,
+                    "raw_report_sequence": rawReportSequence,
+                    "source": "hid_monitor",
+                    "debouncing": debouncing,
+                ]
+            )
+        }
         if let callback = onButtonEdgeAt {
             callback(button, isDown, timestamp)
         } else {

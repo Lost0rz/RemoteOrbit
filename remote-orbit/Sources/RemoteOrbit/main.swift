@@ -509,6 +509,10 @@ final class VoicePressCoordinator {
         mode
     }
 
+    var currentGestureIDForDiagnostics: UUID? {
+        gestureID
+    }
+
     var persistentModeOpenForTesting: Bool {
         voiceSessionMode == .persistentOpen
     }
@@ -3618,6 +3622,11 @@ enum VoiceTriggerApplyResult: Equatable {
     case locked
 }
 
+enum VoicePressInputSource: String {
+    case hidMonitor = "hid_monitor"
+    case voiceKeyFilterFallback = "voice_key_filter_fallback"
+}
+
 final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var statusLabel: NSMenuItem!
@@ -4101,8 +4110,22 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func beginVoicePress(
         targetApplicationBundleIdentifier lockedTarget: String? = nil,
-        shortBinding: ButtonBinding? = nil
+        shortBinding: ButtonBinding? = nil,
+        source: VoicePressInputSource = .voiceKeyFilterFallback
     ) {
+        let gestureID = UUID()
+        diagnosticLogger.log(
+            category: "voice",
+            event: "VOICE_PRESS_ENTRY",
+            gestureID: gestureID,
+            fields: [
+                "source": source.rawValue,
+                "hid_connected": hidConnected,
+                "filter_skip_voice_key": filter.skipVoiceKey,
+                "momentary_key": currentMomentaryVoiceTriggerKey.rawValue,
+                "persistent_key": currentPersistentSessionTriggerKey.rawValue,
+            ]
+        )
         guard !voiceTriggerReconfigurationInProgress,
               !voiceTriggerRuntimeLocked else {
             print("[VOICE] press rejected during trigger reconfiguration or runtime lock")
@@ -4119,7 +4142,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // never gate the physical Option edge or remote audio. AX/WebKit can
         // be slow or unavailable even while the receiver is already working.
         let needsFocusPreparation = needsFloatTabsFocus || needsCodexFocus
-        let gestureID = UUID()
         // Gate every gesture while the real HID mapping is active. Otherwise
         // a disabled short slot could still leak the mapped trigger before
         // the 300 ms classifier resolves the press.
@@ -4245,6 +4267,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 reason: reason
             )
         }
+    }
+
+    func recordVoiceReleaseEntry(source: VoicePressInputSource) {
+        diagnosticLogger.log(
+            category: "voice",
+            event: "VOICE_RELEASE_ENTRY",
+            gestureID: voicePress.currentGestureIDForDiagnostics,
+            fields: ["source": source.rawValue]
+        )
     }
 
     private func handleVoiceShortTap(
@@ -4560,10 +4591,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // ATVV audio connection.
         filter.onVoiceKeyDown = { [weak self] in
-            self?.beginVoicePress()
+            self?.beginVoicePress(source: .voiceKeyFilterFallback)
         }
         filter.onVoiceKeyUp = { [weak self] in
             guard let self else { return }
+            self.recordVoiceReleaseEntry(source: .voiceKeyFilterFallback)
             if self.voicePress.keyUp() {
                 self.ble.stopVoiceInput()
             }
@@ -4604,6 +4636,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.filter.skipVoiceKey = active
             self.hidConnected = active
+            self.diagnosticLogger.log(
+                category: "hid",
+                event: "HID_MONITOR_DEVICE_STATE",
+                fields: [
+                    "active": active,
+                    "filter_skip_voice_key": self.filter.skipVoiceKey,
+                    "held_microphone": self.hidMonitor.isButtonDown(.microphone),
+                    "pending_reconnect_microphone": self.hidMonitor.hasPendingReconnectMicrophone,
+                ]
+            )
             if self.voiceTriggerReconfigurationInProgress {
                 self.pendingVoiceHIDMappingRefresh = true
             } else {
@@ -4665,9 +4707,22 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 print("[HID] monitor inactive → VoiceKeyFilter 处理语音键")
             }
         }
-        hidMonitor.onButtonEdgeSuppressed = { [weak self] button, isDown in
+        hidMonitor.onButtonEdgeSuppressed = { [weak self] button, isDown, timestamp, reportSequence in
             if isDown {
                 self?.mappingStore.cancelPress(for: button)
+            }
+            if button == .microphone {
+                self?.diagnosticLogger.log(
+                    category: "hid",
+                    event: "HID_MIC_EDGE_SUPPRESSED",
+                    fields: [
+                        "edge": isDown ? "down" : "up",
+                        "event_uptime": timestamp,
+                        "reason": "debounce",
+                        "raw_report_sequence": reportSequence,
+                        "source": "hid_monitor",
+                    ]
+                )
             }
             print(
                 "[HID] debounce suppressed: \(button.displayName) "
@@ -4775,9 +4830,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         self.beginVoicePress(
                             targetApplicationBundleIdentifier: self.mappingStore
                                 .activePressApplicationBundleIdentifier(for: button),
-                            shortBinding: binding
+                            shortBinding: binding,
+                            source: .hidMonitor
                         )
                     } else {
+                        self.recordVoiceReleaseEntry(source: .hidMonitor)
                         if self.voicePress.keyUp() {
                             self.ble.stopVoiceInput()
                         }

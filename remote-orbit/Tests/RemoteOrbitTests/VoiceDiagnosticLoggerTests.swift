@@ -4,6 +4,38 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceDiagnosticLoggerTests: XCTestCase {
+    func testStructuredHIDDiagnosticMetadataRoundTrips() throws {
+        let fileURL = temporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let logger = makeLogger(fileURL: fileURL)
+        logger.startRun()
+
+        logger.log(
+            category: "hid",
+            event: "RAW_HID_MIC_STATE",
+            fields: [
+                "hid_report_sequence": UInt64(19),
+                "report_id": 1,
+                "report_length": 2,
+                "raw_hex": "3e00",
+                "parsed_usages": [62],
+                "previous_mic_down": false,
+                "current_mic_down": true,
+                "computed_edge": "down",
+            ]
+        )
+        logger.flush()
+
+        let event = try XCTUnwrap(try records(at: fileURL).first {
+            $0["event"] as? String == "RAW_HID_MIC_STATE"
+        })
+        XCTAssertEqual(event["category"] as? String, "hid")
+        XCTAssertEqual(event["hid_report_sequence"] as? UInt64, 19)
+        XCTAssertEqual(event["raw_hex"] as? String, "3e00")
+        XCTAssertEqual(event["parsed_usages"] as? [Int], [62])
+        XCTAssertEqual(event["computed_edge"] as? String, "down")
+    }
+
     func testFlushMakesQueuedEventReadableAsOneDurableJSONLRecord() throws {
         let fileURL = temporaryLogURL()
         defer { try? FileManager.default.removeItem(at: fileURL) }
