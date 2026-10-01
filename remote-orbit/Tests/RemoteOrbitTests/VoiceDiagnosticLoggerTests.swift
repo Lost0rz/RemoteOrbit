@@ -258,7 +258,7 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
         press.setRemoteAudioAvailable()
         XCTAssertTrue(press.keyUp())
         press.finishLongInput(sessionID: gestureID)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.20))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.40))
         logger.flush()
 
         let events = try records(at: fileURL).filter {
@@ -280,6 +280,12 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
         let closeComplete = try XCTUnwrap(events.first {
             $0["event"] as? String == "PERSISTENT_SESSION_ROTATE_CLOSE_COMPLETE"
         })
+        let reopenSettleBegin = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SESSION_REOPEN_SETTLE_BEGIN"
+        })
+        let reopenSettleComplete = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SESSION_REOPEN_SETTLE_COMPLETE"
+        })
         let reopenBegin = try XCTUnwrap(events.first {
             $0["event"] as? String == "PERSISTENT_SESSION_ROTATE_REOPEN_BEGIN"
         })
@@ -295,6 +301,8 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
             "PERSISTENT_SEGMENT_DRAINED",
             "PERSISTENT_SESSION_ROTATE_CLOSE_BEGIN",
             "PERSISTENT_SESSION_ROTATE_CLOSE_COMPLETE",
+            "PERSISTENT_SESSION_REOPEN_SETTLE_BEGIN",
+            "PERSISTENT_SESSION_REOPEN_SETTLE_COMPLETE",
             "PERSISTENT_SESSION_ROTATE_REOPEN_BEGIN",
             "PERSISTENT_SESSION_ROTATE_REOPEN_COMPLETE",
             "PERSISTENT_SEGMENT_COMPLETE",
@@ -308,6 +316,10 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
         XCTAssertEqual(drained["owner_key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
         XCTAssertEqual(closeBegin["owner_key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
         XCTAssertEqual(closeComplete["owner_key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
+        XCTAssertEqual(reopenSettleBegin["delay_ms"] as? Int, 200)
+        XCTAssertEqual(reopenSettleBegin["external_session_expected"] as? String, "closed")
+        XCTAssertEqual(reopenSettleComplete["delay_ms"] as? Int, 200)
+        XCTAssertEqual(reopenSettleComplete["external_session_expected"] as? String, "closed")
         XCTAssertEqual(reopenBegin["owner_key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
         XCTAssertEqual(reopenComplete["owner_key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
         XCTAssertEqual(complete["owner_key"] as? String, VoiceTriggerKey.rightCommand.rawValue)

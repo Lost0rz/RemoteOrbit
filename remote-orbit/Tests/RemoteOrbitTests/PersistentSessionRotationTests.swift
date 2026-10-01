@@ -36,7 +36,7 @@ final class PersistentSessionRotationTests: XCTestCase {
 
         XCTAssertTrue(harness.press.keyUp())
         harness.press.invokeTailCompletionForTesting(sessionID: segmentID)
-        waitForCoordinatorTiming(0.25)
+        waitForCoordinatorTiming(0.40)
 
         XCTAssertEqual(harness.recorder.events.map(\.0), Array(repeating: .rightOption, count: 6))
         XCTAssertEqual(harness.recorder.events.map(\.1), [true, false, true, false, true, false])
@@ -137,7 +137,7 @@ final class PersistentSessionRotationTests: XCTestCase {
         XCTAssertEqual(harness.recorder.events.map(\.1), [true, false])
         XCTAssertTrue(harness.press.keyUp())
         harness.press.invokeTailCompletionForTesting(sessionID: segmentID)
-        waitForCoordinatorTiming(0.25)
+        waitForCoordinatorTiming(0.40)
 
         XCTAssertEqual(harness.recorder.events.map(\.0), Array(repeating: .rightOption, count: 6))
         XCTAssertEqual(harness.recorder.events.map(\.1), [true, false, true, false, true, false])
@@ -249,6 +249,73 @@ final class PersistentSessionRotationTests: XCTestCase {
         XCTAssertNil(harness.trigger.activeSessionID)
     }
 
+    func testPersistentRotationWaitsForExternalSessionSettleBeforeReopen() {
+        let harness = makeHarness(ownerKey: .rightCommand)
+        togglePersistentSession(harness)
+        let purposes = installTapRecorder(harness, segmentTapDuration: 0.01)
+
+        beginAudioSegment(harness)
+        waitForCoordinatorTiming(0.08)
+
+        XCTAssertEqual(purposes.values, ["persistent_segment_close"])
+        XCTAssertEqual(harness.press.currentSessionModeForTesting, .persistentOpen)
+
+        waitForCoordinatorTiming(0.22)
+        XCTAssertEqual(purposes.values, ["persistent_segment_close", "persistent_segment_reopen"])
+        harness.press.stop()
+    }
+
+    func testDisarmDuringReopenSettleCancelsReopenWithoutSecondCloseTap() {
+        let harness = makeHarness(ownerKey: .rightCommand)
+        openSessionWithoutMappedOwner(harness)
+        let purposes = installTapRecorder(harness, segmentTapDuration: 0.01)
+
+        let segmentID = UUID()
+        XCTAssertTrue(harness.press.keyDown(
+            sessionID: segmentID,
+            togglesPersistentVoiceSession: true
+        ))
+        waitForCoordinatorTiming(0.35)
+        harness.press.setRemoteAudioAvailable()
+        XCTAssertTrue(harness.press.keyUp())
+        waitForCoordinatorTiming(0.185)
+        harness.press.invokeTailCompletionForTesting(sessionID: segmentID)
+        waitForCoordinatorTiming(0.04)
+
+        let disarmID = UUID()
+        XCTAssertTrue(harness.press.keyDown(
+            sessionID: disarmID,
+            togglesPersistentVoiceSession: true,
+            usesHardwareOption: true
+        ))
+        XCTAssertTrue(sendMappedPair(harness.filter, gestureID: disarmID).isEmpty)
+        XCTAssertTrue(harness.press.keyUp())
+        waitForCoordinatorTiming(0.30)
+
+        XCTAssertEqual(purposes.values, ["persistent_segment_close"])
+        XCTAssertEqual(harness.press.currentSessionModeForTesting, .idle)
+        XCTAssertNil(harness.press.persistentSessionTriggerOwnerKeyForTesting)
+        XCTAssertNil(harness.trigger.activeSessionID)
+        XCTAssertFalse(harness.trigger.isOptionDown)
+    }
+
+    func testStopDuringReopenSettleCancelsPendingReopen() {
+        let harness = makeHarness(ownerKey: .leftCommand)
+        openSessionWithoutMappedOwner(harness)
+        let purposes = installTapRecorder(harness, segmentTapDuration: 0.01)
+
+        beginAudioSegment(harness)
+        waitForCoordinatorTiming(0.06)
+        harness.press.stop()
+        waitForCoordinatorTiming(0.25)
+
+        XCTAssertEqual(purposes.values, ["persistent_segment_close"])
+        XCTAssertEqual(harness.press.currentSessionModeForTesting, .idle)
+        XCTAssertNil(harness.press.persistentSessionTriggerOwnerKeyForTesting)
+        XCTAssertNil(harness.trigger.activeSessionID)
+        XCTAssertFalse(harness.trigger.isOptionDown)
+    }
+
     func testStopDuringReopenTapBalancesEdgeAndPreventsLateCompletion() {
         let harness = makeHarness(ownerKey: .rightOption)
         togglePersistentSession(harness)
@@ -265,7 +332,7 @@ final class PersistentSessionRotationTests: XCTestCase {
         }
 
         beginAudioSegment(harness)
-        waitForCoordinatorTiming(0.12)
+        waitForCoordinatorTiming(0.25)
         XCTAssertEqual(purposes, ["persistent_segment_close", "persistent_segment_reopen"])
         XCTAssertTrue(harness.trigger.isOptionDown)
         harness.press.stop()
@@ -282,7 +349,7 @@ final class PersistentSessionRotationTests: XCTestCase {
     func testRapidShortReleaseBeforeRotationCompletesRetainsDisarmIntent() {
         let harness = makeHarness(ownerKey: .rightCommand)
         openSessionWithoutMappedOwner(harness)
-        let purposes = installTapRecorder(harness, segmentTapDuration: 0.18)
+        let purposes = installTapRecorder(harness, segmentTapDuration: 0.24)
         beginAudioSegment(harness)
         waitForCoordinatorTiming(0.19)
 
@@ -297,8 +364,8 @@ final class PersistentSessionRotationTests: XCTestCase {
         XCTAssertTrue(harness.press.keyUp(), "physical UP before rotation completion must retain SHORT intent")
         XCTAssertEqual(
             purposes.values,
-            ["persistent_segment_close", "persistent_segment_reopen"],
-            "final DISARM must wait for rotation"
+            ["persistent_segment_close"],
+            "final DISARM must wait for the in-flight CLOSE TAP"
         )
 
         waitForCoordinatorTiming(0.65)
@@ -336,12 +403,8 @@ final class PersistentSessionRotationTests: XCTestCase {
         XCTAssertTrue(harness.press.keyUp())
         waitForCoordinatorTiming(0.60)
 
-        XCTAssertEqual(purposes.values, [
-            "persistent_segment_close",
-            "persistent_segment_reopen",
-            "persistent_close",
-        ])
-        XCTAssertEqual(harness.recorder.events.map(\.0), Array(repeating: .rightOption, count: 8))
+        XCTAssertEqual(purposes.values, ["persistent_segment_close"])
+        XCTAssertEqual(harness.recorder.events.map(\.0), Array(repeating: .rightOption, count: 4))
         XCTAssertFalse(harness.recorder.events.contains { $0.0 == .leftOption })
         XCTAssertEqual(harness.press.currentSessionModeForTesting, .idle)
     }
@@ -351,7 +414,7 @@ final class PersistentSessionRotationTests: XCTestCase {
         openSessionWithoutMappedOwner(harness)
         let purposes = installTapRecorder(harness, segmentTapDuration: 0.20)
         beginAudioSegment(harness)
-        waitForCoordinatorTiming(0.22)
+        waitForCoordinatorTiming(0.42)
         XCTAssertEqual(purposes.values, ["persistent_segment_close", "persistent_segment_reopen"])
         let reopenOwner = harness.trigger.activeSessionID
         XCTAssertNotNil(reopenOwner)
@@ -405,7 +468,7 @@ final class PersistentSessionRotationTests: XCTestCase {
         harness.press.stop()
     }
 
-    func testExistingSuppressionOwnerIsPreservedAndRapidDisarmClosesExactlyOnce() {
+    func testExistingSuppressionOwnerIsPreservedWhenDisarmCancelsReopenSettle() {
         let harness = makeHarness(ownerKey: .rightOption)
         XCTAssertTrue(harness.trigger.configureVoiceTriggerKey(.leftOption))
         XCTAssertTrue(harness.filter.configureVoiceTriggerKey(.leftOption))
@@ -426,18 +489,14 @@ final class PersistentSessionRotationTests: XCTestCase {
         XCTAssertTrue(harness.press.keyUp())
 
         waitForCoordinatorTiming(0.35)
-        XCTAssertEqual(purposes.values, ["persistent_segment_close", "persistent_segment_reopen"])
-        XCTAssertEqual(harness.press.currentSessionModeForTesting, .persistentOpen)
+        XCTAssertEqual(purposes.values, ["persistent_segment_close"])
+        XCTAssertEqual(harness.press.currentSessionModeForTesting, .idle)
         XCTAssertTrue(harness.filter.completeSuppressedHardwareTriggerQuietPeriod(gestureID: segmentID))
         harness.press.suppressedHardwareGateDidClose(ownerID: segmentID)
         waitForCoordinatorTiming(0.15)
 
-        XCTAssertEqual(purposes.values, [
-            "persistent_segment_close",
-            "persistent_segment_reopen",
-            "persistent_close",
-        ])
-        XCTAssertEqual(harness.recorder.events.map(\.0), Array(repeating: .rightOption, count: 8))
+        XCTAssertEqual(purposes.values, ["persistent_segment_close"])
+        XCTAssertEqual(harness.recorder.events.map(\.0), Array(repeating: .rightOption, count: 4))
         XCTAssertFalse(harness.recorder.events.contains { $0.0 == .leftOption })
         XCTAssertEqual(harness.press.currentSessionModeForTesting, .idle)
         XCTAssertNil(harness.press.persistentSessionTriggerOwnerKeyForTesting)
@@ -555,7 +614,7 @@ final class PersistentSessionRotationTests: XCTestCase {
 
     private func completeAudioSegment(_ harness: Harness) {
         beginAudioSegment(harness)
-        waitForCoordinatorTiming(0.25)
+        waitForCoordinatorTiming(0.40)
     }
 
     @discardableResult

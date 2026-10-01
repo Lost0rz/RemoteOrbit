@@ -87,7 +87,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         XCTAssertEqual(events.map(\.1), [true, false])
         XCTAssertTrue(press.keyUp())
         press.finishLongInput(sessionID: gestureID)
-        waitForCoordinatorTiming(0.20)
+        waitForCoordinatorTiming(0.40)
 
         XCTAssertEqual(events.map(\.0), Array(repeating: .rightCommand, count: 6))
         XCTAssertEqual(events.map(\.1), [true, false, true, false, true, false])
@@ -301,7 +301,7 @@ final class VoicePersistentSessionTests: XCTestCase {
 
         XCTAssertTrue(press.keyUp())
         press.finishLongInput(sessionID: gestureID)
-        waitForCoordinatorTiming(0.20)
+        waitForCoordinatorTiming(0.40)
         XCTAssertEqual(events.map(\.0), Array(repeating: .rightOption, count: 6))
         XCTAssertEqual(events.map(\.1), [true, false, true, false, true, false])
         press.stop()
@@ -324,7 +324,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         press.setRemoteAudioAvailable()
         XCTAssertTrue(press.keyUp())
         press.finishLongInput(sessionID: gestureID)
-        waitForCoordinatorTiming(0.20)
+        waitForCoordinatorTiming(0.40)
         XCTAssertTrue(press.persistentModeOpenForTesting)
         XCTAssertTrue(press.configurePersistentSessionTriggerKey(.rightOption))
         XCTAssertTrue(trigger.configureVoiceTriggerKey(.rightOption))
@@ -470,7 +470,7 @@ final class VoicePersistentSessionTests: XCTestCase {
         XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, gestureID)
         XCTAssertEqual(events.map(\.1), [true, false], "audio-only session emits no hold edge")
         completeOutputDrain?()
-        waitForCoordinatorTiming(0.20)
+        waitForCoordinatorTiming(0.40)
 
         XCTAssertTrue(press.persistentModeOpenForTesting)
         XCTAssertNil(filter.suppressedHardwareTriggerSessionID)

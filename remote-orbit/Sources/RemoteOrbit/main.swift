@@ -350,6 +350,7 @@ final class VoicePressCoordinator {
     private struct PendingPersistentRotation {
         enum Phase {
             case closing
+            case waitingToReopen
             case reopening
         }
 
@@ -420,6 +421,7 @@ final class VoicePressCoordinator {
     // output route alive long enough for those final frames to render even
     // when the physical Option edge has already been released.
     static let tailDrainDelay: TimeInterval = 0.80
+    static let persistentReopenSettleDelay: TimeInterval = 0.20
     // Physical release bounce is independent from the audio tail. Do not use
     // the tail-drain duration as a press lockout: a completed route must allow
     // the next real gesture immediately after this small debounce window.
@@ -446,6 +448,7 @@ final class VoicePressCoordinator {
     private var persistentSessionTriggerOwnerKey: VoiceTriggerKey?
     private var pendingPersistentToggle: PendingPersistentToggle?
     private var pendingPersistentRotation: PendingPersistentRotation?
+    private var persistentReopenSettleWorkItem: DispatchWorkItem?
     var persistentTapDispatchForTesting: ((UUID, VoiceTriggerKey, String, @escaping (Bool) -> Void) -> Bool)?
     private var remoteSegmentTriggerPolicy: RemoteSegmentTriggerPolicy = .momentaryTrigger
     private var audioOnlyHardwareTriggerSuppressed = false
@@ -1166,7 +1169,48 @@ final class VoicePressCoordinator {
                 "synthetic_trigger_owner_touched": false,
             ]
         )
+        if cancelPersistentReopenForDeferredDisarmIfWaiting() {
+            return true
+        }
         dispatchPendingPersistentToggleIfReady()
+        return true
+    }
+
+    @discardableResult
+    private func cancelPersistentReopenForDeferredDisarmIfWaiting() -> Bool {
+        guard let rotation = pendingPersistentRotation,
+              rotation.phase == .waitingToReopen,
+              let pending = pendingPersistentToggle,
+              pending.wasDeferredRotationDisarm,
+              pending.expectedFromMode == .persistentOpen,
+              pending.targetMode == .idle else { return false }
+
+        persistentReopenSettleWorkItem?.cancel()
+        persistentReopenSettleWorkItem = nil
+        pendingPersistentRotation = nil
+        voiceSessionMode = .idle
+        persistentSessionTriggerOwnerKey = nil
+        cancelPendingPersistentToggle(reason: "persistent-session-closed-during-reopen-settle")
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "PERSISTENT_SESSION_REOPEN_CANCELLED_BY_DISARM",
+            gestureID: rotation.segmentGestureID,
+            key: rotation.ownerKey,
+            fields: persistentSessionDiagnosticFields(
+                segmentGestureID: rotation.segmentGestureID,
+                ownerKey: rotation.ownerKey
+            ).merging([
+                "disarm_gesture_id": pending.gestureID.uuidString,
+                "external_session_expected": "closed",
+                "reopen_tap_emitted": false,
+                "additional_close_tap_emitted": false,
+            ]) { _, new in new }
+        )
+        finishPersistentSegment(
+            segmentGestureID: rotation.segmentGestureID,
+            transactionRotated: false,
+            ownerKey: rotation.ownerKey
+        )
         return true
     }
 
@@ -1567,6 +1611,8 @@ final class VoicePressCoordinator {
 
     private func stopCurrentVoiceState(preservingDeferredRepress: Bool) {
         cancelPendingPersistentToggle(reason: "voice-stop")
+        persistentReopenSettleWorkItem?.cancel()
+        persistentReopenSettleWorkItem = nil
         let rotationOwnerID = pendingPersistentRotation?.triggerOwnerID
         pendingPersistentRotation = nil
         if let rotationOwnerID {
@@ -2006,7 +2052,7 @@ final class VoicePressCoordinator {
             finishPersistentSegment(segmentGestureID: segmentGestureID, transactionRotated: false)
             return
         }
-        rotation.phase = .reopening
+        rotation.phase = .waitingToReopen
         pendingPersistentRotation = rotation
         diagnosticLogger?.log(
             category: "voice",
@@ -2018,9 +2064,47 @@ final class VoicePressCoordinator {
                 ownerKey: rotation.ownerKey
             )
         )
-        DispatchQueue.main.async { [weak self] in
-            self?.beginPersistentRotationReopen(segmentGestureID: segmentGestureID)
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "PERSISTENT_SESSION_REOPEN_SETTLE_BEGIN",
+            gestureID: segmentGestureID,
+            key: rotation.ownerKey,
+            fields: persistentSessionDiagnosticFields(
+                segmentGestureID: segmentGestureID,
+                ownerKey: rotation.ownerKey
+            ).merging([
+                "delay_ms": Int(Self.persistentReopenSettleDelay * 1000),
+                "external_session_expected": "closed",
+            ]) { _, new in new }
+        )
+        let settleWork = DispatchWorkItem { [weak self] in
+            guard let self,
+                  var waitingRotation = self.pendingPersistentRotation,
+                  waitingRotation.segmentGestureID == segmentGestureID,
+                  waitingRotation.phase == .waitingToReopen else { return }
+            self.persistentReopenSettleWorkItem = nil
+            self.diagnosticLogger?.log(
+                category: "voice",
+                event: "PERSISTENT_SESSION_REOPEN_SETTLE_COMPLETE",
+                gestureID: segmentGestureID,
+                key: waitingRotation.ownerKey,
+                fields: self.persistentSessionDiagnosticFields(
+                    segmentGestureID: segmentGestureID,
+                    ownerKey: waitingRotation.ownerKey
+                ).merging([
+                    "delay_ms": Int(Self.persistentReopenSettleDelay * 1000),
+                    "external_session_expected": "closed",
+                ]) { _, new in new }
+            )
+            waitingRotation.phase = .reopening
+            self.pendingPersistentRotation = waitingRotation
+            self.beginPersistentRotationReopen(segmentGestureID: segmentGestureID)
         }
+        persistentReopenSettleWorkItem = settleWork
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.persistentReopenSettleDelay,
+            execute: settleWork
+        )
     }
 
     private func beginPersistentRotationReopen(segmentGestureID: UUID) {
