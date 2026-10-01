@@ -97,7 +97,11 @@ final class VoiceKeyFilterTests: XCTestCase {
 
             XCTAssertFalse(filter.isOptionDeferralActive(for: sessionID), "key=\(key)")
             XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, sessionID, "key=\(key)")
-            XCTAssertNil(trigger.activeSessionID, "key=\(key)")
+            XCTAssertEqual(
+                trigger.activeSessionID,
+                sessionID,
+                "mapped-edge suppression must preserve the segment's trigger owner; key=\(key)"
+            )
             XCTAssertFalse(trigger.isOptionDown, "key=\(key)")
 
             XCTAssertTrue(
@@ -129,6 +133,7 @@ final class VoiceKeyFilterTests: XCTestCase {
                 "matching keyUp must be swallowed for key=\(key)"
             )
             XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, sessionID, "key=\(key)")
+            _ = trigger.abort(sessionID: sessionID)
         }
     }
 

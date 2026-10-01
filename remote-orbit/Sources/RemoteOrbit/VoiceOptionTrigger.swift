@@ -269,8 +269,8 @@ enum HardwareOptionResolution: Equatable {
     case noOptionEdge
 }
 
-enum PersistentShortTapDispatchResult: Equatable {
-    case emitted
+enum PersistentModeToggleDispatchResult: Equatable {
+    case suppressed
     case deferred(waitingOn: UUID)
     case failed
 }
@@ -286,7 +286,7 @@ final class HardwareOptionGate {
     private var suppressedOutputDrainCompleted = false
     private var suppressedReleaseQuietPeriodElapsed = false
 
-    var audioOnlySuppressionOwnerID: UUID? {
+    var suppressedMappedTriggerOwnerID: UUID? {
         guard shortTapDiscardSessionID == nil else { return nil }
         return suppressedSessionID
     }
@@ -364,10 +364,10 @@ final class HardwareOptionGate {
         return true
     }
 
-    /// Transfer a classified persistent-session short gesture into bounded
+    /// Transfer a classified Persistent-mode gesture into bounded mapped-edge
     /// discard ownership, even when no mapped edge arrived before raw HID-up.
     /// A previous short-tap discard may be re-owned by a later short toggle;
-    /// an audio-only suppression owner may not be replaced this way.
+    /// an active segment suppression owner may not be replaced this way.
     @discardableResult
     func beginShortTapDiscard(sessionID: UUID) -> Bool {
         if suppressedSessionID != nil {
@@ -387,11 +387,10 @@ final class HardwareOptionGate {
         return true
     }
 
-    /// A persistent long segment that begins while the preceding short-tap
-    /// quiet window is active inherits that discard owner as audio-only
-    /// suppression for its own gesture lifecycle.
+    /// A Persistent long segment that begins while the preceding short-tap
+    /// quiet window is active inherits that discard owner for its own gesture.
     @discardableResult
-    func transferShortTapDiscardToAudioOnlySuppression(sessionID: UUID) -> Bool {
+    func transferShortTapDiscardToSuppressedTriggerOwnership(sessionID: UUID) -> Bool {
         guard shortTapDiscardSessionID != nil else { return false }
         suppressedSessionID = sessionID
         shortTapDiscardSessionID = nil
@@ -567,16 +566,29 @@ final class VoiceOptionTrigger {
 
     @discardableResult
     func sendDown(sessionID: UUID, purpose: String = "momentary_hold") -> Bool {
+        sendDown(
+            sessionID: sessionID,
+            key: momentaryVoiceTriggerKey,
+            purpose: purpose
+        )
+    }
+
+    @discardableResult
+    func sendDown(
+        sessionID: UUID,
+        key: VoiceTriggerKey,
+        purpose: String = "momentary_hold"
+    ) -> Bool {
         guard activeSessionID == sessionID, !isOptionDown else { return false }
         isOptionDown = true
-        activeTriggerKey = momentaryVoiceTriggerKey
+        activeTriggerKey = key
         activePurpose = purpose
-        eventSink(momentaryVoiceTriggerKey, true)
+        eventSink(key, true)
         logSyntheticEdge(
             "SYNTHETIC_TRIGGER_DOWN",
             sessionID: sessionID,
             purpose: purpose,
-            key: momentaryVoiceTriggerKey
+            key: key
         )
         return true
     }

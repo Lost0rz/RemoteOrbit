@@ -163,6 +163,28 @@ final class VoiceOptionTriggerTests: XCTestCase {
         XCTAssertEqual(events.map(\.isDown), expectedEdges)
     }
 
+    func testKeyedHoldReleasesTheCapturedPersistentKey() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let sessionID = UUID()
+
+        XCTAssertTrue(trigger.configureVoiceTriggerKey(.leftOption))
+        XCTAssertTrue(trigger.begin(sessionID: sessionID))
+        XCTAssertTrue(trigger.sendDown(
+            sessionID: sessionID,
+            key: .rightOption,
+            purpose: "persistent_segment"
+        ))
+        XCTAssertFalse(trigger.configureVoiceTriggerKey(.rightCommand))
+        XCTAssertTrue(trigger.sendUp(sessionID: sessionID))
+
+        XCTAssertEqual(events.map(\.key), [.rightOption, .rightOption])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+        XCTAssertNil(trigger.activeSessionID)
+    }
+
     func testConfigurationIsRejectedWhileTriggerIsDown() {
         var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
         let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in

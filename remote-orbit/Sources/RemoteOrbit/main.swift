@@ -297,15 +297,16 @@ enum RemoteVoiceKeyMapping {
 
 /// The physical voice button exposes a persistent IME session toggle and a
 /// remote-microphone hold. A hold inside an open IME session is audio-only;
-/// outside that session, the momentary trigger behavior remains unchanged.
+/// Persistent mode records internal arming only. External ASR lifetimes are
+/// owned independently by each Persistent segment.
 enum VoiceSessionMode: Equatable {
     case idle
-    case persistentOpen
+    case persistentArmed
 }
 
 enum RemoteSegmentTriggerPolicy: Equatable {
     case momentaryTrigger
-    case audioOnly
+    case persistentSegmentTrigger
 }
 
 final class VoicePressCoordinator {
@@ -331,8 +332,6 @@ final class VoicePressCoordinator {
         let gestureID: UUID
         let expectedFromMode: VoiceSessionMode
         let targetMode: VoiceSessionMode
-        let triggerKey: VoiceTriggerKey
-        let purpose: String
         let waitingGateOwner: UUID
     }
 
@@ -345,15 +344,14 @@ final class VoicePressCoordinator {
     /// until the gesture state decides whether to replay or drop them.
     var onHardwareOptionGateBegin: ((UUID) -> Void)?
     var onHardwareOptionGateLongReady: ((UUID) -> Void)?
-    /// Discard the mapped trigger when a persistent IME hold becomes an
-    /// audio-only remote segment.
-    var onHardwareOptionGateSuppressForAudioOnly: ((UUID) -> Bool)?
+    /// Discard the physical mapped Momentary trigger for a Persistent segment.
+    var onHardwareOptionGateSuppressForPersistentSegment: ((UUID) -> Bool)?
     /// Reset suppression only when HID device removal proves no matching up
     /// event can arrive; ordinary BLE loss keeps waiting for physical up.
     var onHardwareOptionGateResetSuppression: ((UUID) -> Void)?
     var onHardwareOptionGateShortReplay: ((UUID) -> Void)?
-    var onPersistentSessionTriggerTap: ((UUID, VoiceTriggerKey, String) -> PersistentShortTapDispatchResult)?
-    var onDeferredPersistentSessionTriggerTap: ((UUID, VoiceTriggerKey, String) -> Bool)?
+    var onPersistentModeToggle: ((UUID) -> PersistentModeToggleDispatchResult)?
+    var onDeferredPersistentModeToggle: ((UUID) -> Bool)?
     var onHardwareOptionGateCancel: ((UUID) -> Void)?
     /// Testable ordering seam: the state callback is where AppController
     /// requests BLE acquisition, and this callback marks route preparation.
@@ -369,16 +367,15 @@ final class VoicePressCoordinator {
     var onHardwareOptionGateOutputDrained: ((UUID) -> Void)?
 
     /// This is the short-vs-long classifier. A quick default tap toggles the
-    /// persistent IME session (or invokes the configured Codex short action);
+    /// internal Persistent armed mode (or invokes a configured short action);
     /// a hold starts remote dictation after the original 300 ms window.
     ///
     /// Keep this at 300 ms: the old hold-only experiment lowered it to 120 ms,
     /// but once short-press behavior was restored that made an ordinary tap
     /// look like a long press and opened remote dictation unexpectedly.
     static let holdActivationThreshold: TimeInterval = 0.30
-    /// Persistent sessions prepare transport immediately while pending, but
-    /// use the same 300ms short-vs-hold semantic boundary so ordinary taps can
-    /// reliably close or reopen the session.
+    /// Persistent mode uses the same 300ms short-vs-hold boundary so ordinary
+    /// taps arm or disarm without starting a segment.
     static let persistentHoldActivationThreshold: TimeInterval =
         holdActivationThreshold
 
@@ -417,11 +414,11 @@ final class VoicePressCoordinator {
     private var shortInputTogglesPersistentVoiceSession = false
     private(set) var voiceSessionMode: VoiceSessionMode = .idle
     private(set) var persistentSessionTriggerKey: VoiceTriggerKey = .defaultValue
-    private var persistentSessionTriggerOwnerKey: VoiceTriggerKey?
+    private var persistentSegmentTriggerKey: VoiceTriggerKey?
     private var pendingPersistentToggle: PendingPersistentToggle?
     private var remoteSegmentTriggerPolicy: RemoteSegmentTriggerPolicy = .momentaryTrigger
-    private var audioOnlyHardwareTriggerSuppressed = false
-    private var resetAudioOnlyHardwareTriggerOnDrain = false
+    private var persistentHardwareTriggerSuppressed = false
+    private var resetPersistentHardwareTriggerOnDrain = false
     private var gestureID: UUID?
     private var pendingShortPreparationID: UUID?
     private var usesHardwareOptionPath = false
@@ -478,8 +475,8 @@ final class VoicePressCoordinator {
         mode
     }
 
-    var persistentSessionActiveForTesting: Bool {
-        voiceSessionMode == .persistentOpen
+    var persistentModeArmedForTesting: Bool {
+        voiceSessionMode == .persistentArmed
     }
 
     var currentSessionModeForTesting: VoiceSessionMode {
@@ -527,15 +524,15 @@ final class VoicePressCoordinator {
             || pendingPersistentToggle != nil
     }
 
-    var persistentSessionTriggerOwnerKeyForTesting: VoiceTriggerKey? {
-        persistentSessionTriggerOwnerKey
+    var persistentSegmentTriggerKeyForTesting: VoiceTriggerKey? {
+        persistentSegmentTriggerKey
     }
 
     var diagnosticStateFields: [String: Any] {
         [
             "mode": modeName,
-            "persistent_session_mode": voiceSessionMode == .persistentOpen
-                ? "persistent_open" : "idle",
+            "persistent_mode": voiceSessionMode == .persistentArmed
+                ? "persistent_armed" : "idle",
             "gesture_id": gestureID?.uuidString ?? "none",
             "pending_repress": pendingRepress != nil,
             "pending_persistent_toggle": pendingPersistentToggle != nil,
@@ -548,7 +545,7 @@ final class VoicePressCoordinator {
             "awaiting_physical_up": awaitingPhysicalVoiceKeyUp,
             "momentary_config": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
             "persistent_config": persistentSessionTriggerKey.rawValue,
-            "persistent_owner": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
+            "persistent_segment_key": persistentSegmentTriggerKey?.rawValue ?? "none",
             "synthetic_owner": syntheticOptionTrigger.activeSessionID?.uuidString ?? "none",
             "synthetic_down": syntheticOptionTrigger.isOptionDown,
         ]
@@ -556,7 +553,7 @@ final class VoicePressCoordinator {
 
     @discardableResult
     func configurePersistentSessionTriggerKey(_ key: VoiceTriggerKey) -> Bool {
-        guard pendingPersistentToggle == nil else { return false }
+        guard !hasActiveVoiceOwnershipForTriggerReconfiguration else { return false }
         persistentSessionTriggerKey = key
         return true
     }
@@ -592,11 +589,11 @@ final class VoicePressCoordinator {
                 category: "voice",
                 event: "VOICE_GESTURE_BLOCKED_PENDING_PERSISTENT_TOGGLE",
                 gestureID: sessionID,
-                key: pendingPersistentToggle.triggerKey,
                 fields: [
                     "pending_gesture_id": pendingPersistentToggle.gestureID.uuidString,
                     "waiting_gate_owner": pendingPersistentToggle.waitingGateOwner.uuidString,
-                    "purpose": pendingPersistentToggle.purpose,
+                    "from": persistentSessionModeName(for: pendingPersistentToggle.expectedFromMode),
+                    "target": persistentSessionModeName(for: pendingPersistentToggle.targetMode),
                 ]
             )
             return false
@@ -678,12 +675,15 @@ final class VoicePressCoordinator {
         shortInputTogglesPersistentVoiceSession = togglesPersistentVoiceSession
         shortInputUsesLocalMicrophone = usesLocalMicrophone
         let isPersistentSessionSegment =
-            togglesPersistentVoiceSession && voiceSessionMode == .persistentOpen
+            togglesPersistentVoiceSession && voiceSessionMode == .persistentArmed
         remoteSegmentTriggerPolicy = isPersistentSessionSegment
-            ? .audioOnly
+            ? .persistentSegmentTrigger
             : .momentaryTrigger
-        audioOnlyHardwareTriggerSuppressed = false
-        resetAudioOnlyHardwareTriggerOnDrain = false
+        persistentSegmentTriggerKey = isPersistentSessionSegment
+            ? persistentSessionTriggerKey
+            : nil
+        persistentHardwareTriggerSuppressed = false
+        resetPersistentHardwareTriggerOnDrain = false
         usesHardwareOptionPath = usesHardwareOption
         remoteOutputDrainRequestedSessionID = nil
         remoteOutputDrainedSessionID = nil
@@ -702,11 +702,11 @@ final class VoicePressCoordinator {
             event: "GESTURE_BEGIN",
             gestureID: sessionID,
             fields: [
-                "session_mode": voiceSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                "persistent_mode": voiceSessionMode == .persistentArmed ? "persistent_armed" : "idle",
                 "persistent_configured_key": persistentSessionTriggerKey.rawValue,
-                "persistent_owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
+                "persistent_segment_key": persistentSegmentTriggerKey?.rawValue ?? "none",
                 "momentary_configured_key": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
-                "policy": remoteSegmentTriggerPolicy == .audioOnly ? "audio_only" : "momentary_trigger",
+                "policy": remoteSegmentTriggerPolicy == .persistentSegmentTrigger ? "persistent_segment_trigger" : "momentary_trigger",
             ]
         )
         diagnosticLogger?.log(
@@ -715,11 +715,11 @@ final class VoicePressCoordinator {
             gestureID: sessionID,
             key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
             fields: [
-                "session_mode": voiceSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                "persistent_mode": voiceSessionMode == .persistentArmed ? "persistent_armed" : "idle",
                 "threshold_ms": Int(holdThreshold * 1000),
                 "momentary_key": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
                 "persistent_configured_key": persistentSessionTriggerKey.rawValue,
-                "persistent_owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
+                "persistent_segment_key": persistentSegmentTriggerKey?.rawValue ?? "none",
                 "bypasses_short_classification": bypassesShortClassification,
             ]
         )
@@ -853,102 +853,55 @@ final class VoicePressCoordinator {
             } else if shouldTogglePersistentSession, let currentGestureID {
                 let previousSessionMode = voiceSessionMode
                 let nextSessionMode: VoiceSessionMode =
-                    voiceSessionMode == .persistentOpen ? .idle : .persistentOpen
-                let triggerKey = nextSessionMode == .persistentOpen
-                    ? persistentSessionTriggerKey
-                    : persistentSessionTriggerOwnerKey
-                let triggerPurpose = nextSessionMode == .persistentOpen
-                    ? "persistent_open" : "persistent_close"
+                    voiceSessionMode == .persistentArmed ? .idle : .persistentArmed
                 diagnosticLogger?.log(
                     category: "voice",
-                    event: "PERSISTENT_TOGGLE_REQUEST",
+                    event: "PERSISTENT_MODE_TOGGLE_REQUEST",
                     gestureID: currentGestureID,
-                    key: triggerKey,
                     fields: [
-                        "current_mode": previousSessionMode == .persistentOpen ? "persistent_open" : "idle",
-                        "configured_key": persistentSessionTriggerKey.rawValue,
-                        "owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
-                        "target_mode": nextSessionMode == .persistentOpen ? "persistent_open" : "idle",
-                        "purpose": triggerPurpose,
+                        "from": persistentSessionModeName(for: previousSessionMode),
+                        "target": persistentSessionModeName(for: nextSessionMode),
                     ]
                 )
-                let dispatchResult: PersistentShortTapDispatchResult
-                if let triggerKey, let onPersistentSessionTriggerTap {
-                    dispatchResult = onPersistentSessionTriggerTap(
-                        currentGestureID,
-                        triggerKey,
-                        triggerPurpose
-                    )
-                } else if let triggerKey, !shouldUseHardwareOption {
-                    dispatchResult = syntheticOptionTrigger.sendTap(
-                        sessionID: currentGestureID,
-                        key: triggerKey,
-                        purpose: triggerPurpose
-                    ) ? .emitted : .failed
-                } else {
-                    dispatchResult = .failed
-                }
+                let dispatchResult = onPersistentModeToggle?(currentGestureID) ?? .suppressed
                 switch dispatchResult {
-                case .emitted:
-                    if let triggerKey {
-                        commitPersistentSessionToggle(
-                            gestureID: currentGestureID,
-                            expectedFromMode: previousSessionMode,
-                            targetMode: nextSessionMode,
-                            triggerKey: triggerKey,
-                            purpose: triggerPurpose
-                        )
-                    } else {
-                        _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
-                        logPersistentTriggerFailure(
-                            gestureID: currentGestureID,
-                            triggerKey: nil,
-                            purpose: triggerPurpose
-                        )
-                    }
+                case .suppressed:
+                    _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
+                    commitPersistentModeToggle(
+                        gestureID: currentGestureID,
+                        expectedFromMode: previousSessionMode,
+                        targetMode: nextSessionMode
+                    )
                 case let .deferred(waitingOn):
-                    guard previousSessionMode == .persistentOpen,
-                          nextSessionMode == .idle,
-                          triggerPurpose == "persistent_close",
-                          let triggerKey,
+                    _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
+                    guard voiceSessionMode == previousSessionMode,
                           pendingPersistentToggle == nil else {
                         _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
-                        logPersistentTriggerFailure(
-                            gestureID: currentGestureID,
-                            triggerKey: triggerKey,
-                            purpose: triggerPurpose
-                        )
+                        logPersistentModeToggleFailure(gestureID: currentGestureID)
                         return true
                     }
                     let pending = PendingPersistentToggle(
                         gestureID: currentGestureID,
                         expectedFromMode: previousSessionMode,
                         targetMode: nextSessionMode,
-                        triggerKey: triggerKey,
-                        purpose: triggerPurpose,
                         waitingGateOwner: waitingOn
                     )
                     pendingPersistentToggle = pending
                     diagnosticLogger?.log(
                         category: "voice",
-                        event: "PERSISTENT_TRIGGER_DEFERRED",
+                        event: nextSessionMode == .idle
+                            ? "PERSISTENT_MODE_DISARM_DEFERRED"
+                            : "PERSISTENT_MODE_ARM_DEFERRED",
                         gestureID: currentGestureID,
-                        key: triggerKey,
                         fields: [
-                            "purpose": triggerPurpose,
-                            "trigger_key": triggerKey.rawValue,
-                            "from": "persistent_open",
-                            "target": "idle",
+                            "from": persistentSessionModeName(for: previousSessionMode),
+                            "target": persistentSessionModeName(for: nextSessionMode),
                             "waiting_gate_owner": waitingOn.uuidString,
                         ]
                     )
                 case .failed:
                     _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
-                    logPersistentTriggerFailure(
-                        gestureID: currentGestureID,
-                        triggerKey: triggerKey,
-                        purpose: triggerPurpose
-                    )
+                    logPersistentModeToggleFailure(gestureID: currentGestureID)
                 }
             } else if let action {
                 print("[PRESS] SHORT release → configured voice action")
@@ -993,7 +946,7 @@ final class VoicePressCoordinator {
                 print("[PRESS] LONG release → no remote audio; no Option dialog")
                 finishLongInput(sessionID: releasedSessionID)
             }
-            if let releasedSessionID, releasedPolicy == .audioOnly {
+            if let releasedSessionID, releasedPolicy == .persistentSegmentTrigger {
                 logPhysicalGestureRelease(sessionID: releasedSessionID, policy: releasedPolicy)
             }
             if let releasedSessionID, releasedPolicy == .momentaryTrigger {
@@ -1007,37 +960,27 @@ final class VoicePressCoordinator {
         guard let pending = pendingPersistentToggle,
               pending.waitingGateOwner == ownerID else { return }
         pendingPersistentToggle = nil
+        guard voiceSessionMode == pending.expectedFromMode,
+              let discardDeferred = onDeferredPersistentModeToggle,
+              discardDeferred(pending.gestureID) else {
+            logPersistentModeToggleFailure(gestureID: pending.gestureID)
+            return
+        }
         diagnosticLogger?.log(
             category: "voice",
-            event: "PERSISTENT_TRIGGER_RETRY",
+            event: "PERSISTENT_MODE_TOGGLE_GATE_CLOSED",
             gestureID: pending.gestureID,
-            key: pending.triggerKey,
             fields: [
-                "purpose": pending.purpose,
-                "trigger_key": pending.triggerKey.rawValue,
                 "from": persistentSessionModeName(for: pending.expectedFromMode),
                 "target": persistentSessionModeName(for: pending.targetMode),
                 "waiting_gate_owner": ownerID.uuidString,
             ]
         )
-
-        guard voiceSessionMode == pending.expectedFromMode,
-              let emitDeferred = onDeferredPersistentSessionTriggerTap,
-              emitDeferred(pending.gestureID, pending.triggerKey, pending.purpose) else {
-            _ = syntheticOptionTrigger.abort(sessionID: pending.gestureID)
-            logPersistentTriggerFailure(
-                gestureID: pending.gestureID,
-                triggerKey: pending.triggerKey,
-                purpose: pending.purpose
-            )
-            return
-        }
-        commitPersistentSessionToggle(
+        commitPersistentModeToggle(
             gestureID: pending.gestureID,
             expectedFromMode: pending.expectedFromMode,
             targetMode: pending.targetMode,
-            triggerKey: pending.triggerKey,
-            purpose: pending.purpose
+            wasDeferred: true
         )
     }
 
@@ -1052,12 +995,9 @@ final class VoicePressCoordinator {
         _ = syntheticOptionTrigger.abort(sessionID: pending.gestureID)
         diagnosticLogger?.log(
             category: "voice",
-            event: "PERSISTENT_TRIGGER_DEFERRED_CANCELLED",
+            event: "PERSISTENT_MODE_TOGGLE_CANCELLED",
             gestureID: pending.gestureID,
-            key: pending.triggerKey,
             fields: [
-                "purpose": pending.purpose,
-                "trigger_key": pending.triggerKey.rawValue,
                 "from": persistentSessionModeName(for: pending.expectedFromMode),
                 "target": persistentSessionModeName(for: pending.targetMode),
                 "waiting_owner": pending.waitingGateOwner.uuidString,
@@ -1066,73 +1006,48 @@ final class VoicePressCoordinator {
         )
     }
 
-    private func commitPersistentSessionToggle(
+    private func commitPersistentModeToggle(
         gestureID: UUID,
         expectedFromMode: VoiceSessionMode,
         targetMode: VoiceSessionMode,
-        triggerKey: VoiceTriggerKey,
-        purpose: String
+        wasDeferred: Bool = false
     ) {
         guard voiceSessionMode == expectedFromMode else {
-            logPersistentTriggerFailure(
-                gestureID: gestureID,
-                triggerKey: triggerKey,
-                purpose: purpose
-            )
+            logPersistentModeToggleFailure(gestureID: gestureID)
             return
         }
         voiceSessionMode = targetMode
-        persistentSessionTriggerOwnerKey = targetMode == .persistentOpen
-            ? triggerKey
-            : nil
+        let modeName = persistentSessionModeName(for: targetMode)
+        let event = targetMode == .persistentArmed
+            ? "PERSISTENT_MODE_ARMED"
+            : "PERSISTENT_MODE_DISARMED"
         diagnosticLogger?.log(
             category: "voice",
-            event: "PERSISTENT_TRIGGER_RESULT",
+            event: event,
             gestureID: gestureID,
-            key: triggerKey,
-            fields: ["result": "success", "purpose": purpose]
+            fields: [
+                "mode": modeName,
+                "external_trigger_edges": 0,
+                "deferred": wasDeferred,
+            ]
         )
-        var stateFields: [String: Any] = [
-            "from": persistentSessionModeName(for: expectedFromMode),
-            "to": persistentSessionModeName(for: targetMode),
-            "configured_key": persistentSessionTriggerKey.rawValue,
-        ]
-        if targetMode == .persistentOpen {
-            stateFields["owner_key"] = triggerKey.rawValue
-        } else {
-            stateFields["closing_key"] = triggerKey.rawValue
-        }
-        diagnosticLogger?.log(
-            category: "voice",
-            event: "PERSISTENT_STATE_CHANGE",
-            gestureID: gestureID,
-            key: triggerKey,
-            fields: stateFields
-        )
-        print("[PRESS] IME persistent session → \(targetMode)")
+        print("[PRESS] Persistent mode → \(modeName)")
     }
 
-    private func logPersistentTriggerFailure(
-        gestureID: UUID,
-        triggerKey: VoiceTriggerKey?,
-        purpose: String
-    ) {
+    private func logPersistentModeToggleFailure(gestureID: UUID) {
         diagnosticLogger?.log(
             category: "voice",
-            event: "PERSISTENT_TRIGGER_RESULT",
+            event: "PERSISTENT_MODE_TOGGLE_FAILED",
             gestureID: gestureID,
-            key: triggerKey,
             fields: [
-                "result": "failed",
-                "purpose": purpose,
                 "state_unchanged": true,
             ]
         )
-        print("[PRESS] IME persistent session unchanged; configured trigger tap failed")
+        print("[PRESS] Persistent mode unchanged; mapped trigger suppression failed")
     }
 
     private func persistentSessionModeName(for mode: VoiceSessionMode) -> String {
-        mode == .persistentOpen ? "persistent_open" : "idle"
+        mode == .persistentArmed ? "persistent_armed" : "idle"
     }
 
     func setRemoteStreaming(_ streaming: Bool) {
@@ -1142,7 +1057,7 @@ final class VoicePressCoordinator {
             event: streaming ? "AUDIO_START" : "AUDIO_STOP",
             gestureID: gestureID,
             fields: [
-                "session_mode": voiceSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                "persistent_mode": voiceSessionMode == .persistentArmed ? "persistent_armed" : "idle",
                 "remote_streaming": streaming,
                 "remote_routed": remoteRouted,
             ]
@@ -1158,7 +1073,7 @@ final class VoicePressCoordinator {
                     awaitingPhysicalVoiceKeyUp = true
                     setMode(.idle)
                     requestRemoteOutputDrain(sessionID: gestureID)
-                } else if remoteSegmentTriggerPolicy == .audioOnly {
+                } else if remoteSegmentTriggerPolicy == .persistentSegmentTrigger {
                     // Keep the captured mapped edge owned until the physical
                     // voice-key release can arm its suppressed-up lifecycle.
                     awaitingPhysicalVoiceKeyUp = true
@@ -1201,14 +1116,15 @@ final class VoicePressCoordinator {
                 category: "voice",
                 event: "AUDIO_FIRST",
                 gestureID: currentGestureID,
-                fields: ["session_mode": voiceSessionMode == .persistentOpen ? "persistent_open" : "idle"]
+                fields: ["persistent_mode": voiceSessionMode == .persistentArmed ? "persistent_armed" : "idle"]
             )
-            if remoteSegmentTriggerPolicy == .audioOnly {
+            if remoteSegmentTriggerPolicy == .persistentSegmentTrigger {
                 diagnosticLogger?.log(
                     category: "voice",
-                    event: "PERSISTENT_SEGMENT_AUDIO_FIRST",
+                    event: "PERSISTENT_SEGMENT_FIRST_PCM",
                     gestureID: currentGestureID,
-                    fields: ["owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none"]
+                    key: persistentSegmentTriggerKey,
+                    fields: ["mode": "persistent_armed"]
                 )
             }
         }
@@ -1235,7 +1151,7 @@ final class VoicePressCoordinator {
     /// End the current transport segment while retaining a persistent IME
     /// session. A transport loss is a segment boundary, never a session tap.
     func handleTransportLoss(deviceRemoved: Bool = false) {
-        guard voiceSessionMode == .persistentOpen else {
+        guard voiceSessionMode == .persistentArmed else {
             stopCurrentVoiceStatePreservingDeferredRepress()
             return
         }
@@ -1274,7 +1190,7 @@ final class VoicePressCoordinator {
             if deviceRemoved {
                 // A removed HID device cannot deliver its matching key-up.
                 // Its suppression owner is explicitly reset after audio drain.
-                resetAudioOnlyHardwareTriggerOnDrain = true
+                resetPersistentHardwareTriggerOnDrain = true
                 physicalUpSessionID = sessionID
                 awaitingPhysicalVoiceKeyUp = false
                 let physicalUpAt = Date()
@@ -1303,7 +1219,7 @@ final class VoicePressCoordinator {
     private func stopCurrentVoiceState(preservingDeferredRepress: Bool) {
         cancelPendingPersistentToggle(reason: "voice-stop")
         let shouldResetSuppressedHardwareTrigger =
-            remoteSegmentTriggerPolicy == .audioOnly && audioOnlyHardwareTriggerSuppressed
+            remoteSegmentTriggerPolicy == .persistentSegmentTrigger && persistentHardwareTriggerSuppressed
         holdWorkItem?.cancel()
         holdWorkItem = nil
         tailWorkItem?.cancel()
@@ -1321,10 +1237,10 @@ final class VoicePressCoordinator {
         shortInputUsesLocalMicrophone = false
         shortInputTogglesPersistentVoiceSession = false
         voiceSessionMode = .idle
-        persistentSessionTriggerOwnerKey = nil
+        persistentSegmentTriggerKey = nil
         remoteSegmentTriggerPolicy = .momentaryTrigger
-        audioOnlyHardwareTriggerSuppressed = false
-        resetAudioOnlyHardwareTriggerOnDrain = false
+        persistentHardwareTriggerSuppressed = false
+        resetPersistentHardwareTriggerOnDrain = false
         let stoppedSessionID = gestureID
         if let currentGestureID = gestureID {
             if shouldResetSuppressedHardwareTrigger {
@@ -1377,12 +1293,12 @@ final class VoicePressCoordinator {
         shortInputTogglesPersistentVoiceSession = false
         VoiceTimingLogger.mark("HOLD_CONFIRMED", sessionID: currentGestureID)
         VoiceTimingLogger.mark("BLE_START_REQUEST", sessionID: currentGestureID)
-        if remoteSegmentTriggerPolicy == .audioOnly, usesHardwareOptionPath {
-            audioOnlyHardwareTriggerSuppressed =
-                onHardwareOptionGateSuppressForAudioOnly?(currentGestureID) ?? false
-            if !audioOnlyHardwareTriggerSuppressed {
+        if remoteSegmentTriggerPolicy == .persistentSegmentTrigger, usesHardwareOptionPath {
+            persistentHardwareTriggerSuppressed =
+                onHardwareOptionGateSuppressForPersistentSegment?(currentGestureID) ?? false
+            if !persistentHardwareTriggerSuppressed {
                 print(
-                    "[PRESS] audio-only trigger suppression transfer unavailable; "
+                    "[PRESS] mapped trigger suppression unavailable; "
                         + "keeping the mapped edge behind its active gate"
                 )
             }
@@ -1408,21 +1324,52 @@ final class VoicePressCoordinator {
         guard mode == .holding, !longInputStarted else { return }
         longInputStarted = true
         guard let currentGestureID = gestureID else { return }
-        if remoteSegmentTriggerPolicy == .audioOnly {
+        if remoteSegmentTriggerPolicy == .persistentSegmentTrigger {
+            let triggerKey = persistentSegmentTriggerKey
+            let triggerDownEmitted = triggerKey.map {
+                syntheticOptionTrigger.sendDown(
+                    sessionID: currentGestureID,
+                    key: $0,
+                    purpose: "persistent_segment"
+                )
+            } ?? false
+            if triggerDownEmitted, let triggerKey {
+                VoiceTimingLogger.mark("PERSISTENT_TRIGGER_DOWN_EMITTED", sessionID: currentGestureID)
+                diagnosticLogger?.log(
+                    category: "voice",
+                    event: "PERSISTENT_SEGMENT_TRIGGER_DOWN",
+                    gestureID: currentGestureID,
+                    key: triggerKey,
+                    fields: [
+                        "purpose": "persistent_segment",
+                        "first_pcm": true,
+                        "transaction_id": currentGestureID.uuidString,
+                    ]
+                )
+            } else {
+                diagnosticLogger?.log(
+                    category: "voice",
+                    event: "PERSISTENT_SEGMENT_TRIGGER_FAILED",
+                    gestureID: currentGestureID,
+                    key: triggerKey,
+                    fields: ["first_pcm": true, "reason": "down_not_emitted"]
+                )
+            }
             diagnosticLogger?.log(
                 category: "voice",
                 event: "PERSISTENT_SEGMENT_BEGIN",
                 gestureID: currentGestureID,
-                key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
+                key: triggerKey,
                 fields: [
-                    "owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
-                    "momentary_physical_key": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
-                    "policy": "audio_only",
-                    "trigger_edge_emitted": false,
+                    "mode": "persistent_armed",
+                    "persistent_segment_key": triggerKey?.rawValue ?? "none",
+                    "physical_momentary_key": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
+                    "trigger_down_emitted": triggerDownEmitted,
+                    "transaction_closed": false,
                     "first_pcm": true,
                 ]
             )
-            print("[PRESS] persistent IME segment audio ready; no trigger edge")
+            print("[PRESS] Persistent segment audio ready; trigger down=\(triggerDownEmitted)")
         } else if usesHardwareOptionPath {
             print("[PRESS] LONG audio ready → Option DOWN; source=remote")
             print("[PRESS] LONG uses hardware-held \(syntheticOptionTrigger.momentaryVoiceTriggerKey.displayName)")
@@ -1560,7 +1507,7 @@ final class VoicePressCoordinator {
             event: "OUTPUT_DRAIN_BEGIN",
             gestureID: sessionID,
             fields: [
-                "session_mode": voiceSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                "persistent_mode": voiceSessionMode == .persistentArmed ? "persistent_armed" : "idle",
                 "tail_pending": tailWorkItem != nil,
             ]
         )
@@ -1576,7 +1523,7 @@ final class VoicePressCoordinator {
                 category: "voice",
                 event: "OUTPUT_DRAIN_COMPLETE",
                 gestureID: sessionID,
-                fields: ["session_mode": self.voiceSessionMode == .persistentOpen ? "persistent_open" : "idle"]
+                fields: ["persistent_mode": self.voiceSessionMode == .persistentArmed ? "persistent_armed" : "idle"]
             )
             self.completeLongInputIfReady(sessionID: sessionID)
         }
@@ -1599,11 +1546,15 @@ final class VoicePressCoordinator {
         tailWorkItem = nil
         tailSessionID = nil
         VoiceTimingLogger.mark("OPTION_UP_REQUESTED", sessionID: sessionID)
-        if remoteSegmentTriggerPolicy == .audioOnly {
-            _ = syntheticOptionTrigger.abort(sessionID: sessionID)
+        if remoteSegmentTriggerPolicy == .persistentSegmentTrigger {
+            let triggerKey = persistentSegmentTriggerKey
+            let triggerUpEmitted = syntheticOptionTrigger.sendUp(sessionID: sessionID)
+            if !triggerUpEmitted {
+                _ = syntheticOptionTrigger.abort(sessionID: sessionID)
+            }
             if usesHardwareOptionPath {
-                if audioOnlyHardwareTriggerSuppressed {
-                    if resetAudioOnlyHardwareTriggerOnDrain {
+                if persistentHardwareTriggerSuppressed {
+                    if resetPersistentHardwareTriggerOnDrain {
                         onHardwareOptionGateResetSuppression?(sessionID)
                     } else {
                         onHardwareOptionGateOutputDrained?(sessionID)
@@ -1612,14 +1563,18 @@ final class VoicePressCoordinator {
                     onHardwareOptionGateCancel?(sessionID)
                 }
             }
-            print("[PRESS] persistent IME segment ended without trigger edge")
+            print("[PRESS] Persistent segment complete; trigger up=\(triggerUpEmitted)")
             diagnosticLogger?.log(
                 category: "voice",
                 event: "PERSISTENT_SEGMENT_COMPLETE",
                 gestureID: sessionID,
+                key: triggerKey,
                 fields: [
-                    "owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
-                    "session_remains_open": voiceSessionMode == .persistentOpen,
+                    "mode": voiceSessionMode == .persistentArmed ? "persistent_armed" : "idle",
+                    "persistent_segment_key": triggerKey?.rawValue ?? "none",
+                    "trigger_up_emitted": triggerUpEmitted,
+                    "transaction_closed": !syntheticOptionTrigger.isOptionDown,
+                    "transaction_id": sessionID.uuidString,
                 ]
             )
         } else if usesHardwareOptionPath {
@@ -1651,8 +1606,9 @@ final class VoicePressCoordinator {
         shortInputUsesLocalMicrophone = false
         shortInputTogglesPersistentVoiceSession = false
         remoteSegmentTriggerPolicy = .momentaryTrigger
-        audioOnlyHardwareTriggerSuppressed = false
-        resetAudioOnlyHardwareTriggerOnDrain = false
+        persistentSegmentTriggerKey = nil
+        persistentHardwareTriggerSuppressed = false
+        resetPersistentHardwareTriggerOnDrain = false
         if mode != .idle {
             setMode(.idle)
         }
@@ -1662,22 +1618,27 @@ final class VoicePressCoordinator {
     }
 
     private func completeVoiceRouteWithoutAudio(sessionID: UUID) {
-        if remoteSegmentTriggerPolicy == .audioOnly {
+        if remoteSegmentTriggerPolicy == .persistentSegmentTrigger {
+            let triggerKey = persistentSegmentTriggerKey
             diagnosticLogger?.log(
                 category: "voice",
                 event: "PERSISTENT_SEGMENT_COMPLETE",
                 gestureID: sessionID,
+                key: triggerKey,
                 fields: [
-                    "owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none",
-                    "session_remains_open": voiceSessionMode == .persistentOpen,
+                    "mode": voiceSessionMode == .persistentArmed ? "persistent_armed" : "idle",
+                    "persistent_segment_key": triggerKey?.rawValue ?? "none",
+                    "trigger_down_emitted": false,
+                    "trigger_up_emitted": false,
+                    "transaction_closed": true,
                     "first_pcm": false,
                 ]
             )
         }
-        if remoteSegmentTriggerPolicy == .audioOnly,
+        if remoteSegmentTriggerPolicy == .persistentSegmentTrigger,
            usesHardwareOptionPath,
-           audioOnlyHardwareTriggerSuppressed {
-            if resetAudioOnlyHardwareTriggerOnDrain {
+           persistentHardwareTriggerSuppressed {
+            if resetPersistentHardwareTriggerOnDrain {
                 onHardwareOptionGateResetSuppression?(sessionID)
             } else {
                 onHardwareOptionGateOutputDrained?(sessionID)
@@ -1700,8 +1661,9 @@ final class VoicePressCoordinator {
         shortInputUsesLocalMicrophone = false
         shortInputTogglesPersistentVoiceSession = false
         remoteSegmentTriggerPolicy = .momentaryTrigger
-        audioOnlyHardwareTriggerSuppressed = false
-        resetAudioOnlyHardwareTriggerOnDrain = false
+        persistentSegmentTriggerKey = nil
+        persistentHardwareTriggerSuppressed = false
+        resetPersistentHardwareTriggerOnDrain = false
         VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
         VoiceTimingLogger.end(sessionID: sessionID)
         scheduleDeferredRepressActivation()
@@ -1757,7 +1719,7 @@ final class VoicePressCoordinator {
             fields: [
                 "result": result,
                 "held_ms": Int(heldDuration * 1000),
-                "policy": policy == .audioOnly ? "audio_only" : "momentary_trigger",
+                "policy": policy == .persistentSegmentTrigger ? "persistent_segment_trigger" : "momentary_trigger",
             ]
         )
     }
@@ -1766,13 +1728,17 @@ final class VoicePressCoordinator {
         sessionID: UUID,
         policy: RemoteSegmentTriggerPolicy
     ) {
-        if policy == .audioOnly {
+        if policy == .persistentSegmentTrigger {
             diagnosticLogger?.log(
                 category: "voice",
                 event: "PERSISTENT_SEGMENT_RELEASE",
                 gestureID: sessionID,
-                key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
-                fields: ["owner_key": persistentSessionTriggerOwnerKey?.rawValue ?? "none"]
+                key: persistentSegmentTriggerKey,
+                fields: [
+                    "persistent_segment_key": persistentSegmentTriggerKey?.rawValue ?? "none",
+                    "physical_momentary_key": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
+                    "tail_pending": tailWorkItem != nil,
+                ]
             )
         } else {
             diagnosticLogger?.log(
@@ -2040,11 +2006,10 @@ final class VoiceKeyFilter {
     ) -> Bool {
         cancelSuppressedTriggerReleaseCompletion()
         let transferredShortTapDiscard =
-            optionGate.transferShortTapDiscardToAudioOnlySuppression(sessionID: gestureID)
+            optionGate.transferShortTapDiscardToSuppressedTriggerOwnership(sessionID: gestureID)
         guard transferredShortTapDiscard || optionGate.suppress(sessionID: gestureID) else {
             return false
         }
-        _ = syntheticOptionTrigger.abort(sessionID: gestureID)
         deferredOptionDownSeen = false
         deferredOptionUpSeen = false
         deferredOptionDownEvents.removeAll(keepingCapacity: true)
@@ -2217,17 +2182,15 @@ final class VoiceKeyFilter {
         suppressedTriggerReleaseCompletionToken = nil
     }
 
-    /// Emit the persistent-session semantic tap while taking ownership of all
-    /// physical mapped edges for a bounded quiet window. The physical gate is
-    /// discarded even when no mapped edge arrived before raw HID-up.
+    /// Consume the physical mapped edge for an internal Persistent toggle.
+    /// The physical gate is discarded even when no mapped edge arrived before
+    /// raw HID-up. This method never emits an external trigger.
     @discardableResult
-    func emitPersistentShortTap(
+    func suppressPersistentModeToggle(
         gestureID: UUID,
-        reason: String,
-        triggerKey: VoiceTriggerKey,
-        purpose: String = "persistent_toggle"
-    ) -> PersistentShortTapDispatchResult {
-        if let waitingOn = optionGate.audioOnlySuppressionOwnerID {
+        reason: String
+    ) -> PersistentModeToggleDispatchResult {
+        if let waitingOn = optionGate.suppressedMappedTriggerOwnerID {
             return .deferred(waitingOn: waitingOn)
         }
         guard optionGate.beginShortTapDiscard(sessionID: gestureID) else {
@@ -2251,41 +2214,40 @@ final class VoiceKeyFilter {
         deferredOptionUpEvents.removeAll(keepingCapacity: true)
         diagnosticLogger?.log(
             category: "filter",
-            event: "OPTION_GATE_SHORT_DISCARD",
+            event: "PERSISTENT_MODE_MAPPED_EDGE_SUPPRESS",
             gestureID: gestureID,
-            key: triggerKey,
-            fields: ["reason": reason]
+            key: momentaryVoiceTriggerKey,
+            fields: ["reason": reason, "external_trigger_edges": 0]
         )
         scheduleSuppressedTriggerReleaseCompletion(sessionID: gestureID)
-        let emitted = syntheticOptionTrigger.sendTap(
-            sessionID: gestureID,
-            key: triggerKey,
-            purpose: purpose
-        )
         print(
-            "[VOICE] persistent short trigger \(emitted ? "emitted" : "failed") "
+            "[VOICE] Persistent mode mapped edge suppressed "
                 + "gesture=\(gestureID.uuidString) reason=\(reason)"
         )
-        return emitted ? .emitted : .failed
+        return .suppressed
     }
 
     @discardableResult
-    func emitDeferredPersistentShortTap(
-        gestureID: UUID,
-        triggerKey: VoiceTriggerKey,
-        purpose: String
-    ) -> Bool {
+    func suppressDeferredPersistentModeToggle(gestureID: UUID) -> Bool {
         guard optionGate.activeSessionID == nil,
-              optionGate.suppressedSessionID == nil,
-              syntheticOptionTrigger.activeSessionID == gestureID,
-              !syntheticOptionTrigger.isOptionDown else {
+              optionGate.suppressedSessionID == nil else {
             return false
         }
-        return syntheticOptionTrigger.sendTap(
-            sessionID: gestureID,
-            key: triggerKey,
-            purpose: purpose
+        guard optionGate.beginShortTapDiscard(sessionID: gestureID) else { return false }
+        cancelSuppressedTriggerReleaseCompletion()
+        deferredOptionDownSeen = false
+        deferredOptionUpSeen = false
+        deferredOptionDownEvents.removeAll(keepingCapacity: true)
+        deferredOptionUpEvents.removeAll(keepingCapacity: true)
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "PERSISTENT_MODE_MAPPED_EDGE_SUPPRESS",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey,
+            fields: ["reason": "deferred-after-prior-owner", "external_trigger_edges": 0]
         )
+        scheduleSuppressedTriggerReleaseCompletion(sessionID: gestureID)
+        return true
     }
 
     /// HIDMonitor 活跃时跳过语音键处理（防止双重触发）。
@@ -3043,8 +3005,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             fields: [
                 "old": oldKey.rawValue,
                 "new": newKey.rawValue,
-                "session_mode": voicePress.persistentSessionActiveForTesting ? "persistent_open" : "idle",
-                "session_owner": voicePress.persistentSessionTriggerOwnerKeyForTesting?.rawValue ?? "none",
+                "persistent_mode": voicePress.persistentModeArmedForTesting ? "persistent_armed" : "idle",
+                "persistent_segment_key": voicePress.persistentSegmentTriggerKeyForTesting?.rawValue ?? "none",
             ]
         )
         guard !voiceTriggerRuntimeLocked else {
@@ -3081,8 +3043,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "old": oldKey.rawValue,
                 "new": newKey.rawValue,
                 "configured_key_changed": true,
-                "session_owner": voicePress.persistentSessionTriggerOwnerKeyForTesting?.rawValue ?? "none",
-                "open_owner_unchanged": voicePress.persistentSessionActiveForTesting,
+                "persistent_segment_key": voicePress.persistentSegmentTriggerKeyForTesting?.rawValue ?? "none",
+                "persistent_armed_unchanged": voicePress.persistentModeArmedForTesting,
             ]
         )
         completion(.applied)
@@ -3743,10 +3705,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 reason: "remote-audio-ready"
             )
         }
-        voicePress.onHardwareOptionGateSuppressForAudioOnly = { [weak self] gestureID in
+        voicePress.onHardwareOptionGateSuppressForPersistentSegment = { [weak self] gestureID in
             self?.filter.suppressDeferredHardwareTrigger(
                 gestureID: gestureID,
-                reason: "persistent-ime-audio-only"
+                reason: "persistent-segment"
             ) ?? false
         }
         voicePress.onHardwareOptionGateResetSuppression = { [weak self] gestureID in
@@ -3761,20 +3723,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 reason: "short-configured-trigger"
             )
         }
-        voicePress.onPersistentSessionTriggerTap = { [weak self] gestureID, triggerKey, purpose in
-            self?.filter.emitPersistentShortTap(
+        voicePress.onPersistentModeToggle = { [weak self] gestureID in
+            self?.filter.suppressPersistentModeToggle(
                 gestureID: gestureID,
-                reason: "persistent-session-toggle",
-                triggerKey: triggerKey,
-                purpose: purpose
+                reason: "persistent-mode-toggle"
             ) ?? .failed
         }
-        voicePress.onDeferredPersistentSessionTriggerTap = { [weak self] gestureID, triggerKey, purpose in
-            self?.filter.emitDeferredPersistentShortTap(
-                gestureID: gestureID,
-                triggerKey: triggerKey,
-                purpose: purpose
-            ) ?? false
+        voicePress.onDeferredPersistentModeToggle = { [weak self] gestureID in
+            self?.filter.suppressDeferredPersistentModeToggle(gestureID: gestureID) ?? false
         }
         filter.onSuppressedHardwareTriggerSafelyClosed = { [weak self] ownerID in
             self?.voicePress.suppressedHardwareGateDidClose(ownerID: ownerID)

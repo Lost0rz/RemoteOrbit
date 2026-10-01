@@ -188,13 +188,14 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
         )
     }
 
-    func testPersistentCloseDiagnosticUsesFrozenOpenOwnerAfterReconfiguration() throws {
+    func testPersistentModeDiagnosticsDescribeInternalArmAndDisarmWithoutTriggerTap() throws {
         let fileURL = temporaryLogURL()
         defer { try? FileManager.default.removeItem(at: fileURL) }
         let logger = makeLogger(fileURL: fileURL)
         logger.startRun()
+        var emitted: [(VoiceTriggerKey, Bool)] = []
         let trigger = VoiceOptionTrigger(
-            keyedEventSink: { _, _ in },
+            keyedEventSink: { key, down in emitted.append((key, down)) },
             diagnosticLogger: logger
         )
         let press = VoicePressCoordinator(
@@ -204,19 +205,86 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
 
         XCTAssertTrue(press.configurePersistentSessionTriggerKey(.rightOption))
         shortPersistentToggle(press)
-        XCTAssertEqual(press.persistentSessionTriggerOwnerKeyForTesting, .rightOption)
         XCTAssertTrue(press.configurePersistentSessionTriggerKey(.leftOption))
         shortPersistentToggle(press)
 
         logger.flush()
-        let changes = try records(at: fileURL).filter {
-            $0["event"] as? String == "PERSISTENT_STATE_CHANGE"
+        let events = try records(at: fileURL)
+        let armed = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_MODE_ARMED"
+        })
+        let disarmed = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_MODE_DISARMED"
+        })
+        XCTAssertEqual(armed["mode"] as? String, "persistent_armed")
+        XCTAssertEqual(disarmed["mode"] as? String, "idle")
+        XCTAssertEqual(armed["external_trigger_edges"] as? Int, 0)
+        XCTAssertEqual(disarmed["external_trigger_edges"] as? Int, 0)
+        XCTAssertTrue(emitted.isEmpty)
+        XCTAssertFalse(events.contains {
+            ["PERSISTENT_SEGMENT_TRIGGER_DOWN"].contains(
+                $0["event"] as? String ?? ""
+            )
+        })
+    }
+
+    func testPersistentSegmentDiagnosticsBracketOneCapturedTriggerTransaction() throws {
+        let fileURL = temporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let logger = makeLogger(fileURL: fileURL)
+        logger.startRun()
+        var emitted: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(
+            keyedEventSink: { key, down in emitted.append((key, down)) },
+            diagnosticLogger: logger
+        )
+        let press = VoicePressCoordinator(
+            optionTrigger: trigger,
+            diagnosticLogger: logger
+        )
+        press.onRemoteOutputDrain = { _, completion in completion() }
+        XCTAssertTrue(press.configurePersistentSessionTriggerKey(.rightCommand))
+        shortPersistentToggle(press)
+
+        let gestureID = UUID()
+        XCTAssertTrue(press.keyDown(
+            sessionID: gestureID,
+            togglesPersistentVoiceSession: true
+        ))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+        press.setRemoteAudioAvailable()
+        XCTAssertTrue(press.keyUp())
+        press.finishLongInput(sessionID: gestureID)
+        logger.flush()
+
+        let events = try records(at: fileURL).filter {
+            $0["gesture_id"] as? String == gestureID.uuidString
         }
-        XCTAssertEqual(changes.count, 2)
-        XCTAssertEqual(changes[0]["to"] as? String, "persistent_open")
-        XCTAssertEqual(changes[0]["owner_key"] as? String, "right_option")
-        XCTAssertEqual(changes[1]["closing_key"] as? String, "right_option")
-        XCTAssertEqual(changes[1]["to"] as? String, "idle")
+        let eventNames = events.compactMap { $0["event"] as? String }
+        let firstPCM = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SEGMENT_FIRST_PCM"
+        })
+        let down = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SEGMENT_TRIGGER_DOWN"
+        })
+        let begin = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SEGMENT_BEGIN"
+        })
+        let complete = try XCTUnwrap(events.first {
+            $0["event"] as? String == "PERSISTENT_SEGMENT_COMPLETE"
+        })
+        XCTAssertLessThan(try XCTUnwrap(eventNames.firstIndex(of: "PERSISTENT_SEGMENT_FIRST_PCM")),
+                          try XCTUnwrap(eventNames.firstIndex(of: "PERSISTENT_SEGMENT_TRIGGER_DOWN")))
+        XCTAssertEqual(firstPCM["key"] as? String, VoiceTriggerKey.rightCommand.rawValue)
+        XCTAssertEqual(down["transaction_id"] as? String, gestureID.uuidString)
+        XCTAssertEqual(begin["trigger_down_emitted"] as? Bool, true)
+        XCTAssertEqual(begin["transaction_closed"] as? Bool, false)
+        XCTAssertEqual(complete["trigger_up_emitted"] as? Bool, true)
+        XCTAssertEqual(complete["transaction_closed"] as? Bool, true)
+        XCTAssertEqual(complete["transaction_id"] as? String, gestureID.uuidString)
+        XCTAssertEqual(emitted.map(\.0), [.rightCommand, .rightCommand])
+        XCTAssertEqual(emitted.map(\.1), [true, false])
+        press.stop()
     }
 
     func testMappedTriggerMismatchIsLoggedWithObservedAndConfiguredKeys() throws {

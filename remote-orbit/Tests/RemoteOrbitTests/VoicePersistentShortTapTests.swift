@@ -14,36 +14,31 @@ final class VoicePersistentShortTapTests: XCTestCase {
         let press: VoicePressCoordinator
     }
 
-    func testNoOptionEdgeShortOpenEmitsOneConfiguredSyntheticTap() {
+    func testNoOptionEdgeShortOpenArmsInternallyWithoutSyntheticTap() {
         let harness = makeHarness(key: .rightOption)
 
         let gestureID = shortTap(harness, usesHardwareOption: true)
 
-        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
-        XCTAssertEqual(harness.recorder.values.map(\.0), [.rightOption, .rightOption])
-        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false])
+        XCTAssertTrue(harness.press.persistentModeArmedForTesting)
+        XCTAssertTrue(harness.recorder.values.isEmpty)
         XCTAssertEqual(harness.filter.suppressedHardwareTriggerSessionID, gestureID)
         stop(harness)
     }
 
-    func testNoOptionEdgeShortCloseEmitsOneAdditionalConfiguredTap() {
+    func testNoOptionEdgeShortCloseDisarmsInternallyWithoutSyntheticTap() {
         let harness = makeHarness(key: .leftControl)
         _ = shortTap(harness, usesHardwareOption: false)
-        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
+        XCTAssertTrue(harness.press.persistentModeArmedForTesting)
         waitForCoordinatorTiming(0.20)
 
         _ = shortTap(harness, usesHardwareOption: true)
 
-        XCTAssertFalse(harness.press.persistentSessionActiveForTesting)
-        XCTAssertEqual(
-            harness.recorder.values.map(\.0),
-            [.leftControl, .leftControl, .leftControl, .leftControl]
-        )
-        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false, true, false])
+        XCTAssertFalse(harness.press.persistentModeArmedForTesting)
+        XCTAssertTrue(harness.recorder.values.isEmpty)
         stop(harness)
     }
 
-    func testCapturedPhysicalMappedPairIsDiscardedInFavorOfSyntheticTap() {
+    func testCapturedPhysicalMappedPairIsDiscardedWithoutSyntheticTap() {
         let harness = makeHarness(key: .rightOption)
         let gestureID = UUID()
         XCTAssertTrue(harness.press.keyDown(
@@ -70,8 +65,7 @@ final class VoicePersistentShortTapTests: XCTestCase {
         XCTAssertTrue(harness.press.keyUp())
         waitForCoordinatorTiming(0.08)
 
-        XCTAssertEqual(harness.recorder.values.map(\.0), [.rightOption, .rightOption])
-        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false])
+        XCTAssertTrue(harness.recorder.values.isEmpty)
         XCTAssertEqual(harness.filter.suppressedHardwareTriggerSessionID, gestureID)
         stop(harness)
     }
@@ -79,7 +73,7 @@ final class VoicePersistentShortTapTests: XCTestCase {
     func testLateMappedEdgesAfterShortResolutionAreSuppressed() {
         let harness = makeHarness(key: .rightCommand)
         _ = shortTap(harness, usesHardwareOption: true)
-        let edgeCountAfterSemanticTap = harness.recorder.values.count
+        let edgeCountAfterModeToggle = harness.recorder.values.count
         XCTAssertNotNil(harness.filter.suppressedHardwareTriggerSessionID)
 
         XCTAssertTrue(suppresses(harness.filter, key: .rightCommand, type: .keyDown))
@@ -96,7 +90,7 @@ final class VoicePersistentShortTapTests: XCTestCase {
             flags: CGEventFlags(rawValue: 0)
         ))
         XCTAssertTrue(suppresses(harness.filter, key: .rightCommand, type: .keyUp))
-        XCTAssertEqual(harness.recorder.values.count, edgeCountAfterSemanticTap)
+        XCTAssertEqual(harness.recorder.values.count, edgeCountAfterModeToggle)
         stop(harness)
     }
 
@@ -139,13 +133,12 @@ final class VoicePersistentShortTapTests: XCTestCase {
         XCTAssertTrue(VoicePressCoordinator.isLongPress(heldDuration: 0.31))
     }
 
-    func testAllConfiguredKeysProduceOneTapAndDiscardLateMappedEdges() {
+    func testAllConfiguredKeysSuppressLateMappedEdgesWithoutSyntheticTap() {
         for key in VoiceTriggerKey.allCases {
             let harness = makeHarness(key: key)
             _ = shortTap(harness, usesHardwareOption: true)
 
-            XCTAssertEqual(harness.recorder.values.map(\.0), [key, key], "key=\(key)")
-            XCTAssertEqual(harness.recorder.values.map(\.1), [true, false], "key=\(key)")
+            XCTAssertTrue(harness.recorder.values.isEmpty, "key=\(key)")
             XCTAssertTrue(suppresses(harness.filter, key: key, type: .keyDown), "key=\(key)")
             XCTAssertTrue(suppresses(
                 harness.filter,
@@ -164,7 +157,7 @@ final class VoicePersistentShortTapTests: XCTestCase {
         }
     }
 
-    func testFailedShortOpenDoesNotCommitPersistentSession() {
+    func testExternalTriggerAbortDoesNotBlockInternalPersistentModeToggles() {
         let harness = makeHarness(key: .rightOption)
         let gestureID = UUID()
         XCTAssertTrue(harness.press.keyDown(
@@ -177,41 +170,31 @@ final class VoicePersistentShortTapTests: XCTestCase {
         XCTAssertTrue(harness.press.keyUp())
         waitForCoordinatorTiming(0.08)
 
-        XCTAssertFalse(harness.press.persistentSessionActiveForTesting)
-        XCTAssertNil(harness.press.persistentSessionTriggerOwnerKeyForTesting)
+        XCTAssertTrue(harness.press.persistentModeArmedForTesting)
         XCTAssertTrue(harness.recorder.values.isEmpty)
         XCTAssertNil(harness.trigger.activeSessionID)
-        stop(harness)
-    }
-
-    func testFailedShortCloseLeavesPersistentSessionOpen() {
-        let harness = makeHarness(key: .leftCommand)
-        _ = shortTap(harness, usesHardwareOption: false)
-        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
-        XCTAssertEqual(harness.press.persistentSessionTriggerOwnerKeyForTesting, .leftCommand)
         waitForCoordinatorTiming(0.20)
 
-        let gestureID = UUID()
+        let closeGestureID = UUID()
         XCTAssertTrue(harness.press.keyDown(
-            sessionID: gestureID,
+            sessionID: closeGestureID,
             togglesPersistentVoiceSession: true,
             usesHardwareOption: true
         ))
-        _ = harness.trigger.abort(sessionID: gestureID)
+        _ = harness.trigger.abort(sessionID: closeGestureID)
 
         XCTAssertTrue(harness.press.keyUp())
         waitForCoordinatorTiming(0.08)
 
-        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
-        XCTAssertEqual(harness.press.persistentSessionTriggerOwnerKeyForTesting, .leftCommand)
+        XCTAssertFalse(harness.press.persistentModeArmedForTesting)
+        XCTAssertTrue(harness.recorder.values.isEmpty)
         stop(harness)
     }
 
     func testPersistentShortCloseWaitsForPriorAudioSuppressionOwner() {
         let harness = makeHarness(key: .rightOption)
         let openGestureID = shortTap(harness, usesHardwareOption: false)
-        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
-        XCTAssertEqual(harness.press.persistentSessionTriggerOwnerKeyForTesting, .rightOption)
+        XCTAssertTrue(harness.press.persistentModeArmedForTesting)
         XCTAssertTrue(harness.press.configurePersistentSessionTriggerKey(.leftControl))
         XCTAssertTrue(harness.filter.resetSuppressedHardwareTrigger(
             gestureID: openGestureID,
@@ -219,8 +202,8 @@ final class VoicePersistentShortTapTests: XCTestCase {
         ))
         waitForCoordinatorTiming(0.20)
 
-        let oldAudioOnlyOwner = UUID()
-        harness.filter.beginOptionDeferral(gestureID: oldAudioOnlyOwner)
+        let oldSegmentOwner = UUID()
+        harness.filter.beginOptionDeferral(gestureID: oldSegmentOwner)
         guard let mappedDown = CGEvent(
             keyboardEventSource: nil,
             virtualKey: VoiceTriggerKey.rightOption.cgKeyCode,
@@ -235,14 +218,14 @@ final class VoicePersistentShortTapTests: XCTestCase {
             copiedEvent: mappedDown
         ))
         XCTAssertTrue(harness.filter.suppressDeferredHardwareTrigger(
-            gestureID: oldAudioOnlyOwner,
+            gestureID: oldSegmentOwner,
             reason: "test-audio-only-hold"
         ))
         XCTAssertTrue(harness.filter.armSuppressedHardwareTriggerRelease(
-            gestureID: oldAudioOnlyOwner
+            gestureID: oldSegmentOwner
         ))
         XCTAssertTrue(harness.filter.completeSuppressedHardwareTrigger(
-            gestureID: oldAudioOnlyOwner,
+            gestureID: oldSegmentOwner,
             reason: "test-output-drained"
         ))
 
@@ -263,9 +246,9 @@ final class VoicePersistentShortTapTests: XCTestCase {
         waitForCoordinatorTiming(0.13)
         XCTAssertTrue(harness.press.keyUp())
 
-        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
-        XCTAssertEqual(harness.filter.suppressedHardwareTriggerSessionID, oldAudioOnlyOwner)
-        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false])
+        XCTAssertTrue(harness.press.persistentModeArmedForTesting)
+        XCTAssertEqual(harness.filter.suppressedHardwareTriggerSessionID, oldSegmentOwner)
+        XCTAssertTrue(harness.recorder.values.isEmpty)
         XCTAssertTrue(harness.press.hasPendingPersistentToggleForTesting)
         XCTAssertTrue(
             harness.press.hasActiveVoiceOwnershipForTriggerReconfiguration,
@@ -279,27 +262,23 @@ final class VoicePersistentShortTapTests: XCTestCase {
             usesHardwareOption: true
         ))
         XCTAssertEqual(harness.press.currentStateForTesting, .idle)
-        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false])
+        XCTAssertTrue(harness.recorder.values.isEmpty)
 
         XCTAssertTrue(harness.filter.completeSuppressedHardwareTriggerQuietPeriod(
-            gestureID: oldAudioOnlyOwner
+            gestureID: oldSegmentOwner
         ))
         waitForCoordinatorTiming(0.08)
 
-        XCTAssertFalse(harness.press.persistentSessionActiveForTesting)
+        XCTAssertFalse(harness.press.persistentModeArmedForTesting)
         XCTAssertFalse(harness.press.hasPendingPersistentToggleForTesting)
-        XCTAssertNil(harness.press.persistentSessionTriggerOwnerKeyForTesting)
-        XCTAssertNil(harness.filter.suppressedHardwareTriggerSessionID)
-        XCTAssertEqual(harness.recorder.values.map(\.0), [
-            .rightOption, .rightOption, .rightOption, .rightOption,
-        ])
-        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false, true, false])
-        XCTAssertFalse(harness.filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertNotNil(harness.filter.suppressedHardwareTriggerSessionID)
+        XCTAssertTrue(harness.recorder.values.isEmpty)
+        XCTAssertTrue(harness.filter.hasActiveHardwareTriggerOwnership)
         XCTAssertFalse(harness.filter.completeSuppressedHardwareTriggerQuietPeriod(
-            gestureID: oldAudioOnlyOwner
+            gestureID: oldSegmentOwner
         ))
-        harness.press.suppressedHardwareGateDidClose(ownerID: oldAudioOnlyOwner)
-        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false, true, false])
+        harness.press.suppressedHardwareGateDidClose(ownerID: oldSegmentOwner)
+        XCTAssertTrue(harness.recorder.values.isEmpty)
         stop(harness)
     }
 
@@ -335,8 +314,7 @@ final class VoicePersistentShortTapTests: XCTestCase {
         ))
 
         XCTAssertFalse(harness.press.hasPendingPersistentToggleForTesting)
-        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
-        XCTAssertEqual(harness.press.persistentSessionTriggerOwnerKeyForTesting, .rightOption)
+        XCTAssertTrue(harness.press.persistentModeArmedForTesting)
         XCTAssertNil(harness.trigger.activeSessionID)
         harness.press.suppressedHardwareGateDidClose(ownerID: oldOwner)
         XCTAssertEqual(harness.recorder.values.map(\.1), edgesBeforeInvalidation.map(\.1))
@@ -351,7 +329,7 @@ final class VoicePersistentShortTapTests: XCTestCase {
         harness.press.handleTransportLoss(deviceRemoved: true)
 
         XCTAssertFalse(harness.press.hasPendingPersistentToggleForTesting)
-        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
+        XCTAssertTrue(harness.press.persistentModeArmedForTesting)
         XCTAssertNil(harness.filter.suppressedHardwareTriggerSessionID)
         XCTAssertFalse(harness.filter.completeSuppressedHardwareTriggerQuietPeriod(
             gestureID: oldOwner
@@ -364,7 +342,7 @@ final class VoicePersistentShortTapTests: XCTestCase {
     private func prepareDeferredPersistentClose() -> (Harness, UUID) {
         let harness = makeHarness(key: .rightOption)
         let openGestureID = shortTap(harness, usesHardwareOption: false)
-        XCTAssertTrue(harness.press.persistentSessionActiveForTesting)
+        XCTAssertTrue(harness.press.persistentModeArmedForTesting)
         XCTAssertTrue(harness.press.configurePersistentSessionTriggerKey(.leftControl))
         XCTAssertTrue(harness.filter.resetSuppressedHardwareTrigger(
             gestureID: openGestureID,
@@ -412,7 +390,7 @@ final class VoicePersistentShortTapTests: XCTestCase {
         waitForCoordinatorTiming(0.13)
         XCTAssertTrue(harness.press.keyUp())
         XCTAssertTrue(harness.press.hasPendingPersistentToggleForTesting)
-        XCTAssertEqual(harness.recorder.values.map(\.1), [true, false])
+        XCTAssertTrue(harness.recorder.values.isEmpty)
         return (harness, oldOwner)
     }
 
@@ -430,20 +408,14 @@ final class VoicePersistentShortTapTests: XCTestCase {
         press.onHardwareOptionGateShortReplay = { gestureID in
             filter.releaseDeferredOption(gestureID: gestureID, reason: "short-tap-test")
         }
-        press.onPersistentSessionTriggerTap = { gestureID, triggerKey, purpose in
-            filter.emitPersistentShortTap(
+        press.onPersistentModeToggle = { gestureID in
+            filter.suppressPersistentModeToggle(
                 gestureID: gestureID,
                 reason: "persistent-short-tap-test",
-                triggerKey: triggerKey,
-                purpose: purpose
             )
         }
-        press.onDeferredPersistentSessionTriggerTap = { gestureID, triggerKey, purpose in
-            filter.emitDeferredPersistentShortTap(
-                gestureID: gestureID,
-                triggerKey: triggerKey,
-                purpose: purpose
-            )
+        press.onDeferredPersistentModeToggle = { gestureID in
+            filter.suppressDeferredPersistentModeToggle(gestureID: gestureID)
         }
         press.onHardwareOptionGateCancel = {
             filter.cancelDeferredOption(gestureID: $0, reason: "short-tap-test-cleanup")

@@ -174,7 +174,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
     func testActiveControllerVoicePressRejectsChangeWithoutPersistence() {
         let harness = VoiceTriggerRuntimeHarness(persistedKey: .leftOption)
         harness.controller.beginVoicePress()
-        XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .pending)
+        XCTAssertNotEqual(harness.controller.voicePress.currentStateForTesting, .idle)
 
         XCTAssertEqual(apply(.rightCommand, to: harness.controller), .busyActiveHold)
 
@@ -194,7 +194,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             )
         )
         XCTAssertTrue(harness.controller.voicePress.keyUp())
-        XCTAssertTrue(harness.controller.voicePress.persistentSessionActiveForTesting)
+        XCTAssertTrue(harness.controller.voicePress.persistentModeArmedForTesting)
         waitForCoordinatorTiming(0.08)
 
         XCTAssertEqual(apply(.rightCommand, to: harness.controller), .applied)
@@ -209,7 +209,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         harness.controller.voicePress.stop()
     }
 
-    func testPersistentKeyCanChangeWhileOpenAndMomentaryKeyStaysIndependent() {
+    func testPersistentKeyCanChangeWhileArmedIdleAndMomentaryKeyStaysIndependent() {
         let harness = VoiceTriggerRuntimeHarness(
             persistedKey: .leftOption,
             persistedPersistentKey: .rightCommand
@@ -220,12 +220,12 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             togglesPersistentVoiceSession: true
         )
         XCTAssertTrue(harness.controller.voicePress.keyUp())
-        XCTAssertTrue(harness.controller.voicePress.persistentSessionActiveForTesting)
+        XCTAssertTrue(harness.controller.voicePress.persistentModeArmedForTesting)
         waitForCoordinatorTiming(0.08)
 
         XCTAssertEqual(applyPersistent(.leftControl, to: harness.controller), .applied)
         XCTAssertEqual(harness.controller.currentPersistentSessionTriggerKey, .leftControl)
-        XCTAssertEqual(harness.controller.voicePress.persistentSessionTriggerOwnerKeyForTesting, .rightCommand)
+        XCTAssertNil(harness.controller.voicePress.persistentSegmentTriggerKeyForTesting)
         XCTAssertEqual(harness.controller.currentMomentaryVoiceTriggerKey, .leftOption)
         XCTAssertEqual(harness.momentaryPersistenceWriteCount, 0)
         XCTAssertEqual(harness.persistentPersistenceWriteCount, 1)
@@ -282,20 +282,14 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         let press = harness.controller.voicePress
         let filter = harness.filter
         press.onHardwareOptionGateBegin = { filter.beginOptionDeferral(gestureID: $0) }
-        press.onPersistentSessionTriggerTap = { gestureID, key, purpose in
-            filter.emitPersistentShortTap(
+        press.onPersistentModeToggle = { gestureID in
+            filter.suppressPersistentModeToggle(
                 gestureID: gestureID,
                 reason: "runtime-pending-toggle-test",
-                triggerKey: key,
-                purpose: purpose
             )
         }
-        press.onDeferredPersistentSessionTriggerTap = { gestureID, key, purpose in
-            filter.emitDeferredPersistentShortTap(
-                gestureID: gestureID,
-                triggerKey: key,
-                purpose: purpose
-            )
+        press.onDeferredPersistentModeToggle = { gestureID in
+            filter.suppressDeferredPersistentModeToggle(gestureID: gestureID)
         }
         filter.onSuppressedHardwareTriggerSafelyClosed = { [weak press] ownerID in
             press?.suppressedHardwareGateDidClose(ownerID: ownerID)
@@ -311,7 +305,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         ))
         XCTAssertTrue(press.keyUp())
         waitForCoordinatorTiming(0.08)
-        XCTAssertTrue(press.persistentSessionActiveForTesting)
+        XCTAssertTrue(press.persistentModeArmedForTesting)
 
         let oldOwner = UUID()
         filter.beginOptionDeferral(gestureID: oldOwner)
