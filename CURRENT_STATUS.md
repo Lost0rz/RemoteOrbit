@@ -816,6 +816,47 @@ B5/B9 therefore remain PARTIAL/MISSING and must stay explicitly labeled that way
 The repository has no GitHub Actions workflow for this Swift/macOS package, so remote
 GitHub cannot establish a truthful test PASS. Local macOS validation is required.
 
+## Local validation transport blocker
+
+A local validation attempt stopped correctly before checkout/build/test because the
+local machine could not resolve/access `github.com`.
+
+Remote authority was re-verified after that stop:
+
+```text
+CONTROL_HEAD: 7b2d7c4411337e892491f077c30057670ac2cede
+PROBE_HEAD: 8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d
+MAIN_HEAD: 7129ef72949eca956b1d0daddce707d5e417eeed
+PR #18: OPEN + Draft
+PR #17: OPEN + Draft
+REMOTE_HEAD_DRIFT: NO
+```
+
+Local observed blocker:
+
+```text
+github.com DNS resolution failed
+requested control/probe objects unavailable locally
+no validation worktree created
+no tests run
+no product/runtime mutation
+```
+
+This is a transport/authority-fetch blocker, not a probe-code test failure.
+
+Gate state is unchanged:
+
+```text
+DIAGNOSTIC_TEST_GATE: READY_FOR_LOCAL_VALIDATION
+LOCAL_VALIDATION_EXECUTION: BLOCKED_BY_GITHUB_DNS
+NEW_CAPTURE_GATE: BLOCKED
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
+Validation must resume only after the local machine can fetch both exact authority
+objects. Cached/stale refs must not substitute for live refs.
+
 ## Prior quality-audit result
 
 The three-file control plane completed three consecutive PASS rounds on live branch

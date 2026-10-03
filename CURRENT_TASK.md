@@ -486,6 +486,35 @@ Remote validation is limited to source/diff/test-definition audit because this
 repository has no GitHub Actions workflow and remote GitHub cannot execute the
 macOS Swift test suite.
 
+## Local validation network blocker
+
+The first local validation attempt correctly stopped before testing.
+
+Remote authority has been independently re-verified with no drift:
+
+- control: `7b2d7c4411337e892491f077c30057670ac2cede`
+- probe: `8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d`
+- main: `7129ef72949eca956b1d0daddce707d5e417eeed`
+- PR #18: OPEN + Draft
+
+The local blocker is DNS/network access to GitHub. It is not a diagnostic-code
+failure.
+
+### Resume gate
+
+Before any build/test, local validation must prove all of:
+
+1. `github.com` resolves;
+2. the repository remote is reachable;
+3. fetch obtains the exact control/probe commit objects;
+4. live remote branch refs equal the expected SHAs above;
+5. the control files are read from the fetched control HEAD;
+6. the validation worktree is created from the exact probe HEAD and is clean.
+
+If any item fails, stop before build/test.
+
+Network recovery itself must not mutate RemoteOrbit product/runtime state.
+
 ## Completion gate
 
 Step 4 is complete only when all are true:
@@ -519,7 +548,9 @@ internal logging.
 
 ## Next authorized action
 
-Perform local macOS validation of PR #18 HEAD
+Restore local GitHub reachability without changing RemoteOrbit runtime/product
+state. Then re-run the authority-fetch gate and, only if it passes, perform local
+macOS validation of PR #18 HEAD
 `8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d`.
 
 Authorized locally:
