@@ -95,6 +95,23 @@ If PR metadata changes out-of-band:
 The control-plane branch plus CURRENT_TASK remains task authority even if its PR is
 temporarily closed or PR metadata is changed by another session.
 
+
+### Live branch identity is not the same as PR head identity
+
+When a branch is the active authority, resolve its current ref directly from the
+repository branch/ref state.
+
+Do not use a pull request's `head_sha` as a proxy for the live branch HEAD after
+the PR has been closed. A closed PR can retain the head SHA from the moment it was
+closed while the underlying branch continues to advance.
+
+Therefore:
+
+- branch authority checks use the live branch ref;
+- PR head SHA is evidence about the PR snapshot;
+- if they differ, record the difference instead of treating either as an implicit
+  task transition.
+
 ## Evidence vocabulary
 
 Use these labels consistently whenever project state or diagnostic conclusions are
