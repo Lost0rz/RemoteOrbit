@@ -111,61 +111,70 @@ A remote session cannot truthfully list every local worktree, determine whether 
 worktree is dirty, or know whether a local-only commit exists.
 
 
-### Last-known local worktree snapshot — HISTORICAL, not live deletion authority
+### Local worktree lifecycle classification
 
-A local audit captured on 2026-10-03 at 18:28:55 CST reported **13 live worktrees**
-and **10 registered-but-missing paths**. This snapshot is useful for locating the
-closeout surface, but every path must be re-checked live before deletion.
+The latest available Mac-side census was captured on 2026-10-03 at 18:28:55 CST.
+It reported **13 live worktrees** and **10 registered-but-missing paths**.
 
-Last-known live worktrees:
+Lifecycle below classifies the engineering line from accumulated project evidence.
+Deletion is a separate decision: no local path is removed from this remote session,
+and any path with unknown current dirty/local-only state must be rechecked live first.
 
-1. `/Volumes/Jack-Dev/Projects/remoteorbit`
-   - last-known branch: `codex/v0211-nonseize-hid-audit`
-   - last-known HEAD: `48a6d54ffa1a2798ac9ac760673d6406cec6bf12`
-   - last-known state: DIRTY
-2. `/private/tmp/remoteorbit-cross-mode-flight-recorder-minimal`
-3. `/Users/jack7788/.codex/visualizations/2026/09/23/01a0cbbc-b1be-7780-8508-4a842edbad0c/remoteorbit-audio-data-plane-p0-audit`
-4. `/Users/jack7788/Documents/Code/remoteorbit-p0-voice-experiment`
-5. `/Users/jack7788/Documents/Code/RemoteOrbit-v0211-final-corrective`
-6. `/Users/jack7788/Documents/Code/RemoteOrbit-v0212-release`
-7. `/Users/jack7788/Documents/Code/remoteorbit-voice-p0-final`
-8. `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p0`
-9. `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a3`
-10. `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a4`
-11. `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a5`
-12. `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a6`
-13. `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder`
-    - last-known detached checkpoint: `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`
-    - GitHub cannot resolve this SHA; preserve until local-only evidence is checked.
+#### Last-known live worktrees
 
-Last-known registered-but-missing paths:
+| Path | Lifecycle | Delete now? | Evidence / blocker |
+| --- | --- | --- | --- |
+| `/Volumes/Jack-Dev/Projects/remoteorbit` | **SUPERSEDED** | NO | last-known `codex/v0211-nonseize-hid-audit` @ `48a6d54ffa1a2798ac9ac760673d6406cec6bf12`, DIRTY; later accepted main contains the non-seize behavior, but dirty/local-only changes must be audited first |
+| `/private/tmp/remoteorbit-cross-mode-flight-recorder-minimal` | **SUPERSEDED** | NO | historical branch `codex/cross-mode-flight-recorder-minimal` at the `d0a1ab...` forensic baseline; the persistent `RemoteOrbit-flight-recorder` checkpoint replaced this as the retained recorder line; current dirty/local-only state unknown |
+| `/Users/jack7788/.codex/visualizations/2026/09/23/01a0cbbc-b1be-7780-8508-4a842edbad0c/remoteorbit-audio-data-plane-p0-audit` | **SUPERSEDED** | NO | P0 diagnostic line #9 was superseded by merged #10 and P1 closure #12; live worktree status must be refreshed before removal |
+| `/Users/jack7788/Documents/Code/remoteorbit-p0-voice-experiment` | **SUPERSEDED** | NO | historical `codex/v0211-p0-voice-experiment` @ `80ec3adf...`, dirty; its PR #6 line was superseded by merged #7; dirty changes block deletion |
+| `/Users/jack7788/Documents/Code/RemoteOrbit-v0211-final-corrective` | **MERGED** | NO | accepted corrective PR #7 merged; current worktree dirty/untracked/local-only status is not freshly verified |
+| `/Users/jack7788/Documents/Code/RemoteOrbit-v0212-release` | **MERGED** | NO | release PR #8 merged; current worktree dirty/untracked/local-only status is not freshly verified |
+| `/Users/jack7788/Documents/Code/remoteorbit-voice-p0-final` | **SUPERSEDED** | NO | historical `codex/v0211-voice-p0-final` @ `48a6d54...`, dirty; later accepted #7 corrective replaced the line; dirty changes block deletion |
+| `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p0` | **SUPERSEDED** | NO | P0 data-plane line was carried forward by merged #10/#12; current local status must be refreshed |
+| `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a3` | **ABANDONED** | NO | Adaptive Playout / A3 experiment was not productionized and was explicitly excluded from the accepted #10 stage-merge scope; current local status must be refreshed |
+| `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a4` | **MERGED** | NO | P1-A4 receiver-finalization diagnostics are explicitly included in merged #10; current local status must be refreshed |
+| `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a5` | **MERGED** | NO | P1-A5 front-edge observer diagnostics are explicitly included in merged #10; current local status must be refreshed |
+| `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a6` | **MERGED** | NO | P1-A6 closure line became merged PR #12; current local status must be refreshed |
+| `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder` | **ACTIVE** | **KEEP** | latest retained product/forensic evidence worktree; last-known detached clean checkpoint `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`; GitHub cannot resolve this SHA, so it is unique local evidence and must not be deleted |
 
-1. `/private/tmp/remoteorbit-configurable-voice-trigger-key`
-2. `/private/tmp/remoteorbit-cross-mode-voice-flight-recorder`
-3. `/private/tmp/remoteorbit-historical-a-7129`
-4. `/private/tmp/remoteorbit-media-key-suppression-20261001`
-5. `/private/tmp/remoteorbit-mic-disabled-bypass-short-classifier`
-6. `/private/tmp/remoteorbit-p1-stage-merge`
-7. `/private/tmp/remoteorbit-persistent-duplicate-audio-forensics`
-8. `/private/tmp/remoteorbit-persistent-voice-ab-clean`
-9. `/private/tmp/remoteorbit-prewarm-failed-copy`
-10. `/private/tmp/remoteorbit-v0211-baseline`
+The ACTIVE Flight Recorder worktree is retained as evidence only while
+`CURRENT_TASK.md` freezes product mutation. ACTIVE does not authorize new debugging
+during repository closeout.
 
-Do not call any of these local paths deleted, clean, merged, superseded, or abandoned
-from this historical snapshot alone. The owning Mac must refresh branch/HEAD/status/
-local-only-commit evidence first.
+#### Registered-but-missing worktrees
 
-### Historical search target
+These paths were reported missing by Git worktree metadata. Their lifecycle is
+classified from the associated historical line. The registration itself is a prune
+candidate, but a fresh local census must reconfirm that the filesystem path is still
+missing and that the referenced branch/commit is preserved before pruning.
 
-Previously reported context identified:
+| Registered path | Lifecycle | Cleanup decision | Reason |
+| --- | --- | --- | --- |
+| `/private/tmp/remoteorbit-configurable-voice-trigger-key` | **MERGED** | PRUNE CANDIDATE | accepted PR #13 preserves the line |
+| `/private/tmp/remoteorbit-cross-mode-voice-flight-recorder` | **SUPERSEDED** | PRUNE CANDIDATE | later minimal recorder and persistent Flight Recorder replaced this experimental path |
+| `/private/tmp/remoteorbit-historical-a-7129` | **MERGED** | PRUNE CANDIDATE | historical checkout of accepted main baseline `7129ef...` |
+| `/private/tmp/remoteorbit-media-key-suppression-20261001` | **MERGED** | PRUNE CANDIDATE | accepted PR #15 |
+| `/private/tmp/remoteorbit-mic-disabled-bypass-short-classifier` | **MERGED** | PRUNE CANDIDATE | accepted PR #14 |
+| `/private/tmp/remoteorbit-p1-stage-merge` | **MERGED** | PRUNE CANDIDATE | accepted PR #10 |
+| `/private/tmp/remoteorbit-persistent-duplicate-audio-forensics` | **SUPERSEDED** | PRUNE CANDIDATE | persistent Flight Recorder checkpoint was built from the forensic `d0a1ab...` line; the remote forensic branch is retained separately because it contains unique commits |
+| `/private/tmp/remoteorbit-persistent-voice-ab-clean` | **SUPERSEDED** | PRUNE CANDIDATE | later recorder/observer-effect evidence line took over the investigation role |
+| `/private/tmp/remoteorbit-prewarm-failed-copy` | **ABANDONED** | PRUNE CANDIDATE | failed experimental copy; no accepted production authority |
+| `/private/tmp/remoteorbit-v0211-baseline` | **MERGED** | PRUNE CANDIDATE | historical accepted v0.2.11 baseline |
 
-- `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder`
-- last-known HEAD `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`
-- GitHub cannot resolve that SHA.
+### Local deletion blocker
 
-Classification remains **PENDING LOCAL EVIDENCE**. It must not be called ACTIVE,
-MERGED, SUPERSEDED, or ABANDONED until the local census establishes its current
-branch/HEAD/dirty state and whether it contains unique evidence.
+This chat has no direct shell/SSH access to the owning Mac. Therefore it cannot run
+`git worktree remove`, `git worktree prune`, local branch deletion, or inspect the
+current dirty/local-only state.
+
+The next local pass must refresh all 13 live paths and the 10 missing registrations.
+Safe removal is authorized only for entries whose current evidence confirms:
+
+- expected branch/HEAD or preserved successor;
+- no dirty/untracked data needing preservation;
+- no unique local-only commits;
+- no running/runtime dependency on that checkout.
 
 ## Current authority
 
