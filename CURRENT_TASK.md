@@ -106,9 +106,20 @@ Closeout is complete only when:
 7. exactly one ACTIVE development/control line remains;
 8. CURRENT_STATUS records the final state.
 
+## Remote progress
+
+- all 17 PRs classified;
+- #9 re-closed as SUPERSEDED;
+- #16 re-closed as ABANDONED;
+- all 18 remote branches classified;
+- 14 remote branches are DELETE CANDIDATE;
+- remote ref deletion is blocked in this session because no branch/ref delete tool is available;
+- four remote branches are KEEP: `main`, the control-plane branch, and the two unique-evidence no-PR branches.
+
 ## Next authorized step
 
-Perform the remote PR/branch closeout now.
+Run the local read-only worktree census on the owning Mac and complete per-worktree
+classification/deletion. Then delete remote DELETE CANDIDATE refs only after the
+local census proves no retained worktree/evidence still depends on them.
 
-Then run the local read-only worktree census on the owning Mac. Do not resume product
-debugging until repository closeout is complete.
+Do not resume product debugging until repository closeout is complete.
