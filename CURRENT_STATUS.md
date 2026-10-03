@@ -335,21 +335,130 @@ A capture qualifies as a **fresh incident** only if:
 If the failure does not reproduce in the bounded capture attempt, record
 `NO_FRESH_INCIDENT` and stop. Do not compensate by changing the system.
 
+## Fresh incident result
+
+### Authoritative incident
+
+- **FACT — Fresh Incident Gate:** PASS.
+- **FACT — Incident ID:** `fresh-incident-20261003T225236+0800-afudfY`.
+- **FACT — Target gesture:** `3F288F28-81AD-4CC3-96EA-E4B9665D2198`.
+- **FACT — VOICE_PRESS_ENTRY:** 2026-10-03 22:50:13.993 +0800.
+- **FACT — OPTION_GATE_BEGIN:** 2026-10-03 22:50:13.994 +0800.
+- **FACT — GESTURE_CLASSIFIED:** `hold` at 22:50:14.306 +0800, `held_ms=313`.
+- **FACT — User-visible target symptom:** the already-open external Doubao/Persistent
+  voice session exited during this LONG interaction.
+- **FACT — ATVV_AUDIO_STOP_RX:** 22:50:15.168 +0800; this is a BLE/ATVV transport
+  fact and is not independently equivalent to the Doubao semantic session stop.
+- **FACT — Mutation during capture:** NO.
+- **FACT — Raw incident evidence was copied and SHA-256 sealed before restart/relaunch.
+- **FACT — Runtime source marker:** `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`.
+- **FACT — Running executable SHA-256:**
+  `df27b16ff41dcc35191c4699700cbbe522bfd576cbfba7c376712821c58388c2`.
+- **FACT — Installed/running path:** `/Applications/RemoteOrbit.app`;
+  version `0.2.13`, build `42`, PID `4001` at capture.
+- **FACT — PRE_GATE_LEAK_HYPOTHESIS:** INCONCLUSIVE. No mapped-trigger record was
+  correlated to this gesture; later pass events are not attributed to it.
+- **UNKNOWN — Root cause:** still unknown.
+- **BLOCKED — Construction Gate:** remains blocked.
+
+### Remote/runtime source limitation
+
+- **FACT:** GitHub cannot resolve runtime source marker
+  `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`; it is local-only evidence.
+- **RULE:** remote source audit may define architecture and probe gaps, but must not
+  claim line-for-line identity with the installed incident binary until the local
+  checkpoint is reconciled read-only.
+
 ## Current authority
 
 Exactly one remote control-plane line is ACTIVE:
 
 ```text
 branch: codex/project-agents-control-plane-v1
-task: INCIDENT MODE — FRESH INCIDENT CAPTURE
+task: INCIDENT MODE — DIAGNOSTIC GAP AUDIT
 PR #17: OPEN + Draft control-plane PR
 ```
 
 Product debugging, new diagnostics, runtime experiments, packaging, installation,
 release, TCC, HAL, LaunchAgent, and CoreAudio mutation remain frozen.
 
-Repository closeout is complete. The only currently authorized operational work is
-the minimal fresh-incident capture defined in `CURRENT_TASK.md`.
+Repository closeout is complete. Fresh incident capture is complete. The only
+currently authorized work is the read-only diagnostic-gap and evidence-capability
+audit defined in `CURRENT_TASK.md`.
+
+## Step 4 — diagnostic gap audit
+
+The remote read-only gap audit is frozen in
+`docs/incident-diagnostics/PERSISTENT_LONG_DIAGNOSTIC_ARCHITECTURE.md`.
+
+### Remote-audit conclusions
+
+- **FACT:** the project already has substantial internal gesture/gate/BLE/audio
+  diagnostics. Adding more internal state-machine log volume is not the current
+  priority.
+- **FACT:** the highest-value gaps are cross-process and boundary observations.
+- **FACT:** RemoteOrbit's `voiceSessionMode == persistentOpen` is an internal
+  command-derived belief. It is committed after trigger dispatch succeeds; there is
+  no Doubao semantic ACK proving the external IME session is actually open.
+- **FACT:** this creates two distinct state machines:
+  1. RemoteOrbit persistent-session intent/belief;
+  2. external Doubao/IME actual session state.
+  They can diverge, and the second is not authoritative inside RemoteOrbit today.
+- **FACT:** existing `MAPPED_TRIGGER_EVENT` observes the CGEvent-tap decision, but
+  main does not bind it to the original HID report sequence or retain the original
+  CGEvent timestamp as a first-class correlation field.
+- **FACT:** abandoned PR #16 contains tested diagnostic prototypes for
+  `RAW_HID_MIC_STATE`, `HID_MIC_EDGE_EMITTED`, report sequence and input-source
+  tagging. Those are design evidence only; PR #16 is ABANDONED and none of that may
+  be treated as current production capability without local/runtime verification.
+- **FACT:** retained forensic branch `d0a1ab06...` adds structured audio-route,
+  input-selection, ATVV and press/release correlation. It is an observation build,
+  not a zero-observer-effect baseline.
+- **FACT:** repository source contains no Doubao-specific or InputMethodKit/TIS
+  semantic session observer.
+- **FACT:** repository source contains no tracked source for
+  `target-text-observer-current.jsonl` or `voice-flight-recorder-current.jsonl`;
+  their exact capabilities belong to the local-only evidence line and must be
+  reconciled locally before deciding that a new probe is required.
+
+### Probe priority
+
+- **P0 — external IME semantic session boundary:** establish an authoritative,
+  read-only OPEN/LISTENING/STOP transition if the existing local observer already
+  has one; otherwise this is the highest-value missing probe.
+- **P0 — HID report → mapped CGEvent correlation boundary:** correlate physical
+  microphone report/edge with mapped CGEvent using source sequence/time, without
+  expanding gesture-internal logging.
+- **P0 — cross-process clock/correlation anchor:** every boundary observer must
+  carry enough wall-clock + monotonic/process identity to join one incident safely.
+- **P1 — WindowServer/frontmost/focus boundary:** observe application activation /
+  frontmost transition around the incident independently of RemoteOrbit's own focus
+  intent.
+- **P1 — CoreAudio consumer boundary:** distinguish "RemoteOrbit requested/default
+  input changed" from "the target process actually opened/stopped consuming the
+  virtual input".
+- **P1 — ATVV/remote boundary:** current structured ATVV lifecycle is largely
+  sufficient; prefer correlation improvements over more event volume.
+- **P2 — PCM/internal queue detail:** existing audio diagnostics are already rich;
+  add nothing unless a later evidence-backed hypothesis specifically requires it.
+
+### Diagnostic strategy
+
+Boundary-first order:
+
+```text
+runtime identity
+→ actual external session state
+→ physical HID edge
+→ hidutil / mapped CGEvent delivery
+→ gate ownership decision
+→ WindowServer / focus state
+→ ATVV transport
+→ CoreAudio target consumption
+→ internal PCM details only if still needed
+```
+
+No probe implementation is authorized by this audit.
 
 ## Prior quality-audit result
 
@@ -377,7 +486,7 @@ Product development remains FROZEN. No repair work is authorized.
 
 ## Next required action
 
-Capture exactly one fresh incident using the existing runtime and existing
-observability only. Stop after the fresh incident evidence package is preserved, or
-report `NO_FRESH_INCIDENT` if the bounded capture attempt does not reproduce the
-failure.
+Reconcile the local-only runtime checkpoint and the already-existing Flight
+Recorder / target-text observer capabilities against the committed boundary map.
+Then perform read-only forensic correlation on the sealed fresh incident. Do not
+build, install, reproduce again, or implement new probes under this task.
