@@ -96,13 +96,15 @@ After reading the remote control files, the next agent must perform a read-only 
 1. read the three control files in order;
 2. fetch remote state;
 3. report local repository root;
-4. report every registered worktree;
-5. for each worktree report path, branch/detached state, exact HEAD, and clean/dirty state;
-6. identify any worktree associated with PR #16, PR #9, or prior forensic/flight-recorder work;
-7. inspect the installed/running RemoteOrbit identity only if runtime identity is relevant to the next task;
-8. compare actual local state to `CURRENT_STATUS.md`;
-9. write verified local facts into `CURRENT_STATUS.md` only after deciding which branch/worktree is the control-plane update authority;
-10. stop before cleanup or product changes.
+4. run `git worktree list --porcelain` and preserve its output as the worktree census;
+5. report every registered worktree, including registered-but-missing entries;
+6. for each worktree report path, branch/detached state, exact HEAD, and clean/dirty/untracked state;
+7. identify any worktree associated with PR #16, PR #9, or prior forensic/flight-recorder work;
+8. identify local-only commits and dirty/untracked evidence that must not be lost;
+9. inspect the installed/running RemoteOrbit identity only if runtime identity is relevant to the next task;
+10. compare actual local state to `CURRENT_STATUS.md`;
+11. write verified local facts into `CURRENT_STATUS.md` only after deciding which branch/worktree is the control-plane update authority;
+12. stop before cleanup or product changes.
 
 If local evidence conflicts with the remote snapshot, the task remains ACTIVE and the conflict must be reconciled first.
 
