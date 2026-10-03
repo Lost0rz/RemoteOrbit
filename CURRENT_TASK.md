@@ -103,7 +103,8 @@ Closeout is complete only when:
 4. every local worktree has one lifecycle classification;
 5. safe local worktrees and corresponding local branches are removed;
 6. all retained lines have an explicit evidence/authority blocker;
-7. exactly one ACTIVE development/control line remains;
+7. exactly one ACTIVE control task/PR remains; at most one ACTIVE product-evidence
+   worktree may be retained, but it is frozen for mutation until closeout ends;
 8. CURRENT_STATUS records the final state.
 
 ## Remote progress
