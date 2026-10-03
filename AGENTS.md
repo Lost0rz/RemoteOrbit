@@ -60,7 +60,7 @@ repetition.
 Before product implementation or another side-effectful operation, revalidate the
 material authority fields needed by the task. At minimum, when applicable:
 
-- fetched remote default branch / `origin/main`;
+- verified canonical RemoteOrbit remote identity and its fetched default branch / remote-tracking `main` (use `origin/main` only when `origin` has been verified as that remote);
 - active PR and relevant PR head;
 - authoritative local worktree path;
 - local branch or detached state;
