@@ -25,7 +25,7 @@ before continuing.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
 - **FACT — Current open PRs:** exactly one, PR #17.
 - **FACT — PR #17:** OPEN + Draft + unmerged; its branch is the control-plane authority.
-- **FACT — Control-plane update base:** live branch HEAD ca48efc1049f2056096a9c0bac2e2718a1fdb8d7; this status/task commit is a direct child of that audited HEAD.
+- **FACT — Final closeout documentation base:** live control-plane HEAD `da6da3c3ebabd008f22e6a5f20c8a43ac892a4cb`; the final status/task commit is a direct child of this audited HEAD and is pushed to the active control-plane branch.
 - **FACT — Out-of-band PR metadata drift:** #9 and #16 were closed during earlier closeout and reopened at 2026-10-03T12:40:25Z / 12:40:27Z; #17 was closed at 12:40:31Z.
 - **RULE — PR state is not task authority:** these metadata changes do not advance or replace CURRENT_TASK.
 
@@ -63,43 +63,52 @@ before continuing.
 
 ## Remote branch cleanup
 
-The repository currently exposes these branches.
+Pre-deletion inventory: 18 branches. Final live inventory after closeout is listed below.
 
 | Branch | Related lifecycle | Cleanup | Reason / blocker |
 | --- | --- | --- | --- |
 | `main` | ACTIVE baseline | **KEEP** | default branch |
 | `codex/project-agents-control-plane-v1` | ACTIVE / PR #17 | **KEEP** | current control-plane authority |
-| `codex/audio-data-plane-p0-audit` | SUPERSEDED / #9 | **DELETE CANDIDATE** | PR preserves diff/history |
-| `codex/configurable-voice-trigger-key` | MERGED / #13 | **DELETE CANDIDATE** | no unique active authority |
-| `codex/media-key-suppression-isolation` | MERGED / #15 | **DELETE CANDIDATE** | no unique active authority |
-| `codex/mic-disabled-bypass-short-classifier` | MERGED / #14 | **DELETE CANDIDATE** | no unique active authority |
-| `codex/p1-a6-long-duration-telemetry` | MERGED / #12 | **DELETE CANDIDATE** | no unique active authority |
-| `codex/p1-stage-merge-closure` | MERGED / #10 | **DELETE CANDIDATE** | no unique active authority |
-| `codex/persistent-segment-transaction-isolation` | ABANDONED / #16 | **DELETE CANDIDATE** | PR preserves diff/history |
-| `codex/release-v0.2.13` | MERGED / #11 | **DELETE CANDIDATE** | release/PR preserve history |
-| `codex/v0211-disabled-short-classifier` | SUPERSEDED / #6 | **DELETE CANDIDATE** | closed PR preserves diff/history |
-| `codex/v0211-option-race-audit` | SUPERSEDED / #5 | **DELETE CANDIDATE** | closed PR preserves diff/history |
-| `codex/voice-recovery-from-good` | MERGED / #2 | **DELETE CANDIDATE** | accepted via merged PR |
-| `codex/voice-single-owner-option` | SUPERSEDED / #4 | **DELETE CANDIDATE** | closed PR preserves diff/history |
-| `fix/v0211-final-voice-corrective` | MERGED / #7 | **DELETE CANDIDATE** | accepted via merged PR |
-| `release/v0.2.12` | MERGED / #8 | **DELETE CANDIDATE** | accepted via merged PR |
+| `codex/audio-data-plane-p0-audit` | SUPERSEDED / #9 | **DELETED** | PR preserves diff/history |
+| `codex/configurable-voice-trigger-key` | MERGED / #13 | **DELETED** | no unique active authority |
+| `codex/media-key-suppression-isolation` | MERGED / #15 | **DELETED** | no unique active authority |
+| `codex/mic-disabled-bypass-short-classifier` | MERGED / #14 | **DELETED** | no unique active authority |
+| `codex/p1-a6-long-duration-telemetry` | MERGED / #12 | **DELETED** | no unique active authority |
+| `codex/p1-stage-merge-closure` | MERGED / #10 | **DELETED** | no unique active authority |
+| `codex/persistent-segment-transaction-isolation` | ABANDONED / #16 | **DELETED** | PR preserves diff/history |
+| `codex/release-v0.2.13` | MERGED / #11 | **DELETED** | release/PR preserve history |
+| `codex/v0211-disabled-short-classifier` | SUPERSEDED / #6 | **DELETED** | closed PR preserves diff/history |
+| `codex/v0211-option-race-audit` | SUPERSEDED / #5 | **DELETED** | closed PR preserves diff/history |
+| `codex/voice-recovery-from-good` | MERGED / #2 | **DELETED** | accepted via merged PR |
+| `codex/voice-single-owner-option` | SUPERSEDED / #4 | **DELETED** | closed PR preserves diff/history |
+| `fix/v0211-final-voice-corrective` | MERGED / #7 | **DELETED** | accepted via merged PR |
+| `release/v0.2.12` | MERGED / #8 | **DELETED** | accepted via merged PR |
 | `codex/persistent-duplicate-audio-forensics` | no PR; unique forensic commits | **KEEP** | two unique post-main diagnostic commits; no PR preserves their review context |
-| `codex/voice-single-owner-session` | no PR; historical unique commits | **KEEP** | unique unmerged commits with no PR; preserve until local/evidence census decides disposition |
+| `codex/voice-single-owner-session` | no PR; historical unique commits | **KEEP** | unique unmerged commits with no PR; preserve pending a separate evidence-disposition decision |
 
-Already absent from the remote branch list:
+Already absent before the confirmed remote deletion:
 
 - PR #1 branch `codex/test-baseline-remoteorbit-20260901`
 - PR #3 branch `release/v0.2.11`
 
 Their PRs remain the durable merged history.
 
-### Remote deletion status — pending final user confirmation
+### Remote deletion status — complete
 
-FACT: all 14 DELETE CANDIDATE refs remain present; none has been deleted. The user's closeout instructions require final confirmation after the local census and before remote deletion.
+- **FACT:** the user gave final authorization to delete exactly the 14 candidate refs listed above.
+- **FACT:** each ref was checked against its approved live SHA, deleted individually with `git push origin --delete <branch>`, and immediately verified absent with `git ls-remote --heads origin <branch>`.
+- **FACT:** all 14 deletions succeeded and all 14 post-delete checks returned empty. There were zero already-absent candidates and zero unresolved delete failures.
+- **FACT:** the first delete attempt for `codex/voice-recovery-from-good` failed with a transient `SSL_ERROR_SYSCALL`; a read-only check confirmed its expected SHA was unchanged, and one retry then deleted and verified the ref.
+- **FACT:** after `git fetch origin --prune`, the live `ls-remote --heads origin` inventory contained exactly these four KEEP refs:
 
-FACT: no retained worktree branch is named for a DELETE CANDIDATE. The retained dirty P0 experiment worktree has HEAD 80ec3adfe065eac90547f7a76c58f0b510c639b9, also retained by its local branch and PR #6; deleting its old remote branch would not delete the local checkout or commit.
+| Branch | Live SHA | Retain reason |
+| --- | --- | --- |
+| `main` | `7129ef72949eca956b1d0daddce707d5e417eeed` | default branch |
+| `codex/project-agents-control-plane-v1` | `da6da3c3ebabd008f22e6a5f20c8a43ac892a4cb` | sole control-plane authority / PR #17 |
+| `codex/persistent-duplicate-audio-forensics` | `d0a1ab06d8fafa0e9a8a1ae3b79cbc0d299a07be` | unique forensic commits |
+| `codex/voice-single-owner-session` | `cd96b2f937d2e4b0bdfb67111714a77ce77e78c6` | unique unmerged historical commits |
 
-UNKNOWN: remote push/delete permission has not been exercised. After confirmation, recheck each ref, delete branches one at a time, and require git ls-remote --heads origin <branch> to be empty after each. Stop any changed or rejected ref and update the classification.
+FACT: no retained worktree branch was named for a deletion candidate. The dirty P0 experiment worktree's HEAD `80ec3adfe065eac90547f7a76c58f0b510c639b9` remains preserved by its local branch and PR #6.
 
 ## Local worktree closeout — live owning-Mac census
 
@@ -122,7 +131,7 @@ FACT: The fresh census started from 23 registered entries: 13 live worktrees and
 | /Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a5 | 8befb031eb54b461675e95adb706f73721339479 | MERGED | RETAINED | P1-A5 purpose is included in #10; four local-only commits and three untracked observer files are preserved. |
 | /Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a6 | ab25e9d46e65afa02b284f2c26856f94024d6b9c | MERGED | REMOVED | Clean and remote/PR-preserved; merged PR #12. |
 | /Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder | 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f | ACTIVE | KEEP | Frozen product-evidence worktree. Its clean detached checkpoint is unique local forensic evidence. No product debugging is authorized. |
-| /private/tmp/remoteorbit-control-plane-closeout | This status/task commit; direct child of ca48efc1049f2056096a9c0bac2e2718a1fdb8d7 | ACTIVE | KEEP | Sole active control-plane checkout for PR #17 and this closeout. |
+| /private/tmp/remoteorbit-control-plane-closeout | Final closeout status/task commit; direct child of da6da3c3ebabd008f22e6a5f20c8a43ac892a4cb | ACTIVE | KEEP | Sole active control-plane checkout for PR #17 and this closeout. |
 
 ### Registered-but-missing entries pruned
 
@@ -173,19 +182,18 @@ The three-file control plane completed three consecutive PASS rounds on live bra
 HEAD `9b9a544e102539602facbdd761564ca8d488b8db` before this user-authorized phase
 transition.
 
-## Remote closeout progress
+## Remote closeout result
 
 - **PR classification:** COMPLETE — all 17 PRs classified.
 - **Obsolete PR closure:** COMPLETE — #9 and #16 closed with preserved history.
 - **Remote branch classification:** COMPLETE — 18 branches classified.
-- **Remote branch deletion:** BLOCKED IN THIS SESSION — 14 branches are DELETE CANDIDATE, but the available GitHub connector has no branch/ref delete operation.
+- **Remote branch deletion:** COMPLETE — exactly 14 authorized refs were deleted individually and post-verified; no unresolved failures.
 - **Remote branches retained:** `main`, `codex/project-agents-control-plane-v1`, `codex/persistent-duplicate-audio-forensics`, `codex/voice-single-owner-session`.
+- **Final remote inventory:** PASS — exactly four branches remain.
+- **Local worktree closeout:** COMPLETE — 10 live worktrees and zero registered-but-missing paths; the dirty primary checkout and retained evidence worktrees remain preserved.
+- **PR #17:** OPEN + Draft + unmerged; it remains the sole control-plane review artifact.
 
-## Next required action
+## Closeout disposition
 
-Run a fresh local read-only worktree census on the owning Mac, classify every live
-and registered-but-missing path, remove only verified-safe worktrees/local branches,
-then delete the 14 remote DELETE CANDIDATE refs through an actual Git ref-deletion
-path.
-
-Local worktree state remains UNKNOWN until the new census completes.
+Repository closeout is COMPLETE. Product development remains FROZEN. No next task is
+authorized; do not resume product debugging or begin another task under this closeout.

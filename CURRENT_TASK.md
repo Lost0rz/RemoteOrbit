@@ -3,8 +3,8 @@
 ## Task identity
 
 - **Task:** REPOSITORY CLOSEOUT
-- **Phase:** local worktree closeout complete; remote branch deletion pending final user confirmation
-- **Status:** ACTIVE
+- **Phase:** remote branch deletion complete; repository closeout complete
+- **Status:** COMPLETE
 - **Task authority:** this file
 - **Product development:** FROZEN
 
@@ -16,6 +16,10 @@ The user explicitly authorized this closeout phase on 2026-10-03:
 - classify each as ACTIVE, MERGED, SUPERSEDED, or ABANDONED;
 - delete what is safe to delete;
 - record the reason/blocker for everything retained.
+
+After the local census and candidate classification were recorded, the user gave
+final confirmation to delete exactly the 14 named remote refs individually, with a
+fresh SHA check before each deletion and an immediate `ls-remote` verification.
 
 This authorization does not waive evidence-preservation rules.
 
@@ -110,30 +114,20 @@ Closeout is complete only when:
 ## Remote progress
 
 - all 17 PRs classified; #9 and #16 closed under the authorized closeout; #17 remains OPEN Draft;
-- all 18 remote branches classified; 14 are DELETE CANDIDATE and four are KEEP;
+- all 18 remote branches classified; the 14 authorized candidates were individually deleted and post-verified; exactly four KEEP refs remain;
 - the owning-Mac census began with 13 live worktrees and 10 registered-but-missing entries;
 - four safe live worktrees were removed, all ten verified-missing registrations were pruned, and 15 safe local branches were deleted;
 - nine original worktrees remain, including one ACTIVE frozen Flight Recorder evidence worktree; one new ACTIVE control-plane worktree was created;
-- remote deletion awaits final confirmation of the 14 exact candidate branch refs; no remote refs have been deleted;
-- control files are updated on a direct child of the freshly verified live control branch HEAD.
+- the first delete attempt for `codex/voice-recovery-from-good` hit a transient TLS transport error; its unchanged approved SHA was rechecked and a single retry succeeded;
+- final live remote inventory was exactly `main`, `codex/project-agents-control-plane-v1`, `codex/persistent-duplicate-audio-forensics`, and `codex/voice-single-owner-session`;
+- the control files are committed together as a direct child of the audited live control branch HEAD and pushed by fast-forward.
 
-## Next authorized step
+## Completion result
 
-Request the user's final confirmation to delete exactly these refs, individually and with post-delete verification:
+All eight completion criteria above pass. PR #17 remains OPEN + Draft and unmerged as
+the sole control-plane review artifact. The 14 deletions had no unresolved failures;
+the final remote branch count is four. The 10 retained live worktrees and zero
+registered-but-missing paths are recorded in `CURRENT_STATUS.md`.
 
-- codex/audio-data-plane-p0-audit
-- codex/configurable-voice-trigger-key
-- codex/media-key-suppression-isolation
-- codex/mic-disabled-bypass-short-classifier
-- codex/p1-a6-long-duration-telemetry
-- codex/p1-stage-merge-closure
-- codex/persistent-segment-transaction-isolation
-- codex/release-v0.2.13
-- codex/v0211-disabled-short-classifier
-- codex/v0211-option-race-audit
-- codex/voice-recovery-from-good
-- codex/voice-single-owner-option
-- fix/v0211-final-voice-corrective
-- release/v0.2.12
-
-On confirmation, reverify the live heads, delete one ref at a time with git push origin --delete <branch>, and verify that git ls-remote --heads origin <branch> is empty after each deletion. If any ref is absent, has changed lifecycle, or Git rejects deletion, stop that branch and reclassify. Then update CURRENT_STATUS.md and CURRENT_TASK.md in one fast-forward commit. Do not resume product debugging until repository closeout is complete.
+No next task is authorized. Product development remains FROZEN; stop after this
+repository closeout and do not resume product debugging under this task.
