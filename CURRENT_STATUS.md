@@ -23,8 +23,8 @@ before continuing.
 - **FACT — Main HEAD message:** merge PR #15, media-key suppression isolation.
 - **FACT — Latest published release:** RemoteOrbit `v0.2.13` / Build 42.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
-- **FACT — Current open PRs:** none.
-- **FACT — PR #17:** CLOSED Draft, unmerged; its branch remains the control-plane authority.
+- **FACT — Current open PRs:** exactly one, PR #17.
+- **FACT — PR #17:** OPEN + Draft + unmerged; its branch is the control-plane authority.
 - **FACT — Out-of-band PR metadata drift:** #9 and #16 were closed during earlier closeout and reopened at 2026-10-03T12:40:25Z / 12:40:27Z; #17 was closed at 12:40:31Z.
 - **RULE — PR state is not task authority:** these metadata changes do not advance or replace CURRENT_TASK.
 
@@ -32,7 +32,7 @@ before continuing.
 
 | PR | Title | Lifecycle | Remote state | Reason / successor |
 | --- | --- | --- | --- | --- |
-| #17 | development control plane | **ACTIVE** | CLOSED Draft, unmerged | branch remains sole control-plane task authority; PR state drift does not revoke task authority |
+| #17 | development control plane | **ACTIVE** | OPEN Draft, unmerged | sole current control-plane PR and task authority |
 | #16 | persistent voice segment transaction isolation | **ABANDONED** | CLOSED Draft, unmerged | re-closed under explicit repository-closeout authorization; diff/discussion preserved |
 | #15 | preserve Mac media keys | **MERGED** | CLOSED merged | merged into `main` 2026-10-01 |
 | #14 | microphone short-action bypass | **MERGED** | CLOSED merged | merged into `main` 2026-09-29 |
@@ -57,7 +57,7 @@ before continuing.
 - **FACT:** PR #17 was closed out-of-band at 12:40:31Z without changing the control-plane branch.
 - **FACT:** no explanatory PR comment accompanied the reopen/close sequence.
 - **FACT:** under explicit repository-closeout authorization, PR #9 was re-closed as SUPERSEDED and PR #16 was re-closed as ABANDONED; both received fresh closeout comments.
-- **FACT:** all 17 PRs are now closed; lifecycle counts are ACTIVE 1 / MERGED 11 / SUPERSEDED 4 / ABANDONED 1.
+- **FACT:** PR #17 has been reopened under the current RemoteOrbit closeout task; #9/#16 remain closed. Lifecycle counts remain ACTIVE 1 / MERGED 11 / SUPERSEDED 4 / ABANDONED 1.
 - **RULE:** lifecycle classification and task authority are not inferred from PR open/closed state.
 
 ## Remote branch cleanup
@@ -174,7 +174,7 @@ Exactly one remote control-plane line is ACTIVE:
 ```text
 branch: codex/project-agents-control-plane-v1
 task: REPOSITORY CLOSEOUT
-PR #17: control-plane PR; PR metadata is evidence, not task authority
+PR #17: OPEN + Draft control-plane PR
 ```
 
 Product debugging, new diagnostics, runtime experiments, packaging, installation,
