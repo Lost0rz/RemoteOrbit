@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-03
-State: CONTROL-PLANE QUALITY AUDIT
+State: REPOSITORY CLOSEOUT
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -126,32 +126,31 @@ Exactly one remote control-plane line is ACTIVE:
 
 ```text
 branch: codex/project-agents-control-plane-v1
-task: CONTROL-PLANE QUALITY AUDIT
-PR #17: currently CLOSED, but PR metadata is not task authority
+task: REPOSITORY CLOSEOUT
+PR #17: control-plane PR; PR metadata is evidence, not task authority
 ```
 
-The remote closeout actions already executed above remain recorded as FACTS, but
-**no further PR/branch/worktree cleanup is authorized during the quality audit**.
-
 Product debugging, new diagnostics, runtime experiments, packaging, installation,
-release, TCC, HAL, LaunchAgent, CoreAudio mutation, additional PR closure, branch
-deletion, and worktree removal remain frozen.
+release, TCC, HAL, LaunchAgent, and CoreAudio mutation remain frozen.
 
-## Quality-audit state
+Repository closeout actions are authorized only within the bounded lifecycle and
+cleanup rules in `CURRENT_TASK.md`.
 
-The current user-directed task is to verify the quality of the three-file control
-plane through multiple independent audit rounds.
+## Prior quality-audit result
 
-A corrective edit resets the consecutive-PASS count to zero. A concurrent write to
-the control-plane branch also resets the count to zero.
-
-The audit is not complete until the completion criteria in `CURRENT_TASK.md` are
-met without another material issue.
+The three-file control plane completed three consecutive PASS rounds on live branch
+HEAD `9b9a544e102539602facbdd761564ca8d488b8db` before this user-authorized phase
+transition.
 
 ## Next required action
 
-Complete the remote multi-round control-plane quality audit.
+Perform repository closeout:
 
-Only after that audit passes may the files be synchronized/read locally for the
-read-only worktree census. The local census remains required before any worktree or
-DELETE CANDIDATE branch is removed.
+1. classify every PR and remote branch;
+2. close obsolete unmerged PRs with preserved history;
+3. delete safe remote branches when the available tool supports ref deletion;
+4. retain unique-evidence branches with an explicit blocker;
+5. run a local read-only worktree census before deleting any local worktree.
+
+Local worktree state remains UNKNOWN until the owning Mac reports
+`git worktree list --porcelain`.
