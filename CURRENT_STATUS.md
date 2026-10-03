@@ -460,6 +460,102 @@ runtime identity
 
 No probe implementation is authorized by this audit.
 
+## Local evidence package required before Construction Gate review
+
+The remote audit cannot complete Step 4 without a local-only capability and evidence
+reconciliation.
+
+### Required local-only inputs
+
+The local Agent must read-only establish all of the following:
+
+1. **Runtime source reconciliation**
+   - inspect checkpoint `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`;
+   - record whether it contains the relevant HID, mapped-trigger, Persistent-session,
+     Flight Recorder, target-text observer and focus/audio observation code;
+   - compare only the incident-relevant paths against remote `main`,
+     `d0a1ab06...`, and PR #16 prototypes;
+   - report exact divergences that affect B1-B9 evidence capability.
+
+2. **Existing observer capability inventory**
+   - `voice-flight-recorder-current.jsonl`;
+   - `voice-flight-recorder-incident.jsonl`;
+   - `target-text-observer-current.jsonl`;
+   - any existing observer source/config that produces those artifacts.
+
+   For each observer, record:
+   - source path / binary path / source HEAD if available;
+   - process identity;
+   - timestamp model: wall clock / monotonic / both;
+   - correlation keys;
+   - observed boundary;
+   - what it can prove;
+   - what it cannot prove;
+   - whether it observes another process/system boundary or only RemoteOrbit state.
+
+3. **Sealed incident hash verification**
+   - verify the preserved evidence files against the recorded SHA-256 list before
+     analysis;
+   - any mismatch is BLOCKED.
+
+4. **Boundary classification**
+   Classify B1-B9 from
+   `docs/incident-diagnostics/PERSISTENT_LONG_DIAGNOSTIC_ARCHITECTURE.md` as:
+   `OBSERVED`, `PARTIAL`, `MISSING`, or `NOT_RELEVANT_TO_THIS_INCIDENT`.
+
+5. **Fresh-incident forensic correlation**
+   Using only the sealed incident, produce one ordered timeline for the target
+   gesture and external stop.
+   Do not substitute file-write order for event occurrence time.
+
+6. **Construction evidence assessment**
+   Explicitly answer:
+   - `SPECIFIC_BROKEN_BOUNDARY`
+   - `BROKEN_CONTRACT`
+   - `FRESH_INCIDENT_DIRECT_SUPPORT`
+   - `ADJACENT_BOUNDARIES_RULED_ENOUGH`
+   - `PRE_FIX_FAILING_ACCEPTANCE`
+   - `MINIMAL_FIX_SCOPE`
+
+### Evidence standard
+
+Construction review may advance only if the local evidence package proves all of:
+
+```text
+SPECIFIC_BROKEN_BOUNDARY = one named B1-B9 boundary
+BROKEN_CONTRACT = one falsifiable expected-vs-observed rule
+FRESH_INCIDENT_DIRECT_SUPPORT = YES
+ADJACENT_BOUNDARIES_RULED_ENOUGH = YES
+PRE_FIX_FAILING_ACCEPTANCE = defined and demonstrably FAILING before fix
+MINIMAL_FIX_SCOPE = one bounded behavior boundary
+```
+
+If any item is UNKNOWN, PARTIAL, inferred only from static source, inferred only from
+RemoteOrbit internal belief, or cannot be joined to the sealed incident, then:
+
+`CONSTRUCTION_GATE = BLOCKED`
+
+### Local update responsibility
+
+After the read-only local audit, the local Agent is explicitly authorized to update
+`CURRENT_STATUS.md` and `CURRENT_TASK.md` **together in one control-plane commit**
+with:
+
+- the local checkpoint reconciliation result;
+- observer capability inventory;
+- B1-B9 classification;
+- sealed-incident correlation summary;
+- exact remaining evidence gap, if any;
+- Construction Gate result: `BLOCKED` or `READY_FOR_REMOTE_REVIEW`.
+
+The local Agent must **not** set Construction Gate to PASS on its own.
+
+`READY_FOR_REMOTE_REVIEW` means only that all required evidence fields are present
+for a final gate decision.
+
+No product code, probe implementation, rebuild, install, restart, or new reproduction
+is authorized while producing this package.
+
 ## Prior quality-audit result
 
 The three-file control plane completed three consecutive PASS rounds on live branch
@@ -486,7 +582,9 @@ Product development remains FROZEN. No repair work is authorized.
 
 ## Next required action
 
-Reconcile the local-only runtime checkpoint and the already-existing Flight
-Recorder / target-text observer capabilities against the committed boundary map.
-Then perform read-only forensic correlation on the sealed fresh incident. Do not
-build, install, reproduce again, or implement new probes under this task.
+The local Agent must produce the required local evidence package defined above,
+update CURRENT_STATUS.md and CURRENT_TASK.md together in one control-plane commit,
+and push it for remote review.
+
+Do not build, install, reproduce again, implement new probes, or modify product
+behavior.

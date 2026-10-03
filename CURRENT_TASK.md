@@ -197,6 +197,143 @@ exist there.
 Likewise, the remote forensic branch `d0a1ab06...` is a retained diagnostic line,
 not proof of the installed runtime's exact source.
 
+## Local evidence handoff contract
+
+The next action is a **local read-only evidence handoff**.
+
+The local Agent must not repeat the remote architecture audit. It must fill the
+remaining local-only evidence gaps.
+
+### Required deliverables
+
+#### A. Runtime checkpoint reconciliation
+
+For `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`:
+
+- prove the checkpoint exists locally;
+- record worktree/repo path and commit identity;
+- inspect only incident-relevant source;
+- compare relevant capability against remote `main`, retained forensic branch and
+  PR #16 diagnostic prototypes;
+- identify whether these capabilities are present:
+  - raw HID microphone transition capture;
+  - HID report sequence;
+  - mapped CGEvent observation and original timestamp;
+  - gesture/source tagging;
+  - persistent-session internal state;
+  - external/target-text observation;
+  - WindowServer/frontmost observation;
+  - target-process CoreAudio consumption observation.
+
+#### B. Existing observer capability table
+
+For every local observer producing the sealed incident artifacts, record:
+
+```text
+OBSERVER_NAME:
+SOURCE_PATH:
+BINARY_PATH:
+SOURCE_HEAD:
+PROCESS_IDENTITY:
+CLOCK_MODEL:
+CORRELATION_KEYS:
+BOUNDARIES_OBSERVED:
+CAN_PROVE:
+CANNOT_PROVE:
+OBSERVER_EFFECT:
+```
+
+At minimum include Flight Recorder and Target Text Observer.
+
+#### C. Evidence integrity
+
+Recompute SHA-256 for the sealed fresh-incident package and compare with the recorded
+hashes.
+
+Any mismatch => `LOCAL_EVIDENCE_GATE: BLOCKED`.
+
+#### D. Boundary matrix
+
+Return B1-B9 exactly once:
+
+```text
+B1: OBSERVED / PARTIAL / MISSING / NOT_RELEVANT_TO_THIS_INCIDENT
+...
+B9: ...
+```
+
+Each classification must cite the concrete local evidence source that supports it.
+
+#### E. Incident correlation
+
+Produce one event-occurrence timeline for:
+
+- external-session state evidence;
+- raw HID / accepted edge;
+- mapped CGEvent;
+- gate ownership;
+- classification;
+- WindowServer/frontmost;
+- ATVV;
+- CoreAudio target-consumer evidence;
+- user-visible stop anchor.
+
+Do not use JSONL append order as causal ordering when event timestamps differ.
+
+#### F. Construction readiness fields
+
+Return:
+
+```text
+SPECIFIC_BROKEN_BOUNDARY:
+BROKEN_CONTRACT:
+FRESH_INCIDENT_DIRECT_SUPPORT:
+ADJACENT_BOUNDARIES_RULED_ENOUGH:
+PRE_FIX_FAILING_ACCEPTANCE:
+MINIMAL_FIX_SCOPE:
+
+LOCAL_EVIDENCE_GATE:
+PASS / BLOCKED
+
+CONSTRUCTION_GATE_RECOMMENDATION:
+READY_FOR_REMOTE_REVIEW / BLOCKED
+```
+
+### Acceptance standard
+
+`READY_FOR_REMOTE_REVIEW` is allowed only if all are true:
+
+1. one specific B1-B9 boundary is identified;
+2. one falsifiable broken contract is stated;
+3. the sealed fresh incident directly demonstrates that break;
+4. adjacent boundaries are observed/rule-outs enough that the proposed change is
+   falsifiable;
+5. a pre-fix acceptance is defined and can be shown failing for the same reason;
+6. the minimal scope changes only that broken boundary.
+
+Anything less remains `BLOCKED`.
+
+### Repository update required from local Agent
+
+After completing the read-only audit, update **both**
+`CURRENT_STATUS.md` and `CURRENT_TASK.md` in the same commit.
+
+The commit must record:
+
+- checkpoint reconciliation;
+- observer capability inventory summary;
+- B1-B9 result;
+- incident correlation result;
+- unresolved gaps;
+- `LOCAL_EVIDENCE_GATE`;
+- `CONSTRUCTION_GATE_RECOMMENDATION`.
+
+The local Agent must not declare `Construction Gate: PASS`.
+Only set `READY_FOR_REMOTE_REVIEW` when the evidence standard above is fully met.
+
+Push the control-plane branch fast-forward only. If the branch moved, stop, reread,
+and reconcile before writing.
+
 ## Completion gate
 
 Step 4 is complete only when all are true:
@@ -230,7 +367,13 @@ internal logging.
 
 ## Next authorized action
 
-Read-only reconcile the local-only runtime/observer capabilities and analyze the
-already sealed fresh incident against the committed boundary map.
+Run the local read-only evidence handoff defined above.
 
-No new capture and no construction are authorized.
+When complete:
+
+1. update CURRENT_STATUS.md + CURRENT_TASK.md together;
+2. push the control-plane branch fast-forward only;
+3. return the evidence summary for final remote Construction Gate review.
+
+No new capture, probe implementation, product mutation, or construction is
+authorized.
