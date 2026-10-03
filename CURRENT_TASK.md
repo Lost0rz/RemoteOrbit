@@ -60,9 +60,32 @@ Product PRs #16 and #9 are not active implementation authority during this task.
 4. A remote audit that distinguishes remote-verifiable facts from local-only unknowns.
 5. A local reconciliation pass after sync.
 
+## Safe local sync gate
+
+The three control files currently live on the governance branch, not on `main`.
+Therefore **do not use `git pull main` as the control-file sync step**, and do not
+checkout/reset an existing worktree before its state has been inventoried.
+
+On the machine that owns the RemoteOrbit repositories/worktrees:
+
+1. locate an existing RemoteOrbit repository without mutating its current branch;
+2. run `git fetch origin`;
+3. verify that
+   `origin/codex/project-agents-control-plane-v1` exists;
+4. read the three control files directly from that remote-tracking branch, for
+   example with:
+   - `git show origin/codex/project-agents-control-plane-v1:AGENTS.md`
+   - `git show origin/codex/project-agents-control-plane-v1:CURRENT_STATUS.md`
+   - `git show origin/codex/project-agents-control-plane-v1:CURRENT_TASK.md`
+5. only after reading them, perform the read-only worktree census below.
+
+Do not create a new worktree, switch branches, merge PR #17, or overwrite local files
+merely to read the control plane. A later explicit step can decide how these files
+enter the authoritative local/main branch after reconciliation.
+
 ## Local reconciliation gate
 
-After pulling the control files locally, the next agent must perform a read-only census before any product work:
+After reading the remote control files, the next agent must perform a read-only census before any product work:
 
 1. read the three control files in order;
 2. fetch remote state;
@@ -72,7 +95,7 @@ After pulling the control files locally, the next agent must perform a read-only
 6. identify any worktree associated with PR #16, PR #9, or prior forensic/flight-recorder work;
 7. inspect the installed/running RemoteOrbit identity only if runtime identity is relevant to the next task;
 8. compare actual local state to `CURRENT_STATUS.md`;
-9. write verified local facts into `CURRENT_STATUS.md`;
+9. write verified local facts into `CURRENT_STATUS.md` only after deciding which branch/worktree is the control-plane update authority;
 10. stop before cleanup or product changes.
 
 If local evidence conflicts with the remote snapshot, the task remains ACTIVE and the conflict must be reconciled first.
@@ -96,6 +119,8 @@ PROJECT STATE BOOTSTRAP is complete only when a fresh assistant, using the repos
 
 ## Next authorized step
 
-Complete and review the remote control-plane files, then sync them locally and perform the **read-only local reconciliation gate**.
+Fetch the governance branch locally **without switching/resetting existing worktrees**,
+read the three control files from the remote-tracking branch, then perform the
+**read-only local reconciliation gate**.
 
 Do not resume RemoteOrbit product debugging before that gate is complete.
