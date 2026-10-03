@@ -3,7 +3,7 @@
 ## Task identity
 
 - **Task:** REPOSITORY CLOSEOUT
-- **Phase:** remote PR/branch closeout, then local worktree closeout
+- **Phase:** local worktree closeout complete; remote branch deletion pending final user confirmation
 - **Status:** ACTIVE
 - **Task authority:** this file
 - **Product development:** FROZEN
@@ -109,20 +109,31 @@ Closeout is complete only when:
 
 ## Remote progress
 
-- all 17 PRs classified;
-- #9 re-closed as SUPERSEDED;
-- #16 re-closed as ABANDONED;
-- all 18 remote branches classified;
-- 14 remote branches are DELETE CANDIDATE;
-- remote ref deletion is blocked in this session because no branch/ref delete tool is available;
-- four remote branches are KEEP: `main`, the control-plane branch, and the two unique-evidence no-PR branches;
-- all 13 last-known live worktrees and 10 registered-but-missing paths now have lifecycle classifications in `CURRENT_STATUS.md`;
-- local deletion remains pending because this session cannot refresh or mutate the owning Mac's worktrees.
+- all 17 PRs classified; #9 and #16 closed under the authorized closeout; #17 remains OPEN Draft;
+- all 18 remote branches classified; 14 are DELETE CANDIDATE and four are KEEP;
+- the owning-Mac census began with 13 live worktrees and 10 registered-but-missing entries;
+- four safe live worktrees were removed, all ten verified-missing registrations were pruned, and 15 safe local branches were deleted;
+- nine original worktrees remain, including one ACTIVE frozen Flight Recorder evidence worktree; one new ACTIVE control-plane worktree was created;
+- remote deletion awaits final confirmation of the 14 exact candidate branch refs; no remote refs have been deleted;
+- control files are updated on a direct child of the freshly verified live control branch HEAD.
 
 ## Next authorized step
 
-Run the local read-only worktree census on the owning Mac and complete per-worktree
-classification/deletion. Then delete remote DELETE CANDIDATE refs only after the
-local census proves no retained worktree/evidence still depends on them.
+Request the user's final confirmation to delete exactly these refs, individually and with post-delete verification:
 
-Do not resume product debugging until repository closeout is complete.
+- codex/audio-data-plane-p0-audit
+- codex/configurable-voice-trigger-key
+- codex/media-key-suppression-isolation
+- codex/mic-disabled-bypass-short-classifier
+- codex/p1-a6-long-duration-telemetry
+- codex/p1-stage-merge-closure
+- codex/persistent-segment-transaction-isolation
+- codex/release-v0.2.13
+- codex/v0211-disabled-short-classifier
+- codex/v0211-option-race-audit
+- codex/voice-recovery-from-good
+- codex/voice-single-owner-option
+- fix/v0211-final-voice-corrective
+- release/v0.2.12
+
+On confirmation, reverify the live heads, delete one ref at a time with git push origin --delete <branch>, and verify that git ls-remote --heads origin <branch> is empty after each deletion. If any ref is absent, has changed lifecycle, or Git rejects deletion, stop that branch and reclassify. Then update CURRENT_STATUS.md and CURRENT_TASK.md in one fast-forward commit. Do not resume product debugging until repository closeout is complete.
