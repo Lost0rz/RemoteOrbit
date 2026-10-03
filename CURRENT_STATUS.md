@@ -709,6 +709,16 @@ Out of scope:
 - timing/threshold changes;
 - broad internal log expansion.
 
+### Active Step 5 implementation line
+
+```text
+branch: codex/persistent-long-boundary-probes-v1
+base: main @ 7129ef72949eca956b1d0daddce707d5e417eeed
+purpose: diagnostic boundary probes only
+PR: pending until first validated commit
+behavior fixes: NOT AUTHORIZED
+```
+
 ### Required probe acceptance
 
 Before a new capture is authorized, the probe branch must prove:

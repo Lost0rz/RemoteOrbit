@@ -392,6 +392,14 @@ the current task.
 
 ## Step 5 implementation authority
 
+### Active implementation authority
+
+- Branch: `codex/persistent-long-boundary-probes-v1`
+- Base: `main@7129ef72949eca956b1d0daddce707d5e417eeed`
+- Scope: diagnostic boundary probes and focused tests only.
+- PR: pending until the first validated probe commit.
+- Product behavior fixes remain forbidden.
+
 ### Authorized implementation
 
 Create one dedicated diagnostic branch from live `main`.
