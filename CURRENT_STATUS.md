@@ -715,7 +715,7 @@ Out of scope:
 branch: codex/persistent-long-boundary-probes-v1
 base: main @ 7129ef72949eca956b1d0daddce707d5e417eeed
 purpose: diagnostic boundary probes only
-PR: pending until first validated commit
+PR: #18 OPEN + Draft
 behavior fixes: NOT AUTHORIZED
 ```
 
@@ -743,6 +743,79 @@ Before a new capture is authorized, the probe branch must prove:
 - **CONSTRUCTION GATE:** BLOCKED until a new probe-enabled incident proves one
   broken contract and a pre-fix failing acceptance.
 
+## Step 5 implementation result — remote phase
+
+### Probe line
+
+```text
+branch: codex/persistent-long-boundary-probes-v1
+base: main@7129ef72949eca956b1d0daddce707d5e417eeed
+head: 8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d
+PR: #18 OPEN + Draft
+```
+
+### Implemented diagnostic delta
+
+**B3 HID → mapped CGEvent**
+
+- transition-only `RAW_HID_MIC_STATE`;
+- monotonically increasing `hid_report_sequence`;
+- `HID_MIC_EDGE_EMITTED` / `HID_MIC_EDGE_SUPPRESSED` carry report sequence and
+  HID callback uptime;
+- `MAPPED_TRIGGER_EVENT` carries original `CGEvent.timestamp` as
+  `cg_event_timestamp_ns` plus seconds form and observer uptime;
+- raw voice-key records carry the same CGEvent timestamp fields;
+- `VOICE_PRESS_ENTRY` / `VOICE_RELEASE_ENTRY` identify
+  `hid_monitor` vs `voice_key_filter_fallback`.
+
+### Focused test delta
+
+Added:
+
+- `HIDMonitorDiagnosticsTests`;
+- `VoiceBoundaryDiagnosticsTests`;
+- `VoiceInputSourceDiagnosticsTests`.
+
+The tests define the required pre-capture contract for transition-only HID records,
+original CGEvent timestamp retention, source correlation, and absence of ownership
+mutation from diagnostic logging.
+
+### Remote static diff audit
+
+- branch is two commits ahead of main, zero behind;
+- changed production files:
+  - `HIDMonitor.swift`;
+  - `main.swift`;
+- changed test files: three diagnostic test files;
+- no trigger suppression/replay decision, Persistent session transition, classifier
+  threshold, BLE path, audio route, or timing contract was intentionally changed;
+- static diff review found diagnostic-field/logging additions only in behavior
+  seams.
+
+### External-session probe decision
+
+No B5/B9 semantic observer was implemented in this remote phase.
+
+Reason:
+
+- no reliable direct external API/ACK has been established for Doubao
+  `OPEN/LISTENING → STOPPED`;
+- inventing a window/text proxy and naming it semantic session state would violate
+  the evidence contract.
+
+B5/B9 therefore remain PARTIAL/MISSING and must stay explicitly labeled that way.
+
+### Gate state
+
+- **PROBE IMPLEMENTATION GATE:** PASS for remote implementation scope.
+- **DIAGNOSTIC TEST GATE:** READY_FOR_LOCAL_VALIDATION.
+- **NEW CAPTURE GATE:** BLOCKED until local macOS validation passes.
+- **CONSTRUCTION GATE:** BLOCKED.
+- **ROOT CAUSE:** UNKNOWN.
+
+The repository has no GitHub Actions workflow for this Swift/macOS package, so remote
+GitHub cannot establish a truthful test PASS. Local macOS validation is required.
+
 ## Prior quality-audit result
 
 The three-file control plane completed three consecutive PASS rounds on live branch
@@ -769,9 +842,18 @@ Product development remains FROZEN. No repair work is authorized.
 
 ## Next required action
 
-Implement the minimum boundary-probe delta on a dedicated branch from live main,
-starting with B3 and adding only a defensible B5/B9 or B8 boundary observer where
-direct external observation is technically available.
+Run local macOS validation of PR #18 at
+`8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d`.
 
-Run focused/static validation, perform a diff-scope audit, and return for a
-Diagnostic Test Gate decision before any new capture.
+Required local result:
+
+1. compile/build succeeds;
+2. focused new diagnostic tests pass;
+3. existing VoiceKeyFilter / VoicePress / Persistent session focused tests pass;
+4. full Swift test suite passes, or every unrelated failure is separately proven
+   pre-existing;
+5. local diff/runtime audit confirms no behavior change.
+
+If all pass, update the control files with
+`DIAGNOSTIC_TEST_GATE: PASS` and `NEW_CAPTURE_GATE: READY_FOR_REVIEW`.
+Do not install or capture until that update is reviewed.

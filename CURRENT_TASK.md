@@ -397,7 +397,7 @@ the current task.
 - Branch: `codex/persistent-long-boundary-probes-v1`
 - Base: `main@7129ef72949eca956b1d0daddce707d5e417eeed`
 - Scope: diagnostic boundary probes and focused tests only.
-- PR: pending until the first validated probe commit.
+- PR: #18 OPEN + Draft.
 - Product behavior fixes remain forbidden.
 
 ### Authorized implementation
@@ -461,6 +461,31 @@ May become PASS only after:
 A Diagnostic Test Gate PASS authorizes one bounded probe-enabled capture, not a
 behavior fix.
 
+## Remote implementation checkpoint
+
+```text
+PROBE_BRANCH: codex/persistent-long-boundary-probes-v1
+PROBE_HEAD: 8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d
+PROBE_PR: #18 OPEN + Draft
+
+B3_PROBE_IMPLEMENTED: YES
+B5_B9_DIRECT_SEMANTIC_PROBE_IMPLEMENTED: NO
+B5_B9_REASON: no reliable direct external semantic API/ACK established
+
+REMOTE_DIFF_SCOPE_AUDIT: PASS
+REMOTE_BEHAVIOR_CHANGE_FOUND: NO
+
+PROBE_IMPLEMENTATION_GATE: PASS
+DIAGNOSTIC_TEST_GATE: READY_FOR_LOCAL_VALIDATION
+NEW_CAPTURE_GATE: BLOCKED
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
+Remote validation is limited to source/diff/test-definition audit because this
+repository has no GitHub Actions workflow and remote GitHub cannot execute the
+macOS Swift test suite.
+
 ## Completion gate
 
 Step 4 is complete only when all are true:
@@ -494,7 +519,25 @@ internal logging.
 
 ## Next authorized action
 
-Implement and validate the Step 5 minimum boundary probe delta on a dedicated
-diagnostic branch from live main.
+Perform local macOS validation of PR #18 HEAD
+`8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d`.
 
-Return for Diagnostic Test Gate review before any build/install/capture.
+Authorized locally:
+
+- fetch/checkout or create a clean worktree for PR #18;
+- build the Swift package;
+- run the three new diagnostic test files;
+- run focused existing VoiceKeyFilter / VoicePressCoordinator /
+  VoicePersistentSession tests;
+- run the full Swift test suite;
+- perform a read-only diff/behavior audit.
+
+Not yet authorized:
+
+- install/replace `/Applications/RemoteOrbit.app`;
+- new incident capture;
+- behavior fix;
+- merge/release.
+
+If local validation passes, update CURRENT_STATUS.md + CURRENT_TASK.md together and
+push the control-plane branch for review.
