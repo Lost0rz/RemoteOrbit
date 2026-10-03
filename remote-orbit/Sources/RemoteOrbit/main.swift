@@ -478,6 +478,10 @@ final class VoicePressCoordinator {
         mode
     }
 
+    var currentGestureIDForDiagnostics: UUID? {
+        gestureID
+    }
+
     var persistentSessionActiveForTesting: Bool {
         voiceSessionMode == .persistentOpen
     }
@@ -1965,6 +1969,7 @@ final class VoiceKeyFilter {
         keyCode: CGKeyCode,
         eventType: CGEventType,
         flags: CGEventFlags,
+        eventTimestamp: CGEventTimestamp? = nil,
         syntheticMarker: Bool,
         action: String
     ) {
@@ -1972,6 +1977,7 @@ final class VoiceKeyFilter {
             keyCode: keyCode,
             eventType: eventType,
             flags: flags,
+            eventTimestamp: eventTimestamp,
             syntheticMarker: syntheticMarker,
             action: action
         )
@@ -1981,6 +1987,7 @@ final class VoiceKeyFilter {
         keyCode: CGKeyCode,
         eventType: CGEventType,
         flags: CGEventFlags,
+        eventTimestamp: CGEventTimestamp? = nil,
         syntheticMarker: Bool,
         action: String
     ) {
@@ -1997,22 +2004,29 @@ final class VoiceKeyFilter {
         case .flagsChanged: eventName = "flags_changed"
         default: eventName = "other_\(eventType.rawValue)"
         }
+        var fields: [String: Any] = [
+            "key_code": Int(keyCode),
+            "event_type": eventName,
+            "flags": UInt64(flags.rawValue),
+            "synthetic_marker": syntheticMarker,
+            "filter_configured_key": momentaryVoiceTriggerKey.rawValue,
+            "gate_state": optionGate.activeSessionID != nil ? "deferring"
+                : optionGate.suppressedSessionID != nil ? "suppressed"
+                : heldHardwareOptionSessionID != nil ? "holding_release" : "none",
+            "action": action,
+            "observer_uptime": ProcessInfo.processInfo.systemUptime,
+        ]
+        if let eventTimestamp {
+            fields["cg_event_timestamp_ns"] = UInt64(eventTimestamp)
+            fields["cg_event_uptime_seconds"] =
+                Double(eventTimestamp) / 1_000_000_000.0
+        }
         diagnosticLogger?.log(
             category: "filter",
             event: "MAPPED_TRIGGER_EVENT",
             gestureID: owner,
             key: observed,
-            fields: [
-                "key_code": Int(keyCode),
-                "event_type": eventName,
-                "flags": UInt64(flags.rawValue),
-                "synthetic_marker": syntheticMarker,
-                "filter_configured_key": momentaryVoiceTriggerKey.rawValue,
-                "gate_state": optionGate.activeSessionID != nil ? "deferring"
-                    : optionGate.suppressedSessionID != nil ? "suppressed"
-                    : heldHardwareOptionSessionID != nil ? "holding_release" : "none",
-                "action": action,
-            ]
+            fields: fields
         )
         if !syntheticMarker, observed != momentaryVoiceTriggerKey {
             diagnosticLogger?.log(
@@ -2625,6 +2639,7 @@ final class VoiceKeyFilter {
                     keyCode: keyCode,
                     eventType: type,
                     flags: event.flags,
+                    eventTimestamp: event.timestamp,
                     syntheticMarker: true,
                     action: "pass"
                 )
@@ -2640,6 +2655,10 @@ final class VoiceKeyFilter {
                         "gesture_id": NSNull(),
                         "key_code": Int(keyCode),
                         "flags": UInt64(event.flags.rawValue),
+                        "cg_event_timestamp_ns": UInt64(event.timestamp),
+                        "cg_event_uptime_seconds":
+                            Double(event.timestamp) / 1_000_000_000.0,
+                        "observer_uptime": ProcessInfo.processInfo.systemUptime,
                     ]
                 )
             }
@@ -2649,6 +2668,7 @@ final class VoiceKeyFilter {
                     keyCode: keyCode,
                     eventType: type,
                     flags: event.flags,
+                    eventTimestamp: event.timestamp,
                     syntheticMarker: false,
                     action: "reconfiguration_suppress"
                 )
@@ -2664,6 +2684,7 @@ final class VoiceKeyFilter {
                     keyCode: keyCode,
                     eventType: type,
                     flags: event.flags,
+                    eventTimestamp: event.timestamp,
                     syntheticMarker: false,
                     action: "suppress"
                 )
@@ -2710,6 +2731,7 @@ final class VoiceKeyFilter {
                             keyCode: keyCode,
                             eventType: type,
                             flags: event.flags,
+                            eventTimestamp: event.timestamp,
                             syntheticMarker: false,
                             action: "unmatched_pass"
                         )
@@ -2722,6 +2744,7 @@ final class VoiceKeyFilter {
                     keyCode: keyCode,
                     eventType: type,
                     flags: event.flags,
+                    eventTimestamp: event.timestamp,
                     syntheticMarker: false,
                     action: action
                 )
@@ -2742,6 +2765,7 @@ final class VoiceKeyFilter {
                             keyCode: keyCode,
                             eventType: type,
                             flags: event.flags,
+                            eventTimestamp: event.timestamp,
                             syntheticMarker: false,
                             action: "suppress"
                         )
@@ -2754,6 +2778,7 @@ final class VoiceKeyFilter {
                             keyCode: keyCode,
                             eventType: type,
                             flags: event.flags,
+                            eventTimestamp: event.timestamp,
                             syntheticMarker: false,
                             action: "suppress"
                         )
@@ -2765,6 +2790,7 @@ final class VoiceKeyFilter {
                         keyCode: keyCode,
                         eventType: type,
                         flags: event.flags,
+                        eventTimestamp: event.timestamp,
                         syntheticMarker: false,
                         action: "pass"
                     )
@@ -2777,6 +2803,7 @@ final class VoiceKeyFilter {
                     keyCode: keyCode,
                     eventType: type,
                     flags: event.flags,
+                    eventTimestamp: event.timestamp,
                     syntheticMarker: false,
                     action: "hold_release"
                 )
@@ -2809,6 +2836,7 @@ final class VoiceKeyFilter {
                 keyCode: keyCode,
                 eventType: type,
                 flags: event.flags,
+                eventTimestamp: event.timestamp,
                 syntheticMarker: false,
                 action: "pass"
             )
@@ -2872,6 +2900,11 @@ enum VoiceTriggerApplyResult: Equatable {
     case busyReleaseDrain
     case failed
     case locked
+}
+
+enum VoicePressInputSource: String {
+    case hidMonitor = "hid_monitor"
+    case voiceKeyFilterFallback = "voice_key_filter_fallback"
 }
 
 final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -3357,7 +3390,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func beginVoicePress(
         targetApplicationBundleIdentifier lockedTarget: String? = nil,
-        shortBinding: ButtonBinding? = nil
+        shortBinding: ButtonBinding? = nil,
+        source: VoicePressInputSource = .voiceKeyFilterFallback
     ) {
         guard !voiceTriggerReconfigurationInProgress,
               !voiceTriggerRuntimeLocked else {
@@ -3376,6 +3410,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // be slow or unavailable even while the receiver is already working.
         let needsFocusPreparation = needsFloatTabsFocus || needsCodexFocus
         let gestureID = UUID()
+        diagnosticLogger.log(
+            category: "voice",
+            event: "VOICE_PRESS_ENTRY",
+            gestureID: gestureID,
+            fields: [
+                "source": source.rawValue,
+                "hid_connected": hidConnected,
+                "filter_skip_voice_key": filter.skipVoiceKey,
+                "observer_uptime": ProcessInfo.processInfo.systemUptime,
+                "momentary_key": currentMomentaryVoiceTriggerKey.rawValue,
+                "persistent_key": currentPersistentSessionTriggerKey.rawValue,
+            ]
+        )
         // Gate every gesture while the real HID mapping is active. Otherwise
         // a disabled short slot could still leak the mapped trigger before
         // the 300 ms classifier resolves the press.
@@ -3501,6 +3548,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 reason: reason
             )
         }
+    }
+
+    func recordVoiceReleaseEntry(source: VoicePressInputSource) {
+        diagnosticLogger.log(
+            category: "voice",
+            event: "VOICE_RELEASE_ENTRY",
+            gestureID: voicePress.currentGestureIDForDiagnostics,
+            fields: [
+                "source": source.rawValue,
+                "observer_uptime": ProcessInfo.processInfo.systemUptime,
+            ]
+        )
     }
 
     private func handleVoiceShortTap(
@@ -3809,10 +3868,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // ATVV audio connection.
         filter.onVoiceKeyDown = { [weak self] in
-            self?.beginVoicePress()
+            self?.beginVoicePress(source: .voiceKeyFilterFallback)
         }
         filter.onVoiceKeyUp = { [weak self] in
             guard let self else { return }
+            self.recordVoiceReleaseEntry(source: .voiceKeyFilterFallback)
             if self.voicePress.keyUp() {
                 self.ble.stopVoiceInput()
             }
@@ -4024,9 +4084,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         self.beginVoicePress(
                             targetApplicationBundleIdentifier: self.mappingStore
                                 .activePressApplicationBundleIdentifier(for: button),
-                            shortBinding: binding
+                            shortBinding: binding,
+                            source: .hidMonitor
                         )
                     } else {
+                        self.recordVoiceReleaseEntry(source: .hidMonitor)
                         if self.voicePress.keyUp() {
                             self.ble.stopVoiceInput()
                         }
