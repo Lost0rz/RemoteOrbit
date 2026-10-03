@@ -8,17 +8,36 @@ This file is the authority for mutable project state. If local evidence disagree
 with this file, stop production mutation, reconcile the discrepancy read-only, and
 update this file before continuing.
 
+## Evidence labels
+
+Use these labels for all material state and diagnostic conclusions:
+
+- **FACT** — directly verified by current evidence.
+- **INFERENCE** — strongly supported by verified facts but not directly observed.
+- **HYPOTHESIS** — plausible explanation that still requires evidence.
+- **UNKNOWN** — not established by available evidence.
+- **HISTORICAL** — previously reported/accepted context that has not been verified
+  as current in this control-plane pass.
+
+Do not promote INFERENCE, HYPOTHESIS, UNKNOWN, or HISTORICAL state to FACT through
+repetition.
+
 ## Remote-verified repository state
 
-- Default branch: `main`
-- Remote `main` HEAD: `7129ef72949eca956b1d0daddce707d5e417eeed`
-- Remote `main` HEAD message:
+- **FACT — Default branch:** `main`
+- **FACT — Remote `main` HEAD:** `7129ef72949eca956b1d0daddce707d5e417eeed`
+- **FACT — Remote `main` HEAD message:**
   `Merge pull request #15 from Lost0rz/codex/media-key-suppression-isolation`
-- Latest published release: `v0.2.13`
+- **FACT — Latest published release:** `v0.2.13`
   - Published: 2026-09-24
+  - Version/build: RemoteOrbit 0.2.13 / Build 42
   - Release target: `main`
+- **UNKNOWN — Installed/running build:** GitHub release state does not establish
+  what is installed or running on any Mac.
 
 ### Open PRs
+
+At this verification point, GitHub reports exactly three open PRs: #17, #16, and #9.
 
 **#17 — ACTIVE CONTROL-PLANE PR**
 
@@ -33,7 +52,7 @@ update this file before continuing.
 The exact PR-branch HEAD is not embedded as a self-referential authority because
 every edit to this file changes that HEAD. Query Git/GitHub when validating the
 governance branch. The product/runtime HEAD authority remains the verified
-`main` HEAD above plus the locally reconciled worktree HEAD below.
+`main` HEAD above plus any later locally reconciled worktree HEAD.
 
 **#16 — FROZEN PRODUCT PR**
 
@@ -60,22 +79,26 @@ considered active merely because they exist.
 
 ## Local worktree authority
 
-**No local implementation/investigation worktree is currently verified as
-authoritative.**
+**UNKNOWN — no local implementation/investigation worktree is currently verified
+as authoritative by this remote control-plane pass.**
 
-Last-known local investigation worktree from prior accepted project context:
+GitHub cannot determine local worktree paths, detached/branch state, local-only
+commits, dirty/untracked files, or which checkout produced an installed build.
+
+### Historical handoff clue — not current authority
+
+Prior accepted project context reported:
 
 - Path: `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder`
 - Last-known HEAD:
   `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`
 - Last-known role: Flight Recorder / incident investigation checkpoint.
-- Remote verification on 2026-10-03: **FAILED** — GitHub cannot resolve that SHA
-  as a repository commit.
-- Classification: **LOCAL-ONLY / UNVERIFIED CURRENT STATE**.
+- Current remote verification: GitHub returns
+  `No commit found for SHA: 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`.
+- Classification: **HISTORICAL / LOCAL-ONLY / UNVERIFIED CURRENT STATE**.
 
-Therefore the path and SHA above are historical handoff facts, not permission to
-resume coding. The local machine must revalidate the actual worktree, branch, HEAD,
-working tree, remotes, and relevant runtime identity before any production change.
+Therefore the path and SHA above are only search targets for local reconciliation,
+not permission to resume coding.
 
 ## Current mainline
 
@@ -83,7 +106,7 @@ The current mainline is:
 
 ```text
 ESTABLISH CONTROL PLANE
-→ SYNC THREE FILES LOCALLY
+→ READ CONTROL FILES LOCALLY WITHOUT CHECKOUT/RESET
 → READ-ONLY LOCAL RECONCILIATION
 → DECLARE ONE AUTHORITATIVE WORKTREE / HEAD / TASK
 → ONLY THEN RESUME PRODUCT WORK
@@ -96,36 +119,52 @@ Paused until that is complete:
 - speculative production fixes;
 - work on PR #9 or PR #16;
 - release, packaging, installation, TCC, HAL driver, LaunchAgent, CoreAudio, or
-  runtime mutation.
+  runtime mutation;
+- worktree/branch/PR cleanup.
 
-## Confirmed project facts
+## Confirmed project state
 
-1. RemoteOrbit has accumulated multiple investigation branches/worktrees; their
-   existence is not evidence that they are still active.
-2. The most recently accepted useful investigation line is the Flight Recorder
-   checkpoint, but its exact current local Git/runtime identity has not yet been
-   revalidated in this control plane.
-3. The Persistent LONG / external IME-session investigation has unresolved causal
-   questions. Recovery/restart behavior is evidence of recovery, not proof of root
-   cause.
-4. PR #9 and PR #16 are both OPEN + Draft and currently frozen.
-5. Runtime identity must distinguish source, built artifact, installed app,
+1. **FACT:** Remote `main` and its exact SHA are recorded above.
+2. **FACT:** PR #17 is the active control-plane PR and does not authorize product
+   code changes.
+3. **FACT:** PR #9 and PR #16 are OPEN + Draft and currently frozen.
+4. **FACT:** the latest published release is RemoteOrbit 0.2.13 / Build 42.
+5. **FACT:** runtime identity must distinguish source, built artifact, installed app,
    running process, HAL driver, and LaunchAgent/configuration.
-6. No new bug fix or logging work is authorized while
+6. **FACT:** no new bug fix or logging work is authorized while
    `CURRENT_TASK.md` remains the project-state bootstrap task.
-7. The latest published release is `v0.2.13`; the actually installed/running
-   build remains UNKNOWN until local runtime identity is inspected when relevant.
+7. **HISTORICAL:** a Flight Recorder worktree/checkpoint was previously used for
+   incident investigation; its current local identity has not been revalidated.
+8. **HISTORICAL + UNKNOWN CAUSALITY:** the Persistent LONG / external IME-session
+   investigation contains unresolved causal questions. Recovery/restart behavior is
+   evidence of recovery, not proof of root cause.
+9. **UNKNOWN:** the authoritative local worktree, its exact HEAD/dirty state, and
+   the actually installed/running RemoteOrbit build.
+
+## Snapshot freshness rule
+
+Before relying on this snapshot for product work, re-check:
+
+- fetched `origin/main`;
+- the open PR set and relevant PR heads;
+- the local worktree census;
+- runtime identity when the next task depends on runtime evidence.
+
+If any material authority field changed, treat this snapshot as stale and reconcile
+before continuing.
 
 ## Required next reconciliation
 
 On the machine that owns the RemoteOrbit worktrees, collect read-only evidence for:
 
 - repository root;
-- current branch;
+- current branch/detached state;
 - exact HEAD;
-- working-tree status;
+- working-tree clean/dirty/untracked state;
 - remotes and fetched `origin/main`;
 - `git worktree list --porcelain`;
+- registered-but-missing worktrees;
+- local-only commits that may contain evidence;
 - PR association for candidate active branches;
 - installed/running RemoteOrbit identity only if needed for the next incident task.
 
