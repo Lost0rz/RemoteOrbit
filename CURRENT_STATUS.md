@@ -1,172 +1,144 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-03
-State: CONTROL-PLANE RECONCILIATION
+State: REPOSITORY CLOSEOUT
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
-with this file, stop production mutation, reconcile the discrepancy read-only, and
-update this file before continuing.
+with this file, stop product mutation, reconcile read-only, and update this file
+before continuing.
 
 ## Evidence labels
 
-Use these labels for all material state and diagnostic conclusions:
-
 - **FACT** — directly verified by current evidence.
-- **INFERENCE** — strongly supported by verified facts but not directly observed.
-- **HYPOTHESIS** — plausible explanation that still requires evidence.
+- **INFERENCE** — strongly supported but not directly observed.
+- **HYPOTHESIS** — plausible explanation requiring more evidence.
 - **UNKNOWN** — not established by available evidence.
-- **HISTORICAL** — previously reported/accepted context that has not been verified
-  as current in this control-plane pass.
+- **HISTORICAL** — previously reported context not verified as current.
 
-Do not promote INFERENCE, HYPOTHESIS, UNKNOWN, or HISTORICAL state to FACT through
-repetition.
-
-## Remote-verified repository state
+## Remote baseline
 
 - **FACT — Default branch:** `main`
-- **FACT — Remote `main` HEAD:** `7129ef72949eca956b1d0daddce707d5e417eeed`
-- **FACT — Remote `main` HEAD message:**
-  `Merge pull request #15 from Lost0rz/codex/media-key-suppression-isolation`
-- **FACT — Latest published release:** `v0.2.13`
-  - Published: 2026-09-24
-  - Version/build: RemoteOrbit 0.2.13 / Build 42
-  - Release target: `main`
-- **UNKNOWN — Installed/running build:** GitHub release state does not establish
-  what is installed or running on any Mac.
+- **FACT — Remote main HEAD:** `7129ef72949eca956b1d0daddce707d5e417eeed`
+- **FACT — Main HEAD message:** merge PR #15, media-key suppression isolation.
+- **FACT — Latest published release:** RemoteOrbit `v0.2.13` / Build 42.
+- **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
+- **FACT — Open PR count after closeout:** exactly one, PR #17.
 
-### Open PRs
+## PR lifecycle closeout
 
-At this verification point, GitHub reports exactly three open PRs: #17, #16, and #9.
+| PR | Title | Lifecycle | Remote state | Reason / successor |
+| --- | --- | --- | --- | --- |
+| #17 | development control plane | **ACTIVE** | OPEN Draft | sole current state/closeout authority |
+| #16 | persistent voice segment transaction isolation | **ABANDONED** | CLOSED Draft, unmerged | later forensics restarted from `main`; speculative fix was not adopted |
+| #15 | preserve Mac media keys | **MERGED** | CLOSED merged | merged into `main` 2026-10-01 |
+| #14 | microphone short-action bypass | **MERGED** | CLOSED merged | merged into `main` 2026-09-29 |
+| #13 | configurable voice trigger key | **MERGED** | CLOSED merged | merged into `main` 2026-09-30 |
+| #12 | P1 closure / telemetry trim | **MERGED** | CLOSED merged | accepted P1 closure |
+| #11 | release v0.2.13 | **MERGED** | CLOSED merged | accepted release line |
+| #10 | P1 stage merge candidate | **MERGED** | CLOSED merged | accepted P0/P1 diagnostics + ATVV reassembly line |
+| #9 | P0 audio data-plane audit | **SUPERSEDED** | CLOSED Draft, unmerged | purpose carried forward by merged #10; stage closed by #12 |
+| #8 | release v0.2.12 | **MERGED** | CLOSED merged | accepted release line |
+| #7 | consolidated v0.2.11 voice corrective | **MERGED** | CLOSED merged | accepted corrective |
+| #6 | disabled-short classifier branch | **SUPERSEDED** | CLOSED Draft, unmerged | #7 consolidated accepted behavior |
+| #5 | physical Option race diagnostic | **SUPERSEDED** | CLOSED Draft, unmerged | #7 explicitly excluded diagnostic-only line |
+| #4 | single-owner synthetic Option architecture | **SUPERSEDED** | CLOSED Draft, unmerged | #7 explicitly rejected/excluded this architecture |
+| #3 | release v0.2.11 | **MERGED** | CLOSED merged | accepted release line |
+| #2 | voice recovery from known-good baseline | **MERGED** | CLOSED merged | accepted recovery line |
+| #1 | verified integration baseline | **MERGED** | CLOSED merged | accepted baseline |
 
-**#17 — ACTIVE CONTROL-PLANE PR**
+### Closeout actions already executed
 
-- Title: `docs: establish RemoteOrbit development control plane`
-- State: OPEN
-- Draft: YES
-- Branch: `codex/project-agents-control-plane-v1`
-- Purpose: establish `AGENTS.md`, `CURRENT_STATUS.md`, and
-  `CURRENT_TASK.md`.
-- Product code authority: NO.
+- **FACT:** PR #9 was given a SUPERSEDED closure comment and closed.
+- **FACT:** PR #16 was given an ABANDONED closure comment and closed.
+- **FACT:** PR #17 is now the only open PR.
 
-The exact PR-branch HEAD is not embedded as a self-referential authority because
-every edit to this file changes that HEAD. Query Git/GitHub when validating the
-governance branch. The product/runtime HEAD authority remains the verified
-`main` HEAD above plus any later locally reconciled worktree HEAD.
+## Remote branch cleanup
 
-**#16 — FROZEN PRODUCT PR**
+The repository currently exposes these branches.
 
-- Title: `fix: isolate persistent voice segments into separate transactions`
-- State: OPEN
-- Draft: YES
-- Branch: `codex/persistent-segment-transaction-isolation`
-- Remote HEAD: `de8bb0d8b371b5f9380246831c78e67f5d720745`
-- Classification: NOT ACTIVE. No further implementation is authorized under the
-  current task.
+| Branch | Related lifecycle | Cleanup | Reason / blocker |
+| --- | --- | --- | --- |
+| `main` | ACTIVE baseline | **KEEP** | default branch |
+| `codex/project-agents-control-plane-v1` | ACTIVE / PR #17 | **KEEP** | current control-plane authority |
+| `codex/audio-data-plane-p0-audit` | SUPERSEDED / #9 | **DELETE CANDIDATE** | PR preserves diff/history |
+| `codex/configurable-voice-trigger-key` | MERGED / #13 | **DELETE CANDIDATE** | no unique active authority |
+| `codex/media-key-suppression-isolation` | MERGED / #15 | **DELETE CANDIDATE** | no unique active authority |
+| `codex/mic-disabled-bypass-short-classifier` | MERGED / #14 | **DELETE CANDIDATE** | no unique active authority |
+| `codex/p1-a6-long-duration-telemetry` | MERGED / #12 | **DELETE CANDIDATE** | no unique active authority |
+| `codex/p1-stage-merge-closure` | MERGED / #10 | **DELETE CANDIDATE** | no unique active authority |
+| `codex/persistent-segment-transaction-isolation` | ABANDONED / #16 | **DELETE CANDIDATE** | PR preserves diff/history |
+| `codex/release-v0.2.13` | MERGED / #11 | **DELETE CANDIDATE** | release/PR preserve history |
+| `codex/v0211-disabled-short-classifier` | SUPERSEDED / #6 | **DELETE CANDIDATE** | closed PR preserves diff/history |
+| `codex/v0211-option-race-audit` | SUPERSEDED / #5 | **DELETE CANDIDATE** | closed PR preserves diff/history |
+| `codex/voice-recovery-from-good` | MERGED / #2 | **DELETE CANDIDATE** | accepted via merged PR |
+| `codex/voice-single-owner-option` | SUPERSEDED / #4 | **DELETE CANDIDATE** | closed PR preserves diff/history |
+| `fix/v0211-final-voice-corrective` | MERGED / #7 | **DELETE CANDIDATE** | accepted via merged PR |
+| `release/v0.2.12` | MERGED / #8 | **DELETE CANDIDATE** | accepted via merged PR |
+| `codex/persistent-duplicate-audio-forensics` | no PR; unique forensic commits | **KEEP** | two unique post-main diagnostic commits; no PR preserves their review context |
+| `codex/voice-single-owner-session` | no PR; historical unique commits | **KEEP** | unique unmerged commits with no PR; preserve until local/evidence census decides disposition |
 
-**#9 — FROZEN DIAGNOSTIC PR**
+Already absent from the remote branch list:
 
-- Title: `P0 audit: instrument RemoteOrbit audio data plane`
-- State: OPEN
-- Draft: YES
-- Branch: `codex/audio-data-plane-p0-audit`
-- Remote HEAD: `af028a4f090ddc6278e43c18875a08d5e7299865`
-- Classification: NOT ACTIVE. Its existence does not authorize more
-  instrumentation.
+- PR #1 branch `codex/test-baseline-remoteorbit-20260901`
+- PR #3 branch `release/v0.2.11`
 
-Remote branches other than the explicitly active control-plane branch are not
-considered active merely because they exist.
+Their PRs remain the durable merged history.
 
-## Local worktree authority
+### Remote deletion blocker
 
-**UNKNOWN — no local implementation/investigation worktree is currently verified
-as authoritative by this remote control-plane pass.**
+**FACT:** the GitHub connector available in this session exposes PR close/update and
+repository-file mutation, but does not expose branch/ref deletion. Therefore the
+DELETE CANDIDATE branches above are classified and safe to remove, but were not
+silently rewritten or deleted through an unsupported mechanism.
 
-GitHub cannot determine local worktree paths, detached/branch state, local-only
-commits, dirty/untracked files, or which checkout produced an installed build.
+Do not reinterpret this tool limitation as a reason to keep those branches
+long-term. Delete them with an authorized Git ref deletion path after local
+reconciliation confirms no worktree still points at them.
 
-### Historical handoff clue — not current authority
+## Local worktree closeout
 
-Prior accepted project context reported:
+**UNKNOWN — GitHub cannot enumerate local worktrees.**
 
-- Path: `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder`
-- Last-known HEAD:
-  `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`
-- Last-known role: Flight Recorder / incident investigation checkpoint.
-- Current remote verification: GitHub returns
-  `No commit found for SHA: 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`.
-- Classification: **HISTORICAL / LOCAL-ONLY / UNVERIFIED CURRENT STATE**.
+A remote session cannot truthfully list every local worktree, determine whether a
+worktree is dirty, or know whether a local-only commit exists.
 
-Therefore the path and SHA above are only search targets for local reconciliation,
-not permission to resume coding.
+### Historical search target
 
-## Current mainline
+Previously reported context identified:
 
-The current mainline is:
+- `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder`
+- last-known HEAD `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`
+- GitHub cannot resolve that SHA.
+
+Classification remains **PENDING LOCAL EVIDENCE**. It must not be called ACTIVE,
+MERGED, SUPERSEDED, or ABANDONED until the local census establishes its current
+branch/HEAD/dirty state and whether it contains unique evidence.
+
+## Current authority
+
+Exactly one remote line is ACTIVE:
 
 ```text
-ESTABLISH CONTROL PLANE
-→ READ CONTROL FILES LOCALLY WITHOUT CHECKOUT/RESET
-→ READ-ONLY LOCAL RECONCILIATION
-→ DECLARE ONE AUTHORITATIVE WORKTREE / HEAD / TASK
-→ ONLY THEN RESUME PRODUCT WORK
+PR #17
+codex/project-agents-control-plane-v1
+REPOSITORY CLOSEOUT
 ```
 
-Paused until that is complete:
+Product debugging, new diagnostics, runtime experiments, packaging, installation,
+release, TCC, HAL, LaunchAgent, and CoreAudio mutation remain frozen.
 
-- further bug fixing;
-- further diagnostic/logging expansion;
-- speculative production fixes;
-- work on PR #9 or PR #16;
-- release, packaging, installation, TCC, HAL driver, LaunchAgent, CoreAudio, or
-  runtime mutation;
-- worktree/branch/PR cleanup.
+## Next required action
 
-## Confirmed project state
+Run the local read-only worktree census:
 
-1. **FACT:** Remote `main` and its exact SHA are recorded above.
-2. **FACT:** PR #17 is the active control-plane PR and does not authorize product
-   code changes.
-3. **FACT:** PR #9 and PR #16 are OPEN + Draft and currently frozen.
-4. **FACT:** the latest published release is RemoteOrbit 0.2.13 / Build 42.
-5. **FACT:** runtime identity must distinguish source, built artifact, installed app,
-   running process, HAL driver, and LaunchAgent/configuration.
-6. **FACT:** no new bug fix or logging work is authorized while
-   `CURRENT_TASK.md` remains the project-state bootstrap task.
-7. **HISTORICAL:** a Flight Recorder worktree/checkpoint was previously used for
-   incident investigation; its current local identity has not been revalidated.
-8. **HISTORICAL + UNKNOWN CAUSALITY:** the Persistent LONG / external IME-session
-   investigation contains unresolved causal questions. Recovery/restart behavior is
-   evidence of recovery, not proof of root cause.
-9. **UNKNOWN:** the authoritative local worktree, its exact HEAD/dirty state, and
-   the actually installed/running RemoteOrbit build.
+```bash
+git worktree list --porcelain
+```
 
-## Snapshot freshness rule
+For every worktree record path, branch/detached state, exact HEAD,
+clean/dirty/untracked state, tracking branch, associated PR, lifecycle
+classification, delete decision, and blocker.
 
-Before relying on this snapshot for product work, re-check:
-
-- the verified RemoteOrbit remote identity and its fetched remote-tracking `main`;
-- the open PR set and relevant PR heads;
-- the local worktree census;
-- runtime identity when the next task depends on runtime evidence.
-
-If any material authority field changed, treat this snapshot as stale and reconcile
-before continuing.
-
-## Required next reconciliation
-
-On the machine that owns the RemoteOrbit worktrees, collect read-only evidence for:
-
-- repository root;
-- current branch/detached state;
-- exact HEAD;
-- working-tree clean/dirty/untracked state;
-- remotes, canonical RemoteOrbit remote identity, and its fetched remote-tracking `main`;
-- `git worktree list --porcelain`;
-- registered-but-missing worktrees;
-- local-only commits that may contain evidence;
-- PR association for candidate active branches;
-- installed/running RemoteOrbit identity only if needed for the next incident task.
-
-Then update this file so there is exactly one declared active implementation or
-investigation worktree before product work resumes.
+Only after that census may local worktrees and the DELETE CANDIDATE branches be
+removed.
