@@ -2,12 +2,12 @@
 
 ## Task identity
 
-- **Task:** INCIDENT MODE — DIAGNOSTIC GAP AUDIT
+- **Task:** INCIDENT MODE — MINIMUM BOUNDARY PROBE DELTA
 - **Incident family:** PERSISTENT-LONG / EXTERNAL-IME PREMATURE SESSION STOP
-- **Phase:** Step 4 — probe/state-machine/boundary audit and forensic readiness
+- **Phase:** Step 5 — minimal boundary probe implementation and validation
 - **Status:** ACTIVE
 - **Task authority:** this file
-- **Product development:** FROZEN
+- **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
 - **Construction Gate:** BLOCKED
 - **Fresh Incident Gate:** PASS
@@ -62,11 +62,11 @@ It is evidence/design reference, not task authority. This file and
 
 ## Single objective
 
-Determine whether the sealed fresh incident can be causally narrowed using the
-already-existing evidence system, and identify the **minimum boundary probe delta**
-only if an essential boundary is still unobservable.
+Implement and validate the **minimum boundary-observation delta** required to make
+the next incident causally discriminating.
 
-This is an audit/design task, not probe implementation and not bug fixing.
+This task authorizes diagnostics/probe code only. It does not authorize a behavior
+fix.
 
 ## Allowed actions
 
@@ -390,6 +390,69 @@ This task does **not** satisfy the Construction Gate.
 No behavior fix, product optimization, or probe implementation is authorized under
 the current task.
 
+## Step 5 implementation authority
+
+### Authorized implementation
+
+Create one dedicated diagnostic branch from live `main`.
+
+Implement only:
+
+1. **B3 HID → mapped CGEvent correlation**
+   - transition-only raw microphone HID record;
+   - monotonically increasing HID report sequence;
+   - accepted/suppressed microphone edge record carrying source sequence/time;
+   - original `CGEvent.timestamp` on mapped-trigger records;
+   - observer-time fields needed to compare those events;
+   - input-source/gesture correlation where already available.
+
+2. **B5/B9 external-session observation**
+   - only if a read-only external/system API can observe a concrete external
+     transition;
+   - label proxy signals as proxy, never as semantic ACK;
+   - if no reliable direct observer exists, do not invent one.
+
+3. **B8 frontmost/application activation transition**
+   - allowed only as a transition-only independent boundary observer if needed for
+     incident discrimination.
+
+### Required tests before implementation is test-ready
+
+At minimum:
+
+- raw microphone transition creates exactly one structured record per transition;
+- stable HID state creates no duplicate transition records;
+- raw report sequence is monotonic;
+- mapped-trigger record retains original `CGEvent.timestamp`;
+- synthetic/self-generated events remain distinguishable;
+- diagnostic additions do not alter trigger/gate decision results;
+- existing Persistent/VoiceKeyFilter tests remain semantically unchanged.
+
+### Prohibited
+
+- no trigger/gate behavior change;
+- no Persistent open/close behavior change;
+- no timing/threshold change;
+- no audio/BLE behavior change;
+- no replay/suppress ownership change;
+- no production fix disguised as instrumentation;
+- no new capture until Diagnostic Test Gate passes;
+- no install/release.
+
+### Diagnostic Test Gate
+
+May become PASS only after:
+
+1. focused tests are present and logically cover the new boundary fields;
+2. branch diff is diagnostic/test-only;
+3. no behavior contract changes are present;
+4. B3 evidence is sufficient to decide pre-gate vs post-gate ordering on the next
+   incident;
+5. any external-session observer is honestly classified DIRECT / PROXY / MISSING.
+
+A Diagnostic Test Gate PASS authorizes one bounded probe-enabled capture, not a
+behavior fix.
+
 ## Completion gate
 
 Step 4 is complete only when all are true:
@@ -423,12 +486,7 @@ internal logging.
 
 ## Next authorized action
 
-Local evidence handoff is COMPLETE.
+Implement and validate the Step 5 minimum boundary probe delta on a dedicated
+diagnostic branch from live main.
 
-Stop product work here. A new explicit task is required before implementing any
-probe or performing another capture.
-
-The next task, if authorized, should be limited to designing and implementing the
-minimum boundary-observation delta for the unresolved B3/B4/B5/B7/B8/B9 questions,
-with priority on external IME semantic session state and HID→mapped-CGEvent
-correlation. It must not expand general internal logging.
+Return for Diagnostic Test Gate review before any build/install/capture.

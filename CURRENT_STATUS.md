@@ -375,7 +375,7 @@ Exactly one remote control-plane line is ACTIVE:
 
 ```text
 branch: codex/project-agents-control-plane-v1
-task: INCIDENT MODE — DIAGNOSTIC GAP AUDIT
+task: INCIDENT MODE — MINIMUM BOUNDARY PROBE DELTA
 PR #17: OPEN + Draft control-plane PR
 ```
 
@@ -680,6 +680,59 @@ The local handoff is complete and confirms the remote gap audit:
 
 Therefore Construction Gate remains BLOCKED.
 
+## Step 5 — minimum boundary probe delta
+
+The user explicitly authorized continuing from the completed gap audit toward a
+testable/construction-ready state.
+
+### Scope freeze
+
+This phase authorizes **diagnostic boundary probe implementation only**.
+
+Primary scope:
+
+- **B3:** physical HID microphone transition → hidutil-translated mapped CGEvent;
+- **B5/B9:** external IME/session evidence sufficient to timestamp or independently
+  anchor the actual external voice-session transition, if a reliable read-only
+  mechanism can be implemented without pretending an inference is a semantic ACK.
+
+Secondary scope is allowed only if required to interpret those probes:
+
+- **B8:** independent frontmost/application activation boundary.
+
+Out of scope:
+
+- behavior fixes;
+- Option/gate semantics changes;
+- Persistent-session behavior changes;
+- BLE/audio buffering or routing changes;
+- timing/threshold changes;
+- broad internal log expansion.
+
+### Required probe acceptance
+
+Before a new capture is authorized, the probe branch must prove:
+
+1. transition-only instrumentation;
+2. no behavior-path branching based on probe output;
+3. B3 records raw HID microphone transition identity/sequence/time and mapped CGEvent
+   original timestamp/observation/gate action in a joinable clock domain;
+4. any B5/B9 observer clearly distinguishes:
+   - direct external observation;
+   - proxy observation;
+   - inference;
+5. focused tests prove diagnostic payload and no semantic behavior change;
+6. diff audit confirms only diagnostic/test/support files changed.
+
+### Gate semantics
+
+- **PROBE IMPLEMENTATION GATE:** AUTHORIZED.
+- **DIAGNOSTIC TEST GATE:** BLOCKED until probe branch passes static/focused test
+  review.
+- **NEW CAPTURE GATE:** BLOCKED until Diagnostic Test Gate passes.
+- **CONSTRUCTION GATE:** BLOCKED until a new probe-enabled incident proves one
+  broken contract and a pre-fix failing acceptance.
+
 ## Prior quality-audit result
 
 The three-file control plane completed three consecutive PASS rounds on live branch
@@ -706,12 +759,9 @@ Product development remains FROZEN. No repair work is authorized.
 
 ## Next required action
 
-Local evidence handoff is COMPLETE.
+Implement the minimum boundary-probe delta on a dedicated branch from live main,
+starting with B3 and adding only a defensible B5/B9 or B8 boundary observer where
+direct external observation is technically available.
 
-Before any product fix, define the minimum boundary-observation delta needed to
-resolve the missing/partial B3/B4/B5/B7/B8/B9 evidence. Prefer one transition-only
-cross-process/system probe per unresolved boundary question; do not expand internal
-state-machine logging.
-
-Probe implementation, new capture, product mutation, and construction remain
-unauthorized until a new explicit task transition.
+Run focused/static validation, perform a diff-scope audit, and return for a
+Diagnostic Test Gate decision before any new capture.
