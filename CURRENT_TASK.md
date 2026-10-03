@@ -2,114 +2,131 @@
 
 ## Task identity
 
-- **Task:** REPOSITORY CLOSEOUT
-- **Phase:** PR / branch classification, then local worktree reconciliation
+- **Task:** CONTROL-PLANE QUALITY AUDIT
+- **Phase:** remote quality freeze, then local read-only reconciliation
 - **Status:** ACTIVE
 - **Task authority:** this file
 - **Product development:** FROZEN
+- **Further repository cleanup:** FROZEN
 
 ## Objective
 
-Close the accumulated RemoteOrbit development lines before any further debugging.
+Independently audit the quality, consistency, safety, and cold-start usability of
+`AGENTS.md`, `CURRENT_STATUS.md`, and `CURRENT_TASK.md`.
 
-Every PR and candidate cleanup branch must be classified from evidence. Every local
-worktree must be inventoried locally before it is removed.
+Do not declare the control plane ready merely because the files exist. Correct every
+material defect found, then restart the consecutive-PASS count from zero.
 
-## Classification vocabulary
+## Current remote facts carried into this audit
 
-Use exactly these lifecycle labels for PRs and worktrees:
+- PR #17 is the sole open PR and the control-plane branch.
+- PR #9 has already been closed as SUPERSEDED.
+- PR #16 has already been closed as ABANDONED.
+- Those closeout actions are historical/current facts to audit, not authorization
+  for additional cleanup.
+- Local worktree state remains UNKNOWN until a local census is performed.
 
-- **ACTIVE** — the single line currently authorized to change project state.
-- **MERGED** — accepted into `main` by a verified merged PR.
-- **SUPERSEDED** — not merged itself, but a later accepted line explicitly replaced
-  or incorporated its purpose.
-- **ABANDONED** — intentionally not proceeding; no accepted successor needs this
-  line as implementation authority.
+## Allowed
 
-Branch cleanup may additionally record **KEEP** or **DELETE CANDIDATE**. That is a
-cleanup decision, not a fifth lifecycle state.
+- read-only Git/GitHub/PR/branch/release audits;
+- verify existing lifecycle classifications against PR and commit evidence;
+- inspect the complete diff of PR #17;
+- cold-start and failure-injection reasoning against the three control files;
+- documentation-only corrections to the three control files;
+- update PR #17 metadata to match the audited control-plane phase.
 
-## Current authorization
+## Forbidden during this audit
 
-### Allowed
+- no product code changes;
+- no logging, telemetry, probes, or diagnostic changes;
+- no runtime experiments;
+- no PR close/reopen/merge operations;
+- no branch deletion;
+- no local worktree delete/prune/remove;
+- no reset, clean, destructive stash/checkout, force push, or history rewrite;
+- no build/package/install/release/TCC/HAL/LaunchAgent/CoreAudio mutation;
+- no transition to another task merely because it appears to be the next logical step.
 
-- read-only Git/GitHub/worktree census;
-- classify all PRs, branches, and locally registered worktrees;
-- add closure comments to obsolete PRs;
-- close PRs proven SUPERSEDED or ABANDONED;
-- delete remote/local branches proven safe **only when the available tool can do so
-  without rewriting or destroying unique unresolved evidence**;
-- remove local worktrees proven safe after local read-only census confirms their
-  branch/HEAD/dirty/untracked state;
-- update `AGENTS.md`, `CURRENT_STATUS.md`, and `CURRENT_TASK.md`.
+## Audit protocol
 
-### Forbidden
+A material corrective edit resets the consecutive-PASS count to **0**.
 
-- no product bug fixes;
-- no new logging, telemetry, or diagnostics;
-- no speculative runtime experiments;
-- no merge of product PRs as a cleanup shortcut;
-- no force push, destructive reset, clean, or history rewrite;
-- no deletion of a local worktree before its exact state is inventoried;
-- no deletion of a branch that is the only verified reference to unique unresolved
-  evidence unless that evidence is preserved elsewhere first;
-- no package/install/release/TCC/HAL/LaunchAgent/CoreAudio mutation.
+A detected concurrent write to the control-plane branch also resets the count to
+**0** and requires all three files to be re-read before auditing continues.
 
-## Remote closeout decisions
+After the final corrective edit, require at least **three consecutive independent
+PASS rounds with no control-file mutation between them**. Across those rounds the
+following gates must all be covered:
 
-- PR #17: **ACTIVE** — control-plane / closeout authority.
-- PR #9: **SUPERSEDED** — its P0 audio-data-plane purpose was carried forward by
-  merged PR #10 and the P1 stage was closed by merged PR #12.
-- PR #16: **ABANDONED** — it was not merged; later persistent-audio forensics
-  restarted from `main` rather than stacking this speculative production fix.
-- All GitHub PRs whose `merged_at` is non-null: **MERGED**.
-- Closed-unmerged PRs #4/#5/#6: **SUPERSEDED** by merged PR #7, whose description
-  explicitly consolidates the accepted v0.2.11 corrective and excludes the
-  superseded alternatives/diagnostic-only line.
+1. **Role/structure gate**
+   - AGENTS contains only durable rules.
+   - CURRENT_STATUS contains mutable facts and explicit UNKNOWN/HISTORICAL state.
+   - CURRENT_TASK contains exactly one active task and its allowed/forbidden scope.
 
-## Local worktree gate
+2. **Live factual parity gate**
+   - remote default branch and main HEAD;
+   - open/closed PR set and relevant head SHAs;
+   - merged/unmerged lifecycle claims;
+   - latest release/version/build;
+   - branch inventory and unique-commit claims;
+   - no remote-only claim presented as local runtime/worktree fact.
 
-GitHub cannot enumerate local Git worktrees. Therefore remote closeout is not allowed
-to claim that all worktrees are closed.
+3. **Transition/concurrency gate**
+   - task-phase transition requires explicit authority;
+   - CURRENT_STATUS and CURRENT_TASK transition atomically in one commit;
+   - branch-HEAD drift aborts publication;
+   - status/task disagreement stops state-changing work.
 
-On the machine that owns RemoteOrbit repositories, first verify the canonical remote,
-fetch it, then run a read-only census:
+4. **Cold-start/failure-injection gate**
+   - wrong remote;
+   - dirty worktree;
+   - detached HEAD;
+   - registered-but-missing worktree;
+   - local-only commits/untracked evidence;
+   - stale PR/branch;
+   - concurrent control-plane writer;
+   - installed/running build not remotely verifiable.
 
-```bash
-git worktree list --porcelain
-```
+5. **Diff/scope gate**
+   - PR #17 changes only governance documents;
+   - no product/runtime/package/driver/config behavior is changed;
+   - PR remains cleanly based on current main or any drift is explicitly reconciled.
 
-For every registered worktree record:
+## Safe local read/sync gate after remote audit passes
 
-```text
-PATH
-BRANCH_OR_DETACHED
-HEAD
-CLEAN_DIRTY_UNTRACKED
-REMOTE_TRACKING
-ASSOCIATED_PR_IF_ANY
-CLASSIFICATION: ACTIVE / MERGED / SUPERSEDED / ABANDONED
-DELETE: YES / NO
-DELETE_BLOCKER
-```
+The control files currently live on the governance branch until PR #17 is merged.
+Do not checkout/reset an existing worktree merely to read them.
 
-Also identify registered-but-missing worktrees and local-only commits. Do not prune,
-remove, reset, clean, stash, or checkout during the census.
+On the owning Mac:
+
+1. locate an existing RemoteOrbit repository without switching its branch;
+2. inspect remotes and verify the canonical remote points to `Lost0rz/RemoteOrbit`;
+3. fetch only after remote identity is established;
+4. read the three files directly from the verified remote-tracking governance ref,
+   e.g. with `git show <remote>/codex/project-agents-control-plane-v1:AGENTS.md`;
+5. run `git worktree list --porcelain`;
+6. preserve and classify every registered worktree, including missing entries,
+   detached HEADs, dirty/untracked files, and local-only commits;
+7. stop before cleanup or product work.
 
 ## Completion gate
 
-Repository closeout is complete only when:
+This task is complete only when:
 
-1. every PR has one lifecycle classification;
-2. obsolete open PRs are closed with a reason;
-3. every remote branch has a keep/delete decision and blocker when retained;
-4. every local worktree has one lifecycle classification;
-5. safe local worktrees/branches are removed;
-6. retained worktrees/branches have an explicit reason;
-7. exactly one ACTIVE line remains;
-8. two consecutive closeout audits find no new material state issue.
+1. the latest control-plane HEAD has received **three consecutive independent PASS
+   audit rounds** with no material issue and no intervening control-file mutation;
+2. the live GitHub facts still match CURRENT_STATUS;
+3. CURRENT_STATUS and CURRENT_TASK agree on phase and authority;
+4. the PR #17 diff remains governance-only;
+5. no unresolved remote control-plane defect remains;
+6. local-only state is still explicitly UNKNOWN rather than guessed.
+
+Passing this remote audit does **not** complete local reconciliation and does not
+authorize product debugging or cleanup.
 
 ## Next authorized step
 
-Finish the remote PR/branch closeout, then run the local read-only worktree census.
-Do not resume product debugging.
+Run the required consecutive remote audit rounds.
+
+After they pass, report the remote control plane as ready for local read-only
+reconciliation. Do not advance to another task automatically.

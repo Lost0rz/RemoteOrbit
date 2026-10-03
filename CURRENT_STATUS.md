@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-03
-State: REPOSITORY CLOSEOUT
+State: CONTROL-PLANE QUALITY AUDIT
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -122,23 +122,31 @@ Exactly one remote line is ACTIVE:
 ```text
 PR #17
 codex/project-agents-control-plane-v1
-REPOSITORY CLOSEOUT
+CONTROL-PLANE QUALITY AUDIT
 ```
 
+The remote closeout actions already executed above remain recorded as FACTS, but
+**no further PR/branch/worktree cleanup is authorized during the quality audit**.
+
 Product debugging, new diagnostics, runtime experiments, packaging, installation,
-release, TCC, HAL, LaunchAgent, and CoreAudio mutation remain frozen.
+release, TCC, HAL, LaunchAgent, CoreAudio mutation, additional PR closure, branch
+deletion, and worktree removal remain frozen.
+
+## Quality-audit state
+
+The current user-directed task is to verify the quality of the three-file control
+plane through multiple independent audit rounds.
+
+A corrective edit resets the consecutive-PASS count to zero. A concurrent write to
+the control-plane branch also resets the count to zero.
+
+The audit is not complete until the completion criteria in `CURRENT_TASK.md` are
+met without another material issue.
 
 ## Next required action
 
-Run the local read-only worktree census:
+Complete the remote multi-round control-plane quality audit.
 
-```bash
-git worktree list --porcelain
-```
-
-For every worktree record path, branch/detached state, exact HEAD,
-clean/dirty/untracked state, tracking branch, associated PR, lifecycle
-classification, delete decision, and blocker.
-
-Only after that census may local worktrees and the DELETE CANDIDATE branches be
-removed.
+Only after that audit passes may the files be synchronized/read locally for the
+read-only worktree census. The local census remains required before any worktree or
+DELETE CANDIDATE branch is removed.

@@ -41,6 +41,42 @@ After a material transition (new active worktree, branch/HEAD change, PR
 creation/closure, task handoff, runtime identity change, or accepted conclusion),
 update the relevant current-state/task record as part of the transition.
 
+
+## Control-plane transition protocol
+
+A material control-plane transition includes any change to:
+
+- the task name or phase;
+- the set of authorized side effects;
+- the single ACTIVE PR/branch/worktree authority;
+- a lifecycle decision that enables closing, merging, deleting, pruning, installing,
+  releasing, or otherwise mutating project state.
+
+Such a transition is valid only when one of these is true:
+
+1. the user explicitly authorized that transition in the current request; or
+2. the current task's completion gate explicitly names that exact next transition
+   and the gate has been satisfied with evidence.
+
+An agent must not advance to a "logical next phase" on its own.
+
+For every material transition:
+
+1. read the current control-plane branch HEAD;
+2. revalidate the current task/status against direct evidence;
+3. update `CURRENT_STATUS.md` and `CURRENT_TASK.md` in the **same Git commit**;
+4. make that commit a direct child of the HEAD that was audited;
+5. move the branch by fast-forward only;
+6. if the branch HEAD changed before publication, abort the transition, re-read all
+   three files, and restart reconciliation.
+
+A task/status split across separate commits is not an authoritative transition.
+If `CURRENT_STATUS.md` and `CURRENT_TASK.md` disagree about phase, authority, or
+allowed side effects, STOP all state-changing work.
+
+Any detected concurrent control-plane write invalidates an in-progress quality-audit
+PASS count. Reconcile first and restart the audit count from zero.
+
 ## Evidence vocabulary
 
 Use these labels consistently whenever project state or diagnostic conclusions are
