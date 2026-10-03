@@ -63,21 +63,27 @@ Product PRs #16 and #9 are not active implementation authority during this task.
 ## Safe local sync gate
 
 The three control files currently live on the governance branch, not on `main`.
-Therefore **do not use `git pull main` as the control-file sync step**, and do not
-checkout/reset an existing worktree before its state has been inventoried.
+Do not pull, merge, checkout, or reset an existing worktree merely to obtain these
+files before its state has been inventoried.
 
 On the machine that owns the RemoteOrbit repositories/worktrees:
 
 1. locate an existing RemoteOrbit repository without mutating its current branch;
-2. run `git fetch origin`;
-3. verify that
-   `origin/codex/project-agents-control-plane-v1` exists;
-4. read the three control files directly from that remote-tracking branch, for
+2. inspect `git remote -v` / `git remote get-url origin`;
+3. verify that the remote you intend to use actually points to `Lost0rz/RemoteOrbit`;
+   if `origin` points elsewhere, STOP and identify the correct remote instead of
+   silently fetching from the wrong repository;
+4. fetch only after remote identity is established, e.g. `git fetch origin` when
+   `origin` is the verified RemoteOrbit remote;
+5. verify that
+   `origin/codex/project-agents-control-plane-v1` exists (or use the equivalent
+   verified remote-tracking ref if the canonical remote is not named `origin`);
+6. read the three control files directly from that verified remote-tracking branch, for
    example with:
    - `git show origin/codex/project-agents-control-plane-v1:AGENTS.md`
    - `git show origin/codex/project-agents-control-plane-v1:CURRENT_STATUS.md`
    - `git show origin/codex/project-agents-control-plane-v1:CURRENT_TASK.md`
-5. only after reading them, perform the read-only worktree census below.
+7. only after reading them, perform the read-only worktree census below.
 
 Do not create a new worktree, switch branches, merge PR #17, or overwrite local files
 merely to read the control plane. A later explicit step can decide how these files
