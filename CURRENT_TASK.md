@@ -120,7 +120,7 @@ Closeout is complete only when:
 - nine original worktrees remain, including one ACTIVE frozen Flight Recorder evidence worktree; one new ACTIVE control-plane worktree was created;
 - the first delete attempt for `codex/voice-recovery-from-good` hit a transient TLS transport error; its unchanged approved SHA was rechecked and a single retry succeeded;
 - final live remote inventory was exactly `main`, `codex/project-agents-control-plane-v1`, `codex/persistent-duplicate-audio-forensics`, and `codex/voice-single-owner-session`;
-- the control files are committed together as a direct child of the audited live control branch HEAD and pushed by fast-forward.
+- the final closeout snapshot correction was audited against control HEAD `8a09a80411fd3f19c37332a4d2e7799773cf5182`; both control files are committed together as its direct child and pushed by fast-forward.
 
 ## Completion result
 

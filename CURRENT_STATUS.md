@@ -25,7 +25,7 @@ before continuing.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
 - **FACT — Current open PRs:** exactly one, PR #17.
 - **FACT — PR #17:** OPEN + Draft + unmerged; its branch is the control-plane authority.
-- **FACT — Final closeout documentation base:** live control-plane HEAD `da6da3c3ebabd008f22e6a5f20c8a43ac892a4cb`; the final status/task commit is a direct child of this audited HEAD and is pushed to the active control-plane branch.
+- **FACT — Final closeout snapshot base:** live control-plane HEAD `8a09a80411fd3f19c37332a4d2e7799773cf5182`; the final status/task snapshot correction is a direct child of this audited HEAD and is pushed to the active control-plane branch.
 - **FACT — Out-of-band PR metadata drift:** #9 and #16 were closed during earlier closeout and reopened at 2026-10-03T12:40:25Z / 12:40:27Z; #17 was closed at 12:40:31Z.
 - **RULE — PR state is not task authority:** these metadata changes do not advance or replace CURRENT_TASK.
 
@@ -104,7 +104,7 @@ Their PRs remain the durable merged history.
 | Branch | Live SHA | Retain reason |
 | --- | --- | --- |
 | `main` | `7129ef72949eca956b1d0daddce707d5e417eeed` | default branch |
-| `codex/project-agents-control-plane-v1` | `da6da3c3ebabd008f22e6a5f20c8a43ac892a4cb` | sole control-plane authority / PR #17 |
+| `codex/project-agents-control-plane-v1` | this final status/task commit (direct child of `8a09a80411fd3f19c37332a4d2e7799773cf5182`) | sole control-plane authority / PR #17 |
 | `codex/persistent-duplicate-audio-forensics` | `d0a1ab06d8fafa0e9a8a1ae3b79cbc0d299a07be` | unique forensic commits |
 | `codex/voice-single-owner-session` | `cd96b2f937d2e4b0bdfb67111714a77ce77e78c6` | unique unmerged historical commits |
 
@@ -131,7 +131,7 @@ FACT: The fresh census started from 23 registered entries: 13 live worktrees and
 | /Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a5 | 8befb031eb54b461675e95adb706f73721339479 | MERGED | RETAINED | P1-A5 purpose is included in #10; four local-only commits and three untracked observer files are preserved. |
 | /Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a6 | ab25e9d46e65afa02b284f2c26856f94024d6b9c | MERGED | REMOVED | Clean and remote/PR-preserved; merged PR #12. |
 | /Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder | 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f | ACTIVE | KEEP | Frozen product-evidence worktree. Its clean detached checkpoint is unique local forensic evidence. No product debugging is authorized. |
-| /private/tmp/remoteorbit-control-plane-closeout | Final closeout status/task commit; direct child of da6da3c3ebabd008f22e6a5f20c8a43ac892a4cb | ACTIVE | KEEP | Sole active control-plane checkout for PR #17 and this closeout. |
+| /private/tmp/remoteorbit-control-plane-closeout | Final closeout status/task commit; direct child of 8a09a80411fd3f19c37332a4d2e7799773cf5182 | ACTIVE | KEEP | Sole active control-plane checkout for PR #17 and this closeout. |
 
 ### Registered-but-missing entries pruned
 
