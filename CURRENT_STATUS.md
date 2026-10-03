@@ -556,6 +556,130 @@ for a final gate decision.
 No product code, probe implementation, rebuild, install, restart, or new reproduction
 is authorized while producing this package.
 
+## Local evidence handoff result
+
+### Gate result
+
+- **LOCAL_EVIDENCE_GATE:** PASS — all nine sealed incident files matched the
+  recorded SHA-256 values.
+- **CONSTRUCTION_GATE_RECOMMENDATION:** BLOCKED.
+- **SPECIFIC_BROKEN_BOUNDARY:** NONE ESTABLISHED.
+- **BROKEN_CONTRACT:** NONE PROVEN.
+- **FRESH_INCIDENT_DIRECT_SUPPORT:** PARTIAL — the user-observed external session
+  exit is real and the same LONG gesture has RemoteOrbit/ATVV shutdown evidence,
+  but there is no machine-readable external semantic `STOPPED` event or exact stop
+  timestamp.
+- **ADJACENT_BOUNDARIES_RULED_ENOUGH:** NO.
+- **PRE_FIX_FAILING_ACCEPTANCE:** NONE ESTABLISHED.
+- **MINIMAL_FIX_SCOPE:** NOT ESTABLISHED.
+- **ROOT CAUSE:** UNKNOWN.
+- **CONSTRUCTION GATE:** BLOCKED.
+
+Hash integrity proves preservation only; it does not complete causal evidence.
+
+### Runtime checkpoint reconciliation — `01eedda...`
+
+The local-only incident runtime was successfully inspected read-only.
+
+| Capability | Result |
+| --- | --- |
+| raw HID microphone transition / equivalent | PARTIAL — HIDMonitor maintains current usage/down state and edge uptime, but no raw report timeline |
+| HID report sequence | MISSING |
+| mapped CGEvent observation | OBSERVED — `MAPPED_TRIGGER_EVENT` records mapped key/event/flags/gate/action |
+| original CGEvent timestamp | MISSING — logger capture time is not original CGEvent timestamp |
+| voice-press source tagging | OBSERVED — e.g. `source=hid_monitor` |
+| Persistent internal state | OBSERVED — RemoteOrbit belief/owner/audio lifecycle only |
+| WindowServer/frontmost incident observation | MISSING — only limited routing-time `NSWorkspace.frontmostApplication` reads |
+| Target Text Observer in checkpoint | MISSING — separate observer |
+| external IME semantic session observation | MISSING |
+| target-process CoreAudio consumer observation | MISSING |
+
+### Existing observer capability inventory
+
+#### VoiceFlightRecorder
+
+- **Source:** local checkpoint `01eedda...`;
+  `remote-orbit/Sources/RemoteOrbit/VoiceFlightRecorder.swift`.
+- **Runtime:** in-process in `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`.
+- **Clock model:** `mach_continuous_time`-based monotonic nanoseconds + wall
+  timestamp + recorder sequence.
+- **Correlation:** gesture UUID, interaction epoch, callback/work, BLE generation,
+  stream session ID.
+- **Can prove:** RemoteOrbit-observed internal interaction/async/audio/transport
+  ordering and ownership.
+- **Cannot prove:** raw HID report → mapped CGEvent ordering; Doubao trigger
+  acceptance; actual WindowServer state; external IME semantic session state;
+  target-process CoreAudio consumption.
+- **Observer effect:** non-zero in-process lock/ring-buffer/delayed-write overhead.
+
+#### Target Text Observer
+
+- **Source/Binary:** source head unavailable; historical binary path no longer
+  exists.
+- **Observed copy:** 43 records from 2026-10-02 22:06:08–22:22:25 +0800, before the
+  fresh incident.
+- **Clock fields:** wall clock + monotonic/uptime fields are present; implementation
+  cannot be verified because source is unavailable.
+- **Can prove:** historical AX/frontmost/text metadata sampled in that old window.
+- **Cannot prove:** this incident's Doubao `OPEN/LISTENING → STOPPED`, this
+  incident's focus/text state, or semantic external-session closure.
+- **Coverage mismatch:** observed target bundles were Chrome/Codex, not the fresh
+  incident's Doubao semantic session.
+
+### Cross-observer correlation result
+
+A reliable wall-clock + monotonic + PID + shared-incident/gesture join does not
+exist across all observers.
+
+RemoteOrbit internal logs can correlate by gesture ID and dual clocks; Unified Log
+has system time/PID but no shared gesture/session key; the Target Text Observer copy
+does not cover the incident window.
+
+### B1-B9 local classification
+
+| Boundary | Result | Evidence result |
+| --- | --- | --- |
+| B1 physical remote → IOHID | PARTIAL | physical LONG plus HIDMonitor-derived press, but no raw HID report record |
+| B2 IOHID report → HIDMonitor edge | PARTIAL | press entry/edge timing exists; raw report sequence/timestamp missing |
+| B3 hidutil → mapped CGEvent | MISSING | no mapped-trigger event correlated to target gesture; later unowned pass events are not attributable |
+| B4 mapped CGEvent → Doubao trigger acceptance | MISSING | no receiver/semantic acceptance evidence |
+| B5 RemoteOrbit persistent belief → actual Doubao session | PARTIAL | internal `persistent_open` plus user-reported exit; no machine-readable external state or exact stop time |
+| B6 ATVV/audio → HAL/CoreAudio route | PARTIAL | ATVV/audio/route events exist; target consumer state is not observed |
+| B7 HAL/CoreAudio → target process consumption | MISSING | no Doubao PID/client consumption evidence |
+| B8 focus intent → WindowServer actual state | MISSING | no incident-correlated independent frontmost/focus observer |
+| B9 external IME → target text/session state | PARTIAL | user reports exit; available Target Text Observer copy is stale and not Doubao-session evidence |
+
+### Sealed incident correlation
+
+Target LONG gesture `3F288F28-81AD-4CC3-96EA-E4B9665D2198`:
+
+```text
+22:50:13.993  VOICE_PRESS_ENTRY
+22:50:13.994  OPTION_GATE_BEGIN
+22:50:14.306  GESTURE_CLASSIFIED hold (313 ms)
+22:50:14.308  ATVV_MIC_OPEN_TX
+22:50:14.313–14.351  audio route / AUDIO_START / persistent segment activity
+22:50:15.168  ATVV_AUDIO_STOP_RX
+22:50:16.223  ATVV_MIC_CLOSE_TX
+22:50:16.859  TRANSPORT_STOP
+```
+
+No `MAPPED_TRIGGER_EVENT` is correlated to this gesture. The user reports the
+external Persistent/Doubao session exited during the gesture, but the exact semantic
+stop instant is not machine-observed.
+
+### Evidence-gap conclusion
+
+The local handoff is complete and confirms the remote gap audit:
+
+- the system has enough internal state-machine detail;
+- the remaining blockers are boundary observations;
+- current evidence cannot name one broken B1-B9 boundary;
+- current evidence cannot define a falsifiable minimal behavior fix;
+- current evidence cannot define a same-cause pre-fix failing acceptance.
+
+Therefore Construction Gate remains BLOCKED.
+
 ## Prior quality-audit result
 
 The three-file control plane completed three consecutive PASS rounds on live branch
@@ -582,9 +706,12 @@ Product development remains FROZEN. No repair work is authorized.
 
 ## Next required action
 
-The local Agent must produce the required local evidence package defined above,
-update CURRENT_STATUS.md and CURRENT_TASK.md together in one control-plane commit,
-and push it for remote review.
+Local evidence handoff is COMPLETE.
 
-Do not build, install, reproduce again, implement new probes, or modify product
-behavior.
+Before any product fix, define the minimum boundary-observation delta needed to
+resolve the missing/partial B3/B4/B5/B7/B8/B9 evidence. Prefer one transition-only
+cross-process/system probe per unresolved boundary question; do not expand internal
+state-machine logging.
+
+Probe implementation, new capture, product mutation, and construction remain
+unauthorized until a new explicit task transition.

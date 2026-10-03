@@ -334,6 +334,62 @@ Only set `READY_FOR_REMOTE_REVIEW` when the evidence standard above is fully met
 Push the control-plane branch fast-forward only. If the branch moved, stop, reread,
 and reconcile before writing.
 
+## Local evidence handoff result
+
+The required local evidence package has been completed read-only.
+
+### Final readiness fields
+
+```text
+SPECIFIC_BROKEN_BOUNDARY: NONE ESTABLISHED
+BROKEN_CONTRACT: NONE PROVEN
+FRESH_INCIDENT_DIRECT_SUPPORT: PARTIAL
+ADJACENT_BOUNDARIES_RULED_ENOUGH: NO
+PRE_FIX_FAILING_ACCEPTANCE: NONE ESTABLISHED
+MINIMAL_FIX_SCOPE: NOT ESTABLISHED
+
+LOCAL_EVIDENCE_GATE: PASS
+CONSTRUCTION_GATE_RECOMMENDATION: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
+The sealed incident evidence is intact, but preservation integrity is not causal
+completeness.
+
+### Boundary result
+
+```text
+B1: PARTIAL
+B2: PARTIAL
+B3: MISSING
+B4: MISSING
+B5: PARTIAL
+B6: PARTIAL
+B7: MISSING
+B8: MISSING
+B9: PARTIAL
+```
+
+### Local capability result
+
+- `01eedda...` has mapped-CGEvent observation, source tagging and detailed
+  RemoteOrbit internal state, but no HID report sequence, no original CGEvent
+  timestamp, no external IME semantic session observer, no incident-correlated
+  WindowServer observer and no target-process CoreAudio consumer observer.
+- Flight Recorder is strong for RemoteOrbit-internal ordering but does not cross
+  those external boundaries.
+- The available Target Text Observer copy is historical, does not cover the fresh
+  incident, and cannot prove Doubao semantic session state.
+- No reliable wall-clock + monotonic + PID + shared gesture/session join spans all
+  independent observers.
+
+### Construction decision
+
+This task does **not** satisfy the Construction Gate.
+
+No behavior fix, product optimization, or probe implementation is authorized under
+the current task.
+
 ## Completion gate
 
 Step 4 is complete only when all are true:
@@ -367,13 +423,12 @@ internal logging.
 
 ## Next authorized action
 
-Run the local read-only evidence handoff defined above.
+Local evidence handoff is COMPLETE.
 
-When complete:
+Stop product work here. A new explicit task is required before implementing any
+probe or performing another capture.
 
-1. update CURRENT_STATUS.md + CURRENT_TASK.md together;
-2. push the control-plane branch fast-forward only;
-3. return the evidence summary for final remote Construction Gate review.
-
-No new capture, probe implementation, product mutation, or construction is
-authorized.
+The next task, if authorized, should be limited to designing and implementing the
+minimum boundary-observation delta for the unresolved B3/B4/B5/B7/B8/B9 questions,
+with priority on external IME semantic session state and HID→mapped-CGEvent
+correlation. It must not expand general internal logging.
