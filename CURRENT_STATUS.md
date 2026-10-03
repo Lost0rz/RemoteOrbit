@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-03
-State: REPOSITORY CLOSEOUT
+State: INCIDENT MODE — FRESH INCIDENT CAPTURE
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -160,21 +160,103 @@ All ten paths were absent on disk, and the dry run listed exactly these stale re
 - FACT: retained local branches are codex/audio-p1-a3-adaptive-playout, codex/audio-p1-a4-receiver-finalization, codex/audio-p1-a5-front-edge, codex/cross-mode-flight-recorder-minimal, codex/p1-a1-ble-queue-isolation, codex/project-agents-control-plane-v1, codex/v0211-nonseize-hid-audit, codex/v0211-p0-voice-experiment, codex/v0211-voice-p0-final, and main.
 - FACT: exactly one control-plane line is ACTIVE: codex/project-agents-control-plane-v1 / PR #17. The Flight Recorder is the only ACTIVE evidence worktree and is frozen.
 
+## Incident mode
+
+### Incident family
+
+`PERSISTENT-LONG / EXTERNAL-IME PREMATURE SESSION STOP`
+
+### Problem statement
+
+RemoteOrbit has an unresolved incident in which the external IME / voice collection
+session can stop unexpectedly around a Persistent LONG interaction, before the
+intended LONG-classified voice transaction has been conclusively established.
+
+This is now an **incident investigation**, not a bug-fix task.
+
+### Root-cause status
+
+**ROOT CAUSE: UNKNOWN**
+
+The following must not be promoted to root cause without a fresh incident that
+directly supports them:
+
+- pre-classification trigger leakage or an early trigger edge;
+- Option/F5 event ordering;
+- WindowServer / foreground-application switching;
+- BLE/audio transport behavior;
+- Doubao/external-IME behavior;
+- any timing race inferred from source inspection.
+
+### Historical evidence boundary
+
+Previous evidence is retained as context only:
+
+- **HISTORICAL FACT:** a prior Persistent LONG incident showed the external
+  collection session stopping shortly after physical press and before LONG
+  classification completed.
+- **HISTORICAL FACT:** that capture did not directly record an actual Option event
+  that proved a pre-classification trigger leak.
+- **HISTORICAL FACT:** a WindowServer foreground switch was observed in the same
+  time region.
+- **UNKNOWN:** whether either observation caused the session stop.
+- **RULE:** restart/recovery/stability after restart is recovery evidence, not causal
+  proof.
+
+Historical captures may guide what to inspect, but they do not satisfy the fresh
+incident gate.
+
+### Incident-mode constraints
+
+Until a fresh incident is captured and reviewed:
+
+- no product behavior changes;
+- no speculative fix;
+- no opportunistic/refactor cleanup;
+- no new logging, telemetry, probes, or instrumentation;
+- no threshold/timing changes;
+- no trigger/Option ownership changes;
+- no BLE/audio algorithm changes;
+- no build/install/release/runtime replacement merely to "make testing easier";
+- no expansion into adjacent symptoms.
+
+Existing evidence worktrees and existing diagnostics may be read and used as-is.
+
+### Fresh-incident gate
+
+A capture qualifies as a **fresh incident** only if:
+
+1. it occurs after this incident-mode transition;
+2. the exact installed/running RemoteOrbit identity is recorded read-only before or
+   at capture time;
+3. no code, diagnostics, permissions, driver, LaunchAgent, CoreAudio, packaging, or
+   runtime configuration is changed between identity capture and the incident;
+4. the failure is observed in normal reproduction flow rather than induced by a new
+   experiment;
+5. the evidence window includes enough existing data to establish the ordering of
+   the physical interaction, classification/session lifecycle, and the observed
+   external-session stop;
+6. the incident is assigned a fresh timestamp/incident identifier and its evidence
+   window is preserved.
+
+If the failure does not reproduce in the bounded capture attempt, record
+`NO_FRESH_INCIDENT` and stop. Do not compensate by changing the system.
+
 ## Current authority
 
 Exactly one remote control-plane line is ACTIVE:
 
 ```text
 branch: codex/project-agents-control-plane-v1
-task: REPOSITORY CLOSEOUT
+task: INCIDENT MODE — FRESH INCIDENT CAPTURE
 PR #17: OPEN + Draft control-plane PR
 ```
 
 Product debugging, new diagnostics, runtime experiments, packaging, installation,
 release, TCC, HAL, LaunchAgent, and CoreAudio mutation remain frozen.
 
-Repository closeout actions are authorized only within the bounded lifecycle and
-cleanup rules in `CURRENT_TASK.md`.
+Repository closeout is complete. The only currently authorized operational work is
+the minimal fresh-incident capture defined in `CURRENT_TASK.md`.
 
 ## Prior quality-audit result
 
@@ -195,5 +277,14 @@ transition.
 
 ## Closeout disposition
 
-Repository closeout is COMPLETE. Product development remains FROZEN. No next task is
-authorized; do not resume product debugging or begin another task under this closeout.
+Repository closeout is COMPLETE.
+
+The user has now explicitly authorized the next task transition into INCIDENT MODE.
+Product development remains FROZEN. No repair work is authorized.
+
+## Next required action
+
+Capture exactly one fresh incident using the existing runtime and existing
+observability only. Stop after the fresh incident evidence package is preserved, or
+report `NO_FRESH_INCIDENT` if the bounded capture attempt does not reproduce the
+failure.

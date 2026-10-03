@@ -2,132 +2,222 @@
 
 ## Task identity
 
-- **Task:** REPOSITORY CLOSEOUT
-- **Phase:** remote branch deletion complete; repository closeout complete
-- **Status:** COMPLETE
+- **Task:** INCIDENT MODE — FRESH INCIDENT CAPTURE
+- **Incident family:** PERSISTENT-LONG / EXTERNAL-IME PREMATURE SESSION STOP
+- **Phase:** fresh incident acquisition only
+- **Status:** ACTIVE
 - **Task authority:** this file
 - **Product development:** FROZEN
+- **Root cause:** UNKNOWN
 
 ## User authorization
 
-The user explicitly authorized this closeout phase on 2026-10-03:
+The user explicitly authorized this incident-mode transition on 2026-10-03.
 
-- list every worktree and PR;
-- classify each as ACTIVE, MERGED, SUPERSEDED, or ABANDONED;
-- delete what is safe to delete;
-- record the reason/blocker for everything retained.
+The user explicitly requires:
 
-After the local census and candidate classification were recorded, the user gave
-final confirmation to delete exactly the 14 named remote refs individually, with a
-fresh SHA check before each deletion and an immediate `ls-remote` verification.
+1. formally define the current problem as an incident;
+2. keep root cause UNKNOWN;
+3. prohibit opportunistic behavior fixes;
+4. allow only the smallest verifiable next action;
+5. obtain one fresh incident before any further diagnosis or repair work.
 
-This authorization does not waive evidence-preservation rules.
+## Incident statement
 
-## Lifecycle vocabulary
+RemoteOrbit has an unresolved incident in which the external IME / voice collection
+session can stop unexpectedly around a Persistent LONG interaction before the
+intended LONG-classified transaction has been conclusively established.
 
-- **ACTIVE** — the single line currently authorized to change project state.
-- **MERGED** — accepted into `main` by a verified merged PR.
-- **SUPERSEDED** — not merged itself, but a later accepted line replaced or
-  incorporated its purpose.
-- **ABANDONED** — intentionally not proceeding and not accepted into main.
+This task does **not** authorize deciding why that happens.
 
-Branch/worktree cleanup additionally uses **KEEP** and **DELETE CANDIDATE**.
+## Root-cause rule
 
-## Allowed
+`ROOT CAUSE = UNKNOWN`
 
-- read-only Git/GitHub/worktree census;
-- classify all PRs, remote branches, and local worktrees;
-- add closeout comments to obsolete PRs;
-- close unmerged PRs proven SUPERSEDED or ABANDONED;
-- delete remote branches proven safe when a real ref-deletion capability is
-  available;
-- remove local worktrees proven safe only after local census confirms exact HEAD,
-  branch/detached state, dirty/untracked state, and local-only commits;
-- delete corresponding local branches after their worktrees/evidence are preserved;
-- update the three control files.
+Historical observations and source-level race possibilities are evidence/hypotheses,
+not root cause.
 
-## Forbidden
+Specifically, do not declare any of the following causal without fresh direct
+evidence:
 
-- no product bug fixes;
-- no new logging, telemetry, probes, or diagnostics;
-- no speculative runtime experiments;
-- no merge of product PRs as a cleanup shortcut;
-- no force push, destructive reset, clean, history rewrite, or evidence-destroying
-  stash/checkout;
-- no deletion of a branch/worktree containing unique unresolved evidence unless that
-  evidence is first preserved elsewhere;
-- no package/install/release/TCC/HAL/LaunchAgent/CoreAudio mutation.
+- pre-classification trigger leakage;
+- Option/F5 ordering;
+- WindowServer focus switching;
+- BLE/audio transport;
+- Doubao/external-IME behavior;
+- a timing race inferred only from code.
 
-## Remote closeout target
+## Single allowed objective
 
-The current remote classifications to verify are:
+Obtain and preserve **one fresh incident**.
 
-- #17 — **ACTIVE** control-plane line.
-- #9 — **SUPERSEDED** by merged #10 and P1 closure #12.
-- #16 — **ABANDONED**; later forensic work restarted from current main.
-- merged PRs — **MERGED**.
-- #4/#5/#6 — **SUPERSEDED** by the accepted #7 corrective.
+The incident must occur after this task transition and must be captured without
+changing code, diagnostics, permissions, drivers, runtime configuration, packaging,
+or installed behavior.
 
-Every classification must be verified from GitHub evidence before mutation.
+## Allowed actions
 
-## Local worktree gate
+Only these actions are authorized:
 
-GitHub cannot enumerate local worktrees. Before deleting any local worktree, the
-owning Mac must run:
+1. read `AGENTS.md`, `CURRENT_STATUS.md`, and this file;
+2. read-only verify canonical repo/control branch state;
+3. read-only verify the exact installed/running RemoteOrbit identity needed to bind
+   the incident to a runtime;
+4. use the already-retained Flight Recorder/evidence worktree and already-existing
+   diagnostics/logs **as-is**;
+5. start one bounded normal reproduction/capture session;
+6. stop at the first fresh failure;
+7. preserve the incident window and record its exact identifier/timestamps;
+8. perform read-only extraction/summarization of the evidence needed to establish
+   event ordering;
+9. update `CURRENT_STATUS.md` with the fresh incident reference after capture.
 
-```bash
-git worktree list --porcelain
-```
+## Forbidden actions
 
-For every worktree record:
+Until the fresh-incident gate is satisfied:
+
+- no product code edits;
+- no bug fix;
+- no "small obvious fix";
+- no refactor or cleanup while investigating;
+- no new logging/telemetry/probes/instrumentation;
+- no changing existing log verbosity;
+- no threshold/timing changes;
+- no Option/F5 trigger-path changes;
+- no persistent/momentary behavior changes;
+- no BLE/audio buffering/playout/decoder changes;
+- no build/rebuild merely for this capture;
+- no install/reinstall/replace app;
+- no TCC/Input Monitoring/Accessibility mutation;
+- no LaunchAgent mutation;
+- no HAL/driver/CoreAudio mutation;
+- no restart/recovery action used as a diagnostic experiment unless the incident
+  capture procedure itself already requires it and CURRENT_STATUS says so;
+- no branch/worktree cleanup;
+- no PR merge/release;
+- no adjacent-issue investigation.
+
+If a tempting fix appears while reading evidence, record it only as
+`HYPOTHESIS / NOT AUTHORIZED`.
+
+## Fresh-incident acceptance gate
+
+A capture is accepted as a fresh incident only when all are true:
+
+1. **Freshness**
+   - occurred after this task became ACTIVE.
+
+2. **Runtime identity**
+   - installed app identity/version/build/executable path and running process identity
+     are recorded read-only;
+   - if identity cannot be proven, the capture is not authoritative.
+
+3. **No mutation**
+   - no code/runtime/diagnostic/configuration/permission mutation occurred between
+     identity verification and incident.
+
+4. **User-visible failure**
+   - the external IME / collection session actually exhibits the target premature
+     stop symptom.
+
+5. **Ordering evidence**
+   - existing evidence is sufficient to place, at minimum:
+     - physical press/release or equivalent input boundary;
+     - LONG/SHORT classification boundary when available;
+     - RemoteOrbit voice/session lifecycle boundary;
+     - observed external-session stop;
+     - any already-existing trigger/focus/audio markers relevant to the same window.
+
+6. **Preservation**
+   - incident ID or unique timestamp window is recorded;
+   - source log/evidence paths are preserved;
+   - no evidence is overwritten for convenience.
+
+## Bounded-capture rule
+
+Run one bounded normal capture session.
+
+- Stop immediately after the first qualifying fresh incident.
+- If the target failure does not reproduce, report:
+  `NO_FRESH_INCIDENT`
+- Do not alter the system to increase reproduction probability.
+- Do not start a second experimental variant under this task.
+
+## Output required after capture
+
+Return exactly these decision fields:
 
 ```text
-PATH
-BRANCH_OR_DETACHED
-HEAD
-CLEAN_DIRTY_UNTRACKED
-REMOTE_TRACKING
-ASSOCIATED_PR_IF_ANY
-LOCAL_ONLY_COMMITS
-CLASSIFICATION: ACTIVE / MERGED / SUPERSEDED / ABANDONED
-DELETE: YES / NO
-DELETE_BLOCKER
+REMOTEORBIT INCIDENT MODE — FRESH CAPTURE RESULT
+
+CONTROL_HEAD:
+RUNTIME_IDENTITY:
+INCIDENT_ID:
+INCIDENT_TIMESTAMP:
+FRESH_INCIDENT: YES / NO
+
+TARGET_SYMPTOM_OBSERVED:
+PHYSICAL_INPUT_BOUNDARY:
+CLASSIFICATION_BOUNDARY:
+REMOTEORBIT_SESSION_BOUNDARY:
+EXTERNAL_SESSION_STOP:
+TRIGGER_MARKERS:
+FOCUS/WINDOW_MARKERS:
+AUDIO/BLE_MARKERS:
+
+MUTATION_DURING_CAPTURE:
+NO
+
+ROOT_CAUSE:
+UNKNOWN
+
+FACTS:
+...
+
+INFERENCES:
+...
+
+HYPOTHESES:
+...
+
+UNKNOWNS:
+...
+
+EVIDENCE_PATHS:
+...
+
+FRESH_INCIDENT_GATE:
+PASS / NO_FRESH_INCIDENT / BLOCKED
+
+NEXT_ACTION_AUTHORIZED:
+NONE — RETURN FOR REVIEW
 ```
 
-Also identify registered-but-missing worktrees. Do not prune/remove/reset/clean/stash
-during the census.
+Do not propose or implement a fix in this output.
 
 ## Completion gate
 
-Closeout is complete only when:
+This task ends when either:
 
-1. every PR has one lifecycle classification;
-2. every remote branch has KEEP / DELETE CANDIDATE / DELETED plus a reason;
-3. obsolete unmerged PRs are closed with preserved history;
-4. every local worktree has one lifecycle classification;
-5. safe local worktrees and corresponding local branches are removed;
-6. all retained lines have an explicit evidence/authority blocker;
-7. exactly one ACTIVE control task/PR remains; at most one ACTIVE product-evidence
-   worktree may be retained, but it is frozen for mutation until closeout ends;
-8. CURRENT_STATUS records the final state.
+### A. Fresh incident captured
+A qualifying fresh incident is preserved and reported with
+`FRESH_INCIDENT_GATE: PASS`.
 
-## Remote progress
+or:
 
-- all 17 PRs classified; #9 and #16 closed under the authorized closeout; #17 remains OPEN Draft;
-- all 18 remote branches classified; the 14 authorized candidates were individually deleted and post-verified; exactly four KEEP refs remain;
-- the owning-Mac census began with 13 live worktrees and 10 registered-but-missing entries;
-- four safe live worktrees were removed, all ten verified-missing registrations were pruned, and 15 safe local branches were deleted;
-- nine original worktrees remain, including one ACTIVE frozen Flight Recorder evidence worktree; one new ACTIVE control-plane worktree was created;
-- the first delete attempt for `codex/voice-recovery-from-good` hit a transient TLS transport error; its unchanged approved SHA was rechecked and a single retry succeeded;
-- final live remote inventory was exactly `main`, `codex/project-agents-control-plane-v1`, `codex/persistent-duplicate-audio-forensics`, and `codex/voice-single-owner-session`;
-- the final closeout snapshot correction was audited against control HEAD `8a09a80411fd3f19c37332a4d2e7799773cf5182`; both control files are committed together as its direct child and pushed by fast-forward.
+### B. No fresh incident
+The bounded normal capture session completes without reproducing the target symptom,
+reported as `NO_FRESH_INCIDENT`.
 
-## Completion result
+In either case:
 
-All eight completion criteria above pass. PR #17 remains OPEN + Draft and unmerged as
-the sole control-plane review artifact. The 14 deletions had no unresolved failures;
-the final remote branch count is four. The 10 retained live worktrees and zero
-registered-but-missing paths are recorded in `CURRENT_STATUS.md`.
+- stop;
+- do not advance to diagnosis/fix automatically;
+- do not modify product behavior;
+- wait for a new explicit task after review.
 
-No next task is authorized. Product development remains FROZEN; stop after this
-repository closeout and do not resume product debugging under this task.
+## Next authorized step
+
+Run only the minimal fresh-incident capture described above.
+
+Nothing else is authorized.
