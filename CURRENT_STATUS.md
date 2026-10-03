@@ -145,7 +145,7 @@ Paused until that is complete:
 
 Before relying on this snapshot for product work, re-check:
 
-- fetched `origin/main`;
+- the verified RemoteOrbit remote identity and its fetched remote-tracking `main`;
 - the open PR set and relevant PR heads;
 - the local worktree census;
 - runtime identity when the next task depends on runtime evidence.
@@ -161,7 +161,7 @@ On the machine that owns the RemoteOrbit worktrees, collect read-only evidence f
 - current branch/detached state;
 - exact HEAD;
 - working-tree clean/dirty/untracked state;
-- remotes and fetched `origin/main`;
+- remotes, canonical RemoteOrbit remote identity, and its fetched remote-tracking `main`;
 - `git worktree list --porcelain`;
 - registered-but-missing worktrees;
 - local-only commits that may contain evidence;
