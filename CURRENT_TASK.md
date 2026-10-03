@@ -19,11 +19,13 @@ material defect found, then restart the consecutive-PASS count from zero.
 
 ## Current remote facts carried into this audit
 
-- PR #17 is the sole open PR and the control-plane branch.
-- PR #9 has already been closed as SUPERSEDED.
-- PR #16 has already been closed as ABANDONED.
-- Those closeout actions are historical/current facts to audit, not authorization
-  for additional cleanup.
+- The control-plane authority is branch `codex/project-agents-control-plane-v1`.
+- PR #17 is currently CLOSED Draft/unmerged; closing the PR did not change the branch task authority.
+- PR #9 is currently OPEN Draft but its lifecycle classification remains SUPERSEDED.
+- PR #16 is currently OPEN Draft but its lifecycle classification remains ABANDONED.
+- #9 and #16 were closed during repository closeout and then reopened out-of-band;
+  #17 was closed out-of-band. These PR metadata changes are drift facts, not
+  authorization for additional cleanup or a task transition.
 - Local worktree state remains UNKNOWN until a local census is performed.
 
 ## Allowed
@@ -33,7 +35,7 @@ material defect found, then restart the consecutive-PASS count from zero.
 - inspect the complete diff of PR #17;
 - cold-start and failure-injection reasoning against the three control files;
 - documentation-only corrections to the three control files;
-- update PR #17 metadata to match the audited control-plane phase.
+- inspect PR metadata for parity with CURRENT_STATUS; do not mutate PR state during this audit.
 
 ## Forbidden during this audit
 
@@ -65,7 +67,7 @@ following gates must all be covered:
 
 2. **Live factual parity gate**
    - remote default branch and main HEAD;
-   - open/closed PR set and relevant head SHAs;
+   - open/closed PR set, relevant head SHAs, and out-of-band PR metadata drift;
    - merged/unmerged lifecycle claims;
    - latest release/version/build;
    - branch inventory and unique-commit claims;
@@ -117,7 +119,7 @@ This task is complete only when:
    audit rounds** with no material issue and no intervening control-file mutation;
 2. the live GitHub facts still match CURRENT_STATUS;
 3. CURRENT_STATUS and CURRENT_TASK agree on phase and authority;
-4. the PR #17 diff remains governance-only;
+4. the control-plane branch diff relative to main remains governance-only;
 5. no unresolved remote control-plane defect remains;
 6. local-only state is still explicitly UNKNOWN rather than guessed.
 

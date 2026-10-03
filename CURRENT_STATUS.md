@@ -23,21 +23,24 @@ before continuing.
 - **FACT — Main HEAD message:** merge PR #15, media-key suppression isolation.
 - **FACT — Latest published release:** RemoteOrbit `v0.2.13` / Build 42.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
-- **FACT — Open PR count after closeout:** exactly one, PR #17.
+- **FACT — Current open PRs:** #9 and #16.
+- **FACT — PR #17:** CLOSED Draft, unmerged; its branch remains the control-plane authority.
+- **FACT — Out-of-band PR metadata drift:** #9 and #16 were closed during earlier closeout and reopened at 2026-10-03T12:40:25Z / 12:40:27Z; #17 was closed at 12:40:31Z.
+- **RULE — PR state is not task authority:** these metadata changes do not advance or replace CURRENT_TASK.
 
 ## PR lifecycle closeout
 
 | PR | Title | Lifecycle | Remote state | Reason / successor |
 | --- | --- | --- | --- | --- |
-| #17 | development control plane | **ACTIVE** | OPEN Draft | sole current state/closeout authority |
-| #16 | persistent voice segment transaction isolation | **ABANDONED** | CLOSED Draft, unmerged | later forensics restarted from `main`; speculative fix was not adopted |
+| #17 | development control plane | **ACTIVE** | CLOSED Draft, unmerged | branch remains sole control-plane task authority; PR state drift does not revoke task authority |
+| #16 | persistent voice segment transaction isolation | **ABANDONED** | OPEN Draft, unmerged | lifecycle remains ABANDONED; PR was reopened out-of-band and is frozen |
 | #15 | preserve Mac media keys | **MERGED** | CLOSED merged | merged into `main` 2026-10-01 |
 | #14 | microphone short-action bypass | **MERGED** | CLOSED merged | merged into `main` 2026-09-29 |
 | #13 | configurable voice trigger key | **MERGED** | CLOSED merged | merged into `main` 2026-09-30 |
 | #12 | P1 closure / telemetry trim | **MERGED** | CLOSED merged | accepted P1 closure |
 | #11 | release v0.2.13 | **MERGED** | CLOSED merged | accepted release line |
 | #10 | P1 stage merge candidate | **MERGED** | CLOSED merged | accepted P0/P1 diagnostics + ATVV reassembly line |
-| #9 | P0 audio data-plane audit | **SUPERSEDED** | CLOSED Draft, unmerged | purpose carried forward by merged #10; stage closed by #12 |
+| #9 | P0 audio data-plane audit | **SUPERSEDED** | OPEN Draft, unmerged | lifecycle remains SUPERSEDED; PR was reopened out-of-band and is frozen |
 | #8 | release v0.2.12 | **MERGED** | CLOSED merged | accepted release line |
 | #7 | consolidated v0.2.11 voice corrective | **MERGED** | CLOSED merged | accepted corrective |
 | #6 | disabled-short classifier branch | **SUPERSEDED** | CLOSED Draft, unmerged | #7 consolidated accepted behavior |
@@ -47,11 +50,13 @@ before continuing.
 | #2 | voice recovery from known-good baseline | **MERGED** | CLOSED merged | accepted recovery line |
 | #1 | verified integration baseline | **MERGED** | CLOSED merged | accepted baseline |
 
-### Closeout actions already executed
+### PR state transition history
 
-- **FACT:** PR #9 was given a SUPERSEDED closure comment and closed.
-- **FACT:** PR #16 was given an ABANDONED closure comment and closed.
-- **FACT:** PR #17 is now the only open PR.
+- **FACT:** PR #9 was given a SUPERSEDED closure comment and closed at 12:32, then reopened out-of-band at 12:40:25Z.
+- **FACT:** PR #16 was given an ABANDONED closure comment and closed at 12:32, then reopened out-of-band at 12:40:27Z.
+- **FACT:** PR #17 was closed out-of-band at 12:40:31Z without changing the control-plane branch.
+- **FACT:** no explanatory PR comment accompanied the reopen/close sequence.
+- **RULE:** lifecycle classification and task authority are not inferred from PR open/closed state.
 
 ## Remote branch cleanup
 
@@ -117,12 +122,12 @@ branch/HEAD/dirty state and whether it contains unique evidence.
 
 ## Current authority
 
-Exactly one remote line is ACTIVE:
+Exactly one remote control-plane line is ACTIVE:
 
 ```text
-PR #17
-codex/project-agents-control-plane-v1
-CONTROL-PLANE QUALITY AUDIT
+branch: codex/project-agents-control-plane-v1
+task: CONTROL-PLANE QUALITY AUDIT
+PR #17: currently CLOSED, but PR metadata is not task authority
 ```
 
 The remote closeout actions already executed above remain recorded as FACTS, but

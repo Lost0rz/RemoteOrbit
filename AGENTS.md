@@ -77,6 +77,24 @@ allowed side effects, STOP all state-changing work.
 Any detected concurrent control-plane write invalidates an in-progress quality-audit
 PASS count. Reconcile first and restart the audit count from zero.
 
+
+### PR metadata is evidence, not task authority
+
+The open/closed/draft state of a PR is an observed repository fact. It does not
+grant, revoke, or advance task authority by itself.
+
+If PR metadata changes out-of-band:
+
+- treat it as state drift;
+- preserve the lifecycle classification separately from the current PR state;
+- update CURRENT_STATUS with the observed fact;
+- do not infer a new task or phase;
+- do not reopen/close/merge another PR unless CURRENT_TASK explicitly authorizes
+  that exact mutation.
+
+The control-plane branch plus CURRENT_TASK remains task authority even if its PR is
+temporarily closed or PR metadata is changed by another session.
+
 ## Evidence vocabulary
 
 Use these labels consistently whenever project state or diagnostic conclusions are
