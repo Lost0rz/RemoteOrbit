@@ -222,6 +222,99 @@ Until a fresh incident is captured and reviewed:
 
 Existing evidence worktrees and existing diagnostics may be read and used as-is.
 
+### Remote incident audit — verified findings
+
+The 2026-10-03 remote read-only audit narrowed the next verification boundary without
+establishing root cause.
+
+#### Confirmed facts
+
+- **FACT:** Persistent-open LONG uses the same 300 ms short/long classifier as the
+  normal voice gesture.
+- **FACT:** after LONG classification, the Persistent segment contract is
+  `audio_only`; the segment must not intentionally emit a new external trigger edge.
+- **FACT:** when a mapped trigger reaches `VoiceKeyFilter` while
+  `optionDeferralActive == true`, the existing gate can record/capture/suppress it.
+- **FACT:** when a mapped trigger reaches the event tap while no gate owns it, the
+  current code has a pass-through path. Therefore a pre-gate mapped-trigger race is
+  statically possible.
+- **FACT:** current focused tests validate behavior after the gate has been armed;
+  they do not reproduce the cross-layer ordering race between the hidutil-translated
+  CGEvent and the HIDMonitor callback that arms the gate.
+- **FACT:** existing diagnostics already record the key first-layer decision markers:
+  `VOICE_PRESS_ENTRY` (for the retained forensic build),
+  `OPTION_GATE_BEGIN`, `OPTION_GATE_CAPTURE`, `MAPPED_TRIGGER_EVENT`,
+  `GESTURE_CLASSIFIED`, and Persistent segment lifecycle events.
+- **FACT:** no new instrumentation is required to test the first hypothesis.
+- **FACT:** the retained forensic branch
+  `codex/persistent-duplicate-audio-forensics` at
+  `d0a1ab06d8fafa0e9a8a1ae3b79cbc0d299a07be` adds richer correlation but is not
+  zero-observer-effect; it performs additional diagnostic logging/bookkeeping.
+- **FACT:** `main` and that forensic branch both identify as RemoteOrbit 0.2.13 /
+  Build 42 and carry an unstamped diagnostic source head in source. Version/build
+  alone cannot bind a fresh incident to an exact source revision.
+- **FACT:** `VoiceDiagnosticLogger.startRun()` truncates
+  `~/Library/Logs/RemoteOrbit/voice-diagnostic-current.jsonl` at application launch.
+  A fresh incident's current JSONL must therefore be preserved before any restart.
+- **FACT:** RemoteOrbit does not directly observe a Doubao/external-IME semantic
+  `OPEN/STOPPED` state. The target stop must be anchored by the actual user-visible
+  failure or another already-existing external/system evidence source.
+
+#### Hypothesis under test
+
+**HYPOTHESIS — PRE-GATE MAPPED-TRIGGER LEAKAGE**
+
+A hidutil-translated mapped modifier event may reach the CGEvent tap before the
+HIDMonitor path has entered `beginVoicePress()` and armed `OPTION_GATE_BEGIN`.
+If that happens, the mapped trigger can take the existing pass-through path.
+
+This is the **single first hypothesis to test**. It is not root cause.
+
+#### Construction status
+
+- **ROOT CAUSE:** UNKNOWN
+- **CONSTRUCTION GATE:** BLOCKED
+- **NEW INSTRUMENTATION GATE:** BLOCKED / NOT REQUIRED FOR FIRST TEST
+- **NEXT VERIFICATION:** one fresh incident using the current installed/running
+  runtime and existing observability only.
+
+### Fresh incident evidence conditions
+
+A fresh incident is authoritative for this audit only when:
+
+1. the exact installed/running runtime is bound read-only by app path, running PID,
+   executable path, executable hash, version/build, and any available diagnostic
+   source-head marker;
+2. no code/build/install/config/permission/driver/runtime mutation occurs after that
+   identity capture and before the incident;
+3. the actual target symptom is observed during a normal bounded reproduction;
+4. the same evidence window contains the relevant mapped-trigger/gate/classifier
+   markers;
+5. the current diagnostic JSONL and any correlated evidence are copied/preserved
+   **before** any RemoteOrbit restart or relaunch.
+
+### First-layer decision matrix
+
+| Fresh evidence | First-layer interpretation |
+| --- | --- |
+| `MAPPED_TRIGGER_EVENT action=pass` or equivalent unowned pass occurs before `OPTION_GATE_BEGIN`, in the same incident window as the target external-session stop | Strong direct support for the pre-gate leakage hypothesis. Root cause still requires causal review before construction. |
+| `OPTION_GATE_BEGIN` precedes the mapped edge and all relevant mapped events are `defer_*` / `suppress`, while the target stop still occurs | This incident does not support pre-gate leakage; move the next audit boundary away from the gate rather than fixing it. |
+| No mapped trigger event is present around the target stop | This incident does not establish an Option/mapped-trigger leak. Preserve it and return for review. |
+| Runtime identity cannot be bound, evidence is mutated/overwritten, or the external stop is not actually observed | Fresh Incident Gate is BLOCKED; do not diagnose or construct from the capture. |
+
+### Immediate stop / preservation conditions
+
+Stop the local capture immediately when any one of these occurs:
+
+- the first qualifying target incident occurs;
+- the bounded normal capture completes without reproduction;
+- runtime identity cannot be proven before capture;
+- any prohibited mutation occurs;
+- the evidence window cannot be preserved reliably.
+
+On a qualifying incident, preserve the current JSONL and correlated evidence before
+any restart/relaunch. Do not perform a recovery experiment first.
+
 ### Fresh-incident gate
 
 A capture qualifies as a **fresh incident** only if:

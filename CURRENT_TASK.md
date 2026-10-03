@@ -100,6 +100,70 @@ Until the fresh-incident gate is satisfied:
 If a tempting fix appears while reading evidence, record it only as
 `HYPOTHESIS / NOT AUTHORIZED`.
 
+## Remote audit closure for local evidence acquisition
+
+The remote read-only audit is sufficient to define the next **fresh incident**
+capture, but not sufficient to authorize construction.
+
+### Verified boundary
+
+The current code contains a statically possible ordering window in which a
+hidutil-translated mapped trigger can reach the event tap before the HIDMonitor
+callback has armed the gesture's option gate. Existing tests do not cover that
+cross-layer race.
+
+This is not a proven incident occurrence and not root cause.
+
+### Single hypothesis to test first
+
+`HYPOTHESIS: PRE-GATE MAPPED-TRIGGER LEAKAGE`
+
+Do not branch into focus, BLE/audio, WindowServer, or external-IME explanations
+unless the fresh incident evidence rejects or fails to establish this first-layer
+boundary.
+
+### Local evidence prerequisites
+
+Before reproducing:
+
+- bind the running runtime read-only using installed app path, PID, executable path,
+  executable hash, version/build, and any available diagnostic source-head marker;
+- identify the current existing diagnostic JSONL/evidence locations;
+- make no product/runtime/configuration/permission changes.
+
+Version/build alone is insufficient because both `main` and the retained forensic
+branch use 0.2.13 / Build 42 in source.
+
+### Decision rule for the first hypothesis
+
+- **SUPPORTS HYPOTHESIS:** an unowned mapped trigger is logged as pass-through before
+  `OPTION_GATE_BEGIN` in the same fresh incident window as the actual target stop.
+- **DOES NOT SUPPORT HYPOTHESIS:** the gate is already active before the mapped edge
+  and all relevant mapped events are captured/deferred/suppressed while the target
+  stop still occurs.
+- **INCONCLUSIVE:** mapped-trigger evidence is absent or cannot be correlated to the
+  target stop.
+- In all three cases, **ROOT CAUSE remains UNKNOWN** until the returned evidence is
+  reviewed under a new explicit authorization.
+
+### Preservation rule
+
+`voice-diagnostic-current.jsonl` is truncated at RemoteOrbit launch. After the first
+qualifying incident, copy/preserve the current diagnostic evidence before any
+restart/relaunch.
+
+### Stop conditions
+
+Stop immediately and return for review when:
+
+1. the first qualifying fresh incident is observed and preserved;
+2. the single bounded normal capture ends without reproducing the target symptom;
+3. runtime identity cannot be established;
+4. any prohibited mutation occurs;
+5. evidence cannot be preserved without risk of overwrite.
+
+**CONSTRUCTION GATE remains BLOCKED.**
+
 ## Fresh-incident acceptance gate
 
 A capture is accepted as a fresh incident only when all are true:
