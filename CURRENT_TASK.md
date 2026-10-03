@@ -114,7 +114,9 @@ Closeout is complete only when:
 - all 18 remote branches classified;
 - 14 remote branches are DELETE CANDIDATE;
 - remote ref deletion is blocked in this session because no branch/ref delete tool is available;
-- four remote branches are KEEP: `main`, the control-plane branch, and the two unique-evidence no-PR branches.
+- four remote branches are KEEP: `main`, the control-plane branch, and the two unique-evidence no-PR branches;
+- all 13 last-known live worktrees and 10 registered-but-missing paths now have lifecycle classifications in `CURRENT_STATUS.md`;
+- local deletion remains pending because this session cannot refresh or mutate the owning Mac's worktrees.
 
 ## Next authorized step
 
