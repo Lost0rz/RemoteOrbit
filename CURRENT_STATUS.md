@@ -19,13 +19,13 @@ before continuing.
 ## Remote baseline
 
 - **FACT — Default branch:** `main`
-- **FACT — Remote main HEAD:** `5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d`
-- **FACT — Main HEAD message:** merge PR #19, single diagnostic Authority skeleton.
+- **FACT — Remote main HEAD:** `6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5`
+- **FACT — Main HEAD message:** merge PR #18, diagnostic-only Persistent LONG boundary probes and B8 observer.
 - **FACT — Latest published release:** RemoteOrbit `v0.2.13` / Build 42.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
-- **FACT — Current open PRs:** PR #17 and PR #18.
-- **FACT — PR #17:** OPEN + Draft + unmerged; its branch is the control-plane authority.
-- **FACT — PR #18:** OPEN + Draft; `codex/persistent-long-boundary-probes-v1` at `71ef0e65117f2def4e30d5447ca55246c4d18434`; B3 external-boundary probe audit accepted.
+- **FACT — Current open PRs:** PR #17 only.
+- **FACT — PR #17:** OPEN + Draft + unmerged; control-plane branch is being reconciled with current `main` for final merge.
+- **FACT — PR #18:** MERGED + CLOSED; source head `c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5`; merge commit `6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5`; Lane B CLOSED.
 - **FACT — PR #19:** MERGED + CLOSED; source head `ee4effd0b6435b5198a258fa9c9f063717f69136`; merge commit `5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d`. Lane C is CLOSED.
 - **FACT — Final closeout snapshot base:** live control-plane HEAD `8a09a80411fd3f19c37332a4d2e7799773cf5182`; the final status/task snapshot correction is a direct child of this audited HEAD and is pushed to the active control-plane branch.
 - **FACT — Out-of-band PR metadata drift:** #9 and #16 were closed during earlier closeout and reopened at 2026-10-03T12:40:25Z / 12:40:27Z; #17 was closed at 12:40:31Z.
@@ -2826,3 +2826,37 @@ the checkout has no new dependency, it remains eligible. No B-MR1 work remains a
 Execution must still perform the full A3 destructive preflight. Any dirty/untracked
 state, preservation failure, unexpected dependency, or authority drift remains a
 fail-closed condition.
+
+
+## Control-plane final merge reconciliation — 2026-10-04
+
+The user explicitly authorized merging PR #17 after Lane B closure.
+
+Fresh anchors:
+
+```text
+CONTROL_HEAD_BEFORE_RECONCILIATION: 7e7aa9979fade798d85dbf07580e088a9f04d4fa
+REMOTE_MAIN: 6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5
+PR17: OPEN_DRAFT_UNMERGED
+PR18: CLOSED_MERGED
+LANE_B: CLOSED
+LANE_C: CLOSED
+A3_EXACT_CLEANUP_AUTHORIZATION: STILL_VALID / NOT YET CLAIMED EXECUTED
+```
+
+The control branch and main had diverged from their original common base. The final
+reconciliation therefore uses the current `main` tree as the product/runtime base
+and overlays only the four governance/documentation paths owned by PR #17:
+
+- `AGENTS.md`
+- `CURRENT_STATUS.md`
+- `CURRENT_TASK.md`
+- `docs/incident-diagnostics/PERSISTENT_LONG_DIAGNOSTIC_ARCHITECTURE.md`
+
+The reconciliation commit must have two parents: the current control head first and
+current main second. No rebase, force update, or rollback of current main product code
+is permitted.
+
+After PR #17 merges, the repository control plane becomes authoritative from `main`.
+A3 exact cleanup remains separately authorized under its unchanged manifest and still
+requires its own execution/preflight/result checkpoint.

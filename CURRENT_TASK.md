@@ -2,14 +2,14 @@
 
 ## Task identity
 
-- **Task:** FOUNDATION GOVERNANCE — A3 EXACT CLEANUP EXECUTION AUTHORIZED; B CLOSED; C CLOSED
-- **Status:** AUTHORIZED — EXACT A3 CLEANUP MANIFEST ONLY
+- **Task:** CONTROL-PLANE FINALIZATION — MERGE PR #17; A3 EXACT CLEANUP REMAINS AUTHORIZED; B/C CLOSED
+- **Status:** AUTHORIZED — FINAL PR #17 RECONCILIATION/MERGE; A3 CLEANUP REMAINS SEPARATELY AUTHORIZED
 - **Task authority:** this file
 - **Parallel execution:** EXPLICITLY AUTHORIZED
 - **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
 - **Product Construction Gate:** BLOCKED
-- **Merge:** PR #18 and PR #19 COMPLETED; no additional merge authorization implied
+- **Merge:** PR #17 FINAL MERGE EXPLICITLY AUTHORIZED; PR #18/#19 COMPLETED
 - **Release / install:** NOT AUTHORIZED
 
 ## Coordination model
@@ -19,7 +19,7 @@ Three lanes may run concurrently because they own different mutation surfaces.
 | Lane | Objective | Write authority | Must not touch |
 | --- | --- | --- | --- |
 | A | A3 targeted freshness refresh over accepted A3 evidence | owning-Mac delta evidence + control-plane evidence checkpoint only | no deletion/prune/move/PR mutation/runtime or product-source change |
-| B | boundary probes + capture completeness | PR #18 diagnostic probe surface | control plane, CLI, Settings, Authority schema ownership |
+| B | CLOSED — PR #18 merged; diagnostic objective complete | none | no further B construction without a new task |
 | C | CLOSED — diagnostic Authority skeleton accepted and merged | none; no further C construction authority | all further diagnostic expansion requires a new task |
 
 **Lane A is the sole control-plane writer** while these lanes are active. Lanes B/C
@@ -1562,3 +1562,32 @@ Before deletion, fetch live refs using the approved controlled network execution
 fast-forward the clean control worktree to the current control head, read all three
 control files, and run the complete A3 preflight. If the control branch advances again,
 re-read it and proceed only if this A3 authorization remains present and unrevoked.
+
+
+## Control-plane finalization transition — PR #17 merge authorized
+
+**Status: AUTHORIZED.**
+
+```text
+CONTROL_HEAD: 7e7aa9979fade798d85dbf07580e088a9f04d4fa
+REMOTE_MAIN: 6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5
+PR17: OPEN_DRAFT_UNMERGED
+PR18: CLOSED_MERGED
+LANE_B: CLOSED
+LANE_C: CLOSED
+A3_CLEANUP: AUTHORIZED_BUT_NOT_EXECUTED_BY_THIS_TRANSITION
+```
+
+Required transition:
+
+1. create a two-parent reconciliation commit on the PR #17 branch, preserving the
+   current main product tree and only the four governance/documentation paths;
+2. verify PR #17 becomes cleanly mergeable;
+3. mark ready if needed and merge exact reconciled head;
+4. verify remote main;
+5. write CURRENT_STATUS and CURRENT_TASK together on main so PR #17 is recorded
+   MERGED/CLOSED and the only remaining authorized governance work is the exact A3
+   cleanup execution.
+
+No rebase, force, product fix, fresh capture, release, or cleanup execution is part of
+this merge transition.
