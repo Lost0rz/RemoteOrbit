@@ -3,6 +3,7 @@
 ## Current task — READ-ONLY DIAGNOSTIC CLI V1
 
 - **Status:** IMPLEMENTED / PR #20 DRAFT / WAITING_FOR_LOCAL_MAC_VALIDATION
+- **Construction:** COMPLETE; validation/merge gates remain open
 - **Baseline main:** `76bc3cfa7fb7a5d34b1d8335ee9ad4a59f145c57`
 - **Active branch:** `codex/read-only-diagnostic-cli-v1`
 - **Task authority:** this file on the active branch until merge/closure

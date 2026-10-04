@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: DIAGNOSTIC CLI V1 — READ-ONLY CONSTRUCTION ACTIVE
+State: DIAGNOSTIC CLI V1 — IMPLEMENTED / WAITING_FOR_LOCAL_MAC_VALIDATION
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
