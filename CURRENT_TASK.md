@@ -659,9 +659,10 @@ internal logging.
 
 ## Next authorized action
 
-`SEALED_CAPTURE_CAUSAL_REVIEW` of the evidence directory recorded below. The single
-capture authorization is consumed. Do not reproduce again. Construction remains
-blocked; root cause remains unknown. No behavior fix, merge, or release is authorized.
+Perform read-only sealed-capture clock-basis reconciliation for the target LONG and
+same-run mapped events. The single capture authorization is consumed. Do not
+reproduce again. Construction remains blocked; root cause remains unknown. No
+behavior fix, merge, or release is authorized.
 
 
 ## Bounded fresh capture completed — 2026-10-04
@@ -740,8 +741,46 @@ DIAGNOSTIC_TEST_GATE: PASS
 NEW_CAPTURE_GATE: CONSUMED
 CONSTRUCTION_GATE: BLOCKED
 ROOT_CAUSE: UNKNOWN
-NEXT_ACTION: SEALED_CAPTURE_CAUSAL_REVIEW
+NEXT_ACTION: SEALED_CAPTURE_CLOCK_BASIS_RECONCILIATION
 ```
 
 This is a normal control-like capture, not evidence that the earlier failure is
 fixed. No second reproduction, code change, merge, or release is authorized.
+
+
+## Sealed capture clock-basis reconciliation
+
+No new capture is authorized.
+
+Before adding probes, use the already sealed PR #18 capture to determine whether the
+original mapped `CGEvent.timestamp` can be placed on the same within-run startup
+time scale as RemoteOrbit monotonic uptime.
+
+For the target LONG and several other mapped events from the same run, extract:
+
+```text
+cg_event_uptime_seconds
+observer_uptime
+OPTION_GATE_BEGIN uptime
+VOICE_PRESS_ENTRY uptime
+```
+
+Calculate per mapped event:
+
+```text
+delivery_latency = observer_uptime - cg_event_uptime_seconds
+original_event_vs_gate = cg_event_uptime_seconds - option_gate_begin_uptime
+callback_vs_gate = observer_uptime - option_gate_begin_uptime
+```
+
+Decision:
+
+- if the values are on the same numeric scale and delivery latency is plausible and
+  consistent, B3 original-event ordering may be established for this run;
+- if there is a large or inconsistent offset, keep B3 PARTIAL and define the
+  minimum clock-calibration delta;
+- do not use wall-clock or JSONL append order for this decision.
+
+After this read-only calculation, update B3 and the pre-gate leak finding. Do not
+authorize another reproduction, construction, merge, or release.
+

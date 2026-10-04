@@ -1089,3 +1089,55 @@ NEXT_ACTION: SEALED_CAPTURE_CAUSAL_REVIEW
 Do not authorize another capture or begin construction from this normal control-like
 result. The original CG event clock relationship and the external IME semantic state
 remain unresolved.
+
+
+## Sealed-capture causal review — clock-basis reconciliation required
+
+The bounded probe capture is sealed and no second capture is authorized.
+
+A remote review identified that the current analysis may be overly conservative in
+treating the original `CGEvent.timestamp` as an unrelated clock basis.
+
+Apple documents `CGEventTimestamp` as elapsed nanoseconds since system startup.
+The captured mapped-trigger record already contains both:
+
+- `cg_event_uptime_seconds` derived from the original CGEvent timestamp;
+- `observer_uptime` captured by RemoteOrbit at the event-tap callback.
+
+The same diagnostic stream records monotonic uptime for
+`OPTION_GATE_BEGIN`.
+
+Therefore the sealed evidence should first be reconciled numerically before any new
+instrumentation or reproduction is considered.
+
+Required read-only calculation for target LONG
+`52AE0F3E-3273-482D-9E92-8092EABCF165`:
+
+```text
+CG_EVENT_UPTIME_SECONDS
+MAPPED_CALLBACK_OBSERVER_UPTIME
+OPTION_GATE_BEGIN_UPTIME
+VOICE_PRESS_ENTRY_UPTIME
+
+CALLBACK_MINUS_CG_EVENT
+CG_EVENT_MINUS_GATE_BEGIN
+CALLBACK_MINUS_GATE_BEGIN
+```
+
+Also sample multiple ordinary mapped CGEvent records in the same run. If
+`observer_uptime - cg_event_uptime_seconds` is consistently a small event-delivery
+latency rather than a large/variable clock offset, classify the two values as
+comparable for this run and use original CG occurrence time for B3 ordering.
+
+Do not infer global clock equivalence across boots/sleep states beyond what the
+sealed run and platform contract support.
+
+Current gates remain:
+
+```text
+NEW_CAPTURE_GATE: CONSUMED
+SECOND_CAPTURE_AUTHORIZED: NO
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
