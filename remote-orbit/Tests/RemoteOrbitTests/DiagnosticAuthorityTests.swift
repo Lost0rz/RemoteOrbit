@@ -270,6 +270,34 @@ final class DiagnosticAuthorityTests: XCTestCase {
         XCTAssertEqual(failingAuthority.droppedEventCount, 1)
     }
 
+    func testQueueSaturationDropsEventWithoutBlockingProducerAndCountsDrop() throws {
+        let journal = BlockingDiagnosticJournal()
+        let authority = makeAuthority(
+            journal: journal,
+            maximumPendingEvents: 1
+        )
+        defer { journal.releaseFirstAppend.signal() }
+
+        authority.emit(try makeInput())
+        XCTAssertEqual(journal.firstAppendEntered.wait(timeout: .now() + 2), .success)
+
+        let droppedInput = try makeInput(eventType: "audio.capture.recording_closed")
+        let producerReturned = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            authority.emit(droppedInput)
+            producerReturned.signal()
+        }
+
+        let returnedWhileJournalBlocked = producerReturned.wait(timeout: .now() + 1)
+        XCTAssertEqual(returnedWhileJournalBlocked, .success)
+        XCTAssertEqual(authority.droppedEventCount, 1)
+
+        journal.releaseFirstAppend.signal()
+        let events = try authority.query(DiagnosticQueryFilter(limit: 10)).events
+        XCTAssertEqual(events.map(\.eventType), ["audio.capture.recording_started"])
+        XCTAssertEqual(authority.droppedEventCount, 1)
+    }
+
     func testConcurrentEmitsHaveUniqueIDsAndMonotonicJournalSequence() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
