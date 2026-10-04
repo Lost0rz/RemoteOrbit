@@ -5,7 +5,7 @@
 - **Task:** INCIDENT MODE — MINIMUM BOUNDARY PROBE DELTA
 - **Incident family:** PERSISTENT-LONG / EXTERNAL-IME PREMATURE SESSION STOP
 - **Phase:** Step 5 — minimal boundary probe implementation and validation
-- **Status:** INDEPENDENT_AUDIT_BLOCKED — OBSERVER_EFFECT_CORRECTIVE_REQUIRED
+- **Status:** WAITING_FOR_INDEPENDENT_AUDIT — CORRECTIVE_REVALIDATION_PASS
 - **Task authority:** this file
 - **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
@@ -465,7 +465,7 @@ behavior fix.
 
 ```text
 PROBE_BRANCH: codex/persistent-long-boundary-probes-v1
-PROBE_HEAD: f3e852bb0d9d6358a62141dcb4f4e483257772d0
+PROBE_HEAD: 28824d9dc167f57e3163ef0844aec1b672717d8f
 PROBE_PR: #18 OPEN + Draft
 
 B3_PROBE_IMPLEMENTED: YES
@@ -486,27 +486,35 @@ Remote validation is limited to source/diff/test-definition audit because this
 repository has no GitHub Actions workflow and remote GitHub cannot execute the
 macOS Swift test suite.
 
-## PR #18 corrective revalidation — completed
+## PR #18 observer-effect corrective revalidation — completed locally
 
-The previous `github.com` DNS failure was transient. The authorized fetch succeeded
-on its first retry-free attempt; no DNS, proxy, SSH, credential, or system network
-configuration changed. Exact remote authority at validation start:
+The user-authorized authority fetch succeeded and exact remote heads matched:
 
 ```text
 AUTHORITY_FETCH: PASS
 AUTHORITY_GATE: PASS
 MAIN_HEAD: 7129ef72949eca956b1d0daddce707d5e417eeed
-CONTROL_HEAD_AT_VALIDATION: 6a803a6fec59bae4de18045038ee23dc396f51dc
-PROBE_HEAD: f3e852bb0d9d6358a62141dcb4f4e483257772d0
+CONTROL_HEAD_AT_VALIDATION: 9bbc52095194dd6d59321d128a3a7e724ae370d7
+START_PROBE_HEAD: f3e852bb0d9d6358a62141dcb4f4e483257772d0
 ```
 
-The validation worktree was clean before checkout and after all commands:
+After revalidation, the corrective commit was pushed fast-forward to the authorized
+probe branch and verified against GitHub:
 
 ```text
-VALIDATION_WORKTREE: /Users/jack7788/Documents/Code/remoteorbit-pr18-validation
-WORKTREE_HEAD: f3e852bb0d9d6358a62141dcb4f4e483257772d0
+FINAL_PROBE_HEAD: 28824d9dc167f57e3163ef0844aec1b672717d8f
+REMOTE_PROBE_HEAD: 28824d9dc167f57e3163ef0844aec1b672717d8f
+PR_18_STATE: OPEN
+PR_18_DRAFT: YES
+```
+
+```text
+VALIDATION_WORKTREE: /Users/jack7788/Documents/Code/remoteorbit-pr18-observer-corrective
+WORKTREE_HEAD: 28824d9dc167f57e3163ef0844aec1b672717d8f
 WORKTREE_CLEAN: YES
 ```
+
+Validation:
 
 ```text
 HID_MONITOR_DIAGNOSTIC_TESTS: PASS (3)
@@ -519,75 +527,48 @@ FULL_SWIFT_TEST: PASS
 TEST_TOTALS: 266 passed
 FAILING_COUNT: 0
 FULL_SWIFT_TEST_EXIT_CODE: 0
+```
+
+Timing-path and behavior audit:
+
+```text
+RAW_REPORT_TIMESTAMP_CAPTURE: reportObservedUptime at report callback entry
+PRE_EDGE_DIAGNOSTIC_SERIALIZATION: NONE
+PRE_EDGE_DIAGNOSTIC_ENQUEUE: NONE
+EDGE_CALLBACK_ORDER: BASELINE_EQUIVALENT
+SUPPRESSED_CALLBACK_ORDER: BASELINE_EQUIVALENT
 HID_EDGE_TIMING_ANCHOR: BASELINE_EQUIVALENT
 BEHAVIOR_DIFF_AUDIT: PASS
 BEHAVIOR_CHANGE_FOUND: NO
 ```
 
-The corrective keeps raw-report observation time separate from the behavioral HID
-edge/debounce sample, which is taken at the baseline location. The audit found no
-behavioral diff in HardwareOptionGate ownership, Option suppression/replay,
-Persistent open/close, the 300 ms classifier, BLE start/stop, AudioPipe
-routing/buffering, tail/drain, or synthetic-trigger ownership. The full Swift suite
-builds and passes. No install or fresh capture was performed.
+The raw report record is constructed only after the behavior callbacks and still
+carries the captured occurrence uptime and report sequence. The behavioral edge
+sample remains at the baseline location and feeds the existing 180 ms debounce.
+No changes were found to HardwareOptionGate ownership, Option suppression/replay,
+Persistent open/close, the 300 ms classifier, BLE activate/stop, AudioPipe
+routing/buffering, tail/drain, or synthetic-trigger ownership.
 
-Resulting gates:
+No install, fresh capture, incident reproduction, merge, release, or product behavior
+change occurred. The corrective worktree is clean; the dirty primary checkout was
+left untouched.
+
+Current gates:
 
 ```text
+CORRECTIVE_REVALIDATION: PASS
 DIAGNOSTIC_TEST_GATE: PASS
+INDEPENDENT_TIMING_PATH_REVIEW: PENDING
 NEW_CAPTURE_GATE: READY_FOR_REVIEW
 CONSTRUCTION_GATE: BLOCKED
 ROOT_CAUSE: UNKNOWN
 ```
 
-## Independent timing-path audit result
-
-Independent review of
-`f3e852bb0d9d6358a62141dcb4f4e483257772d0` does not authorize a fresh
-capture yet.
-
-The remaining issue is diagnostic observer effect on the exact HID→gate race being
-measured:
-
-- raw HID diagnostic construction/enqueue occurs before the existing edge callback;
-- emitted/suppressed edge logging occurs before the corresponding existing callback;
-- async disk I/O does not remove the synchronous pre-callback work.
-
-This is not a product behavior fix. It is a bounded probe-placement corrective.
-
-### Authorized corrective scope
-
-Only:
-
-1. preserve report sequence and raw occurrence timestamp capture;
-2. move nonessential raw diagnostic construction/serialization/enqueue out of the
-   behavior-critical pre-edge path;
-3. invoke existing emitted/suppressed edge callbacks before diagnostic logger work
-   where the diagnostic record already carries the captured occurrence
-   timestamp/sequence;
-4. preserve all trigger/gate/Persistent/BLE/audio/classifier semantics;
-5. add or adjust focused tests only as needed to lock the callback-before-diagnostic
-   ordering;
-6. re-run the existing focused diagnostics/regressions and full Swift suite;
-7. perform a static timing-path audit against `main`.
-
-### Required gate
-
-A corrected probe may return to independent review only if:
-
-```text
-FOCUSED_DIAGNOSTIC_TESTS: PASS
-FOCUSED_REGRESSION_TESTS: PASS
-FULL_SWIFT_TEST: PASS
-BEHAVIOR_DIFF_AUDIT: PASS
-PRE_CALLBACK_DIAGNOSTIC_WORK: MINIMIZED_TO_REQUIRED_CAPTURE_ONLY
-EDGE_CALLBACK_ORDER: BASELINE_EQUIVALENT
-NEW_CAPTURE_GATE: READY_FOR_REVIEW
-CONSTRUCTION_GATE: BLOCKED
-ROOT_CAUSE: UNKNOWN
-```
-
-No install, fresh capture, merge, release, or product behavior fix is authorized.
+The earlier independent audit of `f3e852bb0d9d6358a62141dcb4f4e483257772d0`
+identified pre-callback diagnostic work. This corrective moves the full raw-record
+construction and edge logger calls behind the corresponding existing callbacks.
+Independent review of the pushed `28824d9dc167f57e3163ef0844aec1b672717d8f`
+remains the next gate. READY_FOR_REVIEW is not a fresh-capture result.
 
 ## Completion gate
 
@@ -622,7 +603,7 @@ internal logging.
 
 ## Next authorized action
 
-Apply the bounded observer-effect corrective on PR #18, revalidate locally, and
-submit the corrected gate result for independent review. Do not install or run a
-fresh capture yet. Construction remains blocked; no behavior fix, merge, or release
-is authorized.
+Submit probe HEAD `28824d9dc167f57e3163ef0844aec1b672717d8f` for independent
+timing-path review. Do not install or run a fresh capture until that review accepts
+the corrected probe. Construction remains blocked; root cause remains unknown. No
+behavior fix, merge, or release is authorized.

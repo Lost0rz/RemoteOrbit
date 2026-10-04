@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: INCIDENT MODE — PR #18 INDEPENDENT TIMING AUDIT BLOCKED; OBSERVER-EFFECT CORRECTIVE REQUIRED
+State: INCIDENT MODE — PR #18 CORRECTIVE REVALIDATION PASS; WAITING FOR INDEPENDENT TIMING REVIEW
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -25,7 +25,7 @@ before continuing.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
 - **FACT — Current open PRs:** PR #17 and PR #18.
 - **FACT — PR #17:** OPEN + Draft + unmerged; its branch is the control-plane authority.
-- **FACT — PR #18:** OPEN + Draft; `codex/persistent-long-boundary-probes-v1` at `f3e852bb0d9d6358a62141dcb4f4e483257772d0`.
+- **FACT — PR #18:** OPEN + Draft; `codex/persistent-long-boundary-probes-v1` at `28824d9dc167f57e3163ef0844aec1b672717d8f`.
 - **FACT — Final closeout snapshot base:** live control-plane HEAD `8a09a80411fd3f19c37332a4d2e7799773cf5182`; the final status/task snapshot correction is a direct child of this audited HEAD and is pushed to the active control-plane branch.
 - **FACT — Out-of-band PR metadata drift:** #9 and #16 were closed during earlier closeout and reopened at 2026-10-03T12:40:25Z / 12:40:27Z; #17 was closed at 12:40:31Z.
 - **RULE — PR state is not task authority:** these metadata changes do not advance or replace CURRENT_TASK.
@@ -384,12 +384,12 @@ task: INCIDENT MODE — MINIMUM BOUNDARY PROBE DELTA
 PR #17: OPEN + Draft control-plane PR
 ```
 
-Product debugging, new diagnostics, runtime experiments, packaging, installation,
-release, TCC, HAL, LaunchAgent, and CoreAudio mutation remain frozen.
+Product behavior changes, runtime experiments, packaging, installation, release,
+TCC, HAL, LaunchAgent, and CoreAudio mutation remain frozen. The active Step 5 task
+authorizes only the bounded diagnostic probe and validation work recorded below.
 
-Repository closeout is complete. Fresh incident capture is complete. The only
-currently authorized work is the read-only diagnostic-gap and evidence-capability
-audit defined in `CURRENT_TASK.md`.
+Repository closeout and the Step 4 diagnostic-gap audit are complete. The active
+Step 5 probe task and its current review boundary are defined in `CURRENT_TASK.md`.
 
 ## Step 4 — diagnostic gap audit
 
@@ -811,37 +811,44 @@ B5/B9 therefore remain PARTIAL/MISSING and must stay explicitly labeled that way
 
 ### Gate state
 
-- **PROBE IMPLEMENTATION GATE:** PASS for remote implementation scope.
-- **DIAGNOSTIC TEST GATE:** PASS after exact corrective-HEAD local validation.
-- **NEW CAPTURE GATE:** READY_FOR_REVIEW; no capture performed.
+- **PROBE IMPLEMENTATION GATE:** PASS for the diagnostic-only implementation.
+- **DIAGNOSTIC TEST GATE:** PASS after focused and full local validation at
+  `28824d9dc167f57e3163ef0844aec1b672717d8f`.
+- **NEW CAPTURE GATE:** READY_FOR_REVIEW; independent timing-path review is pending,
+  and no capture has been performed.
 - **CONSTRUCTION GATE:** BLOCKED.
 - **ROOT CAUSE:** UNKNOWN.
 
 The repository has no GitHub Actions workflow for this Swift/macOS package, so remote
 GitHub cannot establish a truthful test PASS. Local macOS validation is required.
 
-## PR #18 corrective revalidation — current result
+## PR #18 observer-effect corrective revalidation — current result
 
-The earlier `github.com` DNS failure was transient and resolved. This run's first
-fetch succeeded. No DNS, proxy, SSH, credential, or system network configuration
-was changed.
-
-Authority was fetched and matched exactly:
+Live authority was fetched and matched at validation start:
 
 ```text
 AUTHORITY_FETCH: PASS
 AUTHORITY_GATE: PASS
 MAIN_HEAD: 7129ef72949eca956b1d0daddce707d5e417eeed
-CONTROL_HEAD_AT_VALIDATION: 6a803a6fec59bae4de18045038ee23dc396f51dc
-PROBE_HEAD: f3e852bb0d9d6358a62141dcb4f4e483257772d0
+CONTROL_HEAD_AT_VALIDATION: 9bbc52095194dd6d59321d128a3a7e724ae370d7
+START_PROBE_HEAD: f3e852bb0d9d6358a62141dcb4f4e483257772d0
 ```
 
-The designated validation worktree was clean before checkout and remained clean at
-the exact corrective HEAD:
+The corrective was committed and fast-forward pushed only after confirming the live
+probe branch still matched the expected start head. GitHub now reports PR #18 OPEN +
+Draft at the pushed head:
 
 ```text
-VALIDATION_WORKTREE: /Users/jack7788/Documents/Code/remoteorbit-pr18-validation
-WORKTREE_HEAD: f3e852bb0d9d6358a62141dcb4f4e483257772d0
+FINAL_PROBE_HEAD: 28824d9dc167f57e3163ef0844aec1b672717d8f
+REMOTE_PROBE_HEAD: 28824d9dc167f57e3163ef0844aec1b672717d8f
+PR_18: OPEN + Draft
+```
+
+Validation worktree:
+
+```text
+VALIDATION_WORKTREE: /Users/jack7788/Documents/Code/remoteorbit-pr18-observer-corrective
+WORKTREE_HEAD: 28824d9dc167f57e3163ef0844aec1b672717d8f
 WORKTREE_CLEAN: YES
 ```
 
@@ -860,68 +867,42 @@ FAILING_COUNT: 0
 FULL_SWIFT_TEST_EXIT_CODE: 0
 ```
 
-The source audit confirmed `reportObservedUptime` is used for raw HID report
-diagnostics only. Behavioral HID edges and the debouncer use a freshly sampled
-`now` at the baseline location after usage-state update. The 180 ms debounce,
-HardwareOptionGate ownership, Option suppression/replay, Persistent open/close,
-300 ms classifier, BLE start/stop, AudioPipe routing/buffering, tail/drain, and
-synthetic-trigger ownership logic have no behavioral diff.
+Static timing-path audit:
 
 ```text
+RAW_REPORT_TIMESTAMP_CAPTURE: reportObservedUptime immediately after sequence capture
+PRE_EDGE_DIAGNOSTIC_SERIALIZATION: NONE
+PRE_EDGE_DIAGNOSTIC_ENQUEUE: NONE
+EDGE_CALLBACK_ORDER: BASELINE_EQUIVALENT
+SUPPRESSED_CALLBACK_ORDER: BASELINE_EQUIVALENT
 HID_EDGE_TIMING_ANCHOR: BASELINE_EQUIVALENT
 BEHAVIOR_DIFF_AUDIT: PASS
 BEHAVIOR_CHANGE_FOUND: NO
 ```
 
-No app install or fresh capture was performed.
+The raw transition dictionary and `raw_hex` are now built after behavior callbacks;
+records retain the captured raw occurrence uptime and HID report sequence. The
+behavioral `now` is still sampled at the baseline location and remains the value used
+by the 180 ms edge debouncer. No change was found to HardwareOptionGate ownership,
+Option suppression/replay, Persistent open/close, the 300 ms classifier, BLE
+activate/stop, AudioPipe routing/buffering, tail/drain, or synthetic-trigger
+ownership.
 
-## PR #18 independent timing-path audit — BLOCKED
-
-Independent review of probe HEAD
-`f3e852bb0d9d6358a62141dcb4f4e483257772d0` found one remaining
-observer-effect risk that must be corrected before a fresh capture.
-
-Facts:
-
-- `VoiceDiagnosticLogger.log` performs disk formatting/write on an async writer
-  queue, but the caller still performs synchronous event-field construction,
-  Date/uptime capture, and DispatchQueue enqueue.
-- `RAW_HID_MIC_STATE` construction/log enqueue currently occurs before the
-  existing `emitButtonEdge` path.
-- `HID_MIC_EDGE_EMITTED` currently calls the diagnostic logger before invoking
-  the pre-existing edge callback.
-- suppressed-edge diagnostics likewise run before the pre-existing suppression
-  callback.
-- the incident under investigation is specifically sensitive to ordering between
-  the physical HID path / gate begin and the hidutil-translated mapped CGEvent.
-
-Therefore the local result
-`HID_EDGE_TIMING_ANCHOR: BASELINE_EQUIVALENT` is insufficient to establish zero
-timing-path observer effect. All 266 tests passing remains valid regression evidence,
-but those tests do not prove the race window is unperturbed.
-
-Required bounded corrective:
-
-1. capture only minimum raw identity/time needed at report entry;
-2. preserve the baseline behavior callback ordering;
-3. execute existing edge/suppression callbacks before diagnostic serialization or
-   logger enqueue that is not required to establish occurrence time;
-4. emit diagnostic records afterward using the already-captured occurrence
-   timestamp / report sequence;
-5. re-run the same focused tests, full Swift suite, and timing-path diff audit.
+No app install, fresh capture, incident reproduction, merge, release, or product
+behavior change occurred. The original primary checkout's dirty `HIDMonitor.swift`
+was preserved.
 
 Current gates:
 
 ```text
-DIAGNOSTIC_TEST_GATE: BLOCKED_BY_INDEPENDENT_TIMING_AUDIT
-NEW_CAPTURE_GATE: BLOCKED
+DIAGNOSTIC_TEST_GATE: PASS
+INDEPENDENT_TIMING_PATH_REVIEW: PENDING
+NEW_CAPTURE_GATE: READY_FOR_REVIEW
 CONSTRUCTION_GATE: BLOCKED
 ROOT_CAUSE: UNKNOWN
 ```
 
-The finding is recorded on PR #18 discussion as issue comment `5975341428`.
-
-## PR #18 local validation finding and corrective
+## Prior PR #18 local validation finding and corrective
 
 Local validation of probe HEAD
 `8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d` produced:
@@ -998,7 +979,7 @@ Product development remains FROZEN. No repair work is authorized.
 
 ## Next required action
 
-Apply only the bounded PR #18 observer-effect corrective defined by the independent
-timing-path audit, then repeat local revalidation. Do not install or run a fresh
-capture until the corrected probe passes independent review. Construction remains
-blocked and root cause remains unknown.
+Submit corrective probe HEAD `28824d9dc167f57e3163ef0844aec1b672717d8f` for
+independent timing-path review. Do not install or run a fresh capture before that
+review accepts the corrected probe. Construction remains blocked and root cause
+remains unknown.
