@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: INCIDENT MODE — STEP 6 PRE-GATE CONTRACT TEST / OWNERSHIP REVIEW
+State: FOUNDATION GOVERNANCE — PARALLEL LANES A/B/C AUTHORIZED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -1346,3 +1346,60 @@ Forbidden:
 
 The next gate is architecture/test evidence only. Construction remains blocked.
 
+
+
+## Parallel foundation lanes — A / B / C
+
+**FACT — User authorization:** on 2026-10-04 the active project scope was explicitly
+split into three concurrent, isolated foundation lanes. This supersedes the prior
+single-line Step 6 execution model as the current orchestration model. Historical
+Step 6 evidence remains valid evidence; it is not deleted or promoted to root-cause
+proof.
+
+### Lane A — repository/worktree governance
+
+- **Purpose:** inventory, freeze, and classify repository branches, PRs, and local
+  worktrees.
+- **Authority:** PR #17 / `codex/project-agents-control-plane-v1`.
+- **Allowed mutation:** control-plane documentation needed to record verified state.
+- **Forbidden:** diagnostic/product source edits; branch deletion; worktree
+  removal/prune; PR close/merge; runtime/install/package changes.
+- **Disposition vocabulary:** ACTIVE / MERGED / SUPERSEDED / ABANDONED /
+  FORENSIC-RETAINED / UNKNOWN-BLOCKED.
+- **Rule:** this lane is the sole writer of `CURRENT_STATUS.md` and
+  `CURRENT_TASK.md` while A/B/C execute in parallel.
+
+### Lane B — boundary probes and incident capture completeness
+
+- **Purpose:** make the next incident causally discriminating at missing boundaries;
+  "next time it fails, the boundary can be seen".
+- **Current implementation authority:** PR #18 /
+  `codex/persistent-long-boundary-probes-v1`.
+- **Allowed:** diagnostic-only boundary probes, focused tests, capture correlation,
+  incident diagnostic documentation.
+- **Forbidden:** product behavior fixes; trigger/gate semantic changes; BLE/audio
+  behavior changes; CLI work; Settings/UI exposure; release/install.
+- **Isolation:** Lane B must not edit the control-plane files and must not define a
+  competing durable diagnostic authority/schema.
+
+### Lane C — single diagnostic Authority contract + schema skeleton
+
+- **Purpose:** define one durable diagnostic authority, event envelope/schema,
+  ownership/interface contracts, and focused contract tests.
+- **Starting point:** fresh isolated branch/worktree from verified `main`.
+- **Allowed:** new authority/schema/interface source files, tests, and architecture
+  documentation required to prove the contract compiles and is internally coherent.
+- **Forbidden:** full call-site wiring; HID/EventTap behavior changes; incident probe
+  expansion; CLI work; Settings/UI exposure; release/install.
+- **Isolation:** Lane C must not edit Lane B's active probe call sites or the
+  control-plane files.
+
+### Shared concurrency rule
+
+A/B/C may execute concurrently only while their write sets remain disjoint. If two
+lanes require the same production file or the same semantic owner, both stop at that
+boundary and return the conflict to Lane A for control-plane disposition. No lane may
+silently absorb another lane's scope.
+
+Product-behavior Construction Gate remains **BLOCKED**. Parallel foundation work does
+not authorize a fix, merge, release, install, or cleanup deletion.

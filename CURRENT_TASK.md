@@ -2,210 +2,219 @@
 
 ## Task identity
 
-- **Task:** INCIDENT MODE — PRE-GATE EVENTTAP CONTRACT TEST + OWNERSHIP ARCHITECTURE REVIEW
-- **Incident family:** PERSISTENT-LONG / EXTERNAL-IME PREMATURE SESSION STOP
-- **Phase:** Step 6 — deterministic pre-gate mapped-event test
+- **Task:** FOUNDATION GOVERNANCE — PARALLEL LANES A / B / C
 - **Status:** AUTHORIZED
 - **Task authority:** this file
+- **Parallel execution:** EXPLICITLY AUTHORIZED
 - **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
-- **Construction Gate:** BLOCKED
-- **Fresh capture:** NOT AUTHORIZED
+- **Product Construction Gate:** BLOCKED
+- **Merge / release / install:** NOT AUTHORIZED
 
-## Evidence baseline
+## Coordination model
 
-Frozen from Step 5:
+Three lanes may run concurrently because they own different mutation surfaces.
 
-```text
-CONTROL_HEAD_PARENT: b5dc23911de0f4c76e3f6a121b103310074d06cf
-PROBE_HEAD: 28824d9dc167f57e3163ef0844aec1b672717d8f
+| Lane | Objective | Write authority | Must not touch |
+| --- | --- | --- | --- |
+| A | repository/worktree governance inventory + freeze/classification | control-plane docs only | diagnostic/product source |
+| B | boundary probes + capture completeness | PR #18 diagnostic probe surface | control plane, CLI, Settings, Authority schema ownership |
+| C | single diagnostic Authority skeleton + unified schema/interface | new isolated Authority/schema files + focused tests/docs | control plane, PR #18 probe call sites, CLI, Settings, product behavior |
 
-TIMEBASE_NUMER: 125
-TIMEBASE_DENOM: 3
+**Lane A is the sole control-plane writer** while these lanes are active. Lanes B/C
+return verified branch/HEAD/test evidence to A; they do not independently edit
+`CURRENT_STATUS.md` or `CURRENT_TASK.md`.
 
-TARGET_LONG:
-52AE0F3E-3273-482D-9E92-8092EABCF165
+If a required change crosses lane ownership, STOP that lane at the boundary and
+return the conflict. Do not resolve the conflict by editing another lane's files.
 
-ORIGINAL_MAPPED_EVENT_PRE_GATE: YES
-CG_EVENT_MINUS_GATE_BEGIN_MS: -8.117083
-EVENT_TAP_CALLBACK_PRE_GATE: NO
-CALLBACK_MINUS_GATE_BEGIN_MS: 17.777417
-GATE_STATE: deferring
-ACTION: defer_down
+---
 
-B3_RESULT: OBSERVED_FOR_THIS_ATTEMPT
-B4_RESULT: PARTIAL
-FRESH_INCIDENT_DIRECT_SUPPORT: NO
-ROOT_CAUSE: UNKNOWN
-```
+## Lane A — repository/worktree governance freeze
 
-The bounded capture did not reproduce the failure. The observed timing window is a
-real boundary fact, not historical root-cause proof.
+### Objective
 
-## Single objective
+Produce an authoritative, current inventory of all RemoteOrbit PRs, remote branches,
+local branches, and registered/live worktrees, then freeze a lifecycle classification
+for each item.
 
-Determine, with a deterministic test, what the current product does when the mapped
-voice-trigger EventTap callback is delivered **before** the Option gate becomes
-active.
+### Required evidence
 
-Then decide whether the current ownership contract allows a mapped hardware-derived
-voice trigger to escape before RemoteOrbit has acquired gesture ownership.
+On the owning Mac, read-only inventory must include at minimum:
 
-## Required audit
+1. `git worktree list --porcelain`;
+2. local branches with upstream/ahead/behind/HEAD;
+3. remote branches after fetch/prune-safe observation (fetch is allowed; deletion is
+   not);
+4. open/closed/merged PR state from GitHub;
+5. clean/dirty/untracked state for every live worktree;
+6. unique commits or unpreserved forensic evidence that block deletion.
 
-Read the exact current code paths for:
+### Classification
 
-1. raw HID microphone down;
-2. `beginVoicePress`;
-3. Option gate begin;
-4. mapped-trigger EventTap callback;
-5. `optionDeferralActive`;
-6. discarded/suppressed ownership;
-7. fallback `VK.voiceKey` handling;
-8. synthetic event exclusion.
+Use only:
 
-Produce an explicit state/order diagram for:
+- ACTIVE
+- MERGED
+- SUPERSEDED
+- ABANDONED
+- FORENSIC-RETAINED
+- UNKNOWN-BLOCKED
 
-```text
-A. mapped callback after gate begin
-B. mapped callback before gate begin
-```
+For each retained item, record the exact reason. For each future cleanup candidate,
+record why it appears removable, but **do not remove it in this task**.
 
-## Deterministic test requirement
+### Allowed
 
-Add the minimum test seam necessary to invoke the mapped-trigger decision logic
-without posting a real system CGEvent.
+- read-only Git/GitHub inspection;
+- fetch needed to establish freshness;
+- update control-plane documentation on PR #17 after evidence is verified.
 
-The test must not depend on:
+### Forbidden
 
-- wall-clock sleeps;
-- actual hidutil;
-- Accessibility/TCC;
-- real EventTap timing;
-- BLE;
-- Doubao;
-- installed app state.
+- no `git worktree remove`;
+- no `git worktree prune`;
+- no branch deletion;
+- no PR close/merge;
+- no reset/clean/stash/rebase/history rewrite;
+- no diagnostic/product source edits;
+- no runtime/install/package changes.
 
-At minimum cover:
+### Completion gate
 
-### Test A — control
+Lane A is complete when every current PR/branch/worktree has one frozen classification
+with evidence and blockers, and no cleanup deletion has been performed.
 
-```text
-gate active
-+ mapped physical trigger down
-=> deferred/suppressed
-=> not forwarded
-```
+---
 
-### Test B — pre-gate candidate failure
+## Lane B — boundary probes and capture completeness
 
-```text
-gate inactive
-+ mapped physical trigger down
-+ voice-key mapping active
-=> record exact current decision
-```
+### Authority
 
-If current behavior forwards/passes the event, the test should encode that as a
-failing acceptance against the candidate contract, not silently change production
-behavior.
+- **PR:** #18
+- **Branch:** `codex/persistent-long-boundary-probes-v1`
+- **Existing purpose:** Persistent LONG HID → mapped CGEvent boundary diagnostics.
 
-### Candidate contract
+### Objective
 
-Evaluate this contract:
+Close only the missing evidence boundaries needed so that the next incident capture
+can distinguish where the failure occurred. Favor transition-only, correlation-rich
+probes over more internal log volume.
 
-```text
-A mapped trigger originating from the RemoteOrbit-owned physical voice button must
-not be externally forwarded before RemoteOrbit has resolved gesture ownership for
-that physical press.
-```
+The existing diagnostic architecture/boundary map remains the reference. Lane B may
+extend it only where a currently missing boundary fact requires a probe.
 
-Do not accept this contract automatically. Audit whether the codebase has enough
-identity to distinguish:
+### Required properties
 
-- remote-owned mapped event;
-- real keyboard Option;
-- synthetic RemoteOrbit event;
-- unrelated physical Option.
+Every new probe must be:
 
-If the identity is insufficient, record that as an ownership-model gap rather than
-guessing a fix.
+- diagnostic-only;
+- transition-only where practical;
+- causally joinable to adjacent evidence;
+- explicit about clock/source/runtime identity;
+- bounded enough not to create a new log-volume authority problem;
+- covered by the smallest focused test that proves emission/decision semantics.
 
-## Required output
+### Allowed
 
-```text
-CURRENT_PRE_GATE_DECISION:
-PASS / SUPPRESS / DEFER / OTHER
+- diagnostic probes at missing boundaries;
+- correlation fields needed by the probe;
+- focused diagnostic tests;
+- incident capture/architecture documentation.
 
-REMOTE_OWNED_EVENT_IDENTIFIABLE_PRE_GATE:
-YES / NO / PARTIAL
+### Forbidden
 
-CANDIDATE_OWNERSHIP_CONTRACT:
-ACCEPT / REJECT / NEEDS_REFINEMENT
+- no product behavior fix;
+- no trigger/gate ownership semantic change;
+- no threshold/timing behavior change;
+- no BLE/audio behavior change;
+- no CLI;
+- no Settings/UI exposure;
+- no full diagnostic Authority/schema redesign;
+- no merge/release/install.
 
-PRE_FIX_FAILING_ACCEPTANCE:
-ESTABLISHED / NOT_ESTABLISHED
+### Completion gate
 
-SPECIFIC_BROKEN_BOUNDARY:
-<boundary or NONE>
+Lane B is complete when the remaining P0/P1 incident boundaries are either observable
+or explicitly classified as externally unobservable with a documented reason, and the
+next incident capture can discriminate adjacent hypotheses without a behavior fix.
 
-BROKEN_CONTRACT:
-<contract or NONE>
+---
 
-MINIMAL_FIX_SCOPE:
-<scope or NOT_ESTABLISHED>
+## Lane C — single diagnostic Authority skeleton + unified schema
 
-CONSTRUCTION_GATE_RECOMMENDATION:
-READY_FOR_REMOTE_REVIEW / BLOCKED
+### Objective
 
-ROOT_CAUSE:
-UNKNOWN
-```
+Create the non-invasive skeleton for a single RemoteOrbit diagnostic Authority.
+Define the contract first; do not wire every existing logger/probe into it yet.
 
-## Allowed mutations
+### Required contract surface
 
-Only:
+At minimum define and test:
 
-- test-only seam/refactor needed to expose existing decision logic;
-- tests;
-- architecture/audit documentation;
-- control-plane updates after results.
+1. one versioned diagnostic event envelope;
+2. event/source/runtime identity;
+3. wall-clock + monotonic clock representation and documented clock semantics;
+4. run/session/incident/correlation identifiers;
+5. subsystem + boundary/event naming;
+6. severity/class/category vocabulary sufficient for machine consumption;
+7. payload/version compatibility rules;
+8. a single writer/emitter interface owned by the Authority;
+9. explicit ingestion/adaptation boundary for legacy producers;
+10. fail-safe behavior when a producer provides invalid/incomplete diagnostic data.
 
-A test seam must preserve production behavior byte-for-byte in semantics.
+The design must make it possible for a future read-only diagnostic CLI and Settings
+presentation layer to consume the same Authority **without implementing either now**.
 
-## Forbidden
+### Isolation
 
-- no production behavior fix;
-- no change to `optionDeferralActive` semantics;
-- no suppression/replay behavior change;
-- no Persistent behavior change;
-- no timing threshold change;
-- no BLE/audio change;
-- no real capture/reproduction;
-- no install;
-- no merge/release.
+Create a fresh isolated branch/worktree from verified `main`. Lane C should prefer
+new files under a dedicated diagnostics/authority surface plus focused contract tests
+and architecture documentation.
 
-## Stop conditions
+### Allowed
 
-Stop and return for review if:
+- schema/types/protocols/interfaces;
+- no-op or in-memory test implementation needed to validate the contract;
+- focused unit/contract tests;
+- architecture documentation.
 
-- the required test seam would necessarily change production behavior;
-- mapped event provenance cannot be determined from current state;
-- the candidate contract conflicts with preserving real keyboard Option behavior;
-- branch/head authority drifts.
+### Forbidden
 
-## Completion gate
+- no full existing-logger migration;
+- no call-site-wide rewiring;
+- no edits to Lane B's active probe call sites unless separately re-authorized;
+- no CLI;
+- no Settings/UI exposure;
+- no product behavior change;
+- no release/install.
 
-Step 6 is complete when:
+### Completion gate
 
-1. current pre-gate behavior is deterministically proven;
-2. remote-owned-event identifiability is classified;
-3. candidate contract is accepted/rejected/refined;
-4. pre-fix failing acceptance is either established or explicitly impossible;
-5. no behavior fix has been applied;
-6. Construction Gate remains blocked pending remote review.
+Lane C is complete when the Authority contract and schema compile, focused tests prove
+versioning/identity/clock/correlation/fail-safe behavior, and no existing product
+diagnostic producer has been forced through the new Authority yet.
 
-## Next authorized action
+---
 
-Perform the deterministic pre-gate EventTap contract test and ownership architecture
-review. No real-world capture or behavior fix is authorized.
+## Global stop conditions
+
+Stop the affected lane and return for control-plane disposition if:
+
+- branch/HEAD/worktree authority drifts;
+- two lanes need to modify the same production file or semantic owner;
+- a diagnostic-only change would alter user-visible/product behavior;
+- Lane B begins defining a second durable schema authority;
+- Lane C requires full call-site wiring to make its contract testable;
+- Lane A discovers unique evidence that makes a cleanup candidate unsafe.
+
+## Global completion condition
+
+This parallel phase is ready for independent audit when:
+
+- Lane A has a frozen authoritative governance inventory;
+- Lane B has a bounded probe/capture-completeness result with no behavior fix;
+- Lane C has a tested Authority/schema skeleton with no broad wiring;
+- all three lanes report exact branch/HEAD and validation evidence;
+- the control plane remains coherent;
+- Product Construction Gate remains BLOCKED pending separate authorization.
