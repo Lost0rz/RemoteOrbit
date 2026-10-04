@@ -218,3 +218,42 @@ This parallel phase is ready for independent audit when:
 - all three lanes report exact branch/HEAD and validation evidence;
 - the control plane remains coherent;
 - Product Construction Gate remains BLOCKED pending separate authorization.
+
+
+## Lane A execution checkpoint — remote census complete
+
+### Completed
+
+The fresh remote read-only census is complete and frozen in `CURRENT_STATUS.md`.
+
+Remote classification result:
+
+- PRs: ACTIVE 2 / MERGED 11 / SUPERSEDED 4 / ABANDONED 1.
+- Remote branches: 5 total.
+- Active branches: `main`, control-plane #17, boundary-probe #18.
+- Evidence-retained branches: `codex/persistent-duplicate-audio-forensics`,
+  `codex/voice-single-owner-session`.
+- No remote deletion/close/merge mutation was performed.
+
+### Current A-line gate
+
+**WAITING FOR FRESH OWNING-MAC CENSUS**
+
+The next authorized A-line action is read-only local inventory only. Revalidate the
+current worktree and local-branch state from the owning Mac. Do not reuse the
+historical 10-worktree snapshot as current truth.
+
+Required result must report, for every registered worktree:
+
+`PATH | EXISTS | HEAD | BRANCH/DETACHED | CLEAN/DIRTY | TRACKED MODS | UNTRACKED |
+UPSTREAM | AHEAD/BEHIND | UNIQUE LOCAL COMMITS | CLASSIFICATION CANDIDATE | RETAIN
+REASON/BLOCKER`
+
+Also report all local branches not attached to a worktree, with upstream,
+ahead/behind, merge-base/reachability or unique-commit evidence sufficient to decide
+whether the branch is preserved elsewhere.
+
+### Still forbidden
+
+No worktree remove/prune, branch delete, PR mutation, reset/clean/stash/rebase,
+diagnostic/product source edit, install, package, or runtime mutation.

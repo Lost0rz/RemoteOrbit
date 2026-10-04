@@ -1403,3 +1403,59 @@ silently absorb another lane's scope.
 
 Product-behavior Construction Gate remains **BLOCKED**. Parallel foundation work does
 not authorize a fix, merge, release, install, or cleanup deletion.
+
+
+## Lane A fresh remote governance census — 2026-10-04
+
+### Remote result
+
+**FACT — Remote census complete:** read-only GitHub audit found exactly 18 pull
+requests (#1–#18) and exactly five live remote branches.
+
+PR lifecycle freeze:
+
+- **ACTIVE:** #17 control plane; #18 boundary-probe line.
+- **MERGED:** #1, #2, #3, #7, #8, #10, #11, #12, #13, #14, #15.
+- **SUPERSEDED:** #4, #5, #6, #9.
+- **ABANDONED:** #16.
+
+No other open PR exists.
+
+Remote branch freeze:
+
+| Branch | HEAD | Classification | Current evidence |
+| --- | --- | --- | --- |
+| `main` | `7129ef72949eca956b1d0daddce707d5e417eeed` | ACTIVE | accepted default baseline |
+| `codex/project-agents-control-plane-v1` | `b18439cf994a19a75fbaf9d4f9e5bf8dd68ab9e2` at audit start | ACTIVE | A-line / PR #17 control-plane authority |
+| `codex/persistent-long-boundary-probes-v1` | `28824d9dc167f57e3163ef0844aec1b672717d8f` | ACTIVE | B-line / PR #18 diagnostic-only probe authority |
+| `codex/persistent-duplicate-audio-forensics` | `d0a1ab06d8fafa0e9a8a1ae3b79cbc0d299a07be` | FORENSIC-RETAINED | 2 commits ahead of main containing unique diagnostic/forensic source and tests |
+| `codex/voice-single-owner-session` | `cd96b2f937d2e4b0bdfb67111714a77ce77e78c6` | FORENSIC-RETAINED | diverged: 9 commits ahead / 50 behind main; unique historical unmerged implementation remains reachable only through this ref |
+
+Branch relationship facts:
+
+- control-plane branch: 47 ahead / 0 behind main; diff is documentation/control-plane only;
+- PR #18 branch: 4 ahead / 0 behind main; diff is bounded diagnostic probe/test scope;
+- persistent duplicate-audio forensic branch: 2 ahead / 0 behind main;
+- voice-single-owner-session: 9 ahead / 50 behind main.
+
+**FACT — No remote cleanup mutation authorized or performed.** No branch was deleted,
+no PR was closed/merged, and no diagnostic/product source was changed by Lane A.
+
+### Local freshness gate
+
+The previous owning-Mac closeout recorded 10 live retained worktrees and zero missing
+registrations after an earlier cleanup. That record is now **HISTORICAL**, not a fresh
+Lane A fact.
+
+Lane A cannot finish until the owning Mac revalidates:
+
+- registered worktree paths and exact HEADs;
+- live vs missing state;
+- branch/detached identity;
+- clean/dirty/untracked state;
+- upstream and ahead/behind state where applicable;
+- local-only commits and untracked evidence that make a line non-disposable.
+
+Until that fresh local census is returned, every historical retained local worktree
+is **UNKNOWN-BLOCKED for cleanup**. No worktree removal, prune, branch deletion,
+reset, clean, stash, or history rewrite is authorized.
