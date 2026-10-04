@@ -2,7 +2,7 @@
 
 ## Current task — ACTIVE INCIDENT READ-ONLY CAPTURE
 
-- **Status:** ACTIVE / READ-ONLY
+- **Status:** ACTIVE / READ-ONLY / WAITING_FOR_INCIDENT_BINDING
 - **Incident ID:** `RO-INCIDENT-20261004-01`
 - **Control-plane parent:** `abe0365c0173095a83010d8b0e026755e74efc47`
 - **Task authority:** `CURRENT_TASK.md` on `main`
@@ -38,6 +38,22 @@ The owning-Mac agent must:
 No app restart/relaunch, reinstall, rebuild-for-replacement, process kill, TCC change,
 LaunchAgent change, driver replacement, CoreAudio restart, settings mutation,
 log clear/truncate/rotate, source edit, branch/worktree cleanup, or speculative fix.
+
+### Current independent-audit disposition
+
+Evidence preservation is accepted, but RO-INCIDENT-20261004-01 is not yet bound to
+a user-visible symptom or time window. The separate PR18 probe was NOT_REPRODUCED
+and must not be treated as the incident.
+
+Next allowed action is read-only incident binding only:
+- record the exact user-visible symptom in the user's words;
+- record the best available approximate occurrence time/window;
+- map that window onto the already preserved evidence copies;
+- re-run B1–B9 classification only for that bound window.
+
+Do not add probes or modify runtime merely because the captured 0.2.13/Build 42
+binary lacks later DiagnosticAuthority/CLI/B8 capabilities. That is version state,
+not proof of a current defect.
 
 ### Exit gate
 

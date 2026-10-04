@@ -3157,3 +3157,20 @@ expansion.
 - **RESTART / REINSTALL / TCC / DRIVER / COREAUDIO / SETTINGS MUTATION:** FORBIDDEN
 - **SOURCE CHANGES:** FORBIDDEN
 - **GOAL:** freeze the current incident window, bind runtime identity, preserve available logs/journals/Flight Recorder evidence, then classify the first broken or unobservable boundary before any construction decision.
+
+
+## Incident RO-INCIDENT-20261004-01 — independent Web audit checkpoint
+
+- **INDEPENDENT_WEB_INCIDENT_AUDIT:** PASS for evidence-preservation discipline; no construction authority granted.
+- **FACT — Installed/running source marker:** `28824d9dc167f57e3163ef0844aec1b672717d8f`; verified as an ancestor of current `main` and seven commits behind PR #18 final source head.
+- **FACT — Runtime generation:** that source marker predates `DiagnosticAuthority`, `DiagnosticCLI`, `JSONLinesDiagnosticJournal`, and `FrontmostApplicationDiagnosticsObserver`. Therefore missing Authority journal/CLI/B8 observer in the captured runtime is expected version state, not incident evidence.
+- **ACCEPTED LOCAL EVIDENCE — Runtime identity:** one app PID 25802, app version 0.2.13 build 42, exact executable hash captured; process executable matched bundle file.
+- **ACCEPTED LOCAL EVIDENCE — Preservation:** 26/26 copied evidence files hash-verified; no restart/source/install/runtime mutation was performed.
+- **ACCEPTED LOCAL EVIDENCE — Closest historical/probe attempt:** `PR18-PROBE-20261004T102216+0800` was NOT_REPRODUCED and is separate from this incident ID.
+- **UNKNOWN — Current incident symptom:** no user-visible symptom text has yet been bound to this incident.
+- **UNKNOWN — Current incident time window:** no incident-specific time window has yet been bound.
+- **BOUNDARY RESULT:** no confirmed broken B1–B9 boundary for this incident; historical/separate-probe observations cannot substitute for fresh incident evidence.
+- **PROBE GAPS:** B3 source-clock placement on the captured runtime, independent B8 observation, fresh B9 semantic/text observation, incident-time Flight Recorder coverage, and external trigger/session acknowledgement.
+- **ROOT_CAUSE:** UNKNOWN.
+- **PRODUCT_CONSTRUCTION_GATE:** BLOCKED.
+- **PROCESS NOTE:** local capture used an older clean PR #18 checkout that lacks the repository control files; because the agent fetched current `origin/main`, performed read-only capture only, and made no mutations, this is a workflow deviation but does not invalidate the preserved evidence. Future local work must read the control plane from current `origin/main` or an up-to-date control checkout before selecting a historical evidence checkout.
