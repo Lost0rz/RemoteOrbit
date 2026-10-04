@@ -445,6 +445,7 @@ fileprivate enum DiagnosticContractValidation {
 private enum DiagnosticPayloadValueKind {
     case unsignedInteger
     case number
+    case string
 }
 
 private struct DiagnosticEventDefinition {
@@ -465,6 +466,8 @@ private struct DiagnosticEventDefinition {
             case (.unsignedInteger, .integer(let number)):
                 return number >= 0
             case (.number, .integer), (.number, .unsignedInteger), (.number, .double):
+                return true
+            case (.string, .string):
                 return true
             default:
                 return false
@@ -494,6 +497,18 @@ enum DiagnosticEventCatalog {
             payloadFields: [
                 "sample_count": .unsignedInteger,
                 "recorded_duration_ms": .number,
+            ]
+        ),
+        "application.frontmost.transition": DiagnosticEventDefinition(
+            subsystem: "application.frontmost",
+            category: "transition",
+            severity: .info,
+            sourceComponent: "frontmost_application_observer",
+            payloadFields: [
+                "previous_bundle_identifier": .string,
+                "previous_process_id": .unsignedInteger,
+                "current_bundle_identifier": .string,
+                "current_process_id": .unsignedInteger,
             ]
         ),
     ]

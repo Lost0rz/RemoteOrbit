@@ -2922,6 +2922,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let filter: VoiceKeyFilter
     let voicePress: VoicePressCoordinator
     private let diagnosticLogger: VoiceDiagnosticLogger
+    private var frontmostApplicationDiagnosticsObserver: FrontmostApplicationDiagnosticsObserver?
     private let ble = BLEBridge()
     private let mappingStore = MappingStore()
     private let hidMonitor = HIDMonitor()
@@ -3690,6 +3691,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "[AUDIO-PATH] DIAGNOSTIC_BUILD "
                     + "head=\(sourceHead) instrumentation=\(instrumentation)"
             )
+            let observer = FrontmostApplicationDiagnosticsObserver()
+            observer.start()
+            frontmostApplicationDiagnosticsObserver = observer
         }
         let appVersion = Bundle.main.object(
             forInfoDictionaryKey: "CFBundleShortVersionString"
@@ -4578,6 +4582,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        frontmostApplicationDiagnosticsObserver?.stop()
+        frontmostApplicationDiagnosticsObserver = nil
         stopRecordingStatusPulse()
         voiceFocusSafetyWorkItem?.cancel()
         voiceFocusSafetyWorkItem = nil
