@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — A3 CLOSED / B CLOSED / C CLOSED / CONTROL PLANE ON MAIN
+State: DIAGNOSTIC CLI V1 — READ-ONLY CONSTRUCTION ACTIVE
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -3093,3 +3093,17 @@ A3_STATE: CLOSED
 ```
 
 A3 is closed. No additional cleanup authority remains under this task.
+
+
+## Read-only Diagnostic CLI v1 — authorized transition (2026-10-04)
+
+- **FACT — Authorization:** the user explicitly requested completing the Diagnostic CLI capability.
+- **FACT — Baseline:** `main` = `76bc3cfa7fb7a5d34b1d8335ee9ad4a59f145c57` at transition start; no open PR existed.
+- **Authority model:** `DiagnosticAuthority` remains the sole owner of the v1 machine-readable event envelope, schema, journal/query/snapshot contract. The CLI is a read-only consumer/adapter, not a second diagnostic backend.
+- **Legacy sources:** `RemoteOrbit.log` and `VoiceDiagnosticLogger` remain compatibility evidence sources; they are not promoted to parallel authorities.
+- **Active branch:** `codex/read-only-diagnostic-cli-v1`.
+- **Product behavior:** frozen; no voice/HID/BLE/audio/focus/recovery semantics may change.
+- **Runtime/install/release:** not authorized.
+- **Construction scope:** add a read-only command surface over the existing Authority query/snapshot contract, centralize the canonical journal location if needed, add focused tests and usage/architecture documentation.
+- **Forbidden commands:** restart, reset, repair, install, kill, clear, mutate settings, rotate/truncate/delete logs, or any other control action.
+- **Validation gate:** parser/filter tests, fail-closed error tests, proof that CLI invocation exits before AppKit/product startup, full Swift test, release build, diff check, then independent Web audit before merge.
