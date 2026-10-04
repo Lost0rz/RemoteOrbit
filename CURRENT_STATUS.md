@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: ACTIVE INCIDENT — READ-ONLY CAPTURE / CONSTRUCTION BLOCKED
+State: ACTIVE INCIDENT — BOUND SYMPTOM / CONTROLLED DIAGNOSTIC RUNTIME UPGRADE AUTHORIZED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -3174,3 +3174,17 @@ expansion.
 - **ROOT_CAUSE:** UNKNOWN.
 - **PRODUCT_CONSTRUCTION_GATE:** BLOCKED.
 - **PROCESS NOTE:** local capture used an older clean PR #18 checkout that lacks the repository control files; because the agent fetched current `origin/main`, performed read-only capture only, and made no mutations, this is a workflow deviation but does not invalidate the preserved evidence. Future local work must read the control plane from current `origin/main` or an up-to-date control checkout before selecting a historical evidence checkout.
+
+
+## Incident RO-INCIDENT-20261004-01 — symptom binding and diagnostic-runtime upgrade authorization
+
+- **FACT — User-visible symptom:** after a short click opens the persistent IME session, the following long press overlaps the short/toggle semantics and causes the persistent session to exit.
+- **FACT — Expected contract:** while `persistentOpen`, a long press is an `audioOnly` segment; completing that long press must leave the persistent session open. This contract exists both at the captured runtime source marker `28824d9dc167f57e3163ef0844aec1b672717d8f` and current `main`.
+- **FACT — Latest reproduction:** occurred immediately before the user's report at approximately 22:58 +08:00 on 2026-10-04; exact seconds must be derived from the latest matching local gesture/log sequence rather than guessed.
+- **BROKEN_CONTRACT_OBSERVED_BY_USER:** persistent long hold must not close the already-open persistent session.
+- **ROOT_CAUSE:** UNKNOWN; user-visible contract failure alone does not establish which B1–B9 boundary failed.
+- **CURRENT_RUNTIME_DIAGNOSTIC_LIMITATION:** installed 0.2.13/Build 42 source marker `28824d9...` predates the merged DiagnosticAuthority/CLI/B8 observer.
+- **USER AUTHORIZATION:** after sealing the latest reproduction evidence, replace the installed RemoteOrbit app runtime with an exact current-main build so the new diagnostic mechanism can observe the next reproduction.
+- **AUTHORIZED RUNTIME MUTATION:** package exact current `main`, preserve old app identity/bundle evidence, gracefully terminate the old app, replace only `/Applications/RemoteOrbit.app`, relaunch it, and verify exact source marker/CLI/Authority readiness.
+- **NOT AUTHORIZED:** source edits, speculative bug fix, driver replacement, CoreAudio restart, TCC reset/change, LaunchAgent mutation, settings reset, log deletion/truncation, or release publication.
+- **CONSTRUCTION_GATE:** BLOCKED; runtime upgrade is diagnostic enablement only, not product-fix construction.

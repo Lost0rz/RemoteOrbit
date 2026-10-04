@@ -1,17 +1,74 @@
 # RemoteOrbit Current Task
 
-## Current task — ACTIVE INCIDENT READ-ONLY CAPTURE
+## Current task — ACTIVE INCIDENT / CONTROLLED DIAGNOSTIC RUNTIME UPGRADE
 
-- **Status:** ACTIVE / READ-ONLY / WAITING_FOR_INCIDENT_BINDING
+- **Status:** ACTIVE / INCIDENT BOUND / PHASE 1 EVIDENCE SEAL → PHASE 2 EXACT-MAIN RUNTIME UPGRADE
 - **Incident ID:** `RO-INCIDENT-20261004-01`
 - **Control-plane parent:** `abe0365c0173095a83010d8b0e026755e74efc47`
 - **Task authority:** `CURRENT_TASK.md` on `main`
-- **Exact symptom:** UNKNOWN pending owning-Mac evidence
+- **Exact symptom:** short click opens persistent session; following long press unexpectedly exits that session
 - **Product Construction Gate:** BLOCKED
 - **Source mutation:** FORBIDDEN
-- **Release / install:** NOT AUTHORIZED
-- **Runtime mutation:** FORBIDDEN except copying/reading evidence
-- **Restart/relaunch:** FORBIDDEN until evidence preservation completes
+- **Release publication:** NOT AUTHORIZED
+- **Controlled app replacement:** AUTHORIZED only after Phase 1 evidence seal
+- **Runtime mutation:** Phase 1 FORBIDDEN; Phase 2 limited app replacement/relaunch AUTHORIZED
+- **Restart/relaunch:** FORBIDDEN during Phase 1; graceful old-app termination and new-app relaunch AUTHORIZED in Phase 2
+
+### Bound incident contract
+
+Expected:
+- short click from idle may toggle the persistent IME session open;
+- while that session is open, a >=300 ms long press is an audio-only remote segment;
+- the long press must suppress/refrain from replaying the persistent toggle trigger;
+- after long-segment completion, persistent session state remains open.
+
+Observed by user:
+- short click opens the session;
+- subsequent long press overlaps toggle/hold behavior and the session exits.
+
+This is a confirmed user-visible contract violation, but the internal broken boundary
+and root cause remain UNKNOWN until evidence is correlated.
+
+### Phase 1 — seal the latest reproduction before replacement
+
+Use current running PID/runtime only. Do not restart it yet.
+
+- identify the most recent matching short-open → long-hold → session-exit sequence,
+  expected within the minutes immediately preceding the ~22:58 +08:00 report;
+- derive exact timestamps/gesture IDs from the local records; do not guess;
+- copy/hash current voice diagnostic log, RemoteOrbit.log, and any contemporaneous
+  Flight Recorder/observer evidence;
+- record the B1–B9 classification for this exact latest sequence;
+- preserve the existing installed app bundle or an exact immutable copy plus SHA256,
+  Info.plist identity, source marker, and code-sign identity.
+
+Phase 1 must finish before terminating PID 25802.
+
+### Phase 2 — controlled diagnostic runtime upgrade
+
+After Phase 1 evidence is sealed, synchronize an up-to-date clean checkout to the
+exact live `origin/main` that contains this task. No source edits.
+
+Allowed sequence:
+1. build/test the exact main checkout;
+2. run `remote-orbit/package-app.sh`;
+3. verify the staged app's `RemoteOrbitDiagnosticSourceHead` equals the exact build HEAD;
+4. gracefully terminate the old RemoteOrbit app and confirm PID 25802 exits;
+5. replace only `/Applications/RemoteOrbit.app` using the repository install path;
+6. do NOT replace/restart the HAL driver, CoreAudio, TCC, or LaunchAgent;
+7. launch the newly installed app normally;
+8. verify new PID, executable SHA256, app/build version, source marker and code identity;
+9. run the installed executable's read-only:
+   - `diagnostics help`
+   - `diagnostics status`
+   - `diagnostics verify`
+   - `diagnostics query --limit 1`
+10. confirm `diagnostic-events-v1.jsonl` is readable/created when the new runtime emits
+    supported events; absence immediately after launch is not by itself a failure if no
+    supported producer has emitted yet.
+
+Do not reproduce the gesture until runtime identity and diagnostic readiness have been
+reported. The next reproduction is a separate capture step under this same incident.
 
 ### Immediate objective
 
