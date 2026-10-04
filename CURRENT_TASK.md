@@ -826,3 +826,32 @@ NEXT_ACTION: WAIT_FOR_NEW_AUTHORIZED_TASK
 
 Stop here. This task does not authorize another capture, Construction Gate
 advancement, product behavior changes, merge, or release.
+
+
+## Mach timebase follow-up — completed
+
+A read-only Mach timebase check established `125/3` conversion for the captured
+CGEvent raw timestamps. The target mapped event occurred approximately 8.117 ms
+before Option gate begin, while its EventTap callback arrived 17.777 ms after gate
+begin and was handled as `deferring / defer_down`.
+
+B3 is therefore `OBSERVED_FOR_THIS_ATTEMPT`.
+
+However the target failure did not reproduce, and B4 remains PARTIAL because there
+is no external acceptance acknowledgement. The observed pre-gate generation window
+must not be promoted to historical incident root cause without direct failing
+incident support.
+
+```text
+CURRENT_TASK_STATUS: COMPLETE
+SECOND_CAPTURE_AUTHORIZED: NO
+NEW_CAPTURE_GATE: CONSUMED
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+NEXT_ACTION: WAIT_FOR_NEW_AUTHORIZED_TASK
+```
+
+Candidate next investigation, if explicitly authorized later: define a deterministic
+pre-gate EventTap acceptance test and review the ownership contract at the
+HID→mapped-event→gate boundary without changing production behavior.
+

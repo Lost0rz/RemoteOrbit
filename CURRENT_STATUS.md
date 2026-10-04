@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: INCIDENT MODE — PR #18 ONE BOUNDED PROBE CAPTURE SEALED; NOT REPRODUCED; WAITING FOR CAUSAL REVIEW
+State: INCIDENT MODE — B3 PRE-GATE GENERATION WINDOW OBSERVED; CONSTRUCTION BLOCKED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -1206,3 +1206,89 @@ pre-gate callback decision, but raw CG occurrence ordering and external forwardi
 before the gate are not established. No B4/B5/B8/B9 upgrade follows from this
 reconciliation. No second capture, construction, product change, merge, or release
 is authorized.
+
+
+## Mach timebase reconciliation — B3 upgraded for this attempt
+
+A read-only follow-up established the local Mach timebase as:
+
+```text
+TIMEBASE_NUMER: 125
+TIMEBASE_DENOM: 3
+```
+
+Direct runtime cross-check showed Mach-converted time, Dispatch uptime and
+`ProcessInfo.systemUptime` agreeing within microseconds. Reinterpreting the captured
+`CGEvent.timestamp` field as raw Mach absolute-time ticks and applying the
+`125/3` conversion reconciles all 34 non-synthetic mapped-event samples onto the
+same uptime scale.
+
+Same-run mapped-event callback latency:
+
+```text
+SAMPLE_COUNT: 34
+DELTA_MIN_MS: 0.699375
+DELTA_MAX_MS: 57.200625
+DELTA_MEDIAN_MS: 1.823271
+DELTA_SPREAD_MS: 56.501250
+32_OF_34_SAMPLES_UNDER_10_MS: YES
+```
+
+Target LONG `52AE0F3E-3273-482D-9E92-8092EABCF165`:
+
+```text
+CG_EVENT_RAW: 2251759486203
+CG_EVENT_CONVERTED_UPTIME: 93823.311925125
+RAW_HID_EDGE_UPTIME: 93823.31207008334
+VOICE_PRESS_ENTRY_UPTIME: 93823.31876504167
+OPTION_GATE_BEGIN_UPTIME: 93823.32004220833
+MAPPED_CALLBACK_UPTIME: 93823.33781962501
+
+CG_EVENT_MINUS_RAW_HID_MS: -0.144958
+CG_EVENT_MINUS_VOICE_PRESS_MS: -6.839917
+CG_EVENT_MINUS_GATE_BEGIN_MS: -8.117083
+CALLBACK_MINUS_CG_EVENT_MS: 25.894500
+CALLBACK_MINUS_GATE_BEGIN_MS: 17.777417
+```
+
+Result:
+
+```text
+CLOCK_SCALE_COMPATIBILITY: ESTABLISHED_FOR_THIS_RUN
+ORIGINAL_MAPPED_EVENT_PRE_GATE: YES
+EVENT_TAP_CALLBACK_PRE_GATE: NO
+GATE_STATE: deferring
+ACTION: defer_down
+FORWARDED_BEFORE_GATE: NO for this captured gate path
+B3_RESULT: OBSERVED_FOR_THIS_ATTEMPT
+B4_RESULT: PARTIAL
+```
+
+This materially strengthens the race-boundary finding:
+
+- the system-mapped CGEvent can be generated before RemoteOrbit establishes the
+  Option gate;
+- on this normal attempt, EventTap delivery happened late enough that the gate
+  already existed and the event was deferred/suppressed;
+- same-run delivery latency is variable and frequently below the approximately
+  8.117 ms pre-gate generation window observed for the target gesture.
+
+Therefore the design has an empirically observed timing window in which correct
+containment depends on EventTap delivery latency. This establishes a real B3/B4 race
+condition boundary, not the root cause of the historical incident.
+
+The capture did not reproduce the target failure and there is still no external IME
+acceptance acknowledgement. Therefore:
+
+```text
+SPECIFIC_BROKEN_BOUNDARY: NOT YET ESTABLISHED AS INCIDENT CAUSE
+BROKEN_CONTRACT: NOT YET PROVEN AGAINST FAILING INCIDENT
+FRESH_INCIDENT_DIRECT_SUPPORT: NO
+PRE_FIX_FAILING_ACCEPTANCE: NONE ESTABLISHED
+MINIMAL_FIX_SCOPE: NOT ESTABLISHED
+SECOND_CAPTURE_AUTHORIZED: NO
+NEW_CAPTURE_GATE: CONSUMED
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
