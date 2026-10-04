@@ -5,7 +5,7 @@
 - **Task:** INCIDENT MODE — MINIMUM BOUNDARY PROBE DELTA
 - **Incident family:** PERSISTENT-LONG / EXTERNAL-IME PREMATURE SESSION STOP
 - **Phase:** Step 5 — minimal boundary probe implementation and validation
-- **Status:** ACTIVE
+- **Status:** WAITING_FOR_INDEPENDENT_AUDIT
 - **Task authority:** this file
 - **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
@@ -476,8 +476,8 @@ REMOTE_DIFF_SCOPE_AUDIT: PASS
 REMOTE_BEHAVIOR_CHANGE_FOUND: NO
 
 PROBE_IMPLEMENTATION_GATE: PASS
-DIAGNOSTIC_TEST_GATE: READY_FOR_LOCAL_REVALIDATION
-NEW_CAPTURE_GATE: BLOCKED
+DIAGNOSTIC_TEST_GATE: PASS
+NEW_CAPTURE_GATE: READY_FOR_REVIEW
 CONSTRUCTION_GATE: BLOCKED
 ROOT_CAUSE: UNKNOWN
 ```
@@ -486,59 +486,52 @@ Remote validation is limited to source/diff/test-definition audit because this
 repository has no GitHub Actions workflow and remote GitHub cannot execute the
 macOS Swift test suite.
 
-## Local validation network blocker
+## PR #18 corrective revalidation — completed
 
-The first local validation attempt correctly stopped before testing.
+The previous `github.com` DNS failure was transient. The authorized fetch succeeded
+on its first retry-free attempt; no DNS, proxy, SSH, credential, or system network
+configuration changed. Exact remote authority at validation start:
 
-Remote authority has been independently re-verified with no drift:
+```text
+AUTHORITY_FETCH: PASS
+AUTHORITY_GATE: PASS
+MAIN_HEAD: 7129ef72949eca956b1d0daddce707d5e417eeed
+CONTROL_HEAD_AT_VALIDATION: 6a803a6fec59bae4de18045038ee23dc396f51dc
+PROBE_HEAD: f3e852bb0d9d6358a62141dcb4f4e483257772d0
+```
 
-- control: `7b2d7c4411337e892491f077c30057670ac2cede`
-- probe: `f3e852bb0d9d6358a62141dcb4f4e483257772d0`
-- main: `7129ef72949eca956b1d0daddce707d5e417eeed`
-- PR #18: OPEN + Draft
+The validation worktree was clean before checkout and after all commands:
 
-The local blocker is DNS/network access to GitHub. It is not a diagnostic-code
-failure.
+```text
+VALIDATION_WORKTREE: /Users/jack7788/Documents/Code/remoteorbit-pr18-validation
+WORKTREE_HEAD: f3e852bb0d9d6358a62141dcb4f4e483257772d0
+WORKTREE_CLEAN: YES
+```
 
-### Resume gate
+```text
+HID_MONITOR_DIAGNOSTIC_TESTS: PASS (3)
+VOICE_BOUNDARY_DIAGNOSTIC_TESTS: PASS (1)
+VOICE_INPUT_SOURCE_TESTS: PASS (1)
+VOICE_KEY_FILTER_REGRESSION: PASS (10)
+VOICE_PRESS_REGRESSION: PASS (28)
+PERSISTENT_REGRESSION: PASS (15)
+FULL_SWIFT_TEST: PASS
+TEST_TOTALS: 266 passed
+FAILING_COUNT: 0
+FULL_SWIFT_TEST_EXIT_CODE: 0
+HID_EDGE_TIMING_ANCHOR: BASELINE_EQUIVALENT
+BEHAVIOR_DIFF_AUDIT: PASS
+BEHAVIOR_CHANGE_FOUND: NO
+```
 
-Before any build/test, local validation must prove all of:
+The corrective keeps raw-report observation time separate from the behavioral HID
+edge/debounce sample, which is taken at the baseline location. The audit found no
+behavioral diff in HardwareOptionGate ownership, Option suppression/replay,
+Persistent open/close, the 300 ms classifier, BLE start/stop, AudioPipe
+routing/buffering, tail/drain, or synthetic-trigger ownership. The full Swift suite
+builds and passes. No install or fresh capture was performed.
 
-1. `github.com` resolves;
-2. the repository remote is reachable;
-3. fetch obtains the exact control/probe commit objects;
-4. live remote branch refs equal the expected SHAs above;
-5. the control files are read from the fetched control HEAD;
-6. the validation worktree is created from the exact probe HEAD and is clean.
-
-If any item fails, stop before build/test.
-
-Network recovery itself must not mutate RemoteOrbit product/runtime state.
-
-## PR #18 corrective revalidation
-
-The first local validation passed all tests but correctly failed behavior-diff audit
-because the diagnostic probe moved the HID edge/debounce timing anchor.
-
-Corrective probe HEAD:
-
-`f3e852bb0d9d6358a62141dcb4f4e483257772d0`
-
-The corrective restores the baseline behavioral timestamp location and keeps raw
-diagnostic timing separate.
-
-### Revalidation required
-
-Local revalidation must use the exact corrective HEAD and confirm:
-
-1. focused diagnostic tests PASS;
-2. focused VoiceKeyFilter/VoicePress/Persistent regressions PASS;
-3. full Swift suite PASS;
-4. behavior diff audit PASS;
-5. HID edge/debounce timing anchor matches baseline;
-6. worktree remains clean.
-
-If all pass:
+Resulting gates:
 
 ```text
 DIAGNOSTIC_TEST_GATE: PASS
@@ -546,8 +539,6 @@ NEW_CAPTURE_GATE: READY_FOR_REVIEW
 CONSTRUCTION_GATE: BLOCKED
 ROOT_CAUSE: UNKNOWN
 ```
-
-No install, new capture, merge, release, or behavior fix is authorized yet.
 
 ## Completion gate
 
@@ -582,27 +573,6 @@ internal logging.
 
 ## Next authorized action
 
-Restore local GitHub reachability without changing RemoteOrbit runtime/product
-state. Then re-run the authority-fetch gate and, only if it passes, perform local
-macOS validation of PR #18 HEAD
-`f3e852bb0d9d6358a62141dcb4f4e483257772d0`.
-
-Authorized locally:
-
-- fetch/checkout or create a clean worktree for PR #18;
-- build the Swift package;
-- run the three new diagnostic test files;
-- run focused existing VoiceKeyFilter / VoicePressCoordinator /
-  VoicePersistentSession tests;
-- run the full Swift test suite;
-- perform a read-only diff/behavior audit.
-
-Not yet authorized:
-
-- install/replace `/Applications/RemoteOrbit.app`;
-- new incident capture;
-- behavior fix;
-- merge/release.
-
-If local validation passes, update CURRENT_STATUS.md + CURRENT_TASK.md together and
-push the control-plane branch for review.
+Submit this gate result for independent review. Do not install or run a fresh
+capture until the update is reviewed. Construction remains blocked; no behavior
+fix, merge, or release is authorized.

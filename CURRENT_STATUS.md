@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
-Last updated: 2026-10-03
-State: INCIDENT MODE — FRESH INCIDENT CAPTURE
+Last updated: 2026-10-04
+State: INCIDENT MODE — PR #18 CORRECTIVE REVALIDATION PASSED; AWAITING REVIEW
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -23,13 +23,16 @@ before continuing.
 - **FACT — Main HEAD message:** merge PR #15, media-key suppression isolation.
 - **FACT — Latest published release:** RemoteOrbit `v0.2.13` / Build 42.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
-- **FACT — Current open PRs:** exactly one, PR #17.
+- **FACT — Current open PRs:** PR #17 and PR #18.
 - **FACT — PR #17:** OPEN + Draft + unmerged; its branch is the control-plane authority.
+- **FACT — PR #18:** OPEN + Draft; `codex/persistent-long-boundary-probes-v1` at `f3e852bb0d9d6358a62141dcb4f4e483257772d0`.
 - **FACT — Final closeout snapshot base:** live control-plane HEAD `8a09a80411fd3f19c37332a4d2e7799773cf5182`; the final status/task snapshot correction is a direct child of this audited HEAD and is pushed to the active control-plane branch.
 - **FACT — Out-of-band PR metadata drift:** #9 and #16 were closed during earlier closeout and reopened at 2026-10-03T12:40:25Z / 12:40:27Z; #17 was closed at 12:40:31Z.
 - **RULE — PR state is not task authority:** these metadata changes do not advance or replace CURRENT_TASK.
 
 ## PR lifecycle closeout
+
+This closeout inventory predates the active Step 5 PR #18 line recorded above.
 
 | PR | Title | Lifecycle | Remote state | Reason / successor |
 | --- | --- | --- | --- | --- |
@@ -62,6 +65,8 @@ before continuing.
 - **RULE:** lifecycle classification and task authority are not inferred from PR open/closed state.
 
 ## Remote branch cleanup
+
+This closeout inventory predates the active Step 5 probe branch recorded above.
 
 Pre-deletion inventory: 18 branches. Final live inventory after closeout is listed below.
 
@@ -737,9 +742,8 @@ Before a new capture is authorized, the probe branch must prove:
 ### Gate semantics
 
 - **PROBE IMPLEMENTATION GATE:** AUTHORIZED.
-- **DIAGNOSTIC TEST GATE:** BLOCKED until probe branch passes static/focused test
-  review.
-- **NEW CAPTURE GATE:** BLOCKED until Diagnostic Test Gate passes.
+- **DIAGNOSTIC TEST GATE:** PASS after exact corrective-HEAD local validation.
+- **NEW CAPTURE GATE:** READY_FOR_REVIEW; no capture performed.
 - **CONSTRUCTION GATE:** BLOCKED until a new probe-enabled incident proves one
   broken contract and a pre-fix failing acceptance.
 
@@ -750,7 +754,7 @@ Before a new capture is authorized, the probe branch must prove:
 ```text
 branch: codex/persistent-long-boundary-probes-v1
 base: main@7129ef72949eca956b1d0daddce707d5e417eeed
-head: 8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d
+head: f3e852bb0d9d6358a62141dcb4f4e483257772d0
 PR: #18 OPEN + Draft
 ```
 
@@ -808,54 +812,68 @@ B5/B9 therefore remain PARTIAL/MISSING and must stay explicitly labeled that way
 ### Gate state
 
 - **PROBE IMPLEMENTATION GATE:** PASS for remote implementation scope.
-- **DIAGNOSTIC TEST GATE:** READY_FOR_LOCAL_VALIDATION.
-- **NEW CAPTURE GATE:** BLOCKED until local macOS validation passes.
+- **DIAGNOSTIC TEST GATE:** PASS after exact corrective-HEAD local validation.
+- **NEW CAPTURE GATE:** READY_FOR_REVIEW; no capture performed.
 - **CONSTRUCTION GATE:** BLOCKED.
 - **ROOT CAUSE:** UNKNOWN.
 
 The repository has no GitHub Actions workflow for this Swift/macOS package, so remote
 GitHub cannot establish a truthful test PASS. Local macOS validation is required.
 
-## Local validation transport blocker
+## PR #18 corrective revalidation — current result
 
-A local validation attempt stopped correctly before checkout/build/test because the
-local machine could not resolve/access `github.com`.
+The earlier `github.com` DNS failure was transient and resolved. This run's first
+fetch succeeded. No DNS, proxy, SSH, credential, or system network configuration
+was changed.
 
-Remote authority was re-verified after that stop:
+Authority was fetched and matched exactly:
 
 ```text
-CONTROL_HEAD: 7b2d7c4411337e892491f077c30057670ac2cede
-PROBE_HEAD: 8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d
+AUTHORITY_FETCH: PASS
+AUTHORITY_GATE: PASS
 MAIN_HEAD: 7129ef72949eca956b1d0daddce707d5e417eeed
-PR #18: OPEN + Draft
-PR #17: OPEN + Draft
-REMOTE_HEAD_DRIFT: NO
+CONTROL_HEAD_AT_VALIDATION: 6a803a6fec59bae4de18045038ee23dc396f51dc
+PROBE_HEAD: f3e852bb0d9d6358a62141dcb4f4e483257772d0
 ```
 
-Local observed blocker:
+The designated validation worktree was clean before checkout and remained clean at
+the exact corrective HEAD:
 
 ```text
-github.com DNS resolution failed
-requested control/probe objects unavailable locally
-no validation worktree created
-no tests run
-no product/runtime mutation
+VALIDATION_WORKTREE: /Users/jack7788/Documents/Code/remoteorbit-pr18-validation
+WORKTREE_HEAD: f3e852bb0d9d6358a62141dcb4f4e483257772d0
+WORKTREE_CLEAN: YES
 ```
 
-This is a transport/authority-fetch blocker, not a probe-code test failure.
-
-Gate state is unchanged:
+Focused validation:
 
 ```text
-DIAGNOSTIC_TEST_GATE: READY_FOR_LOCAL_VALIDATION
-LOCAL_VALIDATION_EXECUTION: BLOCKED_BY_GITHUB_DNS
-NEW_CAPTURE_GATE: BLOCKED
-CONSTRUCTION_GATE: BLOCKED
-ROOT_CAUSE: UNKNOWN
+HID_MONITOR_DIAGNOSTIC_TESTS: PASS (3)
+VOICE_BOUNDARY_DIAGNOSTIC_TESTS: PASS (1)
+VOICE_INPUT_SOURCE_TESTS: PASS (1)
+VOICE_KEY_FILTER_REGRESSION: PASS (10)
+VOICE_PRESS_REGRESSION: PASS (28)
+PERSISTENT_REGRESSION: PASS (15)
+FULL_SWIFT_TEST: PASS
+TEST_TOTALS: 266 passed
+FAILING_COUNT: 0
+FULL_SWIFT_TEST_EXIT_CODE: 0
 ```
 
-Validation must resume only after the local machine can fetch both exact authority
-objects. Cached/stale refs must not substitute for live refs.
+The source audit confirmed `reportObservedUptime` is used for raw HID report
+diagnostics only. Behavioral HID edges and the debouncer use a freshly sampled
+`now` at the baseline location after usage-state update. The 180 ms debounce,
+HardwareOptionGate ownership, Option suppression/replay, Persistent open/close,
+300 ms classifier, BLE start/stop, AudioPipe routing/buffering, tail/drain, and
+synthetic-trigger ownership logic have no behavioral diff.
+
+```text
+HID_EDGE_TIMING_ANCHOR: BASELINE_EQUIVALENT
+BEHAVIOR_DIFF_AUDIT: PASS
+BEHAVIOR_CHANGE_FOUND: NO
+```
+
+No app install or fresh capture was performed.
 
 ## PR #18 local validation finding and corrective
 
@@ -902,8 +920,8 @@ Corrective scope:
 Current gates:
 
 ```text
-DIAGNOSTIC_TEST_GATE: READY_FOR_LOCAL_REVALIDATION
-NEW_CAPTURE_GATE: BLOCKED
+DIAGNOSTIC_TEST_GATE: PASS
+NEW_CAPTURE_GATE: READY_FOR_REVIEW
 CONSTRUCTION_GATE: BLOCKED
 ROOT_CAUSE: UNKNOWN
 ```
@@ -934,18 +952,6 @@ Product development remains FROZEN. No repair work is authorized.
 
 ## Next required action
 
-Run local macOS validation of PR #18 at
-`8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d`.
-
-Required local result:
-
-1. compile/build succeeds;
-2. focused new diagnostic tests pass;
-3. existing VoiceKeyFilter / VoicePress / Persistent session focused tests pass;
-4. full Swift test suite passes, or every unrelated failure is separately proven
-   pre-existing;
-5. local diff/runtime audit confirms no behavior change.
-
-If all pass, update the control files with
-`DIAGNOSTIC_TEST_GATE: PASS` and `NEW_CAPTURE_GATE: READY_FOR_REVIEW`.
-Do not install or capture until that update is reviewed.
+The local corrective revalidation result is published for independent review.
+Wait for that review before any fresh capture or installation. Construction remains
+blocked and root cause remains unknown.
