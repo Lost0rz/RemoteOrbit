@@ -4663,6 +4663,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 // MARK: - Entry
 
+if let diagnosticCLIExitCode = DiagnosticCLI.runIfRequested() {
+    exit(diagnosticCLIExitCode)
+}
+
+
 /// LaunchAtLogin uses `open`, and users can also start the app manually. Keep
 /// the product to one process so two HID monitors, event taps, BLE clients,
 /// or CoreAudio IOProcs cannot compete for the same remote.

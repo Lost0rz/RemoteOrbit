@@ -112,11 +112,15 @@ protocol DiagnosticAuthority: AnyObject {
     func snapshot(_ filter: DiagnosticQueryFilter) throws -> Data
 }
 
+enum DiagnosticStorage {
+    static let defaultJournalURL = AppStorage.logsDirectory
+        .appendingPathComponent("diagnostic-events-v1.jsonl")
+}
+
 final class DiagnosticAuthorityService: DiagnosticAuthority, @unchecked Sendable {
     static let shared: any DiagnosticAuthority = DiagnosticAuthorityService(
         journal: JSONLinesDiagnosticJournal(
-            fileURL: AppStorage.logsDirectory
-                .appendingPathComponent("diagnostic-events-v1.jsonl")
+            fileURL: DiagnosticStorage.defaultJournalURL
         ),
         runtimeContext: .current(),
         clock: SystemDiagnosticClock()
