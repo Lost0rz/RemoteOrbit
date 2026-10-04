@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: INCIDENT MODE — B3 PRE-GATE GENERATION WINDOW OBSERVED; CONSTRUCTION BLOCKED
+State: INCIDENT MODE — STEP 6 PRE-GATE CONTRACT TEST / OWNERSHIP REVIEW
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -1291,4 +1291,58 @@ NEW_CAPTURE_GATE: CONSUMED
 CONSTRUCTION_GATE: BLOCKED
 ROOT_CAUSE: UNKNOWN
 ```
+
+
+
+## Step 6 authorization — pre-gate EventTap contract test
+
+The user explicitly authorized the next investigation step after the Mach-reconciled
+B3 result.
+
+Step 6 objective:
+
+- deterministically exercise the case where a mapped voice-trigger EventTap callback
+  arrives before `OPTION_GATE_BEGIN`;
+- determine the exact current forwarding/suppression behavior;
+- define the candidate ownership contract at the HID → mapped CGEvent → gate
+  boundary;
+- establish whether a deterministic pre-fix failing acceptance can be written
+  without changing production behavior.
+
+This step is test/architecture work only.
+
+Current frozen facts:
+
+```text
+ORIGINAL_MAPPED_EVENT_PRE_GATE: YES for the bounded normal capture
+EVENT_TAP_CALLBACK_PRE_GATE: NO for that attempt
+GATE_STATE: deferring
+ACTION: defer_down
+B3_RESULT: OBSERVED_FOR_THIS_ATTEMPT
+B4_RESULT: PARTIAL
+FRESH_INCIDENT_DIRECT_SUPPORT: NO
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
+Allowed:
+
+1. read-only audit of current trigger/gate ownership code;
+2. add deterministic tests or test seams that simulate mapped EventTap delivery
+   before gate activation;
+3. characterize pass/defer/suppress behavior under that ordering;
+4. define a falsifiable candidate ownership contract;
+5. report whether a pre-fix failing acceptance exists.
+
+Forbidden:
+
+- no product behavior fix;
+- no change to gate semantics;
+- no threshold/timing changes;
+- no BLE/audio changes;
+- no reinstall or real-world reproduction;
+- no second capture;
+- no PR #18 merge/release.
+
+The next gate is architecture/test evidence only. Construction remains blocked.
 
