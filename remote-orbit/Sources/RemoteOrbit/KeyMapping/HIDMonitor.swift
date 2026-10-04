@@ -306,22 +306,11 @@ final class HIDMonitor {
         let reportObservedUptime = ProcessInfo.processInfo.systemUptime
         guard let usages = Self.parseUsages(reportID: reportID, data: data) else { return }
 
-        if let fields = Self.microphoneTransitionDiagnosticFields(
-            reportID: reportID,
-            data: data,
-            parsedUsages: usages,
-            activeUsages: activeUsages,
-            pendingReconnectUsages: pendingReconnectUsages,
-            deviceActive: activeDevice != nil,
-            sequence: reportSequence,
-            uptime: reportObservedUptime
-        ) {
-            diagnosticLogger?.log(
-                category: "hid",
-                event: "RAW_HID_MIC_STATE",
-                fields: fields
-            )
-        }
+        let microphoneUsage = RemoteButton.microphone.hidUsage
+        let previousMicDown = activeUsages.contains(microphoneUsage)
+            || pendingReconnectUsages.contains(microphoneUsage)
+        let pendingReconnectContainsMic = pendingReconnectUsages.contains(microphoneUsage)
+        let deviceActive = activeDevice != nil
 
         let pressed = usages.subtracting(activeUsages)
         let released = activeUsages.subtracting(usages)
@@ -368,6 +357,7 @@ final class HIDMonitor {
                 at: now,
                 debouncing: shouldDebounce
             ) else {
+                onButtonEdgeSuppressed?(button, isDown)
                 if button == .microphone {
                     diagnosticLogger?.log(
                         category: "hid",
@@ -381,7 +371,6 @@ final class HIDMonitor {
                         ]
                     )
                 }
-                onButtonEdgeSuppressed?(button, isDown)
                 continue
             }
 
@@ -413,6 +402,7 @@ final class HIDMonitor {
                 at: now,
                 debouncing: shouldDebounce
             ) else {
+                onButtonEdgeSuppressed?(button, isDown)
                 if button == .microphone {
                     diagnosticLogger?.log(
                         category: "hid",
@@ -426,7 +416,6 @@ final class HIDMonitor {
                         ]
                     )
                 }
-                onButtonEdgeSuppressed?(button, isDown)
                 repeatTimers.removeValue(forKey: usage)?.cancel()
                 continue
             }
@@ -439,6 +428,24 @@ final class HIDMonitor {
             )
             repeatTimers.removeValue(forKey: usage)?.cancel()
             print("[HID] button up: \(button.displayName)")
+        }
+
+        if let diagnosticLogger,
+           let fields = Self.microphoneTransitionDiagnosticFields(
+               reportID: reportID,
+               data: data,
+               parsedUsages: usages,
+               previousMicDown: previousMicDown,
+               pendingReconnectContainsMic: pendingReconnectContainsMic,
+               deviceActive: deviceActive,
+               sequence: reportSequence,
+               uptime: reportObservedUptime
+           ) {
+            diagnosticLogger.log(
+                category: "hid",
+                event: "RAW_HID_MIC_STATE",
+                fields: fields
+            )
         }
     }
 
@@ -473,8 +480,30 @@ final class HIDMonitor {
         uptime: TimeInterval
     ) -> [String: Any]? {
         let microphoneUsage = RemoteButton.microphone.hidUsage
-        let previousMicDown = activeUsages.contains(microphoneUsage)
-            || pendingReconnectUsages.contains(microphoneUsage)
+        return microphoneTransitionDiagnosticFields(
+            reportID: reportID,
+            data: data,
+            parsedUsages: parsedUsages,
+            previousMicDown: activeUsages.contains(microphoneUsage)
+                || pendingReconnectUsages.contains(microphoneUsage),
+            pendingReconnectContainsMic: pendingReconnectUsages.contains(microphoneUsage),
+            deviceActive: deviceActive,
+            sequence: sequence,
+            uptime: uptime
+        )
+    }
+
+    static func microphoneTransitionDiagnosticFields(
+        reportID: UInt32,
+        data: Data,
+        parsedUsages: Set<UInt16>,
+        previousMicDown: Bool,
+        pendingReconnectContainsMic: Bool,
+        deviceActive: Bool,
+        sequence: UInt64,
+        uptime: TimeInterval
+    ) -> [String: Any]? {
+        let microphoneUsage = RemoteButton.microphone.hidUsage
         let currentMicDown = parsedUsages.contains(microphoneUsage)
         guard previousMicDown != currentMicDown else { return nil }
 
@@ -487,8 +516,7 @@ final class HIDMonitor {
             "current_mic_down": currentMicDown,
             "computed_edge": currentMicDown ? "down" : "up",
             "event_uptime": uptime,
-            "pending_reconnect_contains_mic":
-                pendingReconnectUsages.contains(microphoneUsage),
+            "pending_reconnect_contains_mic": pendingReconnectContainsMic,
             "device_active": deviceActive,
             "hid_report_sequence": sequence,
             "source": "iohid_report",
@@ -503,6 +531,11 @@ final class HIDMonitor {
         at timestamp: TimeInterval,
         rawReportSequence: UInt64
     ) {
+        if let callback = onButtonEdgeAt {
+            callback(button, isDown, timestamp)
+        } else {
+            onButtonEdge?(button, isDown)
+        }
         if button == .microphone {
             diagnosticLogger?.log(
                 category: "hid",
@@ -514,11 +547,6 @@ final class HIDMonitor {
                     "source": "hid_monitor",
                 ]
             )
-        }
-        if let callback = onButtonEdgeAt {
-            callback(button, isDown, timestamp)
-        } else {
-            onButtonEdge?(button, isDown)
         }
     }
 
