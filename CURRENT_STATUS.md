@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: INCIDENT MODE — PR #18 CORRECTIVE REVALIDATION PASSED; AWAITING REVIEW
+State: INCIDENT MODE — PR #18 INDEPENDENT TIMING AUDIT BLOCKED; OBSERVER-EFFECT CORRECTIVE REQUIRED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -875,6 +875,52 @@ BEHAVIOR_CHANGE_FOUND: NO
 
 No app install or fresh capture was performed.
 
+## PR #18 independent timing-path audit — BLOCKED
+
+Independent review of probe HEAD
+`f3e852bb0d9d6358a62141dcb4f4e483257772d0` found one remaining
+observer-effect risk that must be corrected before a fresh capture.
+
+Facts:
+
+- `VoiceDiagnosticLogger.log` performs disk formatting/write on an async writer
+  queue, but the caller still performs synchronous event-field construction,
+  Date/uptime capture, and DispatchQueue enqueue.
+- `RAW_HID_MIC_STATE` construction/log enqueue currently occurs before the
+  existing `emitButtonEdge` path.
+- `HID_MIC_EDGE_EMITTED` currently calls the diagnostic logger before invoking
+  the pre-existing edge callback.
+- suppressed-edge diagnostics likewise run before the pre-existing suppression
+  callback.
+- the incident under investigation is specifically sensitive to ordering between
+  the physical HID path / gate begin and the hidutil-translated mapped CGEvent.
+
+Therefore the local result
+`HID_EDGE_TIMING_ANCHOR: BASELINE_EQUIVALENT` is insufficient to establish zero
+timing-path observer effect. All 266 tests passing remains valid regression evidence,
+but those tests do not prove the race window is unperturbed.
+
+Required bounded corrective:
+
+1. capture only minimum raw identity/time needed at report entry;
+2. preserve the baseline behavior callback ordering;
+3. execute existing edge/suppression callbacks before diagnostic serialization or
+   logger enqueue that is not required to establish occurrence time;
+4. emit diagnostic records afterward using the already-captured occurrence
+   timestamp / report sequence;
+5. re-run the same focused tests, full Swift suite, and timing-path diff audit.
+
+Current gates:
+
+```text
+DIAGNOSTIC_TEST_GATE: BLOCKED_BY_INDEPENDENT_TIMING_AUDIT
+NEW_CAPTURE_GATE: BLOCKED
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
+The finding is recorded on PR #18 discussion as issue comment `5975341428`.
+
 ## PR #18 local validation finding and corrective
 
 Local validation of probe HEAD
@@ -952,6 +998,7 @@ Product development remains FROZEN. No repair work is authorized.
 
 ## Next required action
 
-The local corrective revalidation result is published for independent review.
-Wait for that review before any fresh capture or installation. Construction remains
+Apply only the bounded PR #18 observer-effect corrective defined by the independent
+timing-path audit, then repeat local revalidation. Do not install or run a fresh
+capture until the corrected probe passes independent review. Construction remains
 blocked and root cause remains unknown.

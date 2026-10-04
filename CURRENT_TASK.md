@@ -5,7 +5,7 @@
 - **Task:** INCIDENT MODE — MINIMUM BOUNDARY PROBE DELTA
 - **Incident family:** PERSISTENT-LONG / EXTERNAL-IME PREMATURE SESSION STOP
 - **Phase:** Step 5 — minimal boundary probe implementation and validation
-- **Status:** WAITING_FOR_INDEPENDENT_AUDIT
+- **Status:** INDEPENDENT_AUDIT_BLOCKED — OBSERVER_EFFECT_CORRECTIVE_REQUIRED
 - **Task authority:** this file
 - **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
@@ -540,6 +540,55 @@ CONSTRUCTION_GATE: BLOCKED
 ROOT_CAUSE: UNKNOWN
 ```
 
+## Independent timing-path audit result
+
+Independent review of
+`f3e852bb0d9d6358a62141dcb4f4e483257772d0` does not authorize a fresh
+capture yet.
+
+The remaining issue is diagnostic observer effect on the exact HID→gate race being
+measured:
+
+- raw HID diagnostic construction/enqueue occurs before the existing edge callback;
+- emitted/suppressed edge logging occurs before the corresponding existing callback;
+- async disk I/O does not remove the synchronous pre-callback work.
+
+This is not a product behavior fix. It is a bounded probe-placement corrective.
+
+### Authorized corrective scope
+
+Only:
+
+1. preserve report sequence and raw occurrence timestamp capture;
+2. move nonessential raw diagnostic construction/serialization/enqueue out of the
+   behavior-critical pre-edge path;
+3. invoke existing emitted/suppressed edge callbacks before diagnostic logger work
+   where the diagnostic record already carries the captured occurrence
+   timestamp/sequence;
+4. preserve all trigger/gate/Persistent/BLE/audio/classifier semantics;
+5. add or adjust focused tests only as needed to lock the callback-before-diagnostic
+   ordering;
+6. re-run the existing focused diagnostics/regressions and full Swift suite;
+7. perform a static timing-path audit against `main`.
+
+### Required gate
+
+A corrected probe may return to independent review only if:
+
+```text
+FOCUSED_DIAGNOSTIC_TESTS: PASS
+FOCUSED_REGRESSION_TESTS: PASS
+FULL_SWIFT_TEST: PASS
+BEHAVIOR_DIFF_AUDIT: PASS
+PRE_CALLBACK_DIAGNOSTIC_WORK: MINIMIZED_TO_REQUIRED_CAPTURE_ONLY
+EDGE_CALLBACK_ORDER: BASELINE_EQUIVALENT
+NEW_CAPTURE_GATE: READY_FOR_REVIEW
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
+No install, fresh capture, merge, release, or product behavior fix is authorized.
+
 ## Completion gate
 
 Step 4 is complete only when all are true:
@@ -573,6 +622,7 @@ internal logging.
 
 ## Next authorized action
 
-Submit this gate result for independent review. Do not install or run a fresh
-capture until the update is reviewed. Construction remains blocked; no behavior
-fix, merge, or release is authorized.
+Apply the bounded observer-effect corrective on PR #18, revalidate locally, and
+submit the corrected gate result for independent review. Do not install or run a
+fresh capture yet. Construction remains blocked; no behavior fix, merge, or release
+is authorized.
