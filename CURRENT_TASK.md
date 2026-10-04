@@ -1269,3 +1269,34 @@ must not silently infer B4/B5 IME semantic state.
 A separate future transition may instead close Lane B without implementing B9 if the
 user accepts the current boundary disposition. Neither transition is authorized by
 this audit.
+
+
+## Lane A3 independent Web audit result — cleanup awaiting explicit user authorization
+
+**A3 independent Web audit: PASS.**
+
+The exact cleanup manifest recorded in CURRENT_STATUS is independently verified.
+No additional evidence collection is required merely to decide whether those listed
+objects are stale/duplicated.
+
+However, cleanup is destructive and is **not authorized by this task**.
+
+Current gate:
+
+```text
+A3_TARGETED_REFRESH_GATE: PASS
+A3_INDEPENDENT_WEB_AUDIT: PASS
+EXACT_CLEANUP_MANIFEST: VERIFIED
+DESTRUCTIVE_CLEANUP_GATE: BLOCKED_PENDING_EXPLICIT_USER_AUTHORIZATION
+CLEANUP_EXECUTION: NOT_AUTHORIZED
+```
+
+Do not remove any worktree, delete any local/remote branch, delete/move any artifact,
+prune the registry, or mutate PR state until a later control-plane transition records
+explicit user authorization of the exact manifest.
+
+If the user authorizes cleanup, the next task must preserve the exact manifest and
+conditions from CURRENT_STATUS, perform a fresh preflight, fail closed on any drift or
+dependency change, execute only the authorized set in dependency-safe order, verify
+the retained Flight Recorder checkpoint before and after cleanup, and stop for
+independent Web verification.

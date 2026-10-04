@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — A3 READY FOR INDEPENDENT WEB AUDIT / B9 AUDIT ACCEPTED / B3 ACCEPTED / C CLOSED
+State: FOUNDATION GOVERNANCE — A3 INDEPENDENT WEB AUDIT PASSED / EXACT CLEANUP MANIFEST VERIFIED / USER AUTHORIZATION REQUIRED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -2397,4 +2397,111 @@ B9_IMPLEMENTATION: NOT_AUTHORIZED
 FRESH_CAPTURE: NOT_AUTHORIZED
 PR18_MERGE: NOT_AUTHORIZED
 PRODUCT_CONSTRUCTION_GATE: BLOCKED
+```
+
+
+## Lane A3 independent Web audit — exact cleanup manifest verified
+
+Independent Web audit of the A3 targeted-refresh checkpoint is **PASS**.
+
+Remote state at this audit:
+
+```text
+CONTROL_HEAD_BEFORE_A3_WEB_AUDIT: b2e97f66357493c3c9efc77c52da4b5fef4d3cc8
+REMOTE_MAIN: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PR17: OPEN_DRAFT
+PR18: OPEN_DRAFT
+PR18_HEAD: 71ef0e65117f2def4e30d5447ca55246c4d18434
+REMOTE_BRANCH_COUNT: 6
+A3_TARGETED_REFRESH_GATE: PASS
+A3_INDEPENDENT_WEB_AUDIT: PASS
+DESTRUCTIVE_CLEANUP_GATE: BLOCKED_PENDING_EXPLICIT_USER_AUTHORIZATION
+```
+
+The A3 local checkpoint commit
+`67be3151b8eb412b4963480346d7123cd9fd127c` is accepted. Its parent is the
+authorized freshness baseline `66523e2a62e004fdda1ae483cc769c10b6a33adb`, and
+its writeback changed only `CURRENT_STATUS.md` and `CURRENT_TASK.md`.
+
+The later B9 acceptance commit does not invalidate A3. It keeps the P1-A5 worktree and
+P1A5 Observer app retained and does not add a dependency on any A3 cleanup candidate.
+
+Independent remote reachability checks confirm:
+
+- `ee4effd0b6435b5198a258fa9c9f063717f69136` is an ancestor of current
+  `main`; PR #19 is merged.
+- `42984b5c63e5ce62549d40bdab8e70a2cccbae8e` is an ancestor of the current
+  control branch.
+- `f3e852bb0d9d6358a62141dcb4f4e483257772d0` is an ancestor of current PR #18
+  head `71ef0e65117f2def4e30d5447ca55246c4d18434`.
+- remote `codex/diagnostic-authority-audit` head is already preserved by merged
+  `main`.
+
+Accepted local preservation evidence additionally proves that
+`01eeddaecd0dff596b7e0fd31cd4b1862360bc9f` remains preserved by the retained
+`/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder` forensic worktree. That
+worktree/checkpoint is explicitly excluded from cleanup.
+
+### Exact verified cleanup set
+
+The following is the complete set independently accepted as cleanup-safe **if and only
+if the user explicitly authorizes this exact destructive transition**:
+
+**Worktrees**
+
+1. `/private/tmp/remoteorbit-c-diagnostic-authority-audit`
+2. `/private/tmp/remoteorbit-cross-mode-flight-recorder-minimal` — only while the
+   retained Flight Recorder worktree remains at `01eedda...`
+3. `/private/tmp/remoteorbit-pr18-corrective-controls`
+4. `/Volumes/Jack-Dev/Projects/remoteorbit-pr18-validation` — only if the execution
+   preflight confirms no new task dependency
+
+**Local branches**
+
+1. `codex/diagnostic-authority-audit` — only after its linked worktree is removed
+2. `codex/cross-mode-flight-recorder-minimal` — only after its linked candidate
+   worktree is removed and `01eedda...` remains preserved by the retained forensic
+   worktree
+
+**Remote branch**
+
+1. `codex/diagnostic-authority-audit`
+
+**File**
+
+1. `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder.source-preservation.patch`
+
+**Registry prune**
+
+- none
+
+### Explicit exclusions
+
+Do not delete, move, prune, rewrite, or repurpose:
+
+- `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder`;
+- `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p0`;
+- `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a3`;
+- `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a4`;
+- `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a5`;
+- `/Users/jack7788/Applications/RemoteOrbit P1A5 Observer.app`;
+- any dirty/unknown worktree;
+- the five zero-byte capture/snapshot files;
+- the temporary verification app, Swift helper, or newly noted cache/helper paths;
+- `codex/persistent-duplicate-audio-forensics`;
+- `codex/voice-single-owner-session`;
+- PR #17 or PR #18.
+
+### Authorization boundary
+
+Evidence sufficiency is now established, but **destructive authority is not**.
+
+A cleanup execution transition may be published only after explicit user authorization
+of the exact set above. Until then:
+
+```text
+A3_INDEPENDENT_WEB_AUDIT: PASS
+EXACT_CLEANUP_MANIFEST: VERIFIED
+DESTRUCTIVE_CLEANUP_GATE: BLOCKED_PENDING_EXPLICIT_USER_AUTHORIZATION
+CLEANUP_EXECUTION: NOT_AUTHORIZED
 ```
