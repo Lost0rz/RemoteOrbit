@@ -3107,3 +3107,16 @@ A3 is closed. No additional cleanup authority remains under this task.
 - **Construction scope:** add a read-only command surface over the existing Authority query/snapshot contract, centralize the canonical journal location if needed, add focused tests and usage/architecture documentation.
 - **Forbidden commands:** restart, reset, repair, install, kill, clear, mutate settings, rotate/truncate/delete logs, or any other control action.
 - **Validation gate:** parser/filter tests, fail-closed error tests, proof that CLI invocation exits before AppKit/product startup, full Swift test, release build, diff check, then independent Web audit before merge.
+
+
+## Diagnostic CLI v1 implementation checkpoint — PR #20
+
+- **FACT — PR:** #20, Draft, branch `codex/read-only-diagnostic-cli-v1`, base `main`.
+- **FACT — Implementation head before checkpoint:** `8650658f0b30d609fd7b5892b7e9ea99ef4cfe89`.
+- **FACT — Source scope:** CLI adapter, one canonical journal-location definition, five-line pre-AppKit entry gate, focused tests, ADR, and control-plane records only.
+- **FACT — Authority ownership unchanged:** CLI calls existing `DiagnosticAuthority.query/snapshot`; it contains no JSONL record parser and defines no second schema.
+- **FACT — Product semantics changed:** NO. Voice/HID/BLE/audio/focus/recovery code is untouched; normal launch only performs the exact `arguments[1] == "diagnostics"` gate before existing entry.
+- **FACT — Read-only command boundary:** status/query/snapshot/verify/help only; unknown control commands fail closed.
+- **Validation completed in Web execution environment:** exact CLI source typechecked with Swift 6.2 against contract-compatible Authority/filter types; focused test expressions also typechecked.
+- **Validation not yet claimable remotely:** full macOS Swift package tests/release build and installed/built CLI smoke. No GitHub CI workflow exists on this repository.
+- **Current gate:** `WAITING_FOR_LOCAL_MAC_VALIDATION`. Do not merge until the owning Mac reports the required exact-head validation and independent Web audit accepts it.
