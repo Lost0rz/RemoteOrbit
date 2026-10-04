@@ -2181,3 +2181,49 @@ artifact/group rather than restarting all A3 evidence.
 The local executor may stop at `READY_FOR_INDEPENDENT_WEB_AUDIT` only if the
 targeted refresh is internally fresh at writeback time and the exact manifest is
 fully supported. It must not authorize or execute deletion.
+
+
+## Lane B B9 capability/privacy audit authorization — 2026-10-04
+
+The user explicitly authorized a B9 audit after B3 acceptance.
+
+Remote pre-audit establishes:
+
+```text
+CONTROL_HEAD_BEFORE_B9: 36985064e5cc2b64bed608bc7708b7949a2500b5
+REMOTE_MAIN_HEAD: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PR18_HEAD: 71ef0e65117f2def4e30d5447ca55246c4d18434
+PR18_STATE: OPEN_DRAFT_UNMERGED
+B8: OBSERVABLE
+B7: BLOCKED_BY_DEPLOYMENT_FLOOR
+B4: SOURCE_NOT_FOUND
+B5: SOURCE_NOT_FOUND
+B9: LOCAL_ONLY_CAPABILITY_RECONCILIATION_REQUIRED
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
+- **FACT:** current remote `main` and PR #18 contain no tracked implementation that
+  produces `target-text-observer-current.jsonl`.
+- **FACT:** the retained P1-A5 worktree
+  `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a5` is preserved with four
+  local-only commits and three untracked observer files.
+- **FACT:** `/Users/jack7788/Applications/RemoteOrbit P1A5 Observer.app` is preserved
+  as an operationally unresolved artifact; its source/build relationship must be
+  re-established locally rather than inferred from filename or byte similarity.
+- **FACT:** historical incident evidence references
+  `target-text-observer-current.jsonl`, but the last bounded PR #18 capture excluded
+  it because its source mtime predated that runtime. Historical copies are not fresh
+  evidence.
+- **FACT:** repository source contains no Doubao-specific/InputMethodKit semantic
+  session observer. B9 must not be mislabeled as B4/B5 external semantic
+  acknowledgement.
+
+Therefore the next B9 step is a **read-only local source/capability/privacy audit**.
+It must determine whether the retained observer can establish a useful external
+result/text-mutation boundary using metadata-only or content-minimizing signals, or
+whether B9 must be classified as privacy/capability-unobservable.
+
+No new observer implementation, runtime launch, Accessibility/TCC mutation, incident
+capture, product change, build/install, PR #18 source change, or PR merge is
+authorized by this transition.

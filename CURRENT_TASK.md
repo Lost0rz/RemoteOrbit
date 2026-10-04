@@ -913,3 +913,151 @@ Do **not** set destructive cleanup PASS. Do not delete or prune anything.
 If any candidate becomes dirty, gains untracked/local-only evidence, loses its
 preserved copy, is actively required by the current task, or cannot be proven safe,
 set that item to `UNKNOWN_BLOCKED` and return the evidence.
+
+
+## Lane B transition — B9 read-only capability/privacy audit authorized
+
+**Status:** AUTHORIZED — READ-ONLY AUDIT ONLY.
+
+### Authority anchors
+
+```text
+B9_CONTROL_AUTHORITY_PARENT: 36985064e5cc2b64bed608bc7708b7949a2500b5
+PR18_EXPECTED_HEAD: 71ef0e65117f2def4e30d5447ca55246c4d18434
+MAIN_EXPECTED_HEAD: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+FRESH_CAPTURE: NOT AUTHORIZED
+PR18_MERGE: NOT AUTHORIZED
+```
+
+### Audit objective
+
+Reconcile the existing local-only target-text/P1-A5 observer and decide one of:
+
+- `B9_OBSERVABLE_METADATA_ONLY`
+- `B9_PARTIAL_METADATA_ONLY`
+- `B9_BLOCKED_BY_CAPABILITY`
+- `B9_BLOCKED_BY_PRIVACY`
+- `B9_SOURCE_NOT_RECOVERED`
+
+This audit does **not** authorize B9 implementation.
+
+### Required local evidence
+
+Start with a fresh read-only control/repository snapshot, then inspect:
+
+1. `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a5`;
+2. its four local-only commits and three untracked observer files;
+3. `/Users/jack7788/Applications/RemoteOrbit P1A5 Observer.app`;
+4. any source/config/binary metadata that can be proven to produce
+   `target-text-observer-current.jsonl`;
+5. existing target-text observer JSONL schema/field names and timestamp/correlation
+   model, if that file still exists;
+6. relevant Accessibility/AX APIs and target-application boundary used by the
+   observer.
+
+For source, app, config, and artifact, record exact path, identity/hash where useful,
+source HEAD or local-only commit relationship, bundle/process identity, and whether
+the relationship is proven or inferred.
+
+### Privacy boundary
+
+The audit report and control-plane writeback must **not include** target text,
+transcript/dictation contents, window titles, clipboard contents, user-entered field
+values, or screenshots containing user content.
+
+If existing files contain user content, inspect only what is necessary locally to
+identify schema/capability. Report only field names, types, event counts, lengths,
+hashes, booleans, transition classes, timestamps, process/bundle identity, error
+codes, and capability conclusions. Do not copy content values into Git, chat, test
+fixtures, or new artifacts.
+
+### Capability questions
+
+Answer from direct evidence:
+
+1. What exact external boundary does the observer read?
+2. Does it observe the target process directly or only RemoteOrbit state?
+3. What API/permission is required?
+4. Can it distinguish no-change, value-change, element-change, process/focus-change?
+5. Can it distinguish IME semantic session OPEN/STOP? If not, explicitly NO.
+6. What timestamp model and stable process/bundle identity are available?
+7. What correlation keys can join PR #18/B8 evidence?
+8. Can the same diagnostic fact be emitted without storing actual text content?
+9. What failure modes exist: AX error, unsupported role/value, secure field,
+   permission loss, process restart, missing focused element, stale observer, etc.?
+10. Does historical `target-text-observer-current.jsonl` prove current runtime
+    capability? Historical/stale files must answer NO unless current source/runtime
+    identity is independently established.
+
+### Required classification
+
+Return:
+
+```text
+B9_CONTROL_HEAD_START
+PR18_HEAD_VERIFIED
+P1A5_WORKTREE_PATH
+P1A5_HEAD
+LOCAL_ONLY_COMMITS
+UNTRACKED_OBSERVER_FILES
+OBSERVER_APP_PATH
+OBSERVER_BUNDLE_ID
+OBSERVER_BINARY_HASH
+OBSERVER_SOURCE_PROVENANCE
+TARGET_TEXT_JSONL_FOUND
+TARGET_TEXT_JSONL_FRESHNESS
+TARGET_TEXT_SCHEMA
+CONTENT_VALUES_EXPORTED = NO
+OBSERVED_EXTERNAL_BOUNDARY
+TARGET_PROCESS_DIRECTLY_OBSERVED
+REQUIRED_PERMISSION
+AX_ERROR_BEHAVIOR
+VALUE_CHANGE_OBSERVABLE
+ELEMENT_CHANGE_OBSERVABLE
+PROCESS_FOCUS_CHANGE_OBSERVABLE
+IME_SEMANTIC_OPEN_STOP_OBSERVABLE
+TIMESTAMP_MODEL
+CORRELATION_MODEL
+METADATA_ONLY_POSSIBLE
+B9_CLASSIFICATION
+B9_PROVES
+B9_DOES_NOT_PROVE
+NEW_PROBE_REQUIRED
+PRIVACY_RISK
+PRODUCT_SOURCE_CHANGED = NO
+RUNTIME_CHANGED = NO
+TCC_CHANGED = NO
+FRESH_CAPTURE_PERFORMED = NO
+FINAL_STATE = READY_FOR_INDEPENDENT_WEB_AUDIT
+```
+
+### Stop conditions
+
+STOP without workaround if:
+
+- control authority/PR #18/main freshness materially changes;
+- the P1-A5 worktree or observer source is missing;
+- source-to-app/artifact provenance cannot be established;
+- inspecting capability would require launching/replacing the observer or changing
+  TCC/Accessibility permission;
+- the only way to prove B9 would require exporting actual user content;
+- the observer is actually a B4/B5 semantic-session observer; do not silently
+  reclassify boundaries.
+
+### Allowed
+
+Read-only Git/file/source/bundle inspection; hashes and code-signing/bundle metadata
+reads; read-only inspection of existing logs/artifacts under the privacy restrictions;
+static API/header/documentation inspection; same-commit
+`CURRENT_STATUS.md` + `CURRENT_TASK.md` evidence checkpoint after completion,
+setting only `READY_FOR_INDEPENDENT_WEB_AUDIT`.
+
+### Forbidden
+
+No product/probe source edits; no new DiagnosticAuthority event; no observer launch;
+no app install/rebuild; no TCC/Accessibility changes; no new capture; no synthetic
+input; no target-app automation; no PR #18 commit; no merge; no cleanup/deletion.
+
+A later B9 implementation or B-line closeout requires a separate independent web
+audit and explicit transition.
