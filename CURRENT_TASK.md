@@ -1508,3 +1508,29 @@ B7: BLOCKED_BY_DEPLOYMENT_FLOOR
 B9: B9_PARTIAL_METADATA_ONLY / NOT IMPLEMENTED
 PRODUCT_CONSTRUCTION_GATE: BLOCKED
 ```
+
+
+## Lane B final closure — CLOSED
+
+```text
+LANE_B: CLOSED
+PR18: MERGED
+PR18_SOURCE_HEAD: c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5
+MAIN_MERGE_COMMIT: 6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5
+ROOT_CAUSE: UNKNOWN
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+```
+
+No further Lane B work is active.
+
+Do not continue B7, implement B9, run another incident capture, or begin a behavior
+fix under the closed B task. Any future investigation must be opened as a new
+control-plane transition with fresh evidence and explicit scope.
+
+The accepted incident posture is **evidence-ready / unresolved**: the diagnostic
+surface has materially improved, but B4/B5 remain externally unobservable with the
+current sources and the historical failure was not reproduced under the bounded
+capture.
+
+Separate A3 cleanup work, if still active, remains governed only by its own exact
+manifest and authorization.

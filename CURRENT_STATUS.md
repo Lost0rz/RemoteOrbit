@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — A3 EXACT CLEANUP EXECUTION AUTHORIZED / B-MR1 ACTIVE / C CLOSED
+State: FOUNDATION GOVERNANCE — A3 CLEANUP AUTHORIZED / B CLOSED / C CLOSED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -2745,3 +2745,56 @@ PRODUCT_CONSTRUCTION_GATE: BLOCKED
 FRESH_CAPTURE: NOT_AUTHORIZED
 B9_IMPLEMENTATION: NOT_AUTHORIZED
 ```
+
+
+## Lane B closure — 2026-10-04
+
+PR #18 has been merged after exact-head final audit.
+
+```text
+PR18_SOURCE_HEAD: c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5
+PR18_MERGE_COMMIT: 6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5
+REMOTE_MAIN_HEAD: 6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5
+PR18_STATE: CLOSED
+PR18_MERGED: YES
+PR18_FINAL_MERGE_GATE: PASS
+B_LINE_STATE: CLOSED
+```
+
+GitHub merge ancestry is exact:
+
+```text
+PARENT_1_MAIN_BEFORE: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PARENT_2_PR18_HEAD: c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5
+MERGE_COMMIT: 6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5
+```
+
+Accepted diagnostic capability now on `main`:
+
+- B3 HID report → HID edge → mapped CGEvent correlation, including original Quartz
+  timestamp and run-level clock calibration;
+- source tagging for HID vs filter fallback press/release;
+- timing-neutral diagnostic enqueue ordering on behavior-critical press/release paths;
+- B8 frontmost-application transition observation through the single diagnostic
+  Authority;
+- focused regression coverage for the above.
+
+Final unresolved boundary disposition remains:
+
+```text
+B4_EXTERNAL_TRIGGER_ACCEPTANCE: SOURCE_NOT_FOUND
+B5_EXTERNAL_IME_SESSION_STATE: SOURCE_NOT_FOUND
+B7_TARGET_PROCESS_INPUT_CONSUMER: BLOCKED_BY_DEPLOYMENT_FLOOR
+B8_FRONTMOST_APPLICATION: OBSERVABLE
+B9_TARGET_UI_MUTATION: B9_PARTIAL_METADATA_ONLY / NOT IMPLEMENTED
+ROOT_CAUSE: UNKNOWN
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+FRESH_CAPTURE: NOT_AUTHORIZED
+PRODUCT_FIX: NOT_AUTHORIZED
+```
+
+Lane B is closed because the bounded diagnostic-governance objective is complete, not
+because the historical incident was repaired or causally proven. Reopening this
+incident requires new evidence or a separately authorized task.
+
+PR #18 merge does not alter the separate A3 cleanup authorization or Lane C closure.
