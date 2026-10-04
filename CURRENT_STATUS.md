@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — A3 TARGETED FRESHNESS REFRESH ACTIVE / B3 ACCEPTED / C CLOSED
+State: FOUNDATION GOVERNANCE — A3 TARGETED FRESHNESS REFRESH READY FOR INDEPENDENT WEB AUDIT / B9 AUTHORIZED / B3 ACCEPTED / C CLOSED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -2227,3 +2227,54 @@ whether B9 must be classified as privacy/capability-unobservable.
 No new observer implementation, runtime launch, Accessibility/TCC mutation, incident
 capture, product change, build/install, PR #18 source change, or PR merge is
 authorized by this transition.
+
+
+## Lane A3 targeted freshness refresh — 2026-10-04
+
+The targeted refresh is complete on the same authority snapshot that was live at
+writeback start. No full A3 rescan or artifact rehash was performed.
+
+FACT — control branch was fast-forwarded from clean HEAD
+77a55bf367fdab079dc730017fbe37caa30eff8b to the authorized live HEAD
+66523e2a62e004fdda1ae483cc769c10b6a33adb. The documentation checkpoint is a direct
+child of that audited HEAD and is pushed to the control branch.
+
+Freshness snapshot:
+
+- main: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d;
+- control / PR #17: OPEN Draft at 66523e2a62e004fdda1ae483cc769c10b6a33adb;
+- PR #18: OPEN Draft at 71ef0e65117f2def4e30d5447ca55246c4d18434;
+- PR #19: MERGED at 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d;
+- remote branches: six — main, control, PR #18, diagnostic-authority-audit,
+  persistent-duplicate-audio-forensics, and voice-single-owner-session;
+- worktree registry: 14 registered / 14 live / 0 missing.
+
+The four task-listed worktree candidates were all clean, had no untracked files, and
+had no unpreserved local-only commits. The cross-mode checkout has one local-only
+commit, 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f; the detached forensic Flight
+Recorder worktree remains clean at exactly that HEAD and preserves the checkpoint.
+The diagnostic-authority candidate commit is in main and PR #19 is merged.
+The corrective-controls candidate is an ancestor of current control. The PR #18
+validation checkout is an ancestor of the current PR #18 line; the active B checkout
+is the separate clean 71ef0e65117f2def4e30d5447ca55246c4d18434 worktree.
+
+B9 is authorized in CURRENT_TASK but was not executed. The P1-A5 worktree is a
+current B9 evidence dependency and remains KEEP_ACTIVE. The P1A5 Observer app remains
+UNKNOWN_BLOCKED and retained; neither is in the cleanup manifest.
+
+All 20 prior non-worktree artifact groups have unchanged path/existence/size/mtime/
+count metadata. No prior group was re-hashed. Top-level RemoteOrbit-named temporary
+cache/helper paths were noted separately; cache contents were not traversed, their
+creation after the A3 baseline is unproven, and none is a cleanup candidate. No new
+archive, release package, incident capture, or observer app was found in the named
+RemoteOrbit archive/backup/application directories. The earlier process-scope note
+remains disclosed; independent review determined it did not contaminate or invalidate
+the prior A3 evidence. This refresh used no generic recursive find.
+
+Proposed candidates remain exactly four worktrees, two local branches, one remote
+branch, and the preservation patch, each conditional on its named preservation source
+and a later explicit deletion authorization. Registry-prune candidates: none.
+
+A3_TARGETED_REFRESH_GATE: PASS
+DESTRUCTIVE_CLEANUP_GATE: BLOCKED
+FINAL_STATE: READY_FOR_INDEPENDENT_WEB_AUDIT

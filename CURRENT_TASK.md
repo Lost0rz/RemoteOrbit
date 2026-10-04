@@ -1061,3 +1061,157 @@ input; no target-app automation; no PR #18 commit; no merge; no cleanup/deletion
 
 A later B9 implementation or B-line closeout requires a separate independent web
 audit and explicit transition.
+
+
+## Lane A3 targeted freshness refresh result — 2026-10-04
+
+**A3_TARGETED_REFRESH_GATE: PASS.** This result refreshes only the accepted A3
+evidence delta. No full A3 rescan, full artifact hash audit, B9 audit, or cleanup was
+performed.
+
+### Authority and freshness snapshot
+
+A3_REFRESH_START_CONTROL_HEAD: 66523e2a62e004fdda1ae483cc769c10b6a33adb
+A3_REFRESH_FINAL_CONTROL_HEAD_BEFORE_WRITEBACK: 66523e2a62e004fdda1ae483cc769c10b6a33adb
+REMOTE_MAIN: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PR17_STATE: OPEN_DRAFT
+PR17_HEAD: 66523e2a62e004fdda1ae483cc769c10b6a33adb
+PR18_STATE: OPEN_DRAFT
+PR18_HEAD: 71ef0e65117f2def4e30d5447ca55246c4d18434
+PR19_STATE: MERGED
+PR19_MERGE_COMMIT: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+REMOTE_BRANCH_COUNT: 6
+REGISTERED_WORKTREE_COUNT: 14
+LIVE_WORKTREE_COUNT: 14
+MISSING_REGISTRATION_COUNT: 0
+
+Remote branch set, captured from live refs:
+
+- main — 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+- codex/project-agents-control-plane-v1 — 66523e2a62e004fdda1ae483cc769c10b6a33adb
+- codex/persistent-long-boundary-probes-v1 — 71ef0e65117f2def4e30d5447ca55246c4d18434
+- codex/diagnostic-authority-audit — ee4effd0b6435b5198a258fa9c9f063717f69136
+- codex/persistent-duplicate-audio-forensics — d0a1ab06d8fafa0e9a8a1ae3b79cbc0d299a07be
+- codex/voice-single-owner-session — cd96b2f937d2e4b0bdfb67111714a77ce77e78c6
+
+The pre-write live recheck returned the same main/control/PR #17/PR #18 refs and
+the same six-branch set. The final evidence snapshot is therefore stable at the
+control parent above.
+
+### Candidate worktree refresh
+
+| Path | HEAD / identity | Clean / untracked | Local-only commits | Preservation source | Current-task dependency | Disposition |
+|---|---|---|---:|---|---|---|
+| /private/tmp/remoteorbit-c-diagnostic-authority-audit | ee4effd0b6435b5198a258fa9c9f063717f69136 / branch codex/diagnostic-authority-audit | clean; none | 0 | main contains the commit; PR #19 MERGED | none identified; C is closed | SAFE_DELETE_CANDIDATE |
+| /private/tmp/remoteorbit-cross-mode-flight-recorder-minimal | 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f / branch codex/cross-mode-flight-recorder-minimal | clean; none | 1: 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f | /Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder is detached, clean, and at that exact HEAD | no current B9 dependency on this checkout; Flight Recorder evidence checkout remains retained | SAFE_DELETE_CANDIDATE, conditional on retaining Flight Recorder |
+| /private/tmp/remoteorbit-pr18-corrective-controls | 42984b5c63e5ce62549d40bdab8e70a2cccbae8e / detached | clean; none | 0 | HEAD is an ancestor of current control HEAD 66523e2a62e004fdda1ae483cc769c10b6a33adb | none identified | SAFE_DELETE_CANDIDATE |
+| /Volumes/Jack-Dev/Projects/remoteorbit-pr18-validation | f3e852bb0d9d6358a62141dcb4f4e483257772d0 / detached | clean; none | 0 | HEAD is an ancestor of current PR #18 head 71ef0e65117f2def4e30d5447ca55246c4d18434 | not the active B checkout; current B checkout is /Volumes/Jack-Dev/Projects/remoteorbit-pr18-observer-corrective at 71ef0e65117f2def4e30d5447ca55246c4d18434; B9 uses P1-A5 instead | SAFE_DELETE_CANDIDATE, conditional on no new validation dependency |
+
+Registry check: 14 registered / 14 live / 0 missing. P1-A5 is still registered at
+/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a5 and is a current B9 evidence
+dependency. It is retained and is not a cleanup candidate.
+
+### Candidate branch refresh
+
+| Ref | Current head and reachability | Preservation / dependency | Disposition |
+|---|---|---|---|
+| local codex/diagnostic-authority-audit | ee4effd0b6435b5198a258fa9c9f063717f69136; 0 commits ahead of origin/main; ancestor of main | PR #19 merged; local worktree candidate must be detached/removed only in a later authorized cleanup transition before branch deletion | SAFE_DELETE_CANDIDATE |
+| local codex/cross-mode-flight-recorder-minimal | 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f; one commit not reachable from origin refs | exact commit retained by detached Flight Recorder worktree at same SHA; delete only after later authorized removal of its linked candidate worktree | SAFE_DELETE_CANDIDATE, conditional |
+| remote codex/diagnostic-authority-audit | ee4effd0b6435b5198a258fa9c9f063717f69136; ancestor of origin/main | PR #19 is MERGED at 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d | SAFE_DELETE_CANDIDATE |
+
+Flight Recorder preservation is confirmed: registered forensic worktree
+/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder is clean and detached at
+01eeddaecd0dff596b7e0fd31cd4b1862360bc9f. The prior A2 exact patch-to-commit
+comparison remains applicable because patch path/size/mtime are unchanged. Do not
+remove this worktree or lose the checkpoint when considering cross-mode or patch
+candidates.
+
+### Prior artifact metadata delta
+
+All twenty prior groups exist with unchanged size, mtime, and item count. No hashes
+were recomputed. The direct directory listings of the named archive, diagnostic
+backup, and build-tools locations showed no new package/backup/helper entry.
+
+| Path | Size | Mtime (+0800) | Count | Delta |
+|---|---:|---|---:|---|
+| /Volumes/Jack-Dev/Projects/RemoteOrbit-app-archives/RemoteOrbit-0.2.12-41-20261003T154207+0800.zip | 3,286,804 B | 2026-10-03 15:42:07 | 1 | unchanged |
+| /Volumes/Jack-Dev/Projects/remoteorbit-diagnostic-backups/RemoteOrbit-v0.2.11-baseline-before-nonseize-audit.app | 8,944 KiB | 2026-09-16 07:43:48 | 4 files | unchanged |
+| /Volumes/Jack-Dev/Projects/remoteorbit-diagnostic-backups/RemoteOrbit-v0.2.11-nonseize-before-p0.app | 8,944 KiB | 2026-09-16 09:40:49 | 4 files | unchanged |
+| /Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder.source-preservation.patch | 116,334 B | 2026-10-03 12:03:54 | 1 | unchanged |
+| /private/tmp/remoteorbit-package-app-20261003.log | 4,207 B | 2026-10-03 15:43:11 | 1 | unchanged |
+| /private/tmp/remoteorbit-pr18-full-swift-test-82027.log | 74,576 B | 2026-10-04 09:03:37 | 1 | unchanged |
+| /private/tmp/remoteorbit-ls-before.txt | 22,536 B | 2026-10-03 15:59:05 | 1 | unchanged |
+| /private/tmp/remoteorbit-pr18-validation-full-swift-test.log | 74,597 B | 2026-10-04 08:40:59 | 1 | unchanged |
+| /private/tmp/remoteorbit-controlled-product-launch-20261003.log | 1,000,707 B | 2026-10-03 16:43:49 | 1 | unchanged |
+| /private/tmp/remoteorbit-package-app-20261003-retry.log | 3,763 B | 2026-10-03 15:43:36 | 1 | unchanged |
+| /private/tmp/remoteorbit-controlled-product-launch-window-20261003.log | 636,382 B | 2026-10-03 16:45:45 | 1 | unchanged |
+| /private/tmp/remoteorbit-lsregister.err | 68 B | 2026-10-03 15:59:12 | 1 | unchanged |
+| /private/tmp/remoteorbit-4d1b-hardware-acceptance.log | 0 B | 2026-10-03 09:00:07 | 1 | unchanged |
+| /private/tmp/remoteorbit-4d1b-hardware-acceptance.err.log | 0 B | 2026-10-03 09:00:07 | 1 | unchanged |
+| /private/tmp/remoteorbit-ls-before.err | 0 B | 2026-10-03 15:59:05 | 1 | unchanged |
+| /private/tmp/remoteorbit-cutover-processes-before-bootout.txt | 0 B | 2026-10-03 15:42:33 | 1 | unchanged |
+| /private/tmp/remoteorbit-lsregister.out | 0 B | 2026-10-03 15:59:12 | 1 | unchanged |
+| /private/tmp/remoteorbit-app-archive-verify.lftOpI/RemoteOrbit.app | 9,232 KiB | 2026-09-24 22:10:40 | 4 files | unchanged |
+| /private/tmp/remoteorbit-build-tools/swift | 125 B | 2026-10-03 17:30:34 | 1 | unchanged |
+| /Users/jack7788/Applications/RemoteOrbit P1A5 Observer.app | 172 KiB | 2026-09-24 07:59:35 | 3 files | unchanged |
+
+The Observer app remains UNKNOWN_BLOCKED / RETAINED because it is a current B9
+evidence dependency and operational use is unresolved. It is not a cleanup candidate.
+
+Additional top-level RemoteOrbit-named temporary paths were observed; creation after
+the previous A3 snapshot is not established, and cache contents were not traversed:
+
+| Path | Direct metadata | Treatment |
+|---|---|---|
+| /private/tmp/remoteorbit-coreaudio-module-cache | directory entry 736 B; 2026-10-04 15:41:37 | cache scope; UNKNOWN_BLOCKED, not a candidate |
+| /private/tmp/remoteorbit-coreaudio-process-availability.swift | 137 B; 2026-10-04 15:41:22 | content not inspected; UNKNOWN_BLOCKED, not a candidate |
+| /private/tmp/remoteorbit-cross-mode-clang-module-cache | directory entry 320 B; 2026-10-03 10:12:13 | cache scope; UNKNOWN_BLOCKED, not a candidate |
+| /private/tmp/remoteorbit-flight-recorder-build-cache | directory entry 128 B; 2026-10-03 11:39:47 | cache scope; UNKNOWN_BLOCKED, not a candidate |
+| /private/tmp/remoteorbit-lane-b-clang-cache | directory entry 320 B; 2026-10-04 15:14:06 | cache scope; UNKNOWN_BLOCKED, not a candidate |
+| /private/tmp/remoteorbit-mainline-cutover-clang-cache | directory entry 320 B; 2026-10-03 15:43:35 | cache scope; UNKNOWN_BLOCKED, not a candidate |
+| /private/tmp/remoteorbit-mainline-cutover-xdg-cache | directory entry 64 B; 2026-10-03 15:43:34 | cache scope; UNKNOWN_BLOCKED, not a candidate |
+| /private/tmp/remoteorbit-swift-cache | directory entry 128 B; 2026-10-04 15:43:42 | cache scope; UNKNOWN_BLOCKED, not a candidate |
+| /private/tmp/remoteorbit-timebase-module-cache-20261004 | directory entry 704 B; 2026-10-04 12:21:42 | cache scope; UNKNOWN_BLOCKED, not a candidate |
+
+The targeted top-level name check did not descend into unrelated paths; non-RemoteOrbit
+name matches were excluded without reading contents. No generic recursive find was
+used. The previously disclosed process-scope deviation was independently assessed as
+non-contaminating and not invalidating the A3 body of evidence.
+
+### Revised exact cleanup manifest
+
+Candidates only; this task authorizes no cleanup:
+
+- Worktrees: /private/tmp/remoteorbit-c-diagnostic-authority-audit;
+  /private/tmp/remoteorbit-cross-mode-flight-recorder-minimal (only while the exact
+  Flight Recorder checkpoint remains retained);
+  /private/tmp/remoteorbit-pr18-corrective-controls;
+  /Volumes/Jack-Dev/Projects/remoteorbit-pr18-validation (only if no later task
+  depends on it).
+- Local branches: codex/diagnostic-authority-audit (after its linked candidate
+  worktree is removed in a separately authorized task);
+  codex/cross-mode-flight-recorder-minimal (only while commit 01eedda remains
+  preserved by the Flight Recorder worktree).
+- Remote branch: codex/diagnostic-authority-audit (PR #19 is merged and origin/main
+  contains its head; deletion still requires separate authorization).
+- File: /Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder.source-preservation.patch
+  (unchanged metadata; prior exact comparison maps it to retained commit 01eedda).
+- Registry prune candidates: none.
+- Explicitly excluded by the current B9 dependency: P1-A5 worktree and
+  /Users/jack7788/Applications/RemoteOrbit P1A5 Observer.app.
+
+### Blockers and final gate
+
+- Five zero-byte capture/snapshot files retain distinct filename/time context and
+  remain UNKNOWN_BLOCKED.
+- The temporary verification app, Swift helper, and the additional cache/helper paths
+  remain UNKNOWN_BLOCKED; none is a cleanup candidate.
+- P1-A5 and Observer app remain retained for B9; B9 itself was not executed.
+- The earlier process-scope deviation remains visible; independent review says
+  evidence contamination is NO and the A3 body is not invalidated.
+- No artifact, worktree, local/remote branch, PR, product source, diagnostic source,
+  runtime, package, TCC, or B9 evidence was changed by the audit.
+
+A3_TARGETED_REFRESH_GATE: PASS
+DESTRUCTIVE_CLEANUP_GATE: BLOCKED
+FINAL_STATE: READY_FOR_INDEPENDENT_WEB_AUDIT
