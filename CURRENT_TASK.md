@@ -4,13 +4,15 @@
 
 - **Task:** INCIDENT MODE — MINIMUM BOUNDARY PROBE DELTA
 - **Incident family:** PERSISTENT-LONG / EXTERNAL-IME PREMATURE SESSION STOP
-- **Phase:** Step 5 — minimal boundary probe implementation and validation
-- **Status:** INDEPENDENT_TIMING_REVIEW_PASSED — ONE_BOUNDED_FRESH_CAPTURE_AUTHORIZED — CORRECTIVE_REVALIDATION_PASS
+- **Phase:** Step 6 — sealed capture causal review
+- **Status:** ONE_BOUNDED_FRESH_CAPTURE_COMPLETED_NOT_REPRODUCED — WAITING_FOR_SEALED_CAPTURE_CAUSAL_REVIEW
 - **Task authority:** this file
 - **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
 - **Construction Gate:** BLOCKED
-- **Fresh Incident Gate:** PASS
+- **Prior Fresh Incident Gate:** PASS
+- **Bounded Probe Capture:** CONSUMED (1/1; NOT_REPRODUCED)
+- **Second capture authorization:** NO
 
 ## User authorization
 
@@ -356,7 +358,7 @@ ROOT_CAUSE: UNKNOWN
 The sealed incident evidence is intact, but preservation integrity is not causal
 completeness.
 
-### Boundary result
+### Pre-probe boundary baseline (historical; before PR #18 probe capture)
 
 ```text
 B1: PARTIAL
@@ -591,9 +593,9 @@ INDEPENDENT_TIMING_PATH_REVIEW: PASS
 DIAGNOSTIC_TEST_GATE: PASS
 ```
 
-### Fresh capture authorization
+### Fresh capture authorization — CONSUMED
 
-Exactly one probe-enabled fresh capture is authorized.
+At this transition, exactly one probe-enabled fresh capture was authorized; that authorization is now consumed.
 
 Required discipline:
 
@@ -612,10 +614,14 @@ Required discipline:
 If the incident does not reproduce, record that result; do not broaden or repeat the
 experiment without a new task transition.
 
-Current gates:
+Current gates after the one attempt:
 
 ```text
-NEW_CAPTURE_GATE: AUTHORIZED_FOR_ONE_BOUNDED_CAPTURE
+BOUNDED_CAPTURE_ATTEMPTS: 1
+INCIDENT_RESULT: NOT_REPRODUCED
+EVIDENCE_SEAL: PASS
+SECOND_CAPTURE_AUTHORIZED: NO
+NEW_CAPTURE_GATE: CONSUMED
 CONSTRUCTION_GATE: BLOCKED
 ROOT_CAUSE: UNKNOWN
 ```
@@ -653,7 +659,89 @@ internal logging.
 
 ## Next authorized action
 
-Build/install the exact reviewed probe HEAD and perform exactly one bounded fresh
-capture of the target incident. Seal the evidence and stop for review. Construction
-remains blocked; root cause remains unknown. No behavior fix, merge, or release is
-authorized.
+`SEALED_CAPTURE_CAUSAL_REVIEW` of the evidence directory recorded below. The single
+capture authorization is consumed. Do not reproduce again. Construction remains
+blocked; root cause remains unknown. No behavior fix, merge, or release is authorized.
+
+
+## Bounded fresh capture completed — 2026-10-04
+
+The only authorized attempt used PR #18 probe HEAD
+`28824d9dc167f57e3163ef0844aec1b672717d8f` and exact runtime identity:
+PID `25802`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, version
+`0.2.13` / Build `42`, runtime and build executable SHA-256
+`2eeb2e6ac43bf92698a44be9a1297792e5bc35daadd9f8ded4e767a1b494df8e`.
+`RUNTIME_IDENTITY_MATCH=YES`.
+
+```text
+BOUNDED_CAPTURE_ATTEMPTS: 1
+INCIDENT_RESULT: NOT_REPRODUCED
+USER_ACTION_TIME_REPORTED: approximately 11:03 local time (+0800)
+EVIDENCE_SEAL: PASS
+SECOND_CAPTURE_AUTHORIZED: NO
+```
+
+Sealed package:
+
+`/Users/jack7788/Library/Logs/RemoteOrbit/incidents/fresh-incident-20261004T102216+0800-pr18-probe`
+
+The package checksum verification passed. Current diagnostics and relevant unified
+logs are included. Target Text Observer and both Flight Recorder files are marked
+missing for this attempt because their source files predated the probe runtime.
+
+Gesture correlation keeps the Persistent-open short
+`9BB5AC9D-E1C3-40E9-80EC-0BDF5654E54C` separate from target LONG
+`52AE0F3E-3273-482D-9E92-8092EABCF165`. The LONG raw report was sequence 3 at
+approximately `11:03:02.7843 +0800`; the behavioral edge shared that sequence.
+Voice press entry was `11:03:02.790974`, Option gate began at `11:03:02.792270`,
+and the mapped event observer callback was `11:03:02.810047` with same-process
+observer uptime 17.777 ms after gate begin. The event held original CG timestamp
+`2251759486203 ns`, with `gate_state=deferring` and `action=defer_down`; subsequent
+LONG handling suppressed the mapped trigger and recorded
+`trigger_edge_emitted=false`. The original CG timestamp clock cannot be directly
+placed on the ProcessInfo uptime basis from available evidence. Thus callback-level
+pre-gate leakage is ruled out for this attempt; original event-time ordering is not
+established globally.
+
+```text
+GESTURE_CLASSIFIED_TIME: 11:03:03.100882 +0800 — hold
+ATVV_MIC_OPEN_TX_TIME: 11:03:03.102411 +0800
+ATVV_AUDIO_STOP_RX_TIME: 11:03:09.399792 +0800
+ATVV_MIC_CLOSE_TX_TIME: 11:03:10.453279 +0800
+TRANSPORT_STOP_TIME: approximately 11:03:11 +0800 — BLE disconnect/HID-only restore log at second resolution
+PERSISTENT_SEGMENT_COMPLETE: 11:03:09.776384 +0800 — session_remains_open=true
+```
+
+```text
+B1: PARTIAL
+B2: PARTIAL
+B3: PARTIAL — correlated records exist; original CG cross-clock ordering unresolved
+B4: PARTIAL — internal decision observed; no external acceptance acknowledgement
+B5: PARTIAL — Persistent intent observed; no external semantic acknowledgement
+B6: PARTIAL
+B7: MISSING
+B8: MISSING
+B9: PARTIAL — user observation plus AVFoundation/CoreAudio proxy only
+```
+
+The user observed normal single-click start and normal Persistent LONG input, with
+no premature external IME/session stop. RemoteOrbit's persistent segment completed
+at `11:03:09.776384 +0800` with `session_remains_open=true`. A Doubao
+AVFoundation/CoreAudio stop proxy appears at `11:03:18.069–.099 +0800`; this does
+not establish semantic external session state or a premature failure.
+
+```text
+SPECIFIC_BROKEN_BOUNDARY: NONE ESTABLISHED
+BROKEN_CONTRACT: NONE PROVEN
+FRESH_INCIDENT_DIRECT_SUPPORT: NO — target failure did not reproduce
+PRE_FIX_FAILING_ACCEPTANCE: NONE ESTABLISHED
+MINIMAL_FIX_SCOPE: NOT ESTABLISHED
+DIAGNOSTIC_TEST_GATE: PASS
+NEW_CAPTURE_GATE: CONSUMED
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+NEXT_ACTION: SEALED_CAPTURE_CAUSAL_REVIEW
+```
+
+This is a normal control-like capture, not evidence that the earlier failure is
+fixed. No second reproduction, code change, merge, or release is authorized.

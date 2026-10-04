@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: INCIDENT MODE — PR #18 CORRECTIVE REVALIDATION PASS; WAITING FOR INDEPENDENT TIMING REVIEW
+State: INCIDENT MODE — PR #18 ONE BOUNDED PROBE CAPTURE SEALED; NOT REPRODUCED; WAITING FOR CAUSAL REVIEW
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -1014,9 +1014,78 @@ Repository closeout is COMPLETE.
 The user has now explicitly authorized the next task transition into INCIDENT MODE.
 Product development remains FROZEN. No repair work is authorized.
 
-## Next required action
+## Previous next action — completed 2026-10-04
 
-Perform exactly one bounded probe-enabled fresh incident capture from
-`28824d9dc167f57e3163ef0844aec1b672717d8f`, preserving runtime identity and the
-existing sealed-evidence discipline. After capture, stop and submit the evidence for
-causal review. Construction remains blocked and root cause remains unknown.
+The one authorized probe-enabled capture from
+`28824d9dc167f57e3163ef0844aec1b672717d8f` completed and was sealed. The current
+next action is `SEALED_CAPTURE_CAUSAL_REVIEW`, recorded in the current-state section
+below. No second attempt is authorized.
+
+
+## PR #18 bounded probe capture — current state (2026-10-04)
+
+The single authorized probe-enabled capture completed on exact probe HEAD
+`28824d9dc167f57e3163ef0844aec1b672717d8f` and was sealed at
+`2026-10-04T11:07:34+0800`.
+
+```text
+CONTROL_HEAD_AT_CAPTURE: 1df75c7bd33d53f61be6bcc76b5fae4de16cac24
+BOUNDED_CAPTURE_ATTEMPTS: 1
+INCIDENT_RESULT: NOT_REPRODUCED
+SECOND_CAPTURE_AUTHORIZED: NO
+EVIDENCE_SEAL: PASS
+RUNTIME_PID: 25802
+RUNTIME_IDENTITY_MATCH: YES
+RUNTIME_EXECUTABLE_SHA256: 2eeb2e6ac43bf92698a44be9a1297792e5bc35daadd9f8ded4e767a1b494df8e
+BUILD_EXECUTABLE_SHA256: 2eeb2e6ac43bf92698a44be9a1297792e5bc35daadd9f8ded4e767a1b494df8e
+```
+
+Evidence directory:
+
+`/Users/jack7788/Library/Logs/RemoteOrbit/incidents/fresh-incident-20261004T102216+0800-pr18-probe`
+
+The seal contains current `voice-diagnostic-current.jsonl`, `RemoteOrbit.log`,
+relevant unified log, process snapshots, runtime identity, context, analysis, and
+checksums. `target-text-observer-current.jsonl` and both Flight Recorder JSONL
+files were excluded and marked missing because their source mtimes predated this
+probe runtime; no historical copies were used as fresh evidence.
+
+The short that opened Persistent was gesture
+`9BB5AC9D-E1C3-40E9-80EC-0BDF5654E54C`. The distinct target LONG was
+`52AE0F3E-3273-482D-9E92-8092EABCF165`. For the LONG, raw HID report sequence 3
+and emitted edge occurred at approximately `11:03:02.7843 +0800`; voice press
+entry was `11:03:02.790974`, gate begin was `11:03:02.792270`, and the mapped
+event observer callback was `11:03:02.810047`. It carried original CG timestamp
+`2251759486203 ns`, gate state `deferring`, action `defer_down`. Same-process
+observer time places that callback 17.777 ms after gate begin. The original CG
+timestamp cannot be directly compared with `ProcessInfo.systemUptime` using the
+available clock calibration, so original-event occurrence ordering remains
+unestablished. No trigger edge was emitted for the Persistent segment.
+
+The user reported normal single-click start and normal Persistent LONG input,
+with no premature external IME stop. RemoteOrbit recorded segment completion
+with `session_remains_open=true`. A later Doubao AVFoundation/CoreAudio stop
+appears as a proxy transition, not a semantic IME acknowledgement.
+
+```text
+B3: PARTIAL — raw report, edge, press, gate, and mapped event observed; original-CG cross-clock ordering unresolved.
+B4: PARTIAL — internal defer/suppress decision observed; no external acceptance acknowledgement.
+B5: PARTIAL — Persistent intent remains open internally; no external semantic acknowledgement.
+B8: MISSING — no independent WindowServer/frontmost transition observer.
+B9: PARTIAL — user observation and AVFoundation/CoreAudio proxy evidence; no semantic IME state observer.
+PRE_GATE_LEAK_HYPOTHESIS: RULED_OUT_FOR_THIS_ATTEMPT at the gate decision/forwarding boundary only.
+SPECIFIC_BROKEN_BOUNDARY: NONE ESTABLISHED
+BROKEN_CONTRACT: NONE PROVEN
+FRESH_INCIDENT_DIRECT_SUPPORT: NO — target failure did not reproduce
+PRE_FIX_FAILING_ACCEPTANCE: NONE ESTABLISHED
+MINIMAL_FIX_SCOPE: NOT ESTABLISHED
+DIAGNOSTIC_TEST_GATE: PASS
+NEW_CAPTURE_GATE: CONSUMED
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+NEXT_ACTION: SEALED_CAPTURE_CAUSAL_REVIEW
+```
+
+Do not authorize another capture or begin construction from this normal control-like
+result. The original CG event clock relationship and the external IME semantic state
+remain unresolved.
