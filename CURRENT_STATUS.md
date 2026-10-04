@@ -902,6 +902,43 @@ CONSTRUCTION_GATE: BLOCKED
 ROOT_CAUSE: UNKNOWN
 ```
 
+## PR #18 independent timing-path review — PASS
+
+Independent review of probe HEAD
+`28824d9dc167f57e3163ef0844aec1b672717d8f` is complete.
+
+Verified:
+
+- the observer-effect corrective is one commit over
+  `f3e852bb0d9d6358a62141dcb4f4e483257772d0` and changes only
+  `HIDMonitor.swift`;
+- raw HID report sequence and occurrence uptime are captured near report callback
+  entry;
+- full raw-transition field construction and logger enqueue occur only after the
+  existing behavior callbacks;
+- emitted and suppressed HID edge callbacks execute before their corresponding
+  diagnostic logger calls;
+- behavioral edge/debounce `now` remains at the baseline sampling location;
+- on the mapped Option event-tap path, the gate/suppression branch is decided before
+  `MAPPED_TRIGGER_EVENT` logging;
+- local validation remains 266 passed / 0 failed with behavior diff audit PASS.
+
+The independent review finding is recorded on PR #18 discussion comment
+`5975576700`.
+
+Current gates:
+
+```text
+INDEPENDENT_TIMING_PATH_REVIEW: PASS
+DIAGNOSTIC_TEST_GATE: PASS
+NEW_CAPTURE_GATE: AUTHORIZED_FOR_ONE_BOUNDED_CAPTURE
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
+This authorizes exactly one probe-enabled fresh incident capture. It does not
+authorize a product behavior fix, merge, release, or Construction Gate transition.
+
 ## Prior PR #18 local validation finding and corrective
 
 Local validation of probe HEAD
@@ -979,7 +1016,7 @@ Product development remains FROZEN. No repair work is authorized.
 
 ## Next required action
 
-Submit corrective probe HEAD `28824d9dc167f57e3163ef0844aec1b672717d8f` for
-independent timing-path review. Do not install or run a fresh capture before that
-review accepts the corrected probe. Construction remains blocked and root cause
-remains unknown.
+Perform exactly one bounded probe-enabled fresh incident capture from
+`28824d9dc167f57e3163ef0844aec1b672717d8f`, preserving runtime identity and the
+existing sealed-evidence discipline. After capture, stop and submit the evidence for
+causal review. Construction remains blocked and root cause remains unknown.

@@ -5,7 +5,7 @@
 - **Task:** INCIDENT MODE — MINIMUM BOUNDARY PROBE DELTA
 - **Incident family:** PERSISTENT-LONG / EXTERNAL-IME PREMATURE SESSION STOP
 - **Phase:** Step 5 — minimal boundary probe implementation and validation
-- **Status:** WAITING_FOR_INDEPENDENT_AUDIT — CORRECTIVE_REVALIDATION_PASS
+- **Status:** INDEPENDENT_TIMING_REVIEW_PASSED — ONE_BOUNDED_FRESH_CAPTURE_AUTHORIZED — CORRECTIVE_REVALIDATION_PASS
 - **Task authority:** this file
 - **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
@@ -570,6 +570,56 @@ construction and edge logger calls behind the corresponding existing callbacks.
 Independent review of the pushed `28824d9dc167f57e3163ef0844aec1b672717d8f`
 remains the next gate. READY_FOR_REVIEW is not a fresh-capture result.
 
+## Independent timing-path review — PASS
+
+Probe HEAD:
+
+`28824d9dc167f57e3163ef0844aec1b672717d8f`
+
+Independent review confirms the diagnostic placement is sufficiently non-invasive
+for one bounded incident capture:
+
+```text
+RAW_REPORT_TIMESTAMP_CAPTURE: PASS
+PRE_EDGE_DIAGNOSTIC_SERIALIZATION: NONE
+PRE_EDGE_DIAGNOSTIC_ENQUEUE: NONE
+EDGE_CALLBACK_ORDER: BASELINE_EQUIVALENT
+SUPPRESSED_CALLBACK_ORDER: BASELINE_EQUIVALENT
+HID_EDGE_TIMING_ANCHOR: BASELINE_EQUIVALENT
+MAPPED_TRIGGER_GATE_DECISION_BEFORE_LOGGING: YES
+INDEPENDENT_TIMING_PATH_REVIEW: PASS
+DIAGNOSTIC_TEST_GATE: PASS
+```
+
+### Fresh capture authorization
+
+Exactly one probe-enabled fresh capture is authorized.
+
+Required discipline:
+
+1. build/install only from exact probe HEAD
+   `28824d9dc167f57e3163ef0844aec1b672717d8f`;
+2. record build/runtime identity before reproduction;
+3. use the existing incident capture/sealing process;
+4. reproduce only the target incident family
+   `PERSISTENT-LONG / EXTERNAL-IME PREMATURE SESSION STOP`;
+5. perform one bounded reproduction attempt;
+6. seal the resulting evidence package immediately;
+7. do not modify product behavior, timing thresholds, trigger ownership, BLE/audio
+   behavior, or diagnostics during the capture;
+8. after capture, stop for causal review.
+
+If the incident does not reproduce, record that result; do not broaden or repeat the
+experiment without a new task transition.
+
+Current gates:
+
+```text
+NEW_CAPTURE_GATE: AUTHORIZED_FOR_ONE_BOUNDED_CAPTURE
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
 ## Completion gate
 
 Step 4 is complete only when all are true:
@@ -603,7 +653,7 @@ internal logging.
 
 ## Next authorized action
 
-Submit probe HEAD `28824d9dc167f57e3163ef0844aec1b672717d8f` for independent
-timing-path review. Do not install or run a fresh capture until that review accepts
-the corrected probe. Construction remains blocked; root cause remains unknown. No
-behavior fix, merge, or release is authorized.
+Build/install the exact reviewed probe HEAD and perform exactly one bounded fresh
+capture of the target incident. Seal the evidence and stop for review. Construction
+remains blocked; root cause remains unknown. No behavior fix, merge, or release is
+authorized.
