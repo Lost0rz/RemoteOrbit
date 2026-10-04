@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — A3 CLEANUP DISPOSITION AUDIT ACTIVE / B ACTIVE / C CLOSED
+State: FOUNDATION GOVERNANCE — A3 TARGETED FRESHNESS REFRESH ACTIVE / B3 ACCEPTED / C CLOSED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -25,7 +25,7 @@ before continuing.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
 - **FACT — Current open PRs:** PR #17 and PR #18.
 - **FACT — PR #17:** OPEN + Draft + unmerged; its branch is the control-plane authority.
-- **FACT — PR #18:** OPEN + Draft; `codex/persistent-long-boundary-probes-v1` at `a71ce1d48c08bda1ad86bcd5c3a75a5e5ed90353` after accepted post-C main reconciliation.
+- **FACT — PR #18:** OPEN + Draft; `codex/persistent-long-boundary-probes-v1` at `71ef0e65117f2def4e30d5447ca55246c4d18434`; B3 external-boundary probe audit accepted.
 - **FACT — PR #19:** MERGED + CLOSED; source head `ee4effd0b6435b5198a258fa9c9f063717f69136`; merge commit `5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d`. Lane C is CLOSED.
 - **FACT — Final closeout snapshot base:** live control-plane HEAD `8a09a80411fd3f19c37332a4d2e7799773cf5182`; the final status/task snapshot correction is a direct child of this audited HEAD and is pushed to the active control-plane branch.
 - **FACT — Out-of-band PR metadata drift:** #9 and #16 were closed during earlier closeout and reopened at 2026-10-03T12:40:25Z / 12:40:27Z; #17 was closed at 12:40:31Z.
@@ -2073,3 +2073,111 @@ is a separate B9 capability/privacy gate whose purpose is to determine whether t
 existing target-text observer capability can be safely used or adapted without
 recording user content, and otherwise to classify B9 as externally/privacy
 unobservable. That transition requires separate authorization before local work.
+
+
+## Lane A3 independent reconciliation — targeted freshness refresh authorized
+
+### Independent assessment of the returned A3 evidence
+
+The returned A3 evidence package is accepted as a valid **body-of-evidence baseline**:
+
+```text
+A3_EVIDENCE_BODY: ACCEPTABLE
+REGISTERED_WORKTREES: 14
+LIVE_WORKTREES: 14
+MISSING_REGISTRATIONS: 0
+DIRTY_WORKTREES: 4
+UNTRACKED_EVIDENCE_FILES: 9
+NON_WORKTREE_ARTIFACT_GROUPS: 20
+FULL_A3_RESCAN_REQUIRED: NO
+```
+
+The exploratory recursive `find` under the already-authorized `/private/tmp` scan
+root enumerated unrelated MemoX/cache path names, but no unrelated file contents were
+read and no unrelated result was used to classify RemoteOrbit assets.
+
+Independent disposition:
+
+```text
+PROCESS_SCOPE_DEVIATION: YES
+EVIDENCE_CONTAMINATION: NO
+A3_BODY_INVALIDATED: NO
+```
+
+The prior A3 cleanup manifest is therefore not rejected merely for that enumeration.
+
+### Current freshness blocker
+
+The returned A3 snapshot classified the active B line at
+`a71ce1d48c08bda1ad86bcd5c3a75a5e5ed90353`.
+PR #18 subsequently advanced by one accepted B3 commit to:
+
+`71ef0e65117f2def4e30d5447ca55246c4d18434`.
+
+Independent remote review proves that advancement is bounded to the accepted B8
+frontmost-application diagnostic work. It does not by itself invalidate the A3
+worktree/artifact classifications, but it makes the deletion manifest stale under the
+A3 freshness contract.
+
+Therefore:
+
+```text
+A3_CURRENT_FRESHNESS: STALE_DUE_TO_PR18_ADVANCE
+TARGETED_FRESHNESS_REFRESH_REQUIRED: YES
+FULL_RESCAN_REQUIRED: NO
+DESTRUCTIVE_CLEANUP_GATE: BLOCKED
+```
+
+### Evidence that may be reused without full rescanning
+
+Unless a targeted refresh proves a material change, retain the existing A3 findings
+for:
+
+- the six local-only forensic commit SHAs;
+- four dirty worktrees and nine untracked evidence files;
+- twenty non-worktree artifact groups and their hashes/classifications;
+- two v0.2.11 diagnostic backup apps;
+- retained audio/Flight Recorder forensic worktrees;
+- the release ZIP;
+- the proposed duplicate source-preservation patch;
+- the candidate C worktree/branch after PR #19 merge;
+- the clean detached corrective-control checkout whose HEAD is an ancestor of the
+  control branch.
+
+Do not recompute hashes or recursively rescan all twenty artifact groups unless the
+targeted refresh detects a path/mtime/size/count change or a new relevant artifact.
+
+### Targeted refresh gate
+
+A3 may now collect only the delta evidence needed to restore freshness:
+
+1. exact remote main, control HEAD, PR #17/#18 state, PR #18 head, and six-branch set;
+2. fresh `git worktree list --porcelain`: registered/live/missing counts;
+3. current dirty/untracked status for all four proposed worktree-delete candidates;
+4. current ancestry/reachability for the two proposed local-branch deletions and the
+   proposed merged C remote-branch deletion;
+5. current preservation proof for the Flight Recorder patch/commit dependency;
+6. confirmation that the PR #18 validation checkout is not the active B worktree,
+   contains no dirty/untracked/local-only evidence, and has no known task dependency;
+7. bounded metadata check of the prior 20 non-worktree groups sufficient to establish
+   whether path/existence/size/mtime/count changed, plus discovery of any new clearly
+   RemoteOrbit-owned artifact created since the A3 snapshot;
+8. exact revised cleanup manifest and any remaining UNKNOWN_BLOCKED item.
+
+If metadata indicates a material artifact change, rescan only the affected
+artifact/group rather than restarting all A3 evidence.
+
+### Gates
+
+- **Targeted A3 freshness refresh:** OPEN.
+- **Full A3 rescan:** NOT REQUIRED unless the targeted refresh discovers material
+  change.
+- **Control-plane evidence writeback:** OPEN for a same-commit
+  `CURRENT_STATUS.md` + `CURRENT_TASK.md` checkpoint only.
+- **Destructive cleanup:** BLOCKED.
+- **Worktree/branch/file deletion or prune:** BLOCKED.
+- **PR mutation:** BLOCKED.
+
+The local executor may stop at `READY_FOR_INDEPENDENT_WEB_AUDIT` only if the
+targeted refresh is internally fresh at writeback time and the exact manifest is
+fully supported. It must not authorize or execute deletion.

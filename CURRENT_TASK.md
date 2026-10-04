@@ -2,7 +2,7 @@
 
 ## Task identity
 
-- **Task:** FOUNDATION GOVERNANCE — A3 CLEANUP DISPOSITION AUDIT + B ACTIVE; C CLOSED
+- **Task:** FOUNDATION GOVERNANCE — A3 TARGETED FRESHNESS REFRESH; B3 ACCEPTED; C CLOSED
 - **Status:** AUTHORIZED
 - **Task authority:** this file
 - **Parallel execution:** EXPLICITLY AUTHORIZED
@@ -18,7 +18,7 @@ Three lanes may run concurrently because they own different mutation surfaces.
 
 | Lane | Objective | Write authority | Must not touch |
 | --- | --- | --- | --- |
-| A | A3 read-only cleanup-disposition audit | owning-Mac inventory + control-plane evidence checkpoint only | no deletion/prune/move/PR mutation/runtime or product-source change |
+| A | A3 targeted freshness refresh over accepted A3 evidence | owning-Mac delta evidence + control-plane evidence checkpoint only | no deletion/prune/move/PR mutation/runtime or product-source change |
 | B | boundary probes + capture completeness | PR #18 diagnostic probe surface | control plane, CLI, Settings, Authority schema ownership |
 | C | CLOSED — diagnostic Authority skeleton accepted and merged | none; no further C construction authority | all further diagnostic expansion requires a new task |
 
@@ -824,3 +824,92 @@ or other user content.
 
 Until that separate transition is authorized, Lane B remains stopped after B3 at an
 independently accepted diagnostic state.
+
+
+## Lane A3 transition — targeted freshness refresh
+
+**Status:** AUTHORIZED — DELTA EVIDENCE ONLY.
+
+The previous A3 result is not discarded. Its evidence body remains the baseline.
+The only confirmed reason it cannot yet reach independent cleanup review is freshness:
+PR #18 advanced from `a71ce1d...` to accepted B3 head `71ef0e6...`.
+
+### Do not repeat
+
+Do not repeat the full A3 scan, full artifact hashing, full forensic classification,
+or broad recursive filesystem search unless a delta check identifies a material
+change.
+
+In particular, do not use generic recursive `find` across unrelated `/private/tmp`
+content. Inspect only named prior RemoteOrbit artifact paths plus newly discovered
+paths whose names/locations clearly establish RemoteOrbit ownership.
+
+### Required delta evidence
+
+Produce one compact freshness package containing:
+
+```text
+A3_REFRESH_START_CONTROL_HEAD
+A3_REFRESH_FINAL_CONTROL_HEAD
+REMOTE_MAIN
+OPEN_PRS
+PR17_HEAD
+PR18_HEAD
+REMOTE_BRANCH_SET
+REGISTERED_WORKTREE_COUNT
+LIVE_WORKTREE_COUNT
+MISSING_REGISTRATION_COUNT
+
+CANDIDATE_WORKTREE_REFRESH
+  /private/tmp/remoteorbit-c-diagnostic-authority-audit
+  /private/tmp/remoteorbit-cross-mode-flight-recorder-minimal
+  /private/tmp/remoteorbit-pr18-corrective-controls
+  /Volumes/Jack-Dev/Projects/remoteorbit-pr18-validation
+
+CANDIDATE_LOCAL_BRANCH_REFRESH
+  codex/diagnostic-authority-audit
+  codex/cross-mode-flight-recorder-minimal
+
+CANDIDATE_REMOTE_BRANCH_REFRESH
+  codex/diagnostic-authority-audit
+
+FLIGHT_RECORDER_PRESERVATION
+PR18_VALIDATION_DEPENDENCY_STATUS
+PRIOR_ARTIFACT_GROUPS_METADATA_CHANGED
+NEW_REMOTEORBIT_ARTIFACT_GROUPS
+REVISED_EXACT_CLEANUP_MANIFEST
+UNKNOWN_BLOCKERS
+A3_TARGETED_REFRESH_GATE
+DESTRUCTIVE_CLEANUP_GATE = BLOCKED
+FINAL_STATE
+```
+
+For each candidate worktree, report current HEAD/branch-or-detached state,
+clean/dirty/untracked state, local-only commit status, and exact preservation source.
+
+For the prior twenty artifact groups, a path/existence/size/mtime/count comparison is
+enough when unchanged. Re-hash or deeply inspect only changed groups.
+
+### Freshness rule
+
+Before writing back, re-read live:
+
+- remote `main`;
+- control branch;
+- PR #17 and #18 state/head;
+- remote branch set.
+
+If any differs from the snapshot used to produce the manifest, reconcile the affected
+delta before setting final state.
+
+If all delta evidence passes, write the verified result to
+`CURRENT_STATUS.md` and `CURRENT_TASK.md` together in one direct-child commit and
+set only:
+
+`FINAL_STATE = READY_FOR_INDEPENDENT_WEB_AUDIT`
+
+Do **not** set destructive cleanup PASS. Do not delete or prune anything.
+
+If any candidate becomes dirty, gains untracked/local-only evidence, loses its
+preserved copy, is actively required by the current task, or cannot be proven safe,
+set that item to `UNKNOWN_BLOCKED` and return the evidence.
