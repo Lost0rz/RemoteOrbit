@@ -19,7 +19,7 @@ Three lanes may run concurrently because they own different mutation surfaces.
 | --- | --- | --- | --- |
 | A | repository/worktree governance inventory + freeze/classification | control-plane docs only | diagnostic/product source |
 | B | boundary probes + capture completeness | PR #18 diagnostic probe surface | control plane, CLI, Settings, Authority schema ownership |
-| C | single diagnostic Authority skeleton + unified schema/interface | new isolated Authority/schema files + focused tests/docs | control plane, PR #18 probe call sites, CLI, Settings, product behavior |
+| C | diagnostic Authority skeleton accepted; bounded merge-gate validation | PR #19 test-only validation surface | control plane, PR #18 probe call sites, CLI, Settings, product behavior |
 
 **Lane A is the sole control-plane writer** while these lanes are active. Lanes B/C
 return verified branch/HEAD/test evidence to A; they do not independently edit
@@ -194,6 +194,66 @@ and architecture documentation.
 Lane C is complete when the Authority contract and schema compile, focused tests prove
 versioning/identity/clock/correlation/fail-safe behavior, and no existing product
 diagnostic producer has been forced through the new Authority yet.
+
+### Lane C transition — skeleton/proof accepted; merge-gate validation authorized
+
+**Status:** the C skeleton and the single opt-in WavRecorder proof are independently
+audited PASS. The original completion wording above is superseded only for that one
+explicitly accepted proof producer. No other producer migration is authorized.
+
+**Authority:** PR #19 / `codex/diagnostic-authority-audit` at
+`cb28bfd91e84309601b5fc2e36f9452b4a02b1d8`.
+
+#### Final conclusion
+
+The single Authority, schema v1, clock/correlation/provenance contract, query boundary,
+failure isolation, and minimal proof are accepted for this stage. No confirmed
+correctness defect was found. Remaining work is merge-gate validation only.
+
+#### Authorized施工 scope
+
+On the existing PR #19 line only:
+
+1. add one deterministic **test-only** saturation/drop contract test, preferably in
+   `DiagnosticAuthorityTests.swift`;
+2. run `swift test` from `remote-orbit/`;
+3. run `swift build -c release` from `remote-orbit/`;
+4. commit/push only the test-only change to PR #19;
+5. report final local/remote HEAD, clean/dirty state, full test result, release-build
+   result, and stop at `WAITING_FOR_INDEPENDENT_AUDIT`.
+
+If the saturation test exposes a production-source defect, STOP and return evidence.
+This task does not authorize a corrective production patch.
+
+#### Forbidden
+
+- no edits to `DiagnosticAuthority.swift`, `DiagnosticEvent.swift`,
+  `JSONLinesDiagnosticJournal.swift`, or `WavRecorder.swift` without a new
+  corrective authorization;
+- no new producer migration or `VoiceDiagnosticLogger` migration;
+- no HID/EventTap/BLE/audio state-machine changes;
+- no retention/rotation or streaming/read redesign;
+- no CLI, Agent API, Settings/UI;
+- no packaging/install/release;
+- no PR #19 merge.
+
+#### Acceptance
+
+```text
+PR19_START_HEAD: cb28bfd91e84309601b5fc2e36f9452b4a02b1d8
+QUEUE_SATURATION_DROP_TEST: PASS
+QUEUE_SATURATION_PRODUCER_NONBLOCKING: PASS
+DROPPED_EVENT_COUNT_CONTRACT: PASS
+FULL_SWIFT_TEST: PASS
+RELEASE_BUILD: PASS
+PRODUCTION_SOURCE_CHANGED: NO
+PR19_REMOTE_SYNC: PASS
+WORKING_TREE: CLEAN
+FINAL_STATE: WAITING_FOR_INDEPENDENT_AUDIT
+```
+
+Passing these gates does not authorize merge. A fresh independent audit of the final
+PR #19 HEAD is required before any merge transition.
 
 ---
 

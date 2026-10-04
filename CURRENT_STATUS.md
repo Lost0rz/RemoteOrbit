@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — LANE A1 ACCEPTED / A2 ARTIFACT INVENTORY AUTHORIZED
+State: FOUNDATION GOVERNANCE — A1 ACCEPTED / A2 ARTIFACT INVENTORY + C MERGE-GATE AUTHORIZED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -23,9 +23,10 @@ before continuing.
 - **FACT — Main HEAD message:** merge PR #15, media-key suppression isolation.
 - **FACT — Latest published release:** RemoteOrbit `v0.2.13` / Build 42.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
-- **FACT — Current open PRs:** PR #17 and PR #18.
+- **FACT — Current open PRs:** PR #17, PR #18, and PR #19.
 - **FACT — PR #17:** OPEN + Draft + unmerged; its branch is the control-plane authority.
 - **FACT — PR #18:** OPEN + Draft; `codex/persistent-long-boundary-probes-v1` at `28824d9dc167f57e3163ef0844aec1b672717d8f`.
+- **FACT — PR #19:** OPEN + Draft + mergeable; `codex/diagnostic-authority-audit` at `cb28bfd91e84309601b5fc2e36f9452b4a02b1d8`. C skeleton + minimal WavRecorder proof independently audited PASS; merge-gate validation is authorized, merge is not.
 - **FACT — Final closeout snapshot base:** live control-plane HEAD `8a09a80411fd3f19c37332a4d2e7799773cf5182`; the final status/task snapshot correction is a direct child of this audited HEAD and is pushed to the active control-plane branch.
 - **FACT — Out-of-band PR metadata drift:** #9 and #16 were closed during earlier closeout and reopened at 2026-10-03T12:40:25Z / 12:40:27Z; #17 was closed at 12:40:31Z.
 - **RULE — PR state is not task authority:** these metadata changes do not advance or replace CURRENT_TASK.
@@ -36,6 +37,7 @@ This closeout inventory predates the active Step 5 PR #18 line recorded above.
 
 | PR | Title | Lifecycle | Remote state | Reason / successor |
 | --- | --- | --- | --- | --- |
+| #19 | diagnostic Authority skeleton | **ACTIVE** | OPEN Draft, unmerged | C skeleton/minimal proof complete; merge-gate validation authorized; merge not authorized |
 | #17 | development control plane | **ACTIVE** | OPEN Draft, unmerged | sole current control-plane PR and task authority |
 | #16 | persistent voice segment transaction isolation | **ABANDONED** | CLOSED Draft, unmerged | re-closed under explicit repository-closeout authorization; diff/discussion preserved |
 | #15 | preserve Mac media keys | **MERGED** | CLOSED merged | merged into `main` 2026-10-01 |
@@ -1583,3 +1585,68 @@ A2 passes only when:
 - **PR close/merge gate:** BLOCKED.
 - **Product-behavior Construction Gate:** BLOCKED.
 - **Release/install gate:** BLOCKED.
+
+
+## Lane C independent audit + merge-gate authorization — 2026-10-04
+
+### Verified state
+
+- **FACT — baseline:** remote `main` remains `7129ef72949eca956b1d0daddce707d5e417eeed`.
+- **FACT — C authority:** PR #19 / `codex/diagnostic-authority-audit`.
+- **FACT — audited C HEAD:** `cb28bfd91e84309601b5fc2e36f9452b4a02b1d8`.
+- **FACT — PR state:** OPEN + Draft + unmerged + mergeable.
+- **FACT — C changed-file scope:** ADR, three new diagnostics source files, `WavRecorder.swift`, and two focused test files.
+- **FACT — remote CI/status:** no GitHub Actions run and no commit status is attached to the audited C HEAD.
+- **FACT — PR-recorded local validation:** 8 `DiagnosticAuthorityTests` passed, 1 `WavRecorderDiagnosticsTests` passed, and staged diff check passed.
+
+### Independent conclusion
+
+The C architecture and bounded proof have reached the施工 threshold for
+**merge-gate validation only**.
+
+```text
+SINGLE_DIAGNOSTIC_AUTHORITY: PASS
+VERSIONED_SCHEMA_V1: PASS
+CLOSED_EVENT_CATALOG: PASS
+CLOCK_DOMAIN_AND_MACH_TIMEBASE_PROVENANCE: PASS
+CORRELATION_AND_PROCESS_PROVENANCE: PASS
+FAIL_CLOSED_QUERY_DECODE: PASS
+BOUNDED_NONBLOCKING_EMIT_DESIGN: PASS
+PRODUCTION_CONTROL_ISOLATION: PASS
+MINIMAL_WAVRECORDER_PROOF: PASS
+FULL_PRODUCER_MIGRATION: NOT ATTEMPTED
+CONFIRMED_CORRECTNESS_DEFECT: NONE
+```
+
+For precision, the accepted behavior statement is:
+
+```text
+PRODUCTION_CONTROL_BEHAVIOR_CHANGED: NO
+VOICE_HID_RECOVERY_BEHAVIOR_CHANGED: NO
+USER_VISIBLE_RECORDING_BEHAVIOR_CHANGED: NO
+DIAGNOSTIC_SIDE_EFFECT_ADDED: YES
+```
+
+The diagnostic side effect is intentional: opt-in WavRecorder lifecycle metadata may
+append to `diagnostic-events-v1.jsonl`. No WAV/raw path, filename, audio bytes, or
+transcript content is emitted.
+
+### Remaining C merge-gate evidence
+
+Before PR #19 can be considered for merge:
+
+1. add one deterministic queue-saturation/drop contract test;
+2. run full `swift test` from `remote-orbit/`;
+3. run `swift build -c release` from `remote-orbit/`;
+4. prove final PR #19 local/remote HEAD match and clean worktree;
+5. stop at `WAITING_FOR_INDEPENDENT_AUDIT` for a fresh web-side review.
+
+No producer migration, retention/rotation, journal-read redesign, CLI, Agent API,
+Settings/UI, recovery change, package/install/release, or PR merge is authorized.
+
+### Concurrency / inventory note
+
+Lane A1/A2 remains active and is not superseded. The earlier Lane A remote census
+count of 18 PRs / five remote branches predates PR #19 and is now historical for any
+future cleanup decision. A future cleanup gate must refresh the remote inventory and
+include PR #19 / `codex/diagnostic-authority-audit`.
