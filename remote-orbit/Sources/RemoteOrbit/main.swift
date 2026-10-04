@@ -2017,9 +2017,8 @@ final class VoiceKeyFilter {
             "observer_uptime": ProcessInfo.processInfo.systemUptime,
         ]
         if let eventTimestamp {
-            fields["cg_event_timestamp_ns"] = UInt64(eventTimestamp)
-            fields["cg_event_uptime_seconds"] =
-                Double(eventTimestamp) / 1_000_000_000.0
+            fields["cg_event_timestamp_raw"] = UInt64(eventTimestamp)
+            fields["cg_event_timestamp_clock"] = "quartz_event_timestamp_raw"
         }
         diagnosticLogger?.log(
             category: "filter",
@@ -2655,9 +2654,8 @@ final class VoiceKeyFilter {
                         "gesture_id": NSNull(),
                         "key_code": Int(keyCode),
                         "flags": UInt64(event.flags.rawValue),
-                        "cg_event_timestamp_ns": UInt64(event.timestamp),
-                        "cg_event_uptime_seconds":
-                            Double(event.timestamp) / 1_000_000_000.0,
+                        "cg_event_timestamp_raw": UInt64(event.timestamp),
+                        "cg_event_timestamp_clock": "quartz_event_timestamp_raw",
                         "observer_uptime": ProcessInfo.processInfo.systemUptime,
                     ]
                 )
@@ -3667,13 +3665,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         AppStorage.prepare()
-        diagnosticLogger.startRun(fields: [
-            "persisted_persistent": readPersistedPersistentSessionTriggerKey().rawValue,
-            "persisted_momentary": readPersistedVoiceTriggerKey().rawValue,
-            "persisted_legacy": UserDefaults.standard.string(
-                forKey: AppStorage.voiceTriggerKeyKey
-            ) ?? "none",
-        ])
+        var runStartFields = P1A4MonotonicClock.runStartCalibrationFields()
+        runStartFields["persisted_persistent"] = readPersistedPersistentSessionTriggerKey().rawValue
+        runStartFields["persisted_momentary"] = readPersistedVoiceTriggerKey().rawValue
+        runStartFields["persisted_legacy"] = UserDefaults.standard.string(
+            forKey: AppStorage.voiceTriggerKeyKey
+        ) ?? "none"
+        diagnosticLogger.startRun(fields: runStartFields)
         _ = restoreVoiceTriggerRuntime()
         if ProcessInfo.processInfo.environment["REMOTE_ORBIT_DIAGNOSTICS"] == "1" {
             let sourceHead = Bundle.main.object(

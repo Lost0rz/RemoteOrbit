@@ -20,6 +20,27 @@ enum P1A4MonotonicClock {
             / UInt64(timebase.denom)
     }
 
+    /// Captures run-level evidence for correlating Quartz event timestamps with
+    /// the process uptime clock. This is sampled once at application startup and
+    /// is never used by the event-tap decision path.
+    static func runStartCalibrationFields() -> [String: Any] {
+        let calibrationTimebase = timebase
+        guard calibrationTimebase.numer > 0,
+              calibrationTimebase.denom > 0 else {
+            return [:]
+        }
+
+        let machAbsoluteRaw = mach_absolute_time()
+        let processUptime = ProcessInfo.processInfo.systemUptime
+        return [
+            "mach_timebase_numer": calibrationTimebase.numer,
+            "mach_timebase_denom": calibrationTimebase.denom,
+            "anchor_mach_absolute_raw": machAbsoluteRaw,
+            "anchor_mach_clock": "mach_absolute_time",
+            "anchor_process_uptime_seconds": processUptime,
+        ]
+    }
+
     static func wallClockISO8601() -> String {
         ISO8601DateFormatter().string(from: Date())
     }
