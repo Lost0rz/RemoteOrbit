@@ -2798,3 +2798,31 @@ because the historical incident was repaired or causally proven. Reopening this
 incident requires new evidence or a separately authorized task.
 
 PR #18 merge does not alter the separate A3 cleanup authorization or Lane C closure.
+
+
+## Lane A3 cleanup authority reconciliation after Lane B closure
+
+Lane B has closed and PR #18 is merged. This does not revoke, narrow, or expand the
+previously authorized A3 exact cleanup manifest.
+
+Fresh authority anchors:
+
+```text
+A3_RECONCILED_CONTROL_PARENT: aa4bdecd33acca880bc222d352952735cd6d83b8
+REMOTE_MAIN: 6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5
+PR18_SOURCE_HEAD: c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5
+PR18_MERGE_COMMIT: 6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5
+LANE_B: CLOSED
+LANE_C: CLOSED
+A3_EXACT_CLEANUP_AUTHORIZATION: STILL_VALID
+```
+
+The exact A3 cleanup set and all exclusions remain unchanged. The PR #18 validation
+checkout condition is now evaluated against merged PR #18 source head
+`c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5` / main merge commit
+`6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5`; if its HEAD remains an ancestor and
+the checkout has no new dependency, it remains eligible. No B-MR1 work remains active.
+
+Execution must still perform the full A3 destructive preflight. Any dirty/untracked
+state, preservation failure, unexpected dependency, or authority drift remains a
+fail-closed condition.

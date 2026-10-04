@@ -2,14 +2,14 @@
 
 ## Task identity
 
-- **Task:** FOUNDATION GOVERNANCE — A3 EXACT CLEANUP EXECUTION AUTHORIZED; B-MR1 ACTIVE; C CLOSED
+- **Task:** FOUNDATION GOVERNANCE — A3 EXACT CLEANUP EXECUTION AUTHORIZED; B CLOSED; C CLOSED
 - **Status:** AUTHORIZED — EXACT A3 CLEANUP MANIFEST ONLY
 - **Task authority:** this file
 - **Parallel execution:** EXPLICITLY AUTHORIZED
 - **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
 - **Product Construction Gate:** BLOCKED
-- **Merge:** PR #19 COMPLETED; no additional merge authorization implied
+- **Merge:** PR #18 and PR #19 COMPLETED; no additional merge authorization implied
 - **Release / install:** NOT AUTHORIZED
 
 ## Coordination model
@@ -1534,3 +1534,31 @@ capture.
 
 Separate A3 cleanup work, if still active, remains governed only by its own exact
 manifest and authorization.
+
+
+## Lane A3 cleanup re-anchor after Lane B closure
+
+**Status: AUTHORIZED — exact manifest unchanged.**
+
+Use the current control branch rather than the historical cleanup-authorization
+commit as the freshness anchor.
+
+Current authoritative baseline:
+
+```text
+CONTROL_PARENT: aa4bdecd33acca880bc222d352952735cd6d83b8
+MAIN: 6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5
+PR18: MERGED
+PR18_SOURCE_HEAD: c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5
+LANE_B: CLOSED
+LANE_C: CLOSED
+```
+
+The frozen exact cleanup manifest, exclusions, no-force rule, Flight Recorder
+preservation requirement, dependency-safe order, and final writeback contract remain
+unchanged.
+
+Before deletion, fetch live refs using the approved controlled network execution mode,
+fast-forward the clean control worktree to the current control head, read all three
+control files, and run the complete A3 preflight. If the control branch advances again,
+re-read it and proceed only if this A3 authorization remains present and unrevoked.
