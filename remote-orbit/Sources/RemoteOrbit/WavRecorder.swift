@@ -5,7 +5,10 @@
 import Foundation
 
 final class WavRecorder {
-    static func createNext(prefix: String) -> WavRecorder? {
+    static func createNext(
+        prefix: String,
+        diagnosticAuthority: any DiagnosticAuthority = DiagnosticAuthorityService.shared
+    ) -> WavRecorder? {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
@@ -14,7 +17,12 @@ final class WavRecorder {
         AppStorage.ensureDirectory(dir)
         let wavURL = dir.appendingPathComponent("\(base).wav")
         let rawURL = dir.appendingPathComponent("\(base).raw.bin")
-        return WavRecorder(wavURL: wavURL, rawURL: rawURL, basename: base)
+        return WavRecorder(
+            wavURL: wavURL,
+            rawURL: rawURL,
+            basename: base,
+            diagnosticAuthority: diagnosticAuthority
+        )
     }
 
     let basename: String
@@ -25,14 +33,23 @@ final class WavRecorder {
     private var totalFrames: UInt64 = 0
     private var isClosed = false
     private let ioQueue: DispatchQueue
+    private let diagnosticAuthority: any DiagnosticAuthority
+    private let recordingID: String
     private let sampleRate: UInt32 = 16_000
     private let channels: UInt16 = 1
     private let bitsPerSample: UInt16 = 16
 
-    init?(wavURL: URL, rawURL: URL, basename: String) {
+    init?(
+        wavURL: URL,
+        rawURL: URL,
+        basename: String,
+        diagnosticAuthority: any DiagnosticAuthority = DiagnosticAuthorityService.shared
+    ) {
         self.wavURL = wavURL
         self.rawURL = rawURL
         self.basename = basename
+        self.diagnosticAuthority = diagnosticAuthority
+        self.recordingID = UUID().uuidString
         self.ioQueue = DispatchQueue(
             label: "com.lost0rz.RemoteOrbit.wav.\(basename)",
             qos: .utility
@@ -54,6 +71,7 @@ final class WavRecorder {
             return nil
         }
         self.rawHandle = rh
+        emitRecordingStarted()
     }
 
     func appendSamples(_ samples: [Int16]) {
@@ -80,9 +98,11 @@ final class WavRecorder {
     }
 
     func close() {
+        var closedFrameCount: UInt64?
         ioQueue.sync {
             guard !isClosed else { return }
             isClosed = true
+            closedFrameCount = totalFrames
 
             if let h = wavHandle {
                 wavHandle = nil
@@ -104,6 +124,9 @@ final class WavRecorder {
                 try? h.close()
             }
         }
+        if let closedFrameCount {
+            emitRecordingClosed(frameCount: closedFrameCount)
+        }
     }
 
     /// Convenience: returns the generated WAV basename.
@@ -116,6 +139,41 @@ final class WavRecorder {
     }
 
     var recordedSampleRate: UInt32 { sampleRate }
+
+    private func emitRecordingStarted() {
+        guard let event = try? DiagnosticEventInput(
+            eventType: "audio.capture.recording_started",
+            subsystem: "audio.capture",
+            category: "lifecycle",
+            severity: .info,
+            sourceComponent: "wav_recorder",
+            correlationID: recordingID,
+            payload: [
+                "sample_rate": .unsignedInteger(UInt64(sampleRate)),
+                "channels": .unsignedInteger(UInt64(channels)),
+                "bits_per_sample": .unsignedInteger(UInt64(bitsPerSample)),
+            ]
+        ) else { return }
+        diagnosticAuthority.emit(event)
+    }
+
+    private func emitRecordingClosed(frameCount: UInt64) {
+        guard let event = try? DiagnosticEventInput(
+            eventType: "audio.capture.recording_closed",
+            subsystem: "audio.capture",
+            category: "lifecycle",
+            severity: .info,
+            sourceComponent: "wav_recorder",
+            correlationID: recordingID,
+            payload: [
+                "sample_count": .unsignedInteger(frameCount),
+                "recorded_duration_ms": .double(
+                    Double(frameCount) / Double(sampleRate) * 1_000
+                ),
+            ]
+        ) else { return }
+        diagnosticAuthority.emit(event)
+    }
 
     private static func makeHeader(
         sampleRate: UInt32, channels: UInt16, bitsPerSample: UInt16, dataBytes: UInt32
