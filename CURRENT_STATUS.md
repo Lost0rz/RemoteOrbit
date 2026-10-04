@@ -857,6 +857,57 @@ ROOT_CAUSE: UNKNOWN
 Validation must resume only after the local machine can fetch both exact authority
 objects. Cached/stale refs must not substitute for live refs.
 
+## PR #18 local validation finding and corrective
+
+Local validation of probe HEAD
+`8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d` produced:
+
+```text
+AUTHORITY_GATE: PASS
+WORKTREE_CLEAN: YES
+FOCUSED_DIAGNOSTIC_TESTS: PASS
+FOCUSED_REGRESSION_TESTS: PASS
+FULL_SWIFT_TEST: PASS
+TEST_TOTALS: 266 passed
+FAILING_COUNT: 0
+BEHAVIOR_DIFF_AUDIT: FAIL
+```
+
+The behavior audit found one diagnostic observer effect:
+
+- the probe sampled HID report uptime before parsing;
+- that timestamp was then reused as the pre-existing edge/debounce timestamp;
+- baseline sampled the behavioral edge timestamp after parsing/state update;
+- therefore acceptance near the 180 ms debounce boundary could shift.
+
+No user-visible failure was reproduced and no other behavior-path change was found.
+
+A bounded corrective was pushed to PR #18:
+
+```text
+OLD_PROBE_HEAD:
+8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d
+
+CORRECTIVE_PROBE_HEAD:
+f3e852bb0d9d6358a62141dcb4f4e483257772d0
+```
+
+Corrective scope:
+
+- raw-report diagnostics keep an independent `reportObservedUptime`;
+- the production edge/debounce `now` is restored to the baseline sampling point;
+- only `HIDMonitor.swift` changed in the corrective commit;
+- no gate, Persistent, BLE, audio, classifier, replay or suppression semantics were changed.
+
+Current gates:
+
+```text
+DIAGNOSTIC_TEST_GATE: READY_FOR_LOCAL_REVALIDATION
+NEW_CAPTURE_GATE: BLOCKED
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
 ## Prior quality-audit result
 
 The three-file control plane completed three consecutive PASS rounds on live branch

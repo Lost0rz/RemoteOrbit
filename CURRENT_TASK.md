@@ -465,7 +465,7 @@ behavior fix.
 
 ```text
 PROBE_BRANCH: codex/persistent-long-boundary-probes-v1
-PROBE_HEAD: 8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d
+PROBE_HEAD: f3e852bb0d9d6358a62141dcb4f4e483257772d0
 PROBE_PR: #18 OPEN + Draft
 
 B3_PROBE_IMPLEMENTED: YES
@@ -476,7 +476,7 @@ REMOTE_DIFF_SCOPE_AUDIT: PASS
 REMOTE_BEHAVIOR_CHANGE_FOUND: NO
 
 PROBE_IMPLEMENTATION_GATE: PASS
-DIAGNOSTIC_TEST_GATE: READY_FOR_LOCAL_VALIDATION
+DIAGNOSTIC_TEST_GATE: READY_FOR_LOCAL_REVALIDATION
 NEW_CAPTURE_GATE: BLOCKED
 CONSTRUCTION_GATE: BLOCKED
 ROOT_CAUSE: UNKNOWN
@@ -493,7 +493,7 @@ The first local validation attempt correctly stopped before testing.
 Remote authority has been independently re-verified with no drift:
 
 - control: `7b2d7c4411337e892491f077c30057670ac2cede`
-- probe: `8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d`
+- probe: `f3e852bb0d9d6358a62141dcb4f4e483257772d0`
 - main: `7129ef72949eca956b1d0daddce707d5e417eeed`
 - PR #18: OPEN + Draft
 
@@ -514,6 +514,40 @@ Before any build/test, local validation must prove all of:
 If any item fails, stop before build/test.
 
 Network recovery itself must not mutate RemoteOrbit product/runtime state.
+
+## PR #18 corrective revalidation
+
+The first local validation passed all tests but correctly failed behavior-diff audit
+because the diagnostic probe moved the HID edge/debounce timing anchor.
+
+Corrective probe HEAD:
+
+`f3e852bb0d9d6358a62141dcb4f4e483257772d0`
+
+The corrective restores the baseline behavioral timestamp location and keeps raw
+diagnostic timing separate.
+
+### Revalidation required
+
+Local revalidation must use the exact corrective HEAD and confirm:
+
+1. focused diagnostic tests PASS;
+2. focused VoiceKeyFilter/VoicePress/Persistent regressions PASS;
+3. full Swift suite PASS;
+4. behavior diff audit PASS;
+5. HID edge/debounce timing anchor matches baseline;
+6. worktree remains clean.
+
+If all pass:
+
+```text
+DIAGNOSTIC_TEST_GATE: PASS
+NEW_CAPTURE_GATE: READY_FOR_REVIEW
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
+No install, new capture, merge, release, or behavior fix is authorized yet.
 
 ## Completion gate
 
@@ -551,7 +585,7 @@ internal logging.
 Restore local GitHub reachability without changing RemoteOrbit runtime/product
 state. Then re-run the authority-fetch gate and, only if it passes, perform local
 macOS validation of PR #18 HEAD
-`8e8ba2f8ff30584fd9e8b5f72e4673a0a247fe5d`.
+`f3e852bb0d9d6358a62141dcb4f4e483257772d0`.
 
 Authorized locally:
 
