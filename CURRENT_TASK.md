@@ -1480,3 +1480,31 @@ FINAL_STATE = CLEANUP_EXECUTED_WAITING_FOR_INDEPENDENT_WEB_VERIFICATION
 The cleanup result checkpoint may update `CURRENT_STATUS.md` and
 `CURRENT_TASK.md` together in one commit on the control branch after execution.
 Do not merge or close PR #17/#18 and do not modify B-MR1 source.
+
+
+## Lane B PR #18 final merge authorization — 2026-10-04
+
+**Status: AUTHORIZED — exact head only.**
+
+```text
+PR: #18
+EXPECTED_HEAD: c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5
+EXPECTED_BASE_MAIN: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+ACTION: READY_IF_NEEDED -> MERGE -> VERIFY_MAIN -> CLOSE_LANE_B
+FINAL_MERGE_GATE: PASS
+```
+
+Fail closed if PR #18 head or remote main moves before merge. Do not rebase, force,
+add commits, broaden scope, run a fresh capture, implement B9, or begin a product fix.
+
+After merge, Lane B may be marked CLOSED only after remote `main` contains the exact
+PR #18 source head through the GitHub merge result. Preserve these unresolved facts:
+
+```text
+ROOT_CAUSE: UNKNOWN
+B4: SOURCE_NOT_FOUND
+B5: SOURCE_NOT_FOUND
+B7: BLOCKED_BY_DEPLOYMENT_FLOOR
+B9: B9_PARTIAL_METADATA_ONLY / NOT IMPLEMENTED
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+```

@@ -2696,3 +2696,52 @@ DESTRUCTIVE_CLEANUP_GATE: OPEN_FOR_EXACT_MANIFEST_ONLY
 After execution, write the exact observed result to both control files in one commit,
 push, verify remote equality, and stop at
 `CLEANUP_EXECUTED_WAITING_FOR_INDEPENDENT_WEB_VERIFICATION`.
+
+
+## Lane B PR #18 final merge authorization — 2026-10-04
+
+Independent final merge-readiness audit of exact PR #18 head
+`c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5` is **PASS**.
+
+```text
+PR18_FINAL_HEAD: c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5
+PR18_BASE_MAIN: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PR18_MERGEABLE: YES / CLEAN
+B_MR1_TIMING_NEUTRAL_CORRECTIVE: PASS
+FOCUSED_TESTS: 24 PASS
+FULL_SWIFT_TEST: 285 PASS
+RELEASE_BUILD: PASS
+DIFF_CHECK: PASS
+REMOTE_SYNC: PASS
+FINAL_MERGE_GATE: PASS
+```
+
+The B-MR1 corrective changes only `main.swift` plus focused tests. It moves the
+new source-correlation diagnostic enqueue behind synchronous press/gate and
+release/stop behavior while preserving entry-time occurrence metadata and gesture
+identity. The injected `isVoiceHIDMappingEnabled` seam defaults directly to
+`RemoteVoiceKeyMapping.isEnabled`; production semantics are unchanged.
+
+The complete PR #18 delta remains diagnostic-only: B3 HID→mapped-CGEvent correlation,
+clock calibration, source tagging, B8 frontmost transition observation, closed-catalog
+DiagnosticAuthority registration, and focused tests. No product fix, threshold/timer
+change, Option ownership change, BLE/audio behavior change, or B9 implementation is
+included.
+
+This authorizes the exact transition:
+
+- mark PR #18 ready if required;
+- merge PR #18 at exact head `c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5` into current main
+  `5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d`;
+- verify the resulting remote `main`;
+- then close Lane B in the control plane.
+
+This merge does **not** establish historical root cause and does **not** authorize a
+product behavior fix.
+
+```text
+ROOT_CAUSE: UNKNOWN
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+FRESH_CAPTURE: NOT_AUTHORIZED
+B9_IMPLEMENTATION: NOT_AUTHORIZED
+```
