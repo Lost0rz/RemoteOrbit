@@ -1,5 +1,60 @@
 # RemoteOrbit Current Task
 
+## Current task — ACTIVE INCIDENT READ-ONLY CAPTURE
+
+- **Status:** ACTIVE / READ-ONLY
+- **Incident ID:** `RO-INCIDENT-20261004-01`
+- **Control-plane parent:** `abe0365c0173095a83010d8b0e026755e74efc47`
+- **Task authority:** `CURRENT_TASK.md` on `main`
+- **Exact symptom:** UNKNOWN pending owning-Mac evidence
+- **Product Construction Gate:** BLOCKED
+- **Source mutation:** FORBIDDEN
+- **Release / install:** NOT AUTHORIZED
+- **Runtime mutation:** FORBIDDEN except copying/reading evidence
+- **Restart/relaunch:** FORBIDDEN until evidence preservation completes
+
+### Immediate objective
+
+Preserve the incident before recovery changes the observable state.
+
+The owning-Mac agent must:
+
+1. bind installed/running identity (PID, app path, executable path/hash,
+   version/build, source marker when present);
+2. record incident wall-clock time and current frontmost/target app context;
+3. preserve available diagnostic sources before any restart:
+   - `~/Library/Logs/RemoteOrbit/diagnostic-events-v1.jsonl`
+   - `~/Library/Logs/RemoteOrbit/voice-diagnostic-current.jsonl`
+   - `~/Library/Logs/RemoteOrbit/RemoteOrbit.log`
+   - retained Flight Recorder / observer outputs relevant to the incident;
+4. hash copied evidence and record source path, byte size, mtime;
+5. use the merged diagnostic CLI only if the executable being invoked is explicitly
+   identified; CLI reads are allowed, but no CLI/source/runtime write is authorized;
+6. classify B1–B9 boundaries with FACT / INFERENCE / UNKNOWN and identify the first
+   broken or unobservable boundary.
+
+### Forbidden
+
+No app restart/relaunch, reinstall, rebuild-for-replacement, process kill, TCC change,
+LaunchAgent change, driver replacement, CoreAudio restart, settings mutation,
+log clear/truncate/rotate, source edit, branch/worktree cleanup, or speculative fix.
+
+### Exit gate
+
+Return preserved evidence inventory, runtime identity, exact symptom description,
+incident timeline, CLI outputs when available, and B1–B9 classification.
+
+If evidence is insufficient, return `PROBE_GAP`; do not fix.
+If a specific broken boundary is directly supported, return it for independent Web
+Construction Gate review; do not fix.
+
+
+---
+
+## Previous closed task record
+
+# RemoteOrbit Current Task
+
 ## Current task — NONE / FOUNDATION READY
 
 - **Status:** CLOSED

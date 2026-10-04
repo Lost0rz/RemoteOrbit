@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: DIAGNOSTIC CLI V1 — CLOSED / CONTROL PLANE ON MAIN
+State: ACTIVE INCIDENT — READ-ONLY CAPTURE / CONSTRUCTION BLOCKED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -3143,3 +3143,17 @@ v1 query/snapshot contract. No second schema, journal, JSONL parser, recovery ow
 or control plane was introduced. This closure does not authorize release, install,
 runtime replacement, producer migration, schema-v2 work, or further diagnostic
 expansion.
+
+
+## Active incident — 2026-10-04 / capture phase
+
+- **FACT — User report:** a RemoteOrbit problem has occurred.
+- **FACT — Remote baseline at incident-task creation:** `abe0365c0173095a83010d8b0e026755e74efc47`.
+- **UNKNOWN — Exact symptom:** not yet classified from local evidence.
+- **UNKNOWN — Installed/running runtime identity:** must be established on the owning Mac.
+- **UNKNOWN — Whether the running build contains DiagnosticAuthority/CLI:** must not be inferred from source main.
+- **INCIDENT_PHASE:** READ_ONLY_CAPTURE
+- **PRODUCT_CONSTRUCTION_GATE:** BLOCKED
+- **RESTART / REINSTALL / TCC / DRIVER / COREAUDIO / SETTINGS MUTATION:** FORBIDDEN
+- **SOURCE CHANGES:** FORBIDDEN
+- **GOAL:** freeze the current incident window, bind runtime identity, preserve available logs/journals/Flight Recorder evidence, then classify the first broken or unobservable boundary before any construction decision.
