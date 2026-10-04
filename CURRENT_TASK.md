@@ -2,7 +2,7 @@
 
 ## Task identity
 
-- **Task:** FOUNDATION GOVERNANCE — B ACTIVE; A / C CLOSED
+- **Task:** FOUNDATION GOVERNANCE — A3 CLEANUP DISPOSITION AUDIT + B ACTIVE; C CLOSED
 - **Status:** AUTHORIZED
 - **Task authority:** this file
 - **Parallel execution:** EXPLICITLY AUTHORIZED
@@ -18,7 +18,7 @@ Three lanes may run concurrently because they own different mutation surfaces.
 
 | Lane | Objective | Write authority | Must not touch |
 | --- | --- | --- | --- |
-| A | CLOSED — A1/A2 inventory/freeze/classification accepted | none; no further A construction authority | cleanup requires a new explicit task |
+| A | A3 read-only cleanup-disposition audit | owning-Mac inventory + control-plane evidence checkpoint only | no deletion/prune/move/PR mutation/runtime or product-source change |
 | B | boundary probes + capture completeness | PR #18 diagnostic probe surface | control plane, CLI, Settings, Authority schema ownership |
 | C | CLOSED — diagnostic Authority skeleton accepted and merged | none; no further C construction authority | all further diagnostic expansion requires a new task |
 
@@ -519,3 +519,88 @@ FINAL_STATE: WAITING_FOR_INDEPENDENT_AUDIT
 No probe expansion, Authority migration, behavior fix, threshold/timing change,
 install, runtime replacement, fresh incident capture, PR #18 merge, release, or
 control-plane edits from Lane B.
+
+
+## Lane A3 — refreshed cleanup-disposition audit
+
+**Status:** AUTHORIZED — READ-ONLY AUDIT ONLY.
+
+A1/A2 proved inventory/freeze/classification at their audit times. Since then PR #19
+merged into `main`, B advanced, and the merged C source branch remains present.
+Those facts require a fresh disposition audit before any deletion decision.
+
+### Scope
+
+Refresh and reconcile:
+
+- all registered/live/missing RemoteOrbit worktrees on the owning Mac;
+- all RemoteOrbit local branches and upstream/ahead/behind/reachability state;
+- all current remote branches and open/merged PR relationships;
+- dirty/untracked/local-only evidence in every live worktree;
+- the same bounded A2 roots:
+  - `/Volumes/Jack-Dev/Projects`
+  - `/Users/jack7788/Documents/Code` (deduplicate symlink-equivalent content)
+  - `/private/tmp`
+  - `/Users/jack7788/Applications`
+- the prior 20 non-worktree artifact groups plus any new or changed
+  RemoteOrbit-owned groups;
+- operational-use uncertainty for app/observer/runtime artifacts;
+- exact preservation source for every proposed stale/duplicate cleanup candidate.
+
+### Required final classifications
+
+Use only:
+
+- `KEEP_ACTIVE`
+- `KEEP_FORENSIC`
+- `KEEP_RELEASE`
+- `SAFE_DELETE_CANDIDATE`
+- `UNKNOWN_BLOCKED`
+
+A worktree or branch may be `SAFE_DELETE_CANDIDATE` only when it has no dirty or
+untracked evidence, no unique local-only history, no active task/PR authority, and no
+unpreserved forensic/runtime dependency.
+
+### Acceptance output
+
+Return:
+
+```text
+A3_FRESHNESS_GATE
+REMOTE_MAIN
+CONTROL_HEAD
+OPEN_PRS
+REMOTE_BRANCHES
+REGISTERED_WORKTREE_COUNT
+LIVE_WORKTREE_COUNT
+MISSING_REGISTRATION_COUNT
+DIRTY_WORKTREE_COUNT
+UNTRACKED_EVIDENCE_COUNT
+LOCAL_ONLY_COMMIT_SET
+WORKTREE_DISPOSITION_TABLE
+LOCAL_BRANCH_DISPOSITION_TABLE
+REMOTE_BRANCH_DISPOSITION_TABLE
+NON_WORKTREE_ARTIFACT_GROUP_COUNT
+ARTIFACT_DISPOSITION_TABLE
+EXACT_PROPOSED_CLEANUP_MANIFEST
+UNKNOWN_BLOCKERS
+DESTRUCTIVE_CLEANUP_GATE = BLOCKED
+FINAL_STATE = READY_FOR_INDEPENDENT_WEB_AUDIT
+```
+
+The local executor may write verified A3 evidence to `CURRENT_STATUS.md` and
+`CURRENT_TASK.md` **together in one commit** on the control branch, but may set only
+`READY_FOR_INDEPENDENT_WEB_AUDIT`. It may not set cleanup PASS or authorize deletion.
+
+### Freshness / stop rules
+
+- If control HEAD changes after the local audit starts, STOP and reconcile.
+- If `main`, PR #18, the open PR set, or remote branch set changes during the audit,
+  restart the freshness snapshot before classifying affected candidates.
+- A B2 merge/reconciliation advancement is not an A3 failure by itself, but A3 may not
+  reuse a pre-B2 snapshot to authorize a candidate.
+- If any candidate has dirty/untracked content, unproven local-only history, uncertain
+  operational use, or unresolved forensic context, classify it `UNKNOWN_BLOCKED`.
+- If a required scan root is unavailable, STOP with the missing evidence.
+
+No destructive cleanup is authorized by this task.

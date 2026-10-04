@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — A CLOSED / B ACTIVE / C CLOSED
+State: FOUNDATION GOVERNANCE — A3 CLEANUP DISPOSITION AUDIT ACTIVE / B ACTIVE / C CLOSED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -1866,3 +1866,94 @@ clean pre-state, conflict-free integration, B probe-path preservation, focused B
 diagnostic tests PASS, full Swift tests PASS, release build PASS, branch/remote sync,
 and clean final worktree. No install, runtime replacement, fresh capture, behavior
 fix, producer migration, or PR merge is authorized by this gate.
+
+
+## Lane A3 cleanup-disposition audit authorization — 2026-10-04
+
+### Gate decision
+
+**AUDIT THRESHOLD: PASS.**
+
+A1 repository/worktree governance and A2 non-worktree artifact governance remain
+accepted as frozen evidence, but they are **not** sufficient to authorize destructive
+cleanup after later B/C transitions.
+
+Fresh remote reconciliation for this transition establishes:
+
+- **FACT — remote main:** `5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d` (PR #19 merged).
+- **FACT — control branch before this transition:** `codex/project-agents-control-plane-v1`
+  at `6bb9e1f4f0059324c4f0a17e51c78df01af5f326`.
+- **FACT — open PRs:** #17 (control plane) and #18 (B boundary probes).
+- **FACT — PR #18 pre-B2 head:** `ca35022be6cea6262d971ef0aedaa5550324004f`.
+- **FACT — B2:** exact-main reconciliation is separately authorized; Lane B may
+  advance after this snapshot, so A3 must fail freshness and stop if that occurs.
+- **FACT — current remote branches at audit authorization:** six: `main`, control,
+  PR #18, `codex/diagnostic-authority-audit`,
+  `codex/persistent-duplicate-audio-forensics`, and
+  `codex/voice-single-owner-session`.
+- **FACT — merged C source branch remains present:** `codex/diagnostic-authority-audit`
+  at `ee4effd0b6435b5198a258fa9c9f063717f69136`.
+- **FACT — prior A2 result:** 20 non-worktree artifact groups were classified, with
+  1 duplicate candidate, 8 UNKNOWN-BLOCKED, and no deletion authorization.
+
+Therefore a refreshed local cleanup-disposition audit is justified and bounded.
+This transition does **not** assert that any current worktree, branch, or filesystem
+artifact is safe to delete.
+
+### A3 purpose
+
+Produce the evidence needed for a later exact cleanup decision without deleting,
+moving, pruning, resetting, closing, merging, rebuilding, installing, or changing
+product/diagnostic behavior.
+
+A3 must refresh the owning-Mac state and answer separately:
+
+1. which registered/live worktrees and local/remote branch lines remain required;
+2. which non-worktree artifacts are uniquely valuable, operationally in use,
+   sufficiently duplicated, stale, or still uncertain.
+
+### A3 acceptance standard
+
+A3 is complete only when all of the following are satisfied:
+
+1. **Freshness:** remote main, control branch, PR #18 head, open PR set, remote
+   branch set, and owning-Mac worktree registry are captured in one audit window.
+2. **Worktree completeness:** every registered entry has path/live state, branch or
+   detached identity, HEAD, dirty/untracked state, local-only commits, PR/task
+   relation, reachability, preservation evidence, and one final disposition.
+3. **Branch completeness:** every local and remote branch has an evidence-backed keep,
+   cleanup-candidate, or blocked disposition. Merged status alone is insufficient if
+   local evidence or an active worktree still depends on the branch.
+4. **Artifact freshness:** the bounded A2 roots are rescanned with registered
+   worktrees excluded; the prior 20 groups are reconciled and any new/changed
+   RemoteOrbit-owned groups are added.
+5. **Operational-use check:** app/observer/runtime artifacts are not called duplicates
+   solely from byte equality when running/installed use, identity, filename/timestamp
+   context, or capture provenance may matter.
+6. **Duplicate proof:** every cleanup candidate names the preserved authoritative copy
+   and proves that copy is sufficient for the relevant Git/forensic/release/runtime
+   preservation purpose.
+7. **Fail-closed:** unresolved provenance, local-only history, dirty evidence,
+   operational-use uncertainty, or contextual evidence is `UNKNOWN_BLOCKED`.
+8. **Exact manifest:** produce a proposed cleanup manifest split into worktrees, local
+   branches, remote branches, files/directories, and registry-prune candidates, with
+   explicit preconditions for each item.
+9. **No destructive mutation:** no worktree removal/prune, branch deletion, file move
+   or deletion, reset/clean/stash/rebase, PR mutation, runtime/install/package change,
+   or source edit occurs during A3.
+
+### Gates
+
+- **A3 read-only audit:** OPEN.
+- **Control-plane evidence writeback:** OPEN only for a same-commit
+  `CURRENT_STATUS.md` + `CURRENT_TASK.md` checkpoint setting
+  `READY_FOR_INDEPENDENT_WEB_AUDIT`; it must not authorize cleanup.
+- **Worktree removal/prune:** BLOCKED.
+- **Local/remote branch deletion:** BLOCKED.
+- **Filesystem deletion/move:** BLOCKED.
+- **PR close/merge by A3:** BLOCKED.
+- **Reset/clean/stash/rebase/history rewrite:** BLOCKED.
+- **Runtime/install/package/release mutation:** BLOCKED.
+
+A later destructive-cleanup transition requires independent web audit of the A3
+evidence and explicit user authorization of the exact deletion set.
