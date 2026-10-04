@@ -1,8 +1,8 @@
 # RemoteOrbit Current Task
 
-## Current task — ACTIVE INCIDENT / CONTROLLED DIAGNOSTIC RUNTIME UPGRADE
+## Current task — ACTIVE INCIDENT / CONTROLLED EXACT-MAIN REPRODUCTION
 
-- **Status:** ACTIVE / INCIDENT BOUND / PHASE 1 EVIDENCE SEAL → PHASE 2 EXACT-MAIN RUNTIME UPGRADE
+- **Status:** ACTIVE / RUNTIME UPGRADE ACCEPTED / ONE CONTROLLED REPRODUCTION AUTHORIZED
 - **Incident ID:** `RO-INCIDENT-20261004-01`
 - **Control-plane parent:** `abe0365c0173095a83010d8b0e026755e74efc47`
 - **Task authority:** `CURRENT_TASK.md` on `main`
@@ -69,6 +69,56 @@ Allowed sequence:
 
 Do not reproduce the gesture until runtime identity and diagnostic readiness have been
 reported. The next reproduction is a separate capture step under this same incident.
+
+### Runtime-upgrade disposition
+
+The exact-main runtime upgrade is accepted.
+
+Installed runtime authority for the next reproduction:
+
+```text
+PID: 6369
+SOURCE_HEAD: 77812cb1ccab051aca0e7d79b82f2db309074775
+EXECUTABLE_SHA256: ae07ea884a87a3ac94f0774faa69f921db475985cfd07ecab7ee7a215a9c8924
+CLI: READY
+DRIVER/COREAUDIO/TCC/SETTINGS: PRESERVED
+```
+
+Do not rebuild, reinstall, restart, or change settings before the reproduction.
+
+### Phase 3 — one controlled reproduction
+
+Perform exactly one intended gesture sequence against the user's normal target IME/app:
+
+1. ensure the intended target application/IME is frontmost and stable;
+2. note wall-clock start time;
+3. short click once and confirm the persistent session visibly opens;
+4. wait approximately 1–2 seconds without another trigger;
+5. long press once beyond the existing 300 ms classifier threshold;
+6. release normally;
+7. observe only whether the persistent session remains open or exits;
+8. note wall-clock end time and the user-visible result;
+9. do not press the trigger again until evidence capture completes.
+
+Immediately after the sequence, without restarting anything:
+
+- run installed-binary `diagnostics status`, `verify`, and `query --limit 500`;
+- copy/hash the new `diagnostic-events-v1.jsonl` if present;
+- copy/hash `voice-diagnostic-current.jsonl` and `RemoteOrbit.log`;
+- preserve any current Flight Recorder/observer output without assuming stale files are fresh;
+- correlate the exact short and long gesture IDs/session IDs from the upgraded logs;
+- classify B1–B9 for this exact reproduction only.
+
+Coverage rule:
+- use DiagnosticAuthority/CLI primarily for B8/frontmost and any catalog events;
+- use upgraded PR #18/VoiceDiagnosticLogger evidence for HID, mapped CGEvent, gate,
+  classifier, persistent mode and voice/BLE boundaries;
+- do not infer absence from the CLI for event classes not in the v1 catalog.
+
+Return whether the symptom reproduced. If it did not reproduce, report
+`NOT_REPRODUCED_ON_EXACT_MAIN`; do not keep trying repeatedly.
+If it did reproduce, identify the first confirmed broken boundary if evidence supports
+one; otherwise return the first probe gap.
 
 ### Immediate objective
 

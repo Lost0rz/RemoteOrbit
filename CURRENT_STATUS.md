@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: ACTIVE INCIDENT — BOUND SYMPTOM / CONTROLLED DIAGNOSTIC RUNTIME UPGRADE AUTHORIZED
+State: ACTIVE INCIDENT — EXACT-MAIN DIAGNOSTIC RUNTIME READY / CONTROLLED REPRODUCTION AUTHORIZED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -3188,3 +3188,17 @@ expansion.
 - **AUTHORIZED RUNTIME MUTATION:** package exact current `main`, preserve old app identity/bundle evidence, gracefully terminate the old app, replace only `/Applications/RemoteOrbit.app`, relaunch it, and verify exact source marker/CLI/Authority readiness.
 - **NOT AUTHORIZED:** source edits, speculative bug fix, driver replacement, CoreAudio restart, TCC reset/change, LaunchAgent mutation, settings reset, log deletion/truncation, or release publication.
 - **CONSTRUCTION_GATE:** BLOCKED; runtime upgrade is diagnostic enablement only, not product-fix construction.
+
+
+## Incident RO-INCIDENT-20261004-01 — runtime-upgrade audit PASS / reproduction authorized
+
+- **RUNTIME_UPGRADE_AUDIT:** PASS.
+- **FACT — Installed runtime:** PID 6369, source marker `77812cb1ccab051aca0e7d79b82f2db309074775`, exact current `main`; executable SHA256 `ae07ea884a87a3ac94f0774faa69f921db475985cfd07ecab7ee7a215a9c8924`.
+- **FACT — Old incident runtime:** PID 25802 was preserved and gracefully terminated only after evidence sealing.
+- **FACT — Validation:** 292/292 Swift tests PASS; release build/package signing/diff check PASS; installed CLI help/status/verify/query PASS.
+- **FACT — Mutation boundary:** only `/Applications/RemoteOrbit.app` was replaced/relaunched; driver, CoreAudio, TCC, LaunchAgent, settings and logs were not mutated by the upgrade.
+- **FACT — Authority coverage clarification:** DiagnosticAuthority v1 is the sole owner for its machine-readable catalog, but historical B1–B7 producers are not fully migrated. Current v1 catalog directly includes `application.frontmost.transition` plus WAV capture lifecycle events; HID/mapped-event/gate/persistent-session diagnosis still uses the upgraded legacy voice diagnostics and PR #18 probes.
+- **FACT — Journal absent before reproduction:** expected because no catalog producer had necessarily emitted yet.
+- **NEXT AUTHORIZED ACTION:** one controlled reproduction of short-open → long-hold while preserving the exact current runtime, followed by immediate read-only evidence capture.
+- **PRODUCT FIX / SOURCE CHANGE:** still forbidden.
+- **CONSTRUCTION_GATE:** BLOCKED pending reproduction evidence.
