@@ -35,7 +35,7 @@ final class VoiceInputSourceDiagnosticsTests: XCTestCase {
             shortBinding: .voiceKeyDefault,
             source: .hidMonitor
         )
-        controller.recordVoiceReleaseEntry(source: .hidMonitor)
+        controller.finishVoicePressRelease(source: .hidMonitor, stopVoiceInput: {})
 
         logger.flush()
         logger.close()

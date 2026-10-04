@@ -2954,6 +2954,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let persistVoiceTriggerKey: (VoiceTriggerKey) -> Void
     private let readPersistedPersistentSessionTriggerKey: () -> VoiceTriggerKey
     private let persistPersistentSessionTriggerKey: (VoiceTriggerKey) -> Void
+    private let diagnosticUptimeProvider: () -> TimeInterval
     private let voiceHIDMappingQueue = DispatchQueue(
         label: "com.remoteorbit.voice-trigger-hid-mapping",
         qos: .userInitiated
@@ -2981,7 +2982,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         persistPersistentSessionTriggerKey: @escaping (VoiceTriggerKey) -> Void = {
             AppStorage.persistentSessionTriggerKey = $0
         },
-        diagnosticLogger: VoiceDiagnosticLogger = .shared
+        diagnosticLogger: VoiceDiagnosticLogger = .shared,
+        uptimeProvider: @escaping () -> TimeInterval = {
+            ProcessInfo.processInfo.systemUptime
+        }
     ) {
         self.filter = filter
         self.voicePress = voicePress
@@ -2993,6 +2997,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.persistVoiceTriggerKey = persistVoiceTriggerKey
         self.readPersistedPersistentSessionTriggerKey = readPersistedPersistentSessionTriggerKey
         self.persistPersistentSessionTriggerKey = persistPersistentSessionTriggerKey
+        self.diagnosticUptimeProvider = uptimeProvider
         super.init()
     }
 
@@ -3397,6 +3402,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("[VOICE] press rejected during trigger reconfiguration or runtime lock")
             return
         }
+        let gestureID = UUID()
+        let occurrenceUptime = diagnosticUptimeProvider()
+        let hidConnectedAtEntry = hidConnected
+        let filterSkipVoiceKeyAtEntry = filter.skipVoiceKey
+        let momentaryKeyAtEntry = currentMomentaryVoiceTriggerKey
+        let persistentKeyAtEntry = currentPersistentSessionTriggerKey
         let target = lockedTarget
             ?? MappingStore.preferredApplicationBundleIdentifier()
         let needsFloatTabsFocus = FloatTabsCommandClient.shouldPrepareInputFocus(
@@ -3408,20 +3419,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // never gate the physical Option edge or remote audio. AX/WebKit can
         // be slow or unavailable even while the receiver is already working.
         let needsFocusPreparation = needsFloatTabsFocus || needsCodexFocus
-        let gestureID = UUID()
-        diagnosticLogger.log(
-            category: "voice",
-            event: "VOICE_PRESS_ENTRY",
-            gestureID: gestureID,
-            fields: [
-                "source": source.rawValue,
-                "hid_connected": hidConnected,
-                "filter_skip_voice_key": filter.skipVoiceKey,
-                "observer_uptime": ProcessInfo.processInfo.systemUptime,
-                "momentary_key": currentMomentaryVoiceTriggerKey.rawValue,
-                "persistent_key": currentPersistentSessionTriggerKey.rawValue,
-            ]
-        )
         // Gate every gesture while the real HID mapping is active. Otherwise
         // a disabled short slot could still leak the mapped trigger before
         // the 300 ms classifier resolves the press.
@@ -3476,15 +3473,29 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
-        guard voicePress.keyDown(
+        let pressAccepted = voicePress.keyDown(
             sessionID: gestureID,
             onShortTap: shortTapAction,
             usesLocalMicrophone: usesLocalMicrophone,
             togglesPersistentVoiceSession: togglesPersistentVoiceSession,
             bypassesShortClassification: bypassesShortClassification,
-            usesHardwareOption: RemoteVoiceKeyMapping.isEnabled,
+            usesHardwareOption: isVoiceHIDMappingEnabled(),
             preparesRemoteTransport: resolvedShortBinding.isDisabled
-        ) else {
+        )
+        diagnosticLogger.log(
+            category: "voice",
+            event: "VOICE_PRESS_ENTRY",
+            gestureID: gestureID,
+            fields: [
+                "source": source.rawValue,
+                "hid_connected": hidConnectedAtEntry,
+                "filter_skip_voice_key": filterSkipVoiceKeyAtEntry,
+                "observer_uptime": occurrenceUptime,
+                "momentary_key": momentaryKeyAtEntry.rawValue,
+                "persistent_key": persistentKeyAtEntry.rawValue,
+            ]
+        )
+        guard pressAccepted else {
             return
         }
 
@@ -3503,7 +3514,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Hardware activation already supersedes an older gate inside
         // beginOptionDeferral. Only the synthetic fallback needs the
         // coordinator call site to clear a stale physical gate here.
-        if !RemoteVoiceKeyMapping.isEnabled {
+        if !isVoiceHIDMappingEnabled() {
             filter.cancelActiveOptionDeferral(reason: "superseded-by-new-gesture")
         }
 
@@ -3549,15 +3560,36 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    func recordVoiceReleaseEntry(source: VoicePressInputSource) {
+    private func recordVoiceReleaseEntry(
+        source: VoicePressInputSource,
+        gestureID: UUID?,
+        occurrenceUptime: TimeInterval
+    ) {
         diagnosticLogger.log(
             category: "voice",
             event: "VOICE_RELEASE_ENTRY",
-            gestureID: voicePress.currentGestureIDForDiagnostics,
+            gestureID: gestureID,
             fields: [
                 "source": source.rawValue,
-                "observer_uptime": ProcessInfo.processInfo.systemUptime,
+                "observer_uptime": occurrenceUptime,
             ]
+        )
+    }
+
+    func finishVoicePressRelease(
+        source: VoicePressInputSource,
+        stopVoiceInput: () -> Void
+    ) {
+        let gestureID = voicePress.currentGestureIDForDiagnostics
+        let occurrenceUptime = diagnosticUptimeProvider()
+        let shouldStopVoiceInput = voicePress.keyUp()
+        if shouldStopVoiceInput {
+            stopVoiceInput()
+        }
+        recordVoiceReleaseEntry(
+            source: source,
+            gestureID: gestureID,
+            occurrenceUptime: occurrenceUptime
         )
     }
 
@@ -3874,8 +3906,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         filter.onVoiceKeyUp = { [weak self] in
             guard let self else { return }
-            self.recordVoiceReleaseEntry(source: .voiceKeyFilterFallback)
-            if self.voicePress.keyUp() {
+            self.finishVoicePressRelease(source: .voiceKeyFilterFallback) {
                 self.ble.stopVoiceInput()
             }
         }
@@ -4090,8 +4121,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             source: .hidMonitor
                         )
                     } else {
-                        self.recordVoiceReleaseEntry(source: .hidMonitor)
-                        if self.voicePress.keyUp() {
+                        self.finishVoicePressRelease(source: .hidMonitor) {
                             self.ble.stopVoiceInput()
                         }
                     }
