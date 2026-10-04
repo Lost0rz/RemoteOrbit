@@ -1,5 +1,94 @@
 # RemoteOrbit Current Task
 
+## Current task — READ-ONLY DIAGNOSTIC CLI V1
+
+- **Status:** IMPLEMENTED / PR #20 DRAFT / WAITING_FOR_LOCAL_MAC_VALIDATION
+- **Construction:** COMPLETE; validation/merge gates remain open
+- **Baseline main:** `76bc3cfa7fb7a5d34b1d8335ee9ad4a59f145c57`
+- **Active branch:** `codex/read-only-diagnostic-cli-v1`
+- **Task authority:** this file on the active branch until merge/closure
+- **Product behavior changes:** FORBIDDEN
+- **Diagnostic backend redesign:** FORBIDDEN
+- **Release / install / runtime mutation:** NOT AUTHORIZED
+
+### Objective
+
+Complete a read-only CLI consumer for the existing `DiagnosticAuthority` v1
+journal/query/snapshot contract without creating a second schema, parser, journal,
+or recovery/control plane.
+
+### Required architecture
+
+1. `DiagnosticAuthority` remains the unique owner of machine-readable diagnostic
+   schema/query/snapshot semantics.
+2. The canonical diagnostic journal location has one source definition.
+3. CLI commands must call the existing Authority/query contract rather than parse
+   JSONL independently.
+4. CLI invocation must terminate before duplicate-instance handling, AppKit startup,
+   HID/BLE/audio initialization, or any product runtime side effect.
+5. Legacy text/voice logs remain legacy evidence only; the CLI must not silently
+   merge them into the v1 Authority stream.
+
+### Required command surface
+
+- `diagnostics status` — read-only storage/schema metadata.
+- `diagnostics query` — filter and export through the existing query/snapshot contract.
+- `diagnostics snapshot` — stable JSON snapshot through the same contract.
+- `diagnostics verify` — fail closed on unsupported schema, malformed journal,
+  invalid cursor/filter, or storage failure.
+- `diagnostics help`.
+
+Supported filters must be limited to fields already supported by
+`DiagnosticQueryFilter`: event type, subsystem, category, severity, process
+instance, session, incident, correlation, cursor, and limit.
+
+### Forbidden
+
+No restart/reset/repair/install/kill/clear/rotate/truncate/delete command; no settings
+mutation; no TCC/driver/LaunchAgent/CoreAudio mutation; no producer migration; no
+new runtime probes; no voice/HID/BLE/audio/focus behavior change; no schema-v2 work.
+
+### Acceptance
+
+- CLI reuses `DiagnosticAuthority` / `DiagnosticQueryFilter` / `snapshot`.
+- No second JSONL parser or duplicate schema implementation exists.
+- Canonical journal path is not duplicated between app Authority and CLI.
+- Invalid arguments and diagnostic data errors fail closed with non-zero exit status.
+- Focused CLI tests pass.
+- Existing DiagnosticAuthority tests pass.
+- Full `swift test` passes.
+- Release build passes.
+- `git diff --check` passes.
+- After exact-head local macOS validation, write back evidence and stop at `WAITING_FOR_INDEPENDENT_AUDIT`.
+- Merge requires a separate post-validation disposition; release/install remain separate.
+
+---
+
+## Current validation checkpoint
+
+PR #20 is open as Draft. The CLI source is implemented and remote scope/type checks are
+clean, but this remote session cannot execute the macOS AppKit package or claim the
+required full `swift test` / release-build evidence.
+
+The owning-Mac validator must use the exact live PR #20 head, make no source changes,
+and run:
+
+1. `swift test --filter DiagnosticCLITests`
+2. `swift test --filter DiagnosticAuthorityTests`
+3. full `swift test`
+4. `swift build -c release --disable-sandbox` if the environment requires it
+5. `git diff --check`
+6. built-binary smoke:
+   - `RemoteOrbit diagnostics status`
+   - `RemoteOrbit diagnostics verify`
+   - `RemoteOrbit diagnostics query --limit 1`
+   - an unknown control command must fail non-zero without launching the app
+
+Return exact HEAD, command results, and clean worktree. Do not merge, install, release,
+or alter runtime state during validation.
+
+## Historical task record
+
 ## Task identity
 
 - **Task:** FOUNDATION GOVERNANCE — A3/B/C CLOSED; CONTROL PLANE ON MAIN
