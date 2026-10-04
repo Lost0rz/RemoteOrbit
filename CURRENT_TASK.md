@@ -2,8 +2,8 @@
 
 ## Task identity
 
-- **Task:** FOUNDATION GOVERNANCE — A3 EXACT CLEANUP MANIFEST VERIFIED; USER AUTHORIZATION REQUIRED; B9 AUDIT ACCEPTED; C CLOSED
-- **Status:** WAITING FOR EXPLICIT USER CLEANUP AUTHORIZATION
+- **Task:** FOUNDATION GOVERNANCE — A3 EXACT CLEANUP EXECUTION AUTHORIZED; B-MR1 ACTIVE; C CLOSED
+- **Status:** AUTHORIZED — EXACT A3 CLEANUP MANIFEST ONLY
 - **Task authority:** this file
 - **Parallel execution:** EXPLICITLY AUTHORIZED
 - **Product behavior changes:** FROZEN
@@ -1425,3 +1425,58 @@ Commit/push normally to PR #18 and stop. Do not merge PR #18.
 
 No B9 implementation; no fresh capture; no install/runtime replacement; no product
 fix; no threshold/timing tuning; no PR merge; no cleanup execution; no release.
+
+
+## Lane A3 transition — exact cleanup execution authorized
+
+**Status:** AUTHORIZED — DESTRUCTIVE, EXACT MANIFEST ONLY.
+
+The user explicitly approved the independently verified A3 cleanup manifest. The
+authoritative exact set, exclusions, preservation conditions, preflight, and execution
+order are recorded in CURRENT_STATUS and must be followed literally.
+
+### Execution rule
+
+Do not reconstruct the cleanup set from chat history or from filenames. Use the exact
+manifest in CURRENT_STATUS.
+
+Before mutation, re-read all three control files and run the required preflight. If a
+candidate fails preflight, skip only that candidate and report it as blocked; do not
+force removal or broaden cleanup.
+
+### Required final report
+
+Return:
+
+```text
+A3_CLEANUP_START_CONTROL_HEAD
+A3_CLEANUP_FINAL_CONTROL_PARENT
+PRECHECK
+AUTHORIZED_WORKTREES_REQUESTED
+AUTHORIZED_WORKTREES_REMOVED
+WORKTREES_SKIPPED_BLOCKED
+AUTHORIZED_LOCAL_BRANCHES_REQUESTED
+AUTHORIZED_LOCAL_BRANCHES_DELETED
+LOCAL_BRANCHES_SKIPPED_BLOCKED
+AUTHORIZED_REMOTE_BRANCH_REQUESTED
+AUTHORIZED_REMOTE_BRANCH_DELETED
+REMOTE_BRANCH_SKIPPED_BLOCKED
+AUTHORIZED_FILE_REQUESTED
+AUTHORIZED_FILE_DELETED
+FILE_SKIPPED_BLOCKED
+REGISTRY_PRUNE_PERFORMED = NO
+FLIGHT_RECORDER_HEAD_BEFORE
+FLIGHT_RECORDER_HEAD_AFTER
+FLIGHT_RECORDER_WORKTREE_RETAINED
+EXCLUDED_OBJECTS_TOUCHED = NO
+UNAUTHORIZED_DELETIONS = NO
+FINAL_REGISTERED_WORKTREE_COUNT
+FINAL_REMOTE_BRANCH_SET
+CONTROL_WRITEBACK_COMMIT
+REMOTE_SYNC
+FINAL_STATE = CLEANUP_EXECUTED_WAITING_FOR_INDEPENDENT_WEB_VERIFICATION
+```
+
+The cleanup result checkpoint may update `CURRENT_STATUS.md` and
+`CURRENT_TASK.md` together in one commit on the control branch after execution.
+Do not merge or close PR #17/#18 and do not modify B-MR1 source.

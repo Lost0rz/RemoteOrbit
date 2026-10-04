@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — A3 INDEPENDENT WEB AUDIT PASSED / EXACT CLEANUP MANIFEST VERIFIED / USER AUTHORIZATION REQUIRED
+State: FOUNDATION GOVERNANCE — A3 EXACT CLEANUP EXECUTION AUTHORIZED / B-MR1 ACTIVE / C CLOSED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -2575,3 +2575,124 @@ PR18_MERGE: BLOCKED
 
 A single bounded corrective is sufficient before repeating the final merge-readiness
 audit.
+
+
+## Lane A3 destructive cleanup authorization — explicit user approval
+
+The user explicitly authorized cleanup of the exact independently verified A3 manifest.
+This authorization is limited to that frozen set and its stated preservation
+conditions. It does not authorize broad repository cleanup or inference-based deletion.
+
+Authority snapshot when this transition was published:
+
+```text
+CONTROL_HEAD_BEFORE_CLEANUP_AUTH: 719e7597993fae7889f81df2a302e39e1268d03a
+REMOTE_MAIN: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PR17: OPEN_DRAFT
+PR18: OPEN_DRAFT
+PR18_HEAD: 71ef0e65117f2def4e30d5447ca55246c4d18434
+REMOTE_BRANCH_COUNT: 6
+A3_INDEPENDENT_WEB_AUDIT: PASS
+EXACT_CLEANUP_MANIFEST: VERIFIED
+USER_DESTRUCTIVE_AUTHORIZATION: YES
+```
+
+### Authorized exact cleanup set
+
+**Worktrees**
+
+1. `/private/tmp/remoteorbit-c-diagnostic-authority-audit`
+2. `/private/tmp/remoteorbit-cross-mode-flight-recorder-minimal`
+3. `/private/tmp/remoteorbit-pr18-corrective-controls`
+4. `/Volumes/Jack-Dev/Projects/remoteorbit-pr18-validation`
+
+**Local branches**
+
+1. `codex/diagnostic-authority-audit`
+2. `codex/cross-mode-flight-recorder-minimal`
+
+**Remote branch**
+
+1. `codex/diagnostic-authority-audit`
+
+**File**
+
+1. `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder.source-preservation.patch`
+
+**Registry prune**
+
+- none
+
+No other worktree, branch, file, app, log, cache, PR, tag, release artifact, or
+runtime object is authorized for deletion.
+
+### Mandatory preflight
+
+Before the first destructive action:
+
+1. fetch current refs without deleting refs or pruning worktrees;
+2. read current `AGENTS.md`, `CURRENT_STATUS.md`, and `CURRENT_TASK.md`;
+3. verify each authorized worktree still exists, is clean, and has no untracked files;
+4. verify the first three worktree candidates have no new task dependency;
+5. verify `remoteorbit-pr18-validation` is not the active PR #18/B-MR1 checkout,
+   has no new task dependency, and its HEAD remains reachable from the current PR #18
+   line;
+6. verify `ee4effd...` remains reachable from current `main`;
+7. verify `42984b5...` remains reachable from the current control line before
+   removing its detached checkout;
+8. verify the retained forensic worktree
+   `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder` exists, is clean,
+   remains at `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`, and is not itself in
+   the cleanup set;
+9. verify the preservation patch still matches the previously accepted unchanged
+   path/size/mtime identity and that `01eedda...` remains preserved independently;
+10. if any condition fails or a candidate becomes dirty/untracked/uniquely required,
+    skip that object, classify it blocked, and do not use force.
+
+A forward-only PR #18 advance does not by itself invalidate this authorization if the
+validation checkout's HEAD remains an ancestor and the checkout remains dependency-free.
+A control-plane advance requires re-reading the latest control files; proceed only if
+this exact cleanup authorization has not been revoked or narrowed.
+
+### Dependency-safe execution order
+
+1. snapshot the pre-cleanup worktree/branch/ref/file state for the final report;
+2. remove the four authorized worktrees with normal non-force Git worktree removal;
+3. verify the retained Flight Recorder worktree/checkpoint immediately after worktree
+   removal;
+4. delete the two authorized local branches normally (no force deletion);
+5. delete only remote `codex/diagnostic-authority-audit`;
+6. delete only the authorized preservation patch file;
+7. do **not** run broad `git worktree prune`; registry prune authorization is none;
+8. fetch/read back remote refs and enumerate worktrees/branches again;
+9. verify the retained Flight Recorder worktree remains clean at `01eedda...`;
+10. verify all explicitly excluded retained/unknown objects still exist as expected.
+
+### Explicit exclusions remain frozen
+
+Do not delete or mutate:
+
+- `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder`;
+- audio P0/P1-A3/P1-A4/P1-A5 forensic worktrees;
+- P1-A5 Observer.app;
+- dirty/unknown worktrees;
+- zero-byte capture/snapshot files;
+- temporary verification app, Swift helper, or cache/helper paths;
+- `codex/persistent-duplicate-audio-forensics`;
+- `codex/voice-single-owner-session`;
+- PR #17 or PR #18;
+- any B-MR1 worktree/source/evidence;
+- any release package or retained diagnostic log.
+
+### Cleanup execution gate
+
+```text
+A3_INDEPENDENT_WEB_AUDIT: PASS
+EXACT_CLEANUP_MANIFEST: VERIFIED
+USER_DESTRUCTIVE_AUTHORIZATION: YES
+DESTRUCTIVE_CLEANUP_GATE: OPEN_FOR_EXACT_MANIFEST_ONLY
+```
+
+After execution, write the exact observed result to both control files in one commit,
+push, verify remote equality, and stop at
+`CLEANUP_EXECUTED_WAITING_FOR_INDEPENDENT_WEB_VERIFICATION`.
