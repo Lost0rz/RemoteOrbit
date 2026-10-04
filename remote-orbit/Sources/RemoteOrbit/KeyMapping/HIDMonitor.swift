@@ -303,7 +303,7 @@ final class HIDMonitor {
         guard manager != nil else { return }
         hidReportSequence &+= 1
         let reportSequence = hidReportSequence
-        let reportUptime = ProcessInfo.processInfo.systemUptime
+        let reportObservedUptime = ProcessInfo.processInfo.systemUptime
         guard let usages = Self.parseUsages(reportID: reportID, data: data) else { return }
 
         if let fields = Self.microphoneTransitionDiagnosticFields(
@@ -314,7 +314,7 @@ final class HIDMonitor {
             pendingReconnectUsages: pendingReconnectUsages,
             deviceActive: activeDevice != nil,
             sequence: reportSequence,
-            uptime: reportUptime
+            uptime: reportObservedUptime
         ) {
             diagnosticLogger?.log(
                 category: "hid",
@@ -328,7 +328,11 @@ final class HIDMonitor {
             .union(pendingReconnectUsages.subtracting(usages))
         pendingReconnectUsages.subtract(usages)
         activeUsages = usages
-        let now = reportUptime
+
+        // Preserve the production edge/debounce timing anchor exactly where
+        // baseline sampled it. Raw-report diagnostics use reportObservedUptime
+        // above and must not move the behavioral edge timestamp earlier.
+        let now = ProcessInfo.processInfo.systemUptime
 
         for usage in pressed.sorted() {
             guard let button = RemoteButton.usageMap[usage] else { continue }
