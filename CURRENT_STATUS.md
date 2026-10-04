@@ -2889,3 +2889,30 @@ No product/runtime code was rolled back by the control-plane merge.
 The remaining active governance work is only the separately authorized A3 exact
 cleanup execution under its frozen manifest and fail-closed preflight. Lane B and Lane
 C remain closed.
+
+
+## A3 execution authority correction — control plane now on main
+
+PR #17 is merged and the repository control plane is authoritative from `main`.
+Therefore A3 destructive freshness must no longer compare against the historical
+`codex/project-agents-control-plane-v1` branch.
+
+Authority at this correction:
+
+```text
+CONTROL_PLANE_AUTHORITY: MAIN
+MAIN_PARENT_BEFORE_CORRECTION: c6625a089278ec036fd81d5b14fd0d619183d1a8
+PR17: MERGED_CLOSED
+PR18: MERGED_CLOSED
+LANE_B: CLOSED
+LANE_C: CLOSED
+A3_EXACT_CLEANUP_AUTHORIZATION: STILL_VALID
+A3_EXACT_CLEANUP_MANIFEST: UNCHANGED
+```
+
+For cleanup preflight, live freshness is the current remote `main` revision plus the
+control files read from that exact revision. The old control branch may remain as a
+historical remote ref, but it must not be used as the A3 freshness authority.
+
+No cleanup candidate, exclusion, preservation condition, no-force rule, or result
+checkpoint contract is changed by this correction.

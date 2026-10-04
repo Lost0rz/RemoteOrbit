@@ -1558,10 +1558,14 @@ The frozen exact cleanup manifest, exclusions, no-force rule, Flight Recorder
 preservation requirement, dependency-safe order, and final writeback contract remain
 unchanged.
 
-Before deletion, fetch live refs using the approved controlled network execution mode,
-fast-forward the clean control worktree to the current control head, read all three
-control files, and run the complete A3 preflight. If the control branch advances again,
-re-read it and proceed only if this A3 authorization remains present and unrevoked.
+Before deletion, fetch live refs using the approved controlled network execution mode.
+The repository control-plane authority is now `main`: sync the clean execution checkout
+to the current remote `main` with fast-forward-only semantics, then read
+`AGENTS.md`, `CURRENT_STATUS.md`, and `CURRENT_TASK.md` from that exact `main`
+revision and run the complete A3 preflight. The historical
+`codex/project-agents-control-plane-v1` branch is no longer an authority anchor. If
+remote `main` advances again, re-read the latest control files from `main` and
+proceed only if this exact A3 authorization remains present and unrevoked.
 
 
 ## Control-plane finalization transition — PR #17 merge authorized
@@ -1617,3 +1621,32 @@ CURRENT_STATUS.
 
 Do not reopen Lane B/C, run a fresh incident capture, implement B9, begin a product
 fix, release/install, or broaden cleanup under this task.
+
+
+## A3 current execution anchor — main authority
+
+The prior control-branch execution anchor is retired.
+
+Use:
+
+```text
+CONTROL_PLANE_AUTHORITY: main
+AUTHORITY_FILE: CURRENT_TASK.md on main
+A3_CLEANUP: AUTHORIZED_EXACT_MANIFEST_ONLY
+LANE_B: CLOSED
+LANE_C: CLOSED
+```
+
+For every destructive attempt:
+
+1. obtain a live remote `main` HEAD using the approved controlled network mode;
+2. fetch that revision locally;
+3. sync the execution checkout with fast-forward-only semantics;
+4. read `AGENTS.md`, `CURRENT_STATUS.md`, and `CURRENT_TASK.md` from that exact
+   main revision;
+5. verify A3 exact cleanup remains authorized and unchanged;
+6. run the full candidate/preservation preflight;
+7. only then execute the frozen manifest.
+
+Do not compare against or fast-forward to
+`codex/project-agents-control-plane-v1` for authority purposes.
