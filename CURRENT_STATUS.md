@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — A3 TARGETED FRESHNESS REFRESH READY FOR INDEPENDENT WEB AUDIT / B9 AUTHORIZED / B3 ACCEPTED / C CLOSED
+State: FOUNDATION GOVERNANCE — A3 READY FOR INDEPENDENT WEB AUDIT / B9 AUDIT ACCEPTED / B3 ACCEPTED / C CLOSED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -2278,3 +2278,123 @@ and a later explicit deletion authorization. Registry-prune candidates: none.
 A3_TARGETED_REFRESH_GATE: PASS
 DESTRUCTIVE_CLEANUP_GATE: BLOCKED
 FINAL_STATE: READY_FOR_INDEPENDENT_WEB_AUDIT
+
+
+## Lane B B9 capability/privacy independent audit — 2026-10-04
+
+Independent web audit of the returned local B9 package is complete.
+
+Fresh remote state was re-established after the local DNS failure:
+
+```text
+CONTROL_HEAD_AT_AUDIT: 67be3151b8eb412b4963480346d7123cd9fd127c
+REMOTE_MAIN_HEAD: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PR18_HEAD: 71ef0e65117f2def4e30d5447ca55246c4d18434
+PR18_STATE: OPEN_DRAFT_UNMERGED
+FRESHNESS_BLOCKER: CLEARED
+```
+
+Remote source/history reconciliation confirms the provenance gap is real rather than
+a local search omission:
+
+- exact producer terms `frontmost_application_ax`,
+  `TARGET_OBSERVER_STATUS`, `TARGET_SEGMENT_BASELINE`, and
+  `correlation_gesture_id` are absent from indexed remote source;
+- the retained forensic branch contains P1-A5 front-edge diagnostics only, not the
+  target-text observer;
+- the retained voice-session branch contains voice-session lifecycle code, not the
+  target-text observer;
+- accepted PR #10/P1-A5 source contains `P1A5FrontEdgeDiagnostics.swift`, not the
+  standalone target-text observer;
+- local P1-A5 head `8befb031eb54b461675e95adb706f73721339479` is not resolvable
+  by GitHub and remains local-only evidence.
+
+### Accepted local capability evidence
+
+The local read-only audit established a separate standalone P1-A5 observer source,
+build, and installed application line:
+
+```text
+P1A5_WORKTREE: /Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a5
+P1A5_HEAD: 8befb031eb54b461675e95adb706f73721339479
+OBSERVER_APP: /Users/jack7788/Applications/RemoteOrbit P1A5 Observer.app
+OBSERVER_BUNDLE_ID: com.lost0rz.RemoteOrbit.P1A5Observer
+OBSERVER_BINARY_SHA256:
+d71af5e7d51e935b4cf62516283a44167457cf1d71139236f47d99c87ec43e26
+```
+
+The source/build-script → dist-app → Applications-app relationship is sufficient for
+a **static capability** conclusion: the observer is designed to inspect actual target
+process AX state, including focused application/element identity and value-change
+metadata. It does not depend on RemoteOrbit internal belief to infer that a target UI
+value or element changed.
+
+This does **not** establish current runtime capability. The observer was not launched,
+current Accessibility trust was not tested, and no fresh target state was observed.
+
+### Historical JSONL provenance
+
+The historical `target-text-observer-current.jsonl` is a separate artifact:
+
+- it is stale/historical and predates the current PR #18 runtime;
+- its observer identity/schema do not match the standalone P1-A5 observer output
+  contract;
+- its recorded binary path points to a missing temporary RemoteOrbit build;
+- corresponding source/binary provenance has not been recovered remotely or locally.
+
+Therefore:
+
+```text
+P1A5_STANDALONE_SOURCE_TO_APP_PROVENANCE: SUFFICIENT_FOR_STATIC_AUDIT
+HISTORICAL_TARGET_TEXT_JSONL_PRODUCER_PROVENANCE: UNRESOLVED
+HISTORICAL_JSONL_CURRENT_RUNTIME_EVIDENCE: NO
+```
+
+The unresolved historical producer must not be used to prove current B9 behavior.
+
+### B9 capability/privacy disposition
+
+```text
+B9_CLASSIFICATION: B9_PARTIAL_METADATA_ONLY
+TARGET_PROCESS_DIRECTLY_OBSERVABLE_BY_DESIGN: YES
+VALUE_CHANGE_OBSERVABLE: YES_CONDITIONAL
+ELEMENT_CHANGE_OBSERVABLE: YES_CONDITIONAL
+PROCESS_FOCUS_CHANGE_OBSERVABLE: YES_CONDITIONAL
+IME_SEMANTIC_OPEN_STOP_OBSERVABLE: NO
+METADATA_ONLY_POSSIBLE: YES
+CURRENT_RUNTIME_CAPABILITY_PROVEN: NO
+HISTORICAL_JSONL_PRODUCER_PROVENANCE: UNRESOLVED
+B4_UPGRADE: NO
+B5_UPGRADE: NO
+ROOT_CAUSE: UNKNOWN
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+```
+
+B9 can prove, if later run under a separately authorized and identity-verified
+runtime, that a target AX value/element/focus boundary changed. It cannot prove that
+the IME accepted a trigger or that an IME semantic session transitioned
+OPEN/LISTENING → STOPPED.
+
+### Privacy finding
+
+The standalone source avoids exporting actual AX value/title text, but its historical
+design still emits content-derived exact lengths and non-cryptographic FNV-1a hashes,
+and may emit AX identifier metadata. These are not plaintext, but they remain
+content-derived/stable metadata and create dictionary/linkability risk.
+
+A future B9 implementation must therefore define a new privacy-minimized event
+contract rather than automatically reusing this output contract.
+
+### Gate result
+
+```text
+B9_CAPABILITY_AUDIT: PASS
+B9_PROVENANCE_AUDIT: PARTIAL
+B9_CLASSIFICATION: B9_PARTIAL_METADATA_ONLY
+NEW_PROBE_REQUIRED_NOW: NO
+HISTORICAL_JSONL_REUSE_AS_CURRENT_EVIDENCE: FORBIDDEN
+B9_IMPLEMENTATION: NOT_AUTHORIZED
+FRESH_CAPTURE: NOT_AUTHORIZED
+PR18_MERGE: NOT_AUTHORIZED
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+```

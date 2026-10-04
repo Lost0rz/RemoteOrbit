@@ -1215,3 +1215,57 @@ Candidates only; this task authorizes no cleanup:
 A3_TARGETED_REFRESH_GATE: PASS
 DESTRUCTIVE_CLEANUP_GATE: BLOCKED
 FINAL_STATE: READY_FOR_INDEPENDENT_WEB_AUDIT
+
+
+## Lane B B9 final state — partial metadata-only capability accepted
+
+**B9 AUDIT STATUS: COMPLETE / ACCEPTED**
+
+Final disposition:
+
+```text
+B9_CLASSIFICATION: B9_PARTIAL_METADATA_ONLY
+P1A5_STANDALONE_CAPABILITY: STATICALLY_ESTABLISHED
+CURRENT_RUNTIME_CAPABILITY: NOT_PROVEN
+HISTORICAL_JSONL_PRODUCER_PROVENANCE: UNRESOLVED
+IME_SEMANTIC_OPEN_STOP: NOT_OBSERVABLE
+B4: SOURCE_NOT_FOUND
+B5: SOURCE_NOT_FOUND
+B7: BLOCKED_BY_DEPLOYMENT_FLOOR
+B8: OBSERVABLE
+ROOT_CAUSE: UNKNOWN
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+```
+
+The prior B9 local STOP is accepted as correct for the stricter artifact-provenance
+gate. Independent remote freshness is now restored, but the missing historical JSONL
+producer source/binary remains unresolved and must stay separated from the proven
+standalone observer source/app.
+
+No further read-only search is required merely to classify B9 capability. Do not
+treat the historical JSONL producer as required evidence for the standalone
+observer's static capability, and do not treat the standalone observer as the
+producer of that JSONL.
+
+### No construction authority
+
+This transition does **not** authorize:
+
+- launching the P1-A5 observer;
+- changing Accessibility/TCC;
+- adapting B9 into `DiagnosticAuthority`;
+- copying the historical observer's FNV/hash/identifier contract into production;
+- target-app automation or synthetic input;
+- fresh incident capture;
+- product behavior fixes;
+- PR #18 merge;
+- release/install.
+
+If the user later authorizes a B9 implementation, it requires a new task with an
+explicit privacy-minimized event contract. At minimum, that future contract must
+separate target-process/focus/element/value-change metadata from user content and
+must not silently infer B4/B5 IME semantic state.
+
+A separate future transition may instead close Lane B without implementing B9 if the
+user accepts the current boundary disposition. Neither transition is authorized by
+this audit.
