@@ -2,10 +2,10 @@
 
 ## Task identity
 
-- **Task:** FOUNDATION GOVERNANCE — A3 EXACT CLEANUP EXECUTION AUTHORIZED; CONTROL PLANE ON MAIN; B/C CLOSED
-- **Status:** EXECUTED — EXACT MANIFEST RESULTS RECORDED; WAITING FOR INDEPENDENT WEB VERIFICATION
+- **Task:** FOUNDATION GOVERNANCE — A3/B/C CLOSED; CONTROL PLANE ON MAIN
+- **Status:** CLOSED — A3 INDEPENDENT WEB VERIFICATION PASSED; B/C CLOSED
 - **Task authority:** `CURRENT_TASK.md` on `main`
-- **Parallel execution:** NO ACTIVE B/C CONSTRUCTION; A3 cleanup is the only authorized governance mutation
+- **Parallel execution:** NO ACTIVE A/B/C GOVERNANCE MUTATION
 - **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
 - **Product Construction Gate:** BLOCKED
@@ -1702,3 +1702,28 @@ there is no follow-up cleanup authority in this checkpoint.
 ```text
 FINAL_STATE: CLEANUP_EXECUTED_WAITING_FOR_INDEPENDENT_WEB_VERIFICATION
 ```
+
+
+## Lane A3 final independent verification — CLOSED
+
+Independent Web verification is complete.
+
+```text
+A3_EXECUTION_CHECKPOINT: 1d2380b51d5e56970f15f68c4f2cfb2d27949125
+REMOTE_WRITEBACK_VERIFIED: PASS
+REMOTE_BRANCH_DELETION_VERIFIED: PASS
+LOCAL_EXECUTION_EVIDENCE: ACCEPTED
+FLIGHT_RECORDER_PRESERVATION: PASS
+FORCE_OPERATIONS: NONE
+A3_STATE: CLOSED
+LANE_B: CLOSED
+LANE_C: CLOSED
+```
+
+The remaining local branch `codex/cross-mode-flight-recorder-minimal` is now a
+retained forensic local ref for checkpoint `01eedda...`, not an outstanding cleanup
+candidate. Do not force-delete it under this closed task.
+
+There is no remaining A/B/C governance mutation authorized by this task. Any further
+cleanup, incident investigation, product fix, release/install, or forensic-retention
+change requires a new control-plane task.
