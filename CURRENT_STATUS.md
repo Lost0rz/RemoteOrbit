@@ -2505,3 +2505,73 @@ EXACT_CLEANUP_MANIFEST: VERIFIED
 DESTRUCTIVE_CLEANUP_GATE: BLOCKED_PENDING_EXPLICIT_USER_AUTHORIZATION
 CLEANUP_EXECUTION: NOT_AUTHORIZED
 ```
+
+
+## Lane B PR #18 final merge-readiness audit — timing-neutral corrective required
+
+The user accepted the recommended B-line closeout path:
+do not implement B9; perform a final PR #18 merge-readiness audit; merge only if the
+diagnostic line is behavior-neutral and clean.
+
+Independent remote review of exact PR #18 head
+`71ef0e65117f2def4e30d5447ca55246c4d18434` found no defect in B8,
+DiagnosticAuthority integration, HID raw-transition ordering after the prior timing
+corrective, clock calibration, or the focused test surfaces.
+
+One merge-readiness blocker remains in `main.swift`.
+
+### Finding — new source-correlation log calls precede behavior-critical press/release work
+
+PR #18 adds `VOICE_PRESS_ENTRY` and `VOICE_RELEASE_ENTRY` source-correlation
+records. Their current call ordering is:
+
+```text
+PRESS:
+new VOICE_PRESS_ENTRY diagnosticLogger.log()
+→ voicePress.keyDown()
+→ startAcceptedVoicePress()
+→ onHardwareOptionGateBegin()
+→ filter.beginOptionDeferral()
+
+RELEASE:
+new VOICE_RELEASE_ENTRY diagnosticLogger.log()
+→ voicePress.keyUp()
+→ optional ble.stopVoiceInput()
+```
+
+`VoiceDiagnosticLogger.log()` performs synchronous occurrence-time capture and
+`DispatchQueue.async` enqueue before returning. Formatting/disk I/O is asynchronous,
+but the call itself is not zero-cost.
+
+The baseline already contains other diagnostics inside the gesture path, so this is
+not evidence that logging created the historical incident. However, PR #18's stated
+merge contract is diagnostic-only / no behavior or timing change, and the investigated
+boundary is specifically a millisecond-scale gate race. Adding a new synchronous
+logger entry immediately before gate establishment and release handling is therefore
+an avoidable observer effect and fails the stricter final merge gate.
+
+This is a **merge-readiness defect**, not root-cause proof.
+
+```text
+PR18_FINAL_MERGE_AUDIT: BLOCKED
+BLOCKER_CLASS: TIMING_OBSERVER_EFFECT
+AFFECTED_PATH: remote-orbit/Sources/RemoteOrbit/main.swift
+PRODUCT_BEHAVIOR_DEFECT_PROVEN: NO
+HISTORICAL_ROOT_CAUSE_PROVEN: NO
+REQUIRED_SCOPE: TIMING_NEUTRAL_DIAGNOSTIC_CORRECTIVE_ONLY
+PR18_MERGE: BLOCKED
+```
+
+### Accepted unaffected surfaces
+
+- B8 frontmost observer remains accepted and notification-driven with no polling.
+- DiagnosticEvent change remains the accepted closed-catalog/string-value exception.
+- HID raw-report diagnostics preserve the previously audited callback-before-log
+  ordering; only minimal sequence/occurrence-time capture precedes behavior.
+- Mapped CGEvent decision occurs before mapped-trigger diagnostic logging.
+- B7 remains blocked by deployment floor.
+- B9 remains `B9_PARTIAL_METADATA_ONLY` and is not being implemented.
+- Product Construction Gate and root-cause state remain unchanged.
+
+A single bounded corrective is sufficient before repeating the final merge-readiness
+audit.

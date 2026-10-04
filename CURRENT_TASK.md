@@ -1300,3 +1300,128 @@ conditions from CURRENT_STATUS, perform a fresh preflight, fail closed on any dr
 dependency change, execute only the authorized set in dependency-safe order, verify
 the retained Flight Recorder checkpoint before and after cleanup, and stop for
 independent Web verification.
+
+
+## Lane B transition — B-MR1 timing-neutral source-correlation corrective
+
+**Status:** AUTHORIZED — one bounded diagnostic-ordering corrective only.
+
+### Authority anchors
+
+```text
+B_MR1_EXPECTED_START_HEAD: 71ef0e65117f2def4e30d5447ca55246c4d18434
+MAIN_EXPECTED_HEAD: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PR: #18
+BRANCH: codex/persistent-long-boundary-probes-v1
+PR18_FINAL_MERGE_GATE: BLOCKED_PENDING_B_MR1
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+```
+
+### Objective
+
+Remove only the newly introduced press/release diagnostic observer effect from the
+behavior-critical path while preserving the same correlation facts.
+
+Required contract:
+
+**Press**
+
+- capture only the minimum occurrence identity/time needed for
+  `VOICE_PRESS_ENTRY` before behavior;
+- do **not** call `diagnosticLogger.log()` before `voicePress.keyDown()`;
+- run the existing `voicePress.keyDown()` / hardware-gate behavior first;
+- emit the diagnostic record only after that synchronous behavior decision returns;
+- preserve the original press-entry occurrence time in an explicit field rather than
+  replacing it with the later enqueue time;
+- preserve source and gesture correlation for accepted and rejected presses as far as
+  the current diagnostic contract already does.
+
+**Release**
+
+- capture only the minimum gesture identity/source/occurrence time before behavior;
+- do **not** call `diagnosticLogger.log()` before `voicePress.keyUp()`;
+- complete the existing key-up and required `ble.stopVoiceInput()` behavior first;
+- enqueue `VOICE_RELEASE_ENTRY` only afterward;
+- preserve the pre-behavior release occurrence time and captured gesture identity in
+  the diagnostic record.
+
+The corrective must not change whether any press/release is accepted, classified,
+gated, replayed, suppressed, routed, stopped, or drained.
+
+### Scope
+
+Prefer changes only to:
+
+- `remote-orbit/Sources/RemoteOrbit/main.swift`;
+- the minimum focused test file(s) needed to prove ordering and preserved occurrence
+  metadata.
+
+Do not change HIDMonitor, VoicePressCoordinator semantics, VoiceKeyFilter gate
+semantics, BLE/audio behavior, DiagnosticAuthority mechanics/schema, B8, B7/B9,
+thresholds, timers, packaging, or deployment target.
+
+### Required deterministic proof
+
+Add or adapt focused tests proving:
+
+1. press diagnostic enqueue occurs only after the synchronous keyDown/gate path has
+   executed;
+2. the press record still contains the occurrence timestamp captured at entry;
+3. release diagnostic enqueue occurs only after keyUp behavior (and stop decision)
+   has executed;
+4. the release record retains the gesture ID and occurrence timestamp captured before
+   keyUp clears/mutates state;
+5. HID and fallback source values remain correct.
+
+Do not use wall-clock sleeps.
+
+### Validation
+
+Run at minimum:
+
+- existing HIDMonitorDiagnosticsTests;
+- VoiceBoundaryDiagnosticsTests;
+- VoiceInputSourceDiagnosticsTests;
+- FrontmostApplicationDiagnosticsTests;
+- any new B-MR1 ordering tests;
+- DiagnosticAuthorityTests;
+- WavRecorderDiagnosticsTests;
+- full `swift test`;
+- `swift build -c release --disable-sandbox` if required by the environment;
+- `git diff --check`.
+
+### Final report
+
+Return exactly enough evidence for independent Web audit:
+
+```text
+B_MR1_START_HEAD
+B_MR1_FINAL_HEAD
+REMOTE_HEAD
+WORKTREE_CLEAN
+PRESS_PRE_BEHAVIOR_LOG_CALL: NO
+PRESS_OCCURRENCE_TIME_PRESERVED: YES
+RELEASE_PRE_BEHAVIOR_LOG_CALL: NO
+RELEASE_OCCURRENCE_TIME_PRESERVED: YES
+RELEASE_GESTURE_ID_PRESERVED: YES
+VOICE_BEHAVIOR_CHANGED: NO
+OPTION_GATE_CHANGED: NO
+HID_BEHAVIOR_CHANGED: NO
+BLE_AUDIO_BEHAVIOR_CHANGED: NO
+B8_CHANGED: NO
+AUTHORITY_MECHANICS_CHANGED: NO
+FOCUSED_TESTS
+AUTHORITY_TESTS
+FULL_SWIFT_TEST
+RELEASE_BUILD
+DIFF_CHECK
+REMOTE_SYNC
+FINAL_STATE = WAITING_FOR_INDEPENDENT_AUDIT
+```
+
+Commit/push normally to PR #18 and stop. Do not merge PR #18.
+
+### Forbidden
+
+No B9 implementation; no fresh capture; no install/runtime replacement; no product
+fix; no threshold/timing tuning; no PR merge; no cleanup execution; no release.
