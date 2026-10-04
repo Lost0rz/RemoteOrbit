@@ -9,7 +9,8 @@
 - **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
 - **Product Construction Gate:** BLOCKED
-- **Merge / release / install:** NOT AUTHORIZED
+- **Merge:** PR #19 exact audited head `ee4effd0b6435b5198a258fa9c9f063717f69136` AUTHORIZED by user
+- **Release / install:** NOT AUTHORIZED
 
 ## Coordination model
 
@@ -398,3 +399,23 @@ Still forbidden:
 Return the complete inventory and classifications for independent web audit. A
 separate control-plane transition is required before any cleanup action.
 
+
+
+## Lane C merge execution authorization
+
+The user explicitly authorized merging PR #19 and closing Lane C.
+
+Execute only if freshness remains exact:
+
+```text
+PR19_EXPECTED_HEAD: ee4effd0b6435b5198a258fa9c9f063717f69136
+MAIN_EXPECTED_PREMERGE: 7129ef72949eca956b1d0daddce707d5e417eeed
+C_MERGE_GATE: PASS
+```
+
+Allowed: mark PR #19 ready for review if GitHub requires it; merge PR #19 using the
+verified head; verify merged PR and new main HEAD; then write a same-commit
+CURRENT_STATUS/CURRENT_TASK closure transition marking C CLOSED.
+
+Forbidden: any source amendment, producer migration, release/install, A2 cleanup, or
+other PR mutation.

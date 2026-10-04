@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — A1 ACCEPTED / A2 ACTIVE; C MERGE-GATE PASS / MERGE AUTHORIZATION PENDING
+State: FOUNDATION GOVERNANCE — A1 ACCEPTED / A2 ACTIVE; C PR #19 MERGE AUTHORIZED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -37,7 +37,7 @@ This closeout inventory predates the active Step 5 PR #18 line recorded above.
 
 | PR | Title | Lifecycle | Remote state | Reason / successor |
 | --- | --- | --- | --- | --- |
-| #19 | diagnostic Authority skeleton | **ACTIVE / MERGE-READY** | OPEN Draft, unmerged | C independent merge-gate audit PASS at `ee4effd0`; merge requires separate explicit authorization |
+| #19 | diagnostic Authority skeleton | **ACTIVE / MERGE-AUTHORIZED** | OPEN Draft, unmerged | User explicitly authorized merge of audited HEAD `ee4effd0b6435b5198a258fa9c9f063717f69136`; post-merge C closure required |
 | #17 | development control plane | **ACTIVE** | OPEN Draft, unmerged | sole current control-plane PR and task authority |
 | #16 | persistent voice segment transaction isolation | **ABANDONED** | CLOSED Draft, unmerged | re-closed under explicit repository-closeout authorization; diff/discussion preserved |
 | #15 | preserve Mac media keys | **MERGED** | CLOSED merged | merged into `main` 2026-10-01 |
@@ -1705,3 +1705,16 @@ journal-read redesign, recovery changes, packaging, installation, or release und
 task. Any such work requires a new control-plane task after the C line is dispositioned.
 
 Lane A2 remains independently active and is not superseded by this C result.
+
+
+## Lane C merge authorization — 2026-10-04
+
+**FACT — explicit user authorization:** merge PR #19 and close Lane C.
+
+Authorized transition is exact and bounded:
+
+- PR: #19
+- expected head: `ee4effd0b6435b5198a258fa9c9f063717f69136`
+- target: `main` currently `7129ef72949eca956b1d0daddce707d5e417eeed`
+- action: mark ready if required, merge PR #19, verify resulting `main`, then update control plane to C CLOSED.
+- no release/install/producer migration/cleanup is authorized by this transition.
