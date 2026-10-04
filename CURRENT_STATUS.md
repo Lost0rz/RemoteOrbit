@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: DIAGNOSTIC CLI V1 — IMPLEMENTED / WAITING_FOR_LOCAL_MAC_VALIDATION
+State: DIAGNOSTIC CLI V1 — CLOSED / CONTROL PLANE ON MAIN
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -3120,3 +3120,26 @@ A3 is closed. No additional cleanup authority remains under this task.
 - **Validation completed in Web execution environment:** exact CLI source typechecked with Swift 6.2 against contract-compatible Authority/filter types; focused test expressions also typechecked.
 - **Validation not yet claimable remotely:** full macOS Swift package tests/release build and installed/built CLI smoke. No GitHub CI workflow exists on this repository.
 - **Current gate:** `WAITING_FOR_LOCAL_MAC_VALIDATION`. Do not merge until the owning Mac reports the required exact-head validation and independent Web audit accepts it.
+
+
+## Diagnostic CLI v1 final closure — 2026-10-04
+
+```text
+PR20_SOURCE_HEAD: 8afc6e896438cf0dd3bb915683cc13361e2da5b0
+PR20_MERGE_COMMIT: 823aef5ecc7c7d99d174d4b0a504449238b724d2
+PR20_STATE: MERGED_CLOSED
+LOCAL_MAC_VALIDATION: PASS
+INDEPENDENT_WEB_AUDIT: PASS
+DIAGNOSTIC_AUTHORITY_UNIQUENESS: PASS
+CLI_READ_ONLY_BOUNDARY: PASS
+PRODUCT_RUNTIME_BEHAVIOR_CHANGED: NO
+CLI_TASK_STATE: CLOSED
+CONTROL_PLANE_AUTHORITY: MAIN
+RELEASE_INSTALL_AUTHORITY: NOT_GRANTED
+```
+
+The merged CLI remains a read-only consumer of the existing `DiagnosticAuthority`
+v1 query/snapshot contract. No second schema, journal, JSONL parser, recovery owner,
+or control plane was introduced. This closure does not authorize release, install,
+runtime replacement, producer migration, schema-v2 work, or further diagnostic
+expansion.
