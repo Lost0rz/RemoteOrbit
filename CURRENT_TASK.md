@@ -791,3 +791,36 @@ FINAL_STATE = WAITING_FOR_INDEPENDENT_AUDIT
 ```
 
 Commit/push normally to PR #18 and stop at independent audit. Do not merge PR #18.
+
+
+## Lane B B3 final state — accepted; next gate not yet authorized
+
+**B3 STATUS: COMPLETE / ACCEPTED**
+
+Accepted remote head:
+
+```text
+PR18_HEAD: 71ef0e65117f2def4e30d5447ca55246c4d18434
+B8: OBSERVABLE
+B7: BLOCKED_BY_DEPLOYMENT_FLOOR
+B4: SOURCE_NOT_FOUND
+B5: SOURCE_NOT_FOUND
+B9: DEFERRED
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+```
+
+No further B7/B8 construction is authorized under the completed B3 task. Do not add
+polling, alternative CoreAudio fallbacks, raise the deployment target, widen the
+DiagnosticAuthority schema, install/relaunch a diagnostic runtime, perform a fresh
+incident capture, merge PR #18, or begin a product fix.
+
+The next candidate B transition is a **separate B9 capability/privacy audit**. It is
+not authorized yet. If later authorized, it must first reconcile the existing
+target-text observer/source/capability and determine whether a metadata-only,
+content-minimizing observation can establish a useful external result boundary. It
+must not assume permission to record target text, transcript content, window titles,
+or other user content.
+
+Until that separate transition is authorized, Lane B remains stopped after B3 at an
+independently accepted diagnostic state.

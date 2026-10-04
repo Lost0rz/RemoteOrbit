@@ -2008,3 +2008,68 @@ remains deferred pending a separate capability/privacy gate.
 
 C remains CLOSED. The merged DiagnosticAuthority is now infrastructure consumed by
 B; this does not reopen Lane C.
+
+
+## Lane B B3 external-boundary probe independent audit — 2026-10-04
+
+Independent remote audit of PR #18 head
+`71ef0e65117f2def4e30d5447ca55246c4d18434` is **PASS** for the authorized
+B7/B8 scope.
+
+```text
+B3_START_HEAD: a71ce1d48c08bda1ad86bcd5c3a75a5e5ed90353
+B3_FINAL_HEAD: 71ef0e65117f2def4e30d5447ca55246c4d18434
+PR18_REMOTE_HEAD: 71ef0e65117f2def4e30d5447ca55246c4d18434
+PR18_STATE: OPEN_DRAFT_UNMERGED
+B8_FRONTMOST_TRANSITION: PASS
+B8_POLLING_USED: NO
+B7_MACOS13_AVAILABILITY: BLOCKED_BY_DEPLOYMENT_FLOOR
+B4_EXTERNAL_ACCEPTANCE: SOURCE_NOT_FOUND
+B5_EXTERNAL_SESSION_STATE: SOURCE_NOT_FOUND
+B9_TARGET_TEXT: DEFERRED
+ROOT_CAUSE: UNKNOWN
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+```
+
+Remote diff from the accepted B2 head changes only four paths:
+`DiagnosticEvent.swift`, the new
+`FrontmostApplicationDiagnosticsObserver.swift`, `main.swift`, and focused B8
+tests. The Authority change is limited to the closed catalog definition and string
+payload-kind acceptance required by the B8 event. No schema version, envelope,
+canonical clock, runtime provenance, queue/emission, journal, query, pagination,
+snapshot, or retention mechanism changed.
+
+The B8 observer is diagnostic-gated, notification-driven, and re-reads
+`NSWorkspace.frontmostApplication`; it does not poll. Initial state establishes a
+baseline without emission, repeated identity is suppressed, and identity changes are
+emitted through `DiagnosticAuthority` with bundle ID and PID only. No window title
+or user content is recorded. No direct JSONL writer was added and no voice/HID/Option
+gate/BLE/audio behavior is changed.
+
+B7 was correctly not implemented for the repository's macOS 13 deployment target.
+The implementation-time check reported the modern `AudioHardwareSystem` surface as
+unavailable on that floor. Independent review further narrows the compatibility fact:
+the public per-process CoreAudio process-object family used for PID/input-running
+attribution is documented/used on macOS 14.2+ in the older selector surface, while
+newer Swift wrappers may have a later floor. Either way, the required per-process
+input-consumer observation is not available under the macOS 13 contract without
+raising the deployment target or introducing a different unsupported mechanism.
+Therefore B7 remains `BLOCKED_BY_DEPLOYMENT_FLOOR`; no device transition is claimed.
+
+Local validation reported for the exact remote head is accepted for this gate:
+focused B tests PASS, DiagnosticAuthorityTests 9 PASS,
+WavRecorderDiagnosticsTests 1 PASS, full Swift suite 282 PASS, release build PASS,
+diff check PASS, remote sync PASS, and clean final worktree.
+
+### B-line disposition after B3
+
+B8 is now observable. B7 is explicitly unavailable on the current deployment floor.
+B4/B5 remain source-not-found rather than inferred from internal state. B9 remains the
+only deferred P0/P1-adjacent evidence surface that has not yet received its separate
+capability/privacy disposition.
+
+**No new B construction is authorized by this audit.** The next possible transition
+is a separate B9 capability/privacy gate whose purpose is to determine whether the
+existing target-text observer capability can be safely used or adapted without
+recording user content, and otherwise to classify B9 as externally/privacy
+unobservable. That transition requires separate authorization before local work.
