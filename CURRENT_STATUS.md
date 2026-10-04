@@ -1718,3 +1718,86 @@ Authorized transition is exact and bounded:
 - target: `main` currently `7129ef72949eca956b1d0daddce707d5e417eeed`
 - action: mark ready if required, merge PR #19, verify resulting `main`, then update control plane to C CLOSED.
 - no release/install/producer migration/cleanup is authorized by this transition.
+
+
+## Lane A2 final independent audit — non-worktree artifact governance
+
+**Independent web audit result: ACCEPTED.**
+
+The A2 scan started at control HEAD `3e5416edea3f7472c8d2af01ba44c8f226574666` and observed a final control HEAD of `688e958bd237b6b6f23b316d9ec67b984c01f947`.
+Independent reconciliation proved that this drift was a single C-line control-plane transition only: it modified `CURRENT_STATUS.md` and `CURRENT_TASK.md`, accepted the C merge gate, and explicitly preserved Lane A2.
+No A2 scope, artifact, filesystem, or cleanup authority changed. Therefore the collected A2 evidence is valid and does not require a repeat scan.
+
+### Scan coverage
+
+- `/Volumes/Jack-Dev/Projects`
+- `/Users/jack7788/Documents/Code` (symlink-equivalent to Projects and deduplicated)
+- `/private/tmp`
+- `/Users/jack7788/Applications`
+
+The 14 registered worktrees were excluded from non-worktree classification. The scan found 20 non-worktree RemoteOrbit artifact groups. No artifact, worktree, branch, control file, runtime, package, or source was mutated.
+
+### Final classification policy correction
+
+- Identical bytes are not by themselves sufficient when filename/timestamp/context can carry distinct forensic meaning.
+- An Applications app is not a cleanup duplicate merely because an exact bundle exists elsewhere if active operational use was not checked.
+- A duplicate candidate must identify a preserved copy sufficient for the artifact's relevant preservation purpose.
+
+### Final A2 classifications
+
+**RELEASE-RETAINED — 1**
+
+- `RemoteOrbit-app-archives/RemoteOrbit-0.2.12-41-20261003T154207+0800.zip` — versioned release/package archive; no exact local copy was proven and official release-asset equality was not checked.
+
+**FORENSIC-RETAINED — 10**
+
+- the two distinct v0.2.11 historical app backups under `remoteorbit-diagnostic-backups`;
+- the eight nonempty package/test/filesystem/runtime/LaunchServices logs or snapshots under `/private/tmp`.
+
+These objects have distinct content hashes or distinct historical runtime/package identity and no sufficient preserved duplicate was proven.
+
+**DUPLICATE-CANDIDATE — 1**
+
+- `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder.source-preservation.patch` — byte-for-byte matches the binary patch generated from local commit `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`; that commit remains preserved by the registered Flight Recorder evidence line.
+
+This is classification only, not deletion authorization.
+
+**UNKNOWN-BLOCKED — 8**
+
+1. `/Users/jack7788/Applications/RemoteOrbit P1A5 Observer.app` — exact bundle duplicate exists inside the retained P1-A5 worktree, but operational/running use was not checked.
+2. `/private/tmp/remoteorbit-app-archive-verify.lftOpI/RemoteOrbit.app` — verification-temp provenance is plausible but archive equivalence was not proven.
+3. `/private/tmp/remoteorbit-build-tools/swift` — temporary helper purpose/preservation value remains unclear.
+4–8. the five zero-byte acceptance/snapshot/LaunchServices files — byte content is identical because each is empty, but distinct filename/timestamp/capture context may itself be evidence and no authoritative contextual replacement was proven.
+
+No A2 artifact is classified SUPERSEDED-CANDIDATE.
+
+### A2 acceptance evaluation
+
+```text
+BOUNDED_SCAN_ROOTS_DECLARED: PASS
+REGISTERED_WORKTREES_EXCLUDED: PASS
+NON_WORKTREE_ARTIFACT_GROUPS_ENUMERATED: 20
+EVERY_GROUP_CLASSIFIED: PASS
+UNIQUE_FORENSIC_EVIDENCE_PROTECTED: PASS
+RELEASE_EVIDENCE_PROTECTED: PASS
+DUPLICATE_CLAIM_NAMES_PRESERVED_EVIDENCE: PASS
+UNRESOLVED_PROVENANCE_FAILS_CLOSED: PASS
+MUTATIONS_PERFORMED: NONE
+A2_GATE: PASS
+```
+
+### Lane A final disposition
+
+**LANE A — INVENTORY / FREEZE / CLASSIFICATION: COMPLETE**
+
+A1 repository/branch/worktree governance and A2 non-worktree artifact governance are both accepted. The current Lane A mandate was classification/freeze only, so no destructive cleanup follows automatically.
+
+Final destructive gates remain:
+
+- **worktree removal/prune:** BLOCKED;
+- **local/remote branch deletion:** BLOCKED;
+- **filesystem artifact deletion/move:** BLOCKED;
+- **PR close/merge by Lane A:** BLOCKED;
+- **reset/clean/stash/history rewrite:** BLOCKED.
+
+Any cleanup requires a new explicit control-plane task with a refreshed remote/live inventory, because PR #18 and PR #19 advanced after the A1 census.

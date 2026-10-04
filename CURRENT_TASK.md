@@ -419,3 +419,32 @@ CURRENT_STATUS/CURRENT_TASK closure transition marking C CLOSED.
 
 Forbidden: any source amendment, producer migration, release/install, A2 cleanup, or
 other PR mutation.
+
+
+## Lane A final state — A1/A2 complete
+
+**Lane A inventory/freeze/classification scope is complete.**
+
+A1 repository/worktree census: ACCEPTED.
+A2 non-worktree artifact inventory: ACCEPTED.
+
+Final A2 count:
+
+```text
+NON_WORKTREE_ARTIFACT_GROUPS: 20
+RELEASE_RETAINED: 1
+FORENSIC_RETAINED: 10
+DUPLICATE_CANDIDATE: 1
+SUPERSEDED_CANDIDATE: 0
+UNKNOWN_BLOCKED: 8
+```
+
+The only A2 duplicate candidate is the Flight Recorder source-preservation patch, whose content is byte-for-byte preserved by the retained local Flight Recorder commit `01eedda...`.
+
+The P1A5 Observer app is not cleanup-authorized despite an exact bundle copy in a retained worktree because active operational use was not checked. The five zero-byte files are not treated as interchangeable cleanup duplicates because their filename/timestamp context may carry separate evidence.
+
+**No further Lane A construction is authorized under this task.**
+
+The next A transition, if explicitly authorized by the user, must be a separate cleanup/disposition task. Before that task can authorize deletion it must refresh the live PR/remote-branch/worktree inventory, including current B and C heads, and define the exact deletion set with preservation evidence.
+
+Until then all destructive cleanup gates remain BLOCKED.
