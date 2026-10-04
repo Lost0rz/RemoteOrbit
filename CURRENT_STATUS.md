@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — A1 ACCEPTED / A2 ACTIVE; C PR #19 MERGE AUTHORIZED
+State: FOUNDATION GOVERNANCE — A CLOSED / B ACTIVE / C CLOSED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -19,14 +19,14 @@ before continuing.
 ## Remote baseline
 
 - **FACT — Default branch:** `main`
-- **FACT — Remote main HEAD:** `7129ef72949eca956b1d0daddce707d5e417eeed`
-- **FACT — Main HEAD message:** merge PR #15, media-key suppression isolation.
+- **FACT — Remote main HEAD:** `5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d`
+- **FACT — Main HEAD message:** merge PR #19, single diagnostic Authority skeleton.
 - **FACT — Latest published release:** RemoteOrbit `v0.2.13` / Build 42.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
-- **FACT — Current open PRs:** PR #17, PR #18, and PR #19.
+- **FACT — Current open PRs:** PR #17 and PR #18.
 - **FACT — PR #17:** OPEN + Draft + unmerged; its branch is the control-plane authority.
-- **FACT — PR #18:** OPEN + Draft; `codex/persistent-long-boundary-probes-v1` at `28824d9dc167f57e3163ef0844aec1b672717d8f`.
-- **FACT — PR #19:** OPEN + Draft + mergeable; `codex/diagnostic-authority-audit` at `ee4effd0b6435b5198a258fa9c9f063717f69136`. C skeleton/minimal proof and final merge-gate delta are independently audited PASS. Merge remains unperformed and requires a separate explicit authorization.
+- **FACT — PR #18:** OPEN + Draft; `codex/persistent-long-boundary-probes-v1` at `ca35022be6cea6262d971ef0aedaa5550324004f`.
+- **FACT — PR #19:** MERGED + CLOSED; source head `ee4effd0b6435b5198a258fa9c9f063717f69136`; merge commit `5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d`. Lane C is CLOSED.
 - **FACT — Final closeout snapshot base:** live control-plane HEAD `8a09a80411fd3f19c37332a4d2e7799773cf5182`; the final status/task snapshot correction is a direct child of this audited HEAD and is pushed to the active control-plane branch.
 - **FACT — Out-of-band PR metadata drift:** #9 and #16 were closed during earlier closeout and reopened at 2026-10-03T12:40:25Z / 12:40:27Z; #17 was closed at 12:40:31Z.
 - **RULE — PR state is not task authority:** these metadata changes do not advance or replace CURRENT_TASK.
@@ -37,7 +37,7 @@ This closeout inventory predates the active Step 5 PR #18 line recorded above.
 
 | PR | Title | Lifecycle | Remote state | Reason / successor |
 | --- | --- | --- | --- | --- |
-| #19 | diagnostic Authority skeleton | **ACTIVE / MERGE-AUTHORIZED** | OPEN Draft, unmerged | User explicitly authorized merge of audited HEAD `ee4effd0b6435b5198a258fa9c9f063717f69136`; post-merge C closure required |
+| #19 | diagnostic Authority skeleton | **MERGED / CLOSED** | CLOSED merged | merged as `5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d`; Lane C accepted and closed |
 | #17 | development control plane | **ACTIVE** | OPEN Draft, unmerged | sole current control-plane PR and task authority |
 | #16 | persistent voice segment transaction isolation | **ABANDONED** | CLOSED Draft, unmerged | re-closed under explicit repository-closeout authorization; diff/discussion preserved |
 | #15 | preserve Mac media keys | **MERGED** | CLOSED merged | merged into `main` 2026-10-01 |
@@ -1801,3 +1801,27 @@ Final destructive gates remain:
 - **reset/clean/stash/history rewrite:** BLOCKED.
 
 Any cleanup requires a new explicit control-plane task with a refreshed remote/live inventory, because PR #18 and PR #19 advanced after the A1 census.
+
+## Lane C closure — 2026-10-04
+
+PR #19 was merged exactly from the independently audited source head
+`ee4effd0b6435b5198a258fa9c9f063717f69136`.
+
+```text
+PR19_MERGED: YES
+PR19_STATE: CLOSED
+PR19_SOURCE_HEAD: ee4effd0b6435b5198a258fa9c9f063717f69136
+MAIN_MERGE_COMMIT: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+REMOTE_MAIN_HEAD: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+C_IMPLEMENTATION: ACCEPTED
+C_MERGE_GATE: PASS
+C_LINE_STATE: CLOSED
+```
+
+The accepted C deliverable is the single diagnostic Authority/schema skeleton plus
+the bounded opt-in WavRecorder proof. No further C construction is authorized.
+Retention/rotation, higher-frequency producer migration, CLI, Agent API, Settings/UI,
+journal streaming/read redesign, and later integrations require a new task.
+
+Lane A is already complete under its accepted A1/A2 classification scope. Lane B
+remains active under its existing scope.

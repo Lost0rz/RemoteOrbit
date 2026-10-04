@@ -2,14 +2,14 @@
 
 ## Task identity
 
-- **Task:** FOUNDATION GOVERNANCE — PARALLEL LANES A / B / C
+- **Task:** FOUNDATION GOVERNANCE — B ACTIVE; A / C CLOSED
 - **Status:** AUTHORIZED
 - **Task authority:** this file
 - **Parallel execution:** EXPLICITLY AUTHORIZED
 - **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
 - **Product Construction Gate:** BLOCKED
-- **Merge:** PR #19 exact audited head `ee4effd0b6435b5198a258fa9c9f063717f69136` AUTHORIZED by user
+- **Merge:** PR #19 COMPLETED; no additional merge authorization implied
 - **Release / install:** NOT AUTHORIZED
 
 ## Coordination model
@@ -18,9 +18,9 @@ Three lanes may run concurrently because they own different mutation surfaces.
 
 | Lane | Objective | Write authority | Must not touch |
 | --- | --- | --- | --- |
-| A | repository/worktree governance inventory + freeze/classification | control-plane docs only | diagnostic/product source |
+| A | CLOSED — A1/A2 inventory/freeze/classification accepted | none; no further A construction authority | cleanup requires a new explicit task |
 | B | boundary probes + capture completeness | PR #18 diagnostic probe surface | control plane, CLI, Settings, Authority schema ownership |
-| C | diagnostic Authority skeleton accepted; bounded merge-gate validation | PR #19 test-only validation surface | control plane, PR #18 probe call sites, CLI, Settings, product behavior |
+| C | CLOSED — diagnostic Authority skeleton accepted and merged | none; no further C construction authority | all further diagnostic expansion requires a new task |
 
 **Lane A is the sole control-plane writer** while these lanes are active. Lanes B/C
 return verified branch/HEAD/test evidence to A; they do not independently edit
@@ -448,3 +448,18 @@ The P1A5 Observer app is not cleanup-authorized despite an exact bundle copy in 
 The next A transition, if explicitly authorized by the user, must be a separate cleanup/disposition task. Before that task can authorize deletion it must refresh the live PR/remote-branch/worktree inventory, including current B and C heads, and define the exact deletion set with preservation evidence.
 
 Until then all destructive cleanup gates remain BLOCKED.
+
+## Lane C closure
+
+**C STATUS: CLOSED**
+
+PR #19 was merged into `main` as
+`5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d` from the exact audited source head
+`ee4effd0b6435b5198a258fa9c9f063717f69136`.
+
+No further work is authorized on Lane C under this task. Do not continue producer
+migration, retention/rotation, CLI, Agent API, Settings/UI, or journal redesign under
+the closed C line. Any such work requires a separately authorized future task.
+
+Lane A is also complete under its accepted A1/A2 scope. Lane B remains the only
+active construction/investigation lane under this foundation task.
