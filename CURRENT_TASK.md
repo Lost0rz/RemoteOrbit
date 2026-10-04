@@ -220,40 +220,94 @@ This parallel phase is ready for independent audit when:
 - Product Construction Gate remains BLOCKED pending separate authorization.
 
 
-## Lane A execution checkpoint — remote census complete
+## Lane A execution checkpoint — A1 accepted / A2 authorized
 
-### Completed
+### A1 disposition
 
-The fresh remote read-only census is complete and frozen in `CURRENT_STATUS.md`.
+**A1 STATUS: COMPLETE / ACCEPTED**
 
-Remote classification result:
+The fresh owning-Mac census has been independently reviewed against the remote
+inventory. Repository, PR, branch, and worktree classifications are now frozen.
 
-- PRs: ACTIVE 2 / MERGED 11 / SUPERSEDED 4 / ABANDONED 1.
-- Remote branches: 5 total.
-- Active branches: `main`, control-plane #17, boundary-probe #18.
-- Evidence-retained branches: `codex/persistent-duplicate-audio-forensics`,
-  `codex/voice-single-owner-session`.
-- No remote deletion/close/merge mutation was performed.
+Accepted headline facts:
 
-### Current A-line gate
+- 14 registered worktrees; all 14 live; 0 missing registrations;
+- 11 local branches;
+- 4 dirty worktrees;
+- 3 worktrees with 9 untracked evidence files;
+- six distinct local-only commit SHAs require preservation;
+- two clean superseded worktrees are cleanup candidates only;
+- no unknown classification remains;
+- no destructive cleanup was performed.
 
-**WAITING FOR FRESH OWNING-MAC CENSUS**
+The stale local control checkout is a known freshness condition. It is not the task
+authority and must not be used to author control-plane changes until updated in a
+separately authorized synchronization action.
 
-The next authorized A-line action is read-only local inventory only. Revalidate the
-current worktree and local-branch state from the owning Mac. Do not reuse the
-historical 10-worktree snapshot as current truth.
+### Current A-line task
 
-Required result must report, for every registered worktree:
+**A2 — NON-WORKTREE ARTIFACT INVENTORY AND CLASSIFICATION**
 
-`PATH | EXISTS | HEAD | BRANCH/DETACHED | CLEAN/DIRTY | TRACKED MODS | UNTRACKED |
-UPSTREAM | AHEAD/BEHIND | UNIQUE LOCAL COMMITS | CLASSIFICATION CANDIDATE | RETAIN
-REASON/BLOCKER`
+Purpose: complete the governance picture outside Git worktrees before any cleanup
+decision is considered.
 
-Also report all local branches not attached to a worktree, with upstream,
-ahead/behind, merge-base/reachability or unique-commit evidence sufficient to decide
-whether the branch is preserved elsewhere.
+This task is **read-only**.
 
-### Still forbidden
+#### Scope
 
-No worktree remove/prune, branch delete, PR mutation, reset/clean/stash/rebase,
-diagnostic/product source edit, install, package, or runtime mutation.
+Inventory RemoteOrbit-related non-worktree assets in bounded project/archive
+locations, including archive/backup directories, preservation patches, release/DMG
+artifacts, incident captures, observer/build artifacts, and other RemoteOrbit-owned
+filesystem evidence not already represented by a registered worktree.
+
+Do not recursively inventory unrelated user data or system/cache directories.
+
+#### Required evidence per artifact/group
+
+Record enough to decide preservation without mutation:
+
+- exact path;
+- file/directory type;
+- size and item count where useful;
+- obvious artifact class/purpose;
+- modification timestamp;
+- whether it is inside a registered worktree;
+- whether equivalent content is preserved by Git, a live worktree, release asset,
+  another archive, or another named path when this can be proven;
+- preservation value / blocker;
+- proposed classification.
+
+Use only these A2 classifications:
+
+- ACTIVE
+- FORENSIC-RETAINED
+- RELEASE-RETAINED
+- DUPLICATE-CANDIDATE
+- SUPERSEDED-CANDIDATE
+- UNKNOWN-BLOCKED
+
+#### Acceptance
+
+A2 is complete when the bounded non-worktree RemoteOrbit filesystem surface is
+enumerated, every artifact/group has one evidence-backed classification, unique
+forensic/release evidence is protected, duplicate claims identify the preserved
+copy, and no mutation has occurred.
+
+#### Construction gate
+
+**OPEN for read-only A2 inventory only.**
+
+Still forbidden:
+
+- file/directory deletion or move;
+- worktree remove/prune;
+- branch deletion;
+- PR mutation;
+- reset/clean/stash/rebase;
+- source or diagnostic edits;
+- build/install/package/runtime mutation;
+- control-plane edits from the local agent.
+
+Return the complete inventory and classifications for independent web audit. A
+separate control-plane transition is required before any cleanup action.
+

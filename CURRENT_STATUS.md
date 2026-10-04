@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — PARALLEL LANES A/B/C AUTHORIZED
+State: FOUNDATION GOVERNANCE — LANE A1 ACCEPTED / A2 ARTIFACT INVENTORY AUTHORIZED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -1459,3 +1459,127 @@ Lane A cannot finish until the owning Mac revalidates:
 Until that fresh local census is returned, every historical retained local worktree
 is **UNKNOWN-BLOCKED for cleanup**. No worktree removal, prune, branch deletion,
 reset, clean, stash, or history rewrite is authorized.
+
+
+## Lane A1 acceptance — fresh local census
+
+**Remote independent audit result: ACCEPTED.**
+
+The owning-Mac fresh census has now satisfied the Lane A repository/worktree
+classification gate. This section supersedes the earlier "WAITING FOR FRESH
+OWNING-MAC CENSUS" freshness gate.
+
+### Fresh local facts
+
+- **FACT — control remote authority:** live
+  `codex/project-agents-control-plane-v1` was
+  `817529ef2ff10441aebe077d58ad5c405cae3ae4` at the census boundary.
+- **FACT — local control checkout:** clean at
+  `2d8f8ac1a15039ec03ad5f8e17d8206e97075a67`, 0 ahead / 4 behind the
+  verified control upstream. This is a known stale checkout, not an authority
+  conflict because no local control write was performed.
+- **FACT — origin/canonical root:** origin resolves to Lost0rz/RemoteOrbit and the
+  canonical root is `/Volumes/Jack-Dev/Projects/remoteorbit`.
+- **FACT — remote branch set:** matches the frozen five-branch remote inventory.
+- **FACT — worktrees:** 14 registered / 14 live / 0 missing registrations.
+- **FACT — local branches:** 11.
+- **FACT — dirty worktrees:** 4.
+- **FACT — untracked evidence:** 3 worktrees / 9 files.
+- **FACT — local-only history:** six distinct local-only commit SHAs remain after
+  ancestry deduplication.
+- **FACT — no unknown item classification remains.**
+- **FACT — no cleanup mutation was performed.**
+
+### Accepted worktree disposition
+
+**ACTIVE**
+
+- A control-plane checkout (clean but stale by four control commits);
+- Lane B PR #18 exact-head observer/corrective checkout;
+- Lane C diagnostic-authority checkout at verified `main`.
+
+**FORENSIC-RETAINED**
+
+- canonical `remoteorbit` checkout because of a tracked local edit;
+- cross-mode Flight Recorder checkpoint;
+- P0 voice experiment and voice-p0-final dirty evidence lines;
+- P1-A1 / P1-A3 / P1-A4 / P1-A5 lines because of local-only commits and/or
+  untracked observer evidence;
+- detached RemoteOrbit Flight Recorder checkpoint.
+
+The six distinct local-only commits remain outside current live remote branches,
+remote tags, and current GitHub PR heads and therefore remain preservation blockers.
+
+**SUPERSEDED cleanup candidates — classification only**
+
+1. `/private/tmp/remoteorbit-pr18-corrective-controls`
+   - clean detached checkout;
+   - no unique commits;
+   - HEAD preserved by the live control branch / PR #17 history.
+2. `/Volumes/Jack-Dev/Projects/remoteorbit-pr18-validation`
+   - clean detached checkout;
+   - no unique commits;
+   - HEAD preserved by the current PR #18 line.
+
+These are candidates only. No removal/prune/delete is authorized.
+
+### A1 conclusion
+
+**LANE A1 REPOSITORY / BRANCH / WORKTREE GOVERNANCE GATE: PASS**
+
+Every current PR, remote branch, registered worktree, and local branch now has a
+fresh evidence-backed disposition or preservation blocker. The Git/worktree layer is
+sufficiently understood to move to the next governance layer.
+
+This PASS does **not** establish a destructive-cleanup gate. The filesystem still
+contains RemoteOrbit-related non-worktree assets (for example app archives,
+diagnostic backups, preservation patches, incident captures, DMGs, observer/build
+artifacts) whose preservation value and duplication status have not yet been frozen.
+
+### Lane A2 construction authorization
+
+**A2 CONSTRUCTION GATE: OPEN — READ-ONLY ARTIFACT INVENTORY ONLY**
+
+Objective: inventory and classify RemoteOrbit-related non-worktree filesystem
+artifacts so that future cleanup decisions cannot accidentally destroy the only copy
+of forensic, release, incident, observer, or preservation evidence.
+
+Scope includes, where present:
+
+- RemoteOrbit app/archive directories;
+- diagnostic-backup directories;
+- preservation patch files;
+- DMG/release/package artifacts;
+- incident JSONL/capture bundles;
+- observer source/build artifacts that are not already protected by a registered
+  worktree;
+- other clearly RemoteOrbit-owned filesystem artifacts discovered in the bounded
+  project/archive locations.
+
+A2 is inventory/classification only. It must establish path, artifact class,
+size/count, provenance when determinable, Git/worktree reachability or duplication
+when applicable, preservation value, and candidate disposition.
+
+### A2 acceptance standard
+
+A2 passes only when:
+
+1. bounded scan roots are explicitly listed;
+2. every discovered RemoteOrbit-related non-worktree artifact is classified as
+   ACTIVE / FORENSIC-RETAINED / RELEASE-RETAINED / DUPLICATE-CANDIDATE /
+   SUPERSEDED-CANDIDATE / UNKNOWN-BLOCKED;
+3. unique forensic/release/incident evidence is identified and protected;
+4. duplicate/candidate claims name the preserved authoritative copy or evidence;
+5. registered worktrees are excluded from artifact cleanup classification rather
+   than double-counted;
+6. no file, directory, worktree, branch, PR, runtime, package, or source is mutated;
+7. unresolved provenance is reported as UNKNOWN-BLOCKED, never guessed.
+
+### Gates after this transition
+
+- **A2 read-only artifact inventory:** OPEN.
+- **Worktree/branch deletion gate:** BLOCKED.
+- **Filesystem artifact deletion gate:** BLOCKED.
+- **PR close/merge gate:** BLOCKED.
+- **Product-behavior Construction Gate:** BLOCKED.
+- **Release/install gate:** BLOCKED.
