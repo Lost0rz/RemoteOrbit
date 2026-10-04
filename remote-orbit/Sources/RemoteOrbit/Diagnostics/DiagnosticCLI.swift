@@ -9,18 +9,21 @@ enum DiagnosticCLI {
 
     static func runIfRequested(
         arguments: [String] = CommandLine.arguments,
-        authority: any DiagnosticAuthority = DiagnosticAuthorityService.shared,
-        journalURL: URL = DiagnosticStorage.defaultJournalURL,
-        output: Writer = standardOutput,
-        errorOutput: Writer = standardError
+        authority: (any DiagnosticAuthority)? = nil,
+        journalURL: URL? = nil,
+        output: Writer = { Swift.print($0) },
+        errorOutput: Writer = { message in
+            guard let data = (message + "\n").data(using: .utf8) else { return }
+            FileHandle.standardError.write(data)
+        }
     ) -> Int32? {
         guard arguments.count >= 2, arguments[1] == "diagnostics" else {
             return nil
         }
         return run(
             arguments: Array(arguments.dropFirst(2)),
-            authority: authority,
-            journalURL: journalURL,
+            authority: authority ?? DiagnosticAuthorityService.shared,
+            journalURL: journalURL ?? DiagnosticStorage.defaultJournalURL,
             output: output,
             errorOutput: errorOutput
         )
@@ -235,13 +238,4 @@ enum DiagnosticCLI {
     contract and has no restart, reset, repair, install, delete, clear, or settings
     mutation commands.
     """
-
-    private static func standardOutput(_ message: String) {
-        Swift.print(message)
-    }
-
-    private static func standardError(_ message: String) {
-        guard let data = (message + "\n").data(using: .utf8) else { return }
-        FileHandle.standardError.write(data)
-    }
 }
