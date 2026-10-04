@@ -25,7 +25,7 @@ before continuing.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
 - **FACT — Current open PRs:** PR #17 and PR #18.
 - **FACT — PR #17:** OPEN + Draft + unmerged; its branch is the control-plane authority.
-- **FACT — PR #18:** OPEN + Draft; `codex/persistent-long-boundary-probes-v1` at `ca35022be6cea6262d971ef0aedaa5550324004f`.
+- **FACT — PR #18:** OPEN + Draft; `codex/persistent-long-boundary-probes-v1` at `a71ce1d48c08bda1ad86bcd5c3a75a5e5ed90353` after accepted post-C main reconciliation.
 - **FACT — PR #19:** MERGED + CLOSED; source head `ee4effd0b6435b5198a258fa9c9f063717f69136`; merge commit `5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d`. Lane C is CLOSED.
 - **FACT — Final closeout snapshot base:** live control-plane HEAD `8a09a80411fd3f19c37332a4d2e7799773cf5182`; the final status/task snapshot correction is a direct child of this audited HEAD and is pushed to the active control-plane branch.
 - **FACT — Out-of-band PR metadata drift:** #9 and #16 were closed during earlier closeout and reopened at 2026-10-03T12:40:25Z / 12:40:27Z; #17 was closed at 12:40:31Z.
@@ -1957,3 +1957,54 @@ A3 is complete only when all of the following are satisfied:
 
 A later destructive-cleanup transition requires independent web audit of the A3
 evidence and explicit user authorization of the exact deletion set.
+
+
+## Lane B B2 reconciliation independent audit — 2026-10-04
+
+Independent remote audit of the reconciliation-only transition is **PASS**.
+
+```text
+B2_START_HEAD: ca35022be6cea6262d971ef0aedaa5550324004f
+B2_MAIN_BASELINE: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+B2_MERGE_HEAD: a71ce1d48c08bda1ad86bcd5c3a75a5e5ed90353
+B2_MERGE_PARENTS:
+  ca35022be6cea6262d971ef0aedaa5550324004f
+  5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PR18_REMOTE_HEAD: a71ce1d48c08bda1ad86bcd5c3a75a5e5ed90353
+PR18_STATE: OPEN_DRAFT_UNMERGED
+B2_SCOPE: MAIN_RECONCILIATION_ONLY
+B2_PROBE_EXPANSION: NONE
+B2_GATE: PASS
+```
+
+Remote comparison proves the reconciliation added only the accepted C/main tree to the
+existing B line. Relative to current `main`, PR #18 contains only the six previously
+audited B probe/test paths. No B7/B8 probe implementation was part of B2.
+
+Local-reported validation accepted for this gate:
+
+- focused B diagnostics: 3 suites / 6 tests PASS;
+- focused C diagnostics: 2 suites / 10 tests PASS;
+- full Swift suite: 277 passed / 0 failed;
+- release build: PASS;
+- local/remote branch: 0 ahead / 0 behind;
+- final worktree: CLEAN.
+
+No install, runtime replacement, incident capture, product fix, or PR merge occurred.
+
+### Lane B next construction threshold
+
+The B2 reconciliation prerequisite is now satisfied. The next bounded construction
+stage may address only the already-reconciled external boundary sources:
+
+- **B7 — target-process input-consumer transitions**, if macOS 13-compatible
+  read-only CoreAudio observation is proven at implementation time;
+- **B8 — actual frontmost-application transitions** via an independent,
+  transition-only observer.
+
+B4 external acceptance and B5 external semantic-session state remain
+`SOURCE_NOT_FOUND` and are not construction targets. B9 target-text observation
+remains deferred pending a separate capability/privacy gate.
+
+C remains CLOSED. The merged DiagnosticAuthority is now infrastructure consumed by
+B; this does not reopen Lane C.

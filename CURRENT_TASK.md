@@ -604,3 +604,190 @@ The local executor may write verified A3 evidence to `CURRENT_STATUS.md` and
 - If a required scan root is unavailable, STOP with the missing evidence.
 
 No destructive cleanup is authorized by this task.
+
+
+## Lane B transition — B3 external-boundary probe construction authorized
+
+**Status:** AUTHORIZED — bounded B7/B8 diagnostic construction only.
+
+### Authority anchors
+
+```text
+B3_EXPECTED_START_HEAD: a71ce1d48c08bda1ad86bcd5c3a75a5e5ed90353
+MAIN_BASELINE: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PR: #18
+BRANCH: codex/persistent-long-boundary-probes-v1
+C_LINE: CLOSED
+DIAGNOSTIC_AUTHORITY_BASELINE: ACCEPTED_ON_MAIN
+```
+
+B2 reconciliation is independently accepted. B may now consume the merged
+DiagnosticAuthority as infrastructure.
+
+### Authorized objective
+
+Implement only:
+
+1. **B8 frontmost-application transition probe** using an independent
+   `NSWorkspace.frontmostApplication` observation path, transition-only and without
+   high-frequency polling;
+2. **B7 target-process input-consumer transition probe** using read-only CoreAudio
+   process/input state if and only if the implementation is safe for the repository's
+   macOS 13 deployment target.
+
+Both probes must emit through the accepted `DiagnosticAuthority`. No direct JSONL
+writer is allowed.
+
+### Narrow catalog exception
+
+For this B3 task only, Lane B may edit
+`Sources/RemoteOrbit/Diagnostics/DiagnosticEvent.swift` solely to:
+
+- register the minimum closed-catalog event definitions required by B7/B8; and
+- add only the minimum payload value kinds required for those exact event payloads.
+
+This exception **does not** authorize a schema redesign and does not reopen Lane C.
+
+Still forbidden in the Authority surface:
+
+- schema-version change;
+- envelope-field change;
+- canonical clock change;
+- runtime/provenance contract change;
+- `DiagnosticAuthorityService` queue/emission mechanics;
+- journal path/format/append behavior;
+- query/filter/pagination/snapshot behavior;
+- retention/rotation;
+- generic/extensible schema engines.
+
+If B7/B8 cannot be represented without one of those changes, STOP and return the
+cross-boundary blocker.
+
+### B8 contract
+
+Required fact:
+
+> actual frontmost application identity changed.
+
+Use a separate observer component. Notification/KVO may trigger re-observation, but
+the emitted fact must be based on the observed `frontmostApplication` state.
+
+Requirements:
+
+- transition-only;
+- no high-frequency polling;
+- initial state establishes baseline but emits no change event;
+- repeated same identity emits nothing;
+- payload is limited to stable process/application identity needed for diagnosis;
+- no window title or user content.
+
+### B7 contract
+
+Required fact:
+
+> a target process changed input-consumer running state.
+
+Before implementation, verify the exact CoreAudio API/header availability against the
+macOS 13 deployment target.
+
+Requirements:
+
+- read-only;
+- no PCM/audio tap;
+- no default-device mutation;
+- no CoreAudio restart;
+- no driver/install;
+- no global high-frequency process polling;
+- no claim of device switching unless the API semantics directly prove it;
+- if safe target correlation cannot be established without changing product behavior,
+  classify target correlation as PARTIAL rather than logging all system clients.
+
+If the required CoreAudio observation is unavailable under the current deployment
+contract, B7 may stop as `BLOCKED_BY_AVAILABILITY` while B8 proceeds.
+
+### Explicit non-targets
+
+```text
+B4_EXTERNAL_ACCEPTANCE: SOURCE_NOT_FOUND — DO NOT IMPLEMENT
+B5_EXTERNAL_SESSION_STATE: SOURCE_NOT_FOUND — DO NOT IMPLEMENT
+B9_TARGET_TEXT: DEFERRED — DO NOT IMPLEMENT
+```
+
+Do not substitute internal dispatch, Persistent state, frontmost state, audio state,
+or text mutation for B4/B5 semantic acknowledgement.
+
+### Runtime and behavior isolation
+
+Prefer the existing diagnostics-only runtime gate when practical. New observers must
+not become dependencies of voice, HID, Option ownership, BLE, audio routing, focus
+control, or recovery behavior.
+
+No Settings, CLI, Agent API, install, runtime replacement, fresh incident capture,
+product fix, threshold/timing change, or PR #18 merge is authorized.
+
+### Required tests
+
+B8 focused tests must prove at minimum:
+
+- initial baseline emits nothing;
+- A→B emits exactly once;
+- B→B emits nothing;
+- B→C emits exactly once;
+- process/application identity is preserved;
+- invalid catalog payloads fail closed.
+
+If B7 is implemented, focused tests must prove at minimum:
+
+- inactive→active emits once;
+- same-state repetition emits nothing;
+- active→inactive emits once;
+- unrelated process/state is ignored by the target filter;
+- listener teardown does not fabricate a transition;
+- invalid event payload/type fails closed.
+
+No wall-clock sleeps should be required for deterministic unit tests.
+
+### Validation
+
+Run:
+
+- existing PR #18 B diagnostics;
+- new B7/B8 focused tests;
+- `DiagnosticAuthorityTests`;
+- `WavRecorderDiagnosticsTests`;
+- full `swift test`;
+- `swift build -c release`;
+- `git diff --check`.
+
+Final audit report must explicitly state:
+
+```text
+B3_START_HEAD
+B3_FINAL_HEAD
+REMOTE_HEAD
+WORKTREE_CLEAN
+CATALOG_ONLY_EXCEPTION_SCOPE
+AUTHORITY_MECHANICS_CHANGED
+B7_MACOS13_AVAILABILITY
+B7_TARGET_CORRELATION
+B7_INPUT_RUNNING_TRANSITION
+B7_DEVICE_TRANSITION
+B8_FRONTMOST_TRANSITION
+B8_POLLING_USED
+B4_EXTERNAL_ACCEPTANCE
+B5_EXTERNAL_SESSION_STATE
+B9_STATUS
+DIRECT_JSONL_WRITER_ADDED
+VOICE_BEHAVIOR_CHANGED
+HID_BEHAVIOR_CHANGED
+OPTION_GATE_CHANGED
+BLE_AUDIO_BEHAVIOR_CHANGED
+FOCUSED_TESTS
+AUTHORITY_TESTS
+FULL_SWIFT_TEST
+RELEASE_BUILD
+DIFF_CHECK
+FINAL_STATE = WAITING_FOR_INDEPENDENT_AUDIT
+```
+
+Commit/push normally to PR #18 and stop at independent audit. Do not merge PR #18.
