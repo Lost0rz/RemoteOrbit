@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — CONTROL PLANE MERGED TO MAIN / A3 CLEANUP AUTHORIZED / B CLOSED / C CLOSED
+State: FOUNDATION GOVERNANCE — CONTROL PLANE ON MAIN / A3 EXACT CLEANUP EXECUTED / B CLOSED / C CLOSED / WAITING FOR INDEPENDENT WEB VERIFICATION
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -19,7 +19,7 @@ before continuing.
 ## Remote baseline
 
 - **FACT — Default branch:** `main`
-- **FACT — Remote main HEAD:** `97b23b43195ae90e1b7903e9a94d78bb829661e9`
+- **FACT — Remote main HEAD at cleanup checkpoint start:** `c488bd0bc004f31709bc4ac9ff07573ff1324fb0`
 - **FACT — Main HEAD message:** merge PR #17, repository-owned RemoteOrbit control plane.
 - **FACT — Latest published release:** RemoteOrbit `v0.2.13` / Build 42.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
@@ -2916,3 +2916,106 @@ historical remote ref, but it must not be used as the A3 freshness authority.
 
 No cleanup candidate, exclusion, preservation condition, no-force rule, or result
 checkpoint contract is changed by this correction.
+
+
+## Lane A3 exact cleanup execution result — 2026-10-04
+
+This checkpoint records only the frozen exact A3 manifest execution. Authority was
+`main`; the historical control branch was not used for freshness.
+
+```text
+CONTROL_PLANE_AUTHORITY: main
+A3_CLEANUP_START_CONTROL_HEAD: c488bd0bc004f31709bc4ac9ff07573ff1324fb0
+A3_CLEANUP_FINAL_CONTROL_PARENT: c488bd0bc004f31709bc4ac9ff07573ff1324fb0
+LIVE_MAIN_BEFORE_CLEANUP: c488bd0bc004f31709bc4ac9ff07573ff1324fb0
+PRECHECK: PASS for removable candidates; one local branch skipped under no-force rule
+LANE_B: CLOSED
+LANE_C: CLOSED
+```
+
+### Exact manifest results
+
+**Worktrees requested:**
+
+- `/private/tmp/remoteorbit-c-diagnostic-authority-audit` — removed normally; path absent after removal.
+- `/private/tmp/remoteorbit-cross-mode-flight-recorder-minimal` — removed normally; path absent after removal. Its `01eedda...` checkpoint remains at the separately retained Flight Recorder worktree.
+- `/private/tmp/remoteorbit-pr18-corrective-controls` — removed normally; path absent after removal.
+- `/Volumes/Jack-Dev/Projects/remoteorbit-pr18-validation` — removed normally; path absent after removal. Its HEAD `f3e852bb0d9d6358a62141dcb4f4e483257772d0` is an ancestor of PR #18 source `c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5`, PR #18 merge `6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5`, and current `main`.
+
+All four were clean and had no untracked files at preflight. Their preserved history and the A3 task dependency checks passed.
+
+**Local branches requested:**
+
+- `codex/diagnostic-authority-audit` — deleted with ordinary `git branch -d`; head `ee4effd0b6435b5198a258fa9c9f063717f69136` is preserved by `main`.
+- `codex/cross-mode-flight-recorder-minimal` — skipped and retained. Its head `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f` is not an ancestor of `main`, has no upstream, and is the one local-only commit. Ordinary deletion would require force; no force was attempted. The checkpoint remains preserved by the Flight Recorder worktree.
+
+**Remote branch requested:**
+
+- `codex/diagnostic-authority-audit` at live head `ee4effd0b6435b5198a258fa9c9f063717f69136` — deleted; post-cleanup fetch/live-ref readback confirms it absent.
+
+**File requested:**
+
+- `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder.source-preservation.patch` — deleted after preflight confirmed unchanged accepted identity, 116,334 bytes and mtime `2026-10-03 12:03:54 +0800`.
+
+```text
+REGISTRY_PRUNE_PERFORMED: NO
+FLIGHT_RECORDER_HEAD_BEFORE: 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f
+FLIGHT_RECORDER_HEAD_AFTER: 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f
+FLIGHT_RECORDER_WORKTREE_RETAINED: YES / CLEAN / DETACHED
+EXCLUDED_OBJECTS_TOUCHED: NO
+UNAUTHORIZED_DELETIONS: NO
+FINAL_REGISTERED_WORKTREE_COUNT: 10
+FINAL_LIVE_WORKTREE_COUNT: 10
+FINAL_MISSING_REGISTRATION_COUNT: 0
+```
+
+### Final local inventory
+
+Live worktrees after cleanup (10):
+
+- `/Volumes/Jack-Dev/Projects/remoteorbit` — `48a6d54ffa1a2798ac9ac760673d6406cec6bf12`, dirty user edit preserved.
+- `/private/tmp/remoteorbit-control-plane-closeout` — `c488bd0bc004f31709bc4ac9ff07573ff1324fb0`, clean, `main` execution checkout.
+- `/Users/jack7788/Documents/Code/remoteorbit-p0-voice-experiment` — `80ec3adfe065eac90547f7a76c58f0b510c639b9`, dirty evidence preserved.
+- `/Users/jack7788/Documents/Code/remoteorbit-voice-p0-final` — `48a6d54ffa1a2798ac9ac760673d6406cec6bf12`, dirty evidence preserved.
+- `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p0` — `86beaf1c4707dc08fa234739c5aee2a301d3c62e`.
+- `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a3` — `dba2b278b7ffbff5c2931cd83d002f6af412b87d`.
+- `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a4` — `f8e6b680b7c60da94f8befeb388fefb3b50f5fcb`.
+- `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a5` — `8befb031eb54b461675e95adb706f73721339479`; its untracked `P1A5Observer/` remains.
+- `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder` — `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f`, clean detached.
+- `/Volumes/Jack-Dev/Projects/remoteorbit-pr18-observer-corrective` — `c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5`.
+
+Final local branches (11):
+
+- `main` — `c488bd0bc004f31709bc4ac9ff07573ff1324fb0`;
+- `codex/project-agents-control-plane-v1` — `67be3151b8eb412b4963480346d7123cd9fd127c` (historical local ref, not authority);
+- `codex/persistent-long-boundary-probes-v1` — `c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5`;
+- `codex/v0211-nonseize-hid-audit` — `48a6d54ffa1a2798ac9ac760673d6406cec6bf12`;
+- `codex/v0211-p0-voice-experiment` — `80ec3adfe065eac90547f7a76c58f0b510c639b9`;
+- `codex/v0211-voice-p0-final` — `48a6d54ffa1a2798ac9ac760673d6406cec6bf12`;
+- `codex/p1-a1-ble-queue-isolation` — `86beaf1c4707dc08fa234739c5aee2a301d3c62e`;
+- `codex/audio-p1-a3-adaptive-playout` — `dba2b278b7ffbff5c2931cd83d002f6af412b87d`;
+- `codex/audio-p1-a4-receiver-finalization` — `f8e6b680b7c60da94f8befeb388fefb3b50f5fcb`;
+- `codex/audio-p1-a5-front-edge` — `8befb031eb54b461675e95adb706f73721339479`;
+- `codex/cross-mode-flight-recorder-minimal` — `01eeddaecd0dff596b7e0fd31cd4b1862360bc9f` (retained; local-only preservation ref).
+
+### Final live remote inventory
+
+Post-cleanup fetch and `ls-remote --heads origin` returned exactly five refs:
+
+- `main` — `c488bd0bc004f31709bc4ac9ff07573ff1324fb0`;
+- `codex/project-agents-control-plane-v1` — `5147465e7eba66bca071b287decd4174e585573f` (historical; not authority);
+- `codex/persistent-long-boundary-probes-v1` — `c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5`;
+- `codex/persistent-duplicate-audio-forensics` — `d0a1ab06d8fafa0e9a8a1ae3b79cbc0d299a07be`;
+- `codex/voice-single-owner-session` — `cd96b2f937d2e4b0bdfb67111714a77ce77e78c6`.
+
+The explicitly excluded audio P0/P1-A3/P1-A4/P1-A5 worktrees, P1A5 Observer.app,
+zero-byte capture/snapshot files, temporary verification app, Swift helper, named
+RemoteOrbit cache/helper paths, retained release archive, diagnostic backups, and
+named retained diagnostic logs were present after cleanup. No excluded object was
+modified. The dirty primary checkout remained untouched.
+
+```text
+A3_CLEANUP_EXECUTION: COMPLETE_WITH_ONE_LOCAL_BRANCH_BLOCKED
+DESTRUCTIVE_CLEANUP_GATE: EXECUTED_EXACT_MANIFEST_ONLY
+FINAL_STATE: CLEANUP_EXECUTED_WAITING_FOR_INDEPENDENT_WEB_VERIFICATION
+```

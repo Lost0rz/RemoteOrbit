@@ -3,7 +3,7 @@
 ## Task identity
 
 - **Task:** FOUNDATION GOVERNANCE — A3 EXACT CLEANUP EXECUTION AUTHORIZED; CONTROL PLANE ON MAIN; B/C CLOSED
-- **Status:** AUTHORIZED — EXACT A3 CLEANUP MANIFEST ONLY
+- **Status:** EXECUTED — EXACT MANIFEST RESULTS RECORDED; WAITING FOR INDEPENDENT WEB VERIFICATION
 - **Task authority:** `CURRENT_TASK.md` on `main`
 - **Parallel execution:** NO ACTIVE B/C CONSTRUCTION; A3 cleanup is the only authorized governance mutation
 - **Product behavior changes:** FROZEN
@@ -1650,3 +1650,55 @@ For every destructive attempt:
 
 Do not compare against or fast-forward to
 `codex/project-agents-control-plane-v1` for authority purposes.
+
+
+## Lane A3 exact cleanup execution — result checkpoint
+
+The exact A3 cleanup was executed from `main` after live `main` matched
+`c488bd0bc004f31709bc4ac9ff07573ff1324fb0` and all three control files were read at
+that revision. No historic control ref was used as freshness authority.
+
+```text
+A3_CLEANUP_START_CONTROL_HEAD: c488bd0bc004f31709bc4ac9ff07573ff1324fb0
+A3_CLEANUP_FINAL_CONTROL_PARENT: c488bd0bc004f31709bc4ac9ff07573ff1324fb0
+PRECHECK: PASS for four worktrees, diagnostic-authority branches, patch identity, and Flight Recorder preservation
+AUTHORIZED_WORKTREES_REQUESTED: 4
+AUTHORIZED_WORKTREES_REMOVED: 4
+WORKTREES_SKIPPED_BLOCKED: NONE
+AUTHORIZED_LOCAL_BRANCHES_REQUESTED: 2
+AUTHORIZED_LOCAL_BRANCHES_DELETED: codex/diagnostic-authority-audit
+LOCAL_BRANCHES_SKIPPED_BLOCKED: codex/cross-mode-flight-recorder-minimal — unmerged local-only 01eedda commit, no upstream; ordinary deletion would require force
+AUTHORIZED_REMOTE_BRANCH_REQUESTED: codex/diagnostic-authority-audit
+AUTHORIZED_REMOTE_BRANCH_DELETED: YES
+REMOTE_BRANCH_SKIPPED_BLOCKED: NONE
+AUTHORIZED_FILE_REQUESTED: /Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder.source-preservation.patch
+AUTHORIZED_FILE_DELETED: YES
+FILE_SKIPPED_BLOCKED: NONE
+REGISTRY_PRUNE_PERFORMED: NO
+FLIGHT_RECORDER_HEAD_BEFORE: 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f
+FLIGHT_RECORDER_HEAD_AFTER: 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f
+FLIGHT_RECORDER_WORKTREE_RETAINED: YES / CLEAN / DETACHED
+EXCLUDED_OBJECTS_TOUCHED: NO
+UNAUTHORIZED_DELETIONS: NO
+FINAL_REGISTERED_WORKTREE_COUNT: 10
+FINAL_REMOTE_BRANCH_SET: main, codex/project-agents-control-plane-v1, codex/persistent-long-boundary-probes-v1, codex/persistent-duplicate-audio-forensics, codex/voice-single-owner-session
+```
+
+The four removed worktrees are the exact four paths in the frozen manifest. The
+Flight Recorder preservation worktree remained clean at `01eedda...` immediately after
+worktree removal and after all cleanup. No excluded/unknown object, B-MR1 source, PR, product source, runtime, release
+artifact, or retained log was modified or removed. No broad registry prune was run;
+only the four registrations corresponding to successfully removed manifest
+worktrees were removed by normal `git worktree remove`. No force operation was used.
+
+Post-cleanup live `main` remained `c488bd0bc004f31709bc4ac9ff07573ff1324fb0`.
+The final local inventory is 10 registered/live worktrees and 11 local branches. The
+exact final worktree, local-branch, and remote-branch inventory is recorded in the
+matching Lane A3 execution result section of `CURRENT_STATUS.md`.
+
+The remaining branch candidate is intentionally preserved for independent review;
+there is no follow-up cleanup authority in this checkpoint.
+
+```text
+FINAL_STATE: CLEANUP_EXECUTED_WAITING_FOR_INDEPENDENT_WEB_VERIFICATION
+```
