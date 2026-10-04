@@ -1073,7 +1073,7 @@ B4: PARTIAL — internal defer/suppress decision observed; no external acceptanc
 B5: PARTIAL — Persistent intent remains open internally; no external semantic acknowledgement.
 B8: MISSING — no independent WindowServer/frontmost transition observer.
 B9: PARTIAL — user observation and AVFoundation/CoreAudio proxy evidence; no semantic IME state observer.
-PRE_GATE_LEAK_HYPOTHESIS: RULED_OUT_FOR_THIS_ATTEMPT at the gate decision/forwarding boundary only.
+PRE_GATE_LEAK_HYPOTHESIS: NOT ESTABLISHED — callback decision was after gate and deferred; original occurrence ordering is unresolved and forwarding before gate is not proven.
 SPECIFIC_BROKEN_BOUNDARY: NONE ESTABLISHED
 BROKEN_CONTRACT: NONE PROVEN
 FRESH_INCIDENT_DIRECT_SUPPORT: NO — target failure did not reproduce
@@ -1141,3 +1141,68 @@ CONSTRUCTION_GATE: BLOCKED
 ROOT_CAUSE: UNKNOWN
 ```
 
+## Sealed-capture clock-basis reconciliation result — 2026-10-04
+
+Read-only reconciliation completed for target LONG gesture
+`52AE0F3E-3273-482D-9E92-8092EABCF165` from CONTROL_HEAD_START
+`a3a1fa98c2af40cc1624701e23e5153710af062a`. The user-reported remote authority was
+confirmed by the three exact local commit objects; no fetch was performed in this
+continuation. The sealed capture manifest was rechecked and all nine listed SHA-256
+entries returned OK. The capture directory remains unchanged.
+
+Post-seal analysis artifact (outside the immutable capture package):
+`/Users/jack7788/Library/Logs/RemoteOrbit/incidents/fresh-incident-20261004T102216+0800-pr18-probe-review/clock-basis-reconciliation.txt`
+
+```text
+CLOCK_CROSSCHECK_SAMPLE_COUNT: 34 non-synthetic mapped events
+DELTA_MIN_MS: 91344320.889304
+DELTA_MAX_MS: 91747341.767472
+DELTA_MEDIAN_MS: 91479176.178486
+DELTA_SPREAD_MS: 403020.878168
+CLOCK_SCALE_COMPATIBILITY: NOT_ESTABLISHED
+```
+
+Across this run, `cg_event_uptime_seconds` is around 2246–2256 seconds while
+`observer_uptime` is around 93590–94003 seconds; the calculated delivery deltas
+are neither small nor stable. The target event has original timestamp
+`2251759486203 ns` (`2251.759486203 s`). Its raw arithmetic against the gate and
+press uptimes is not a valid ordering comparison under this failed compatibility
+check.
+
+Target process-uptime ordering through callback: accepted HID edge for raw report
+sequence 3 at `93823.31207008334`, voice press at `93823.31876504167`, gate begin at
+`93823.32004220833`, and mapped callback observer uptime at `93823.33781962501`.
+The callback was `17.777417 ms` after gate begin, with `gate_state=deferring` and
+`action=defer_down`; subsequent target handling recorded suppression. The sibling
+post-seal artifact SHA-256 is
+`7f79ae347b60464584d7929554fd23d2f36f804e5a3f9068177d4701fefd090a`.
+
+```text
+ORIGINAL_CG_EVENT_BEFORE_GATE_BEGIN: UNRESOLVED
+MAPPED_CALLBACK_AFTER_GATE_BEGIN: YES
+CALLBACK_AFTER_GATE_BEGIN: YES (17.777417 ms)
+EVENT_TAP_DECISION_PRE_GATE: NO
+FORWARDED_BEFORE_GATE: NOT_PROVEN
+PRE_GATE_LEAK_HYPOTHESIS: NOT ESTABLISHED
+B3: PARTIAL — original CG occurrence cannot be placed on process uptime basis
+B4: PARTIAL — no external trigger acceptance acknowledgement
+B5: PARTIAL
+B8: MISSING
+B9: PARTIAL
+SPECIFIC_BROKEN_BOUNDARY: NONE ESTABLISHED
+BROKEN_CONTRACT: NONE PROVEN
+FRESH_INCIDENT_DIRECT_SUPPORT: NO
+PRE_FIX_FAILING_ACCEPTANCE: NONE ESTABLISHED
+MINIMAL_FIX_SCOPE: NOT ESTABLISHED
+SECOND_CAPTURE_AUTHORIZED: NO
+NEW_CAPTURE_GATE: CONSUMED
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+NEXT_ACTION: WAIT_FOR_NEW_AUTHORIZED_TASK
+```
+
+The earlier callback-level conclusion is narrowed: this attempt has no observed
+pre-gate callback decision, but raw CG occurrence ordering and external forwarding
+before the gate are not established. No B4/B5/B8/B9 upgrade follows from this
+reconciliation. No second capture, construction, product change, merge, or release
+is authorized.

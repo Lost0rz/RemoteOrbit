@@ -784,3 +784,45 @@ Decision:
 After this read-only calculation, update B3 and the pre-gate leak finding. Do not
 authorize another reproduction, construction, merge, or release.
 
+## Clock-basis reconciliation result — complete
+
+The authorized read-only reconciliation from CONTROL_HEAD_START
+`a3a1fa98c2af40cc1624701e23e5153710af062a` for target LONG
+`52AE0F3E-3273-482D-9E92-8092EABCF165` is complete. Exact authority object checks
+passed against the user-reported external heads; no fetch was performed in this
+continuation. The sealed package checksum verification passed, and its files were
+not modified. The post-seal artifact is:
+
+`/Users/jack7788/Library/Logs/RemoteOrbit/incidents/fresh-incident-20261004T102216+0800-pr18-probe-review/clock-basis-reconciliation.txt`
+
+Result: 34 non-synthetic mapped events have delivery deltas from
+`91344320.889304 ms` to `91747341.767472 ms`, median
+`91479176.178486 ms`, spread `403020.878168 ms`; therefore
+`CLOCK_SCALE_COMPATIBILITY=NOT_ESTABLISHED`. The target callback is established
+17.777417 ms after gate begin and was handled as `deferring` / `defer_down`, but
+original CG occurrence ordering and forwarding before gate remain unproven.
+
+```text
+CLOCK_SCALE_COMPATIBILITY: NOT_ESTABLISHED
+ORIGINAL_CG_EVENT_BEFORE_GATE_BEGIN: UNRESOLVED
+CALLBACK_AFTER_GATE_BEGIN: YES (17.777417 ms)
+MAPPED_CALLBACK_AFTER_GATE_BEGIN: YES
+FORWARDED_BEFORE_GATE: NOT_PROVEN
+B3_RESULT: PARTIAL
+B4_RESULT: PARTIAL
+PRE_GATE_LEAK_HYPOTHESIS: NOT ESTABLISHED
+SPECIFIC_BROKEN_BOUNDARY: NONE ESTABLISHED
+BROKEN_CONTRACT: NONE PROVEN
+FRESH_INCIDENT_DIRECT_SUPPORT: NO
+PRE_FIX_FAILING_ACCEPTANCE: NONE ESTABLISHED
+MINIMAL_FIX_SCOPE: NOT ESTABLISHED
+SECOND_CAPTURE_AUTHORIZED: NO
+NEW_CAPTURE_GATE: CONSUMED
+CONSTRUCTION_GATE: BLOCKED
+ROOT_CAUSE: UNKNOWN
+CURRENT_TASK_STATUS: COMPLETE
+NEXT_ACTION: WAIT_FOR_NEW_AUTHORIZED_TASK
+```
+
+Stop here. This task does not authorize another capture, Construction Gate
+advancement, product behavior changes, merge, or release.
