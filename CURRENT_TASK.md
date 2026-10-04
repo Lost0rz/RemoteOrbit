@@ -2,14 +2,14 @@
 
 ## Task identity
 
-- **Task:** CONTROL-PLANE FINALIZATION — MERGE PR #17; A3 EXACT CLEANUP REMAINS AUTHORIZED; B/C CLOSED
-- **Status:** AUTHORIZED — FINAL PR #17 RECONCILIATION/MERGE; A3 CLEANUP REMAINS SEPARATELY AUTHORIZED
-- **Task authority:** this file
-- **Parallel execution:** EXPLICITLY AUTHORIZED
+- **Task:** FOUNDATION GOVERNANCE — A3 EXACT CLEANUP EXECUTION AUTHORIZED; CONTROL PLANE ON MAIN; B/C CLOSED
+- **Status:** AUTHORIZED — EXACT A3 CLEANUP MANIFEST ONLY
+- **Task authority:** `CURRENT_TASK.md` on `main`
+- **Parallel execution:** NO ACTIVE B/C CONSTRUCTION; A3 cleanup is the only authorized governance mutation
 - **Product behavior changes:** FROZEN
 - **Root cause:** UNKNOWN
 - **Product Construction Gate:** BLOCKED
-- **Merge:** PR #17 FINAL MERGE EXPLICITLY AUTHORIZED; PR #18/#19 COMPLETED
+- **Merge:** PR #17/#18/#19 COMPLETED; no further merge authorized by this task
 - **Release / install:** NOT AUTHORIZED
 
 ## Coordination model
@@ -1591,3 +1591,29 @@ Required transition:
 
 No rebase, force, product fix, fresh capture, release, or cleanup execution is part of
 this merge transition.
+
+
+## Control-plane merge final state — PR #17 CLOSED
+
+```text
+CONTROL_PLANE_AUTHORITY: MAIN
+PR17: MERGED_CLOSED
+PR17_SOURCE_HEAD: 5147465e7eba66bca071b287decd4174e585573f
+PR17_MERGE_COMMIT: 97b23b43195ae90e1b7903e9a94d78bb829661e9
+PR18: MERGED_CLOSED
+LANE_B: CLOSED
+LANE_C: CLOSED
+A3_CLEANUP: AUTHORIZED_EXACT_MANIFEST_ONLY
+ROOT_CAUSE: UNKNOWN
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+```
+
+No further control-plane PR merge work is active.
+
+The only remaining authorized governance mutation is the previously frozen A3 exact
+cleanup execution. It must use the manifest, exclusions, no-force rules, preservation
+checks, dependency-safe order, and result checkpoint already recorded in this file and
+CURRENT_STATUS.
+
+Do not reopen Lane B/C, run a fresh incident capture, implement B9, begin a product
+fix, release/install, or broaden cleanup under this task.

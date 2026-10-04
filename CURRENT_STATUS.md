@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — A3 CLEANUP AUTHORIZED / B CLOSED / C CLOSED
+State: FOUNDATION GOVERNANCE — CONTROL PLANE MERGED TO MAIN / A3 CLEANUP AUTHORIZED / B CLOSED / C CLOSED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -19,12 +19,12 @@ before continuing.
 ## Remote baseline
 
 - **FACT — Default branch:** `main`
-- **FACT — Remote main HEAD:** `6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5`
-- **FACT — Main HEAD message:** merge PR #18, diagnostic-only Persistent LONG boundary probes and B8 observer.
+- **FACT — Remote main HEAD:** `97b23b43195ae90e1b7903e9a94d78bb829661e9`
+- **FACT — Main HEAD message:** merge PR #17, repository-owned RemoteOrbit control plane.
 - **FACT — Latest published release:** RemoteOrbit `v0.2.13` / Build 42.
 - **UNKNOWN — Installed/running build:** GitHub cannot establish local runtime identity.
-- **FACT — Current open PRs:** PR #17 only.
-- **FACT — PR #17:** OPEN + Draft + unmerged; control-plane branch is being reconciled with current `main` for final merge.
+- **FACT — Current open PRs:** none.
+- **FACT — PR #17:** MERGED + CLOSED; source head `5147465e7eba66bca071b287decd4174e585573f`; merge commit `97b23b43195ae90e1b7903e9a94d78bb829661e9`; control plane is now repository authority on `main`.
 - **FACT — PR #18:** MERGED + CLOSED; source head `c18d080cf4b2a0c3515ca3b321bf7bb3c3bca2c5`; merge commit `6c0a59cf4dcc7f8d90ddb9c9d80fb3ae1bbb95a5`; Lane B CLOSED.
 - **FACT — PR #19:** MERGED + CLOSED; source head `ee4effd0b6435b5198a258fa9c9f063717f69136`; merge commit `5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d`. Lane C is CLOSED.
 - **FACT — Final closeout snapshot base:** live control-plane HEAD `8a09a80411fd3f19c37332a4d2e7799773cf5182`; the final status/task snapshot correction is a direct child of this audited HEAD and is pushed to the active control-plane branch.
@@ -2860,3 +2860,32 @@ is permitted.
 After PR #17 merges, the repository control plane becomes authoritative from `main`.
 A3 exact cleanup remains separately authorized under its unchanged manifest and still
 requires its own execution/preflight/result checkpoint.
+
+
+## Control-plane merge closure — 2026-10-04
+
+PR #17 is merged and the repository-owned control plane is now authoritative from
+`main`.
+
+```text
+PR17_SOURCE_HEAD: 5147465e7eba66bca071b287decd4174e585573f
+PR17_MERGE_COMMIT: 97b23b43195ae90e1b7903e9a94d78bb829661e9
+PR17_STATE: CLOSED_MERGED
+PR18_STATE: CLOSED_MERGED
+LANE_B: CLOSED
+LANE_C: CLOSED
+CONTROL_PLANE_AUTHORITY: MAIN
+A3_EXACT_CLEANUP_AUTHORIZATION: STILL_VALID / NOT YET CLAIMED EXECUTED
+ROOT_CAUSE: UNKNOWN
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+```
+
+The PR #17 reconciliation preserved the current main product tree and added only
+`AGENTS.md`, `CURRENT_STATUS.md`, `CURRENT_TASK.md`, and the accepted Persistent
+LONG diagnostic architecture document.
+
+No product/runtime code was rolled back by the control-plane merge.
+
+The remaining active governance work is only the separately authorized A3 exact
+cleanup execution under its frozen manifest and fail-closed preflight. Lane B and Lane
+C remain closed.
