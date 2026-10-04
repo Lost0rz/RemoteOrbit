@@ -255,6 +255,33 @@ FINAL_STATE: WAITING_FOR_INDEPENDENT_AUDIT
 Passing these gates does not authorize merge. A fresh independent audit of the final
 PR #19 HEAD is required before any merge transition.
 
+
+### Lane C final state — merge-gate PASS / explicit merge authorization pending
+
+**Independent audit result:** PASS at final PR #19 HEAD
+`ee4effd0b6435b5198a258fa9c9f063717f69136`.
+
+The merge-gate delta is test-only and proves the bounded-queue saturation contract.
+The executor-reported full Swift suite and release build passed. No new production
+source change occurred after the previously accepted C implementation audit.
+
+Current C state:
+
+```text
+C_IMPLEMENTATION: COMPLETE
+C_MERGE_GATE: PASS
+C_STATE: MERGE_READY
+PR19_STATE: OPEN_DRAFT_UNMERGED
+MERGE_AUTHORIZATION: NOT_YET_GRANTED
+```
+
+No further C construction is authorized under this task. Do not modify PR #19 merely
+to make it "more complete." Do not migrate additional producers or add retention,
+CLI, Agent, Settings, or runtime behavior.
+
+The next C transition, if explicitly authorized by the user, is limited to PR #19
+merge disposition against the verified final head. Merge itself remains blocked until
+that separate authorization is recorded.
 ---
 
 ## Global stop conditions

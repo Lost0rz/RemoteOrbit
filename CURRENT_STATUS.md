@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-04
-State: FOUNDATION GOVERNANCE — A1 ACCEPTED / A2 ARTIFACT INVENTORY + C MERGE-GATE AUTHORIZED
+State: FOUNDATION GOVERNANCE — A1 ACCEPTED / A2 ACTIVE; C MERGE-GATE PASS / MERGE AUTHORIZATION PENDING
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable project state. If local evidence disagrees
@@ -26,7 +26,7 @@ before continuing.
 - **FACT — Current open PRs:** PR #17, PR #18, and PR #19.
 - **FACT — PR #17:** OPEN + Draft + unmerged; its branch is the control-plane authority.
 - **FACT — PR #18:** OPEN + Draft; `codex/persistent-long-boundary-probes-v1` at `28824d9dc167f57e3163ef0844aec1b672717d8f`.
-- **FACT — PR #19:** OPEN + Draft + mergeable; `codex/diagnostic-authority-audit` at `cb28bfd91e84309601b5fc2e36f9452b4a02b1d8`. C skeleton + minimal WavRecorder proof independently audited PASS; merge-gate validation is authorized, merge is not.
+- **FACT — PR #19:** OPEN + Draft + mergeable; `codex/diagnostic-authority-audit` at `ee4effd0b6435b5198a258fa9c9f063717f69136`. C skeleton/minimal proof and final merge-gate delta are independently audited PASS. Merge remains unperformed and requires a separate explicit authorization.
 - **FACT — Final closeout snapshot base:** live control-plane HEAD `8a09a80411fd3f19c37332a4d2e7799773cf5182`; the final status/task snapshot correction is a direct child of this audited HEAD and is pushed to the active control-plane branch.
 - **FACT — Out-of-band PR metadata drift:** #9 and #16 were closed during earlier closeout and reopened at 2026-10-03T12:40:25Z / 12:40:27Z; #17 was closed at 12:40:31Z.
 - **RULE — PR state is not task authority:** these metadata changes do not advance or replace CURRENT_TASK.
@@ -37,7 +37,7 @@ This closeout inventory predates the active Step 5 PR #18 line recorded above.
 
 | PR | Title | Lifecycle | Remote state | Reason / successor |
 | --- | --- | --- | --- | --- |
-| #19 | diagnostic Authority skeleton | **ACTIVE** | OPEN Draft, unmerged | C skeleton/minimal proof complete; merge-gate validation authorized; merge not authorized |
+| #19 | diagnostic Authority skeleton | **ACTIVE / MERGE-READY** | OPEN Draft, unmerged | C independent merge-gate audit PASS at `ee4effd0`; merge requires separate explicit authorization |
 | #17 | development control plane | **ACTIVE** | OPEN Draft, unmerged | sole current control-plane PR and task authority |
 | #16 | persistent voice segment transaction isolation | **ABANDONED** | CLOSED Draft, unmerged | re-closed under explicit repository-closeout authorization; diff/discussion preserved |
 | #15 | preserve Mac media keys | **MERGED** | CLOSED merged | merged into `main` 2026-10-01 |
@@ -1650,3 +1650,58 @@ Lane A1/A2 remains active and is not superseded. The earlier Lane A remote censu
 count of 18 PRs / five remote branches predates PR #19 and is now historical for any
 future cleanup decision. A future cleanup gate must refresh the remote inventory and
 include PR #19 / `codex/diagnostic-authority-audit`.
+
+
+## Lane C final independent merge-gate audit — 2026-10-04
+
+### Final remote evidence
+
+- **FACT — final PR #19 HEAD:** `ee4effd0b6435b5198a258fa9c9f063717f69136`.
+- **FACT — prior audited HEAD:** `cb28bfd91e84309601b5fc2e36f9452b4a02b1d8`.
+- **FACT — delta:** exactly one commit ahead, zero behind.
+- **FACT — delta file scope:** only `remote-orbit/Tests/RemoteOrbitTests/DiagnosticAuthorityTests.swift`.
+- **FACT — delta size:** +28 / -0.
+- **FACT — production-source delta after prior audit:** none.
+- **FACT — PR #19:** OPEN + Draft + unmerged + mergeable.
+- **FACT — remote `main`:** still `7129ef72949eca956b1d0daddce707d5e417eeed`.
+- **FACT — GitHub CI/status:** no workflow run and no commit status is attached to the final HEAD.
+- **LOCAL-REPORTED EVIDENCE:** full `swift test` = 271 passed / 0 failed; `swift build -c release` exited 0; local/remote PR head matched and worktree was clean.
+
+### Independent test-delta audit
+
+The added test `testQueueSaturationDropsEventWithoutBlockingProducerAndCountsDrop`
+deterministically:
+
+1. blocks the first journal append;
+2. constrains pending capacity to one;
+3. emits a second event while the first remains blocked;
+4. proves the second producer call returns while the journal is still blocked;
+5. proves `droppedEventCount == 1`;
+6. releases the first append and proves only the first event reached the journal.
+
+No production source, Authority contract, journal implementation, WavRecorder behavior,
+schema, clock model, or producer wiring changed in the merge-gate delta.
+
+### Final C disposition
+
+```text
+QUEUE_SATURATION_DROP_TEST_CONTRACT: PASS
+QUEUE_SATURATION_PRODUCER_NONBLOCKING_CONTRACT: PASS
+DROPPED_EVENT_COUNT_CONTRACT: PASS
+FINAL_DELTA_TEST_ONLY: PASS
+PRODUCTION_SOURCE_CHANGED_SINCE_PRIOR_AUDIT: NO
+PR19_FINAL_REMOTE_HEAD: ee4effd0b6435b5198a258fa9c9f063717f69136
+PR19_MERGEABLE: YES
+C_MERGE_GATE: PASS
+CONFIRMED_NEW_DEFECTS: NONE
+C_LINE_SCOPE: COMPLETE
+C_LINE_STATE: MERGE_READY
+MERGE_EXECUTED: NO
+MERGE_AUTHORIZATION: PENDING_EXPLICIT_USER_AUTHORIZATION
+```
+
+C must not resume producer migration, retention/rotation, CLI, Agent API, Settings/UI,
+journal-read redesign, recovery changes, packaging, installation, or release under this
+task. Any such work requires a new control-plane task after the C line is dispositioned.
+
+Lane A2 remains independently active and is not superseded by this C result.
