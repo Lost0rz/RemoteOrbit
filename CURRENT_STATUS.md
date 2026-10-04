@@ -1825,3 +1825,44 @@ journal streaming/read redesign, and later integrations require a new task.
 
 Lane A is already complete under its accepted A1/A2 classification scope. Lane B
 remains active under its existing scope.
+
+
+## Lane B reconciliation audit — 2026-10-04
+
+Independent remote reconciliation against the post-C baseline is complete.
+
+```text
+REMOTE_MAIN_HEAD: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PR18_HEAD: ca35022be6cea6262d971ef0aedaa5550324004f
+PR18_BRANCH: codex/persistent-long-boundary-probes-v1
+PR18_VS_MAIN: DIVERGED — 5 ahead / 3 behind
+MERGE_BASE: 7129ef72949eca956b1d0daddce707d5e417eeed
+C_LINE: CLOSED
+ROOT_CAUSE: UNKNOWN
+PRODUCT_CONSTRUCTION_GATE: BLOCKED
+```
+
+- **FACT:** PR #19 / Lane C was designed with PR #18 explicitly in view. ADR-0001
+  retains existing diagnostic writers as legacy sources and schedules HID boundary
+  migration only after PR #18 stabilizes.
+- **FACT:** the accepted C change does not modify PR #18's production probe files
+  `HIDMonitor.swift`, `P1A4MonotonicClock.swift`, or `main.swift`; C adds the
+  Authority/schema surface and the bounded WavRecorder proof producer.
+- **FACT:** therefore the post-C baseline does not require PR #18 to migrate its
+  HID/CGEvent probes into `DiagnosticAuthority` before the next bounded incident
+  capture.
+- **FACT:** PR #18 is nevertheless stale against current `main` because C was merged
+  after B's current head. B must reconcile the exact current `main` before further
+  probe/capture work.
+- **CONCLUSION:** no confirmed file or semantic ownership conflict blocks a merge-only
+  main reconciliation. Do not use reconciliation as an opportunity to rewrite,
+  migrate, or expand B diagnostics.
+
+**B2 reconciliation gate: OPEN** for integrating current `main` into the existing
+PR #18 branch and validating equivalence only.
+
+B probe/capture work remains blocked after that merge until local evidence proves:
+clean pre-state, conflict-free integration, B probe-path preservation, focused B + C
+diagnostic tests PASS, full Swift tests PASS, release build PASS, branch/remote sync,
+and clean final worktree. No install, runtime replacement, fresh capture, behavior
+fix, producer migration, or PR merge is authorized by this gate.

@@ -463,3 +463,59 @@ the closed C line. Any such work requires a separately authorized future task.
 
 Lane A is also complete under its accepted A1/A2 scope. Lane B remains the only
 active construction/investigation lane under this foundation task.
+
+
+## Lane B transition — B2 main reconciliation authorized
+
+**Status:** AUTHORIZED — reconciliation only.
+
+**Authority anchors**
+
+```text
+B_EXPECTED_START_HEAD: ca35022be6cea6262d971ef0aedaa5550324004f
+MAIN_EXPECTED_HEAD: 5def97bac0f8d4e2896cbb0ee0ee56d0810aff2d
+PR: #18
+BRANCH: codex/persistent-long-boundary-probes-v1
+```
+
+The next local action is limited to integrating the exact current `origin/main` into
+the existing PR #18 branch without rewriting B history or changing probe semantics.
+
+### Required execution
+
+1. Revalidate repository remote identity, exact PR #18 worktree/branch, expected B
+   HEAD, exact fetched `origin/main`, and clean worktree.
+2. Merge `origin/main` into the B branch. Do not rebase or force-push.
+3. If any merge conflict occurs, STOP without resolving it and return the conflict.
+4. Prove the six existing PR #18 changed paths are unchanged relative to
+   `ca35022...`; reconciliation should only add the accepted C/main tree.
+5. Run focused B diagnostics:
+   `HIDMonitorDiagnosticsTests`, `VoiceBoundaryDiagnosticsTests`,
+   `VoiceInputSourceDiagnosticsTests`.
+6. Run focused C diagnostics:
+   `DiagnosticAuthorityTests`, `WavRecorderDiagnosticsTests`.
+7. Run full `swift test` and `swift build -c release` from `remote-orbit/`.
+8. Push the merge commit normally, verify remote branch HEAD equality and clean final
+   worktree, then STOP at `WAITING_FOR_INDEPENDENT_AUDIT`.
+
+### Acceptance
+
+```text
+B2_PRECHECK: PASS
+B2_MAIN_HEAD_MATCH: PASS
+B2_MERGE_CONFLICT: NONE
+B2_B_PROBE_PATHS_PRESERVED: PASS
+B2_FOCUSED_B_TESTS: PASS
+B2_FOCUSED_C_TESTS: PASS
+B2_FULL_SWIFT_TEST: PASS
+B2_RELEASE_BUILD: PASS
+B2_REMOTE_SYNC: PASS
+B2_FINAL_WORKTREE: CLEAN
+FINAL_STATE: WAITING_FOR_INDEPENDENT_AUDIT
+```
+
+### Still forbidden
+
+No probe expansion, Authority migration, behavior fix, threshold/timing change,
+install, runtime replacement, fresh incident capture, PR #18 merge, release, or
+control-plane edits from Lane B.
