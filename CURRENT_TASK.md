@@ -1,19 +1,19 @@
 # RemoteOrbit Current Task
 
-## Current task — RO-INCIDENT-20261004-01 / P0-A EXTERNAL IME SEMANTIC OBSERVER
+## Current task — RO-INCIDENT-20261004-01 / P0-A HOST-NATIVE EXTERNAL SIGNAL FEASIBILITY
 
-- **Status:** AUTHORIZED / DIAGNOSTIC CONSTRUCTION ONLY / LOCAL GATE 0 NETWORK BLOCKED
+- **Status:** ACTIVE / READ-ONLY HOST FEASIBILITY
 - **Incident ID:** `RO-INCIDENT-20261004-01`
-- **Authorized branch:** `codex/p0a-external-ime-observer-minimal`
-- **Installed runtime source:** `77812cb1ccab051aca0e7d79b82f2db309074775`
+- **Authorized diagnostic branch:** `codex/p0a-external-ime-observer-minimal`
 - **Product Construction Gate:** BLOCKED
+- **Probe implementation:** NOT AUTHORIZED until host-native signal verification succeeds
 - **Product behavior mutation:** FORBIDDEN
 - **Release/install/runtime replacement:** NOT AUTHORIZED
-- **User reproduction:** NOT AUTHORIZED until probe audit passes
+- **User reproduction:** NOT AUTHORIZED
 
-## Accepted evidence
+## Accepted facts
 
-The exact-main controlled reproduction is uniquely bound:
+The bound exact-main incident shows:
 
 ```text
 SHORT_GESTURE_ID: 9D7DDD10-95CD-4494-A73C-C09923D6A6D4
@@ -29,180 +29,125 @@ PERSISTENT_SEGMENT_COMPLETE: session_remains_open=true
 USER_VISIBLE_EXTERNAL_RESULT: SESSION_EXITED
 ```
 
-Therefore `INTERNAL_STATE_EXTERNAL_STATE_DIVERGENCE = YES`. The first confirmed broken boundary is the external B5 semantic state boundary. The exit mechanism remains UNKNOWN.
+Internal/external state divergence is confirmed. External exit mechanism remains UNKNOWN.
 
-## Existing-observer audit
+## Gate 0 disposition
 
-The local `RemoteOrbit P1A5 Observer.app` is not sufficient for P0-A:
+The user successfully performed a live owning-Mac Terminal fetch and verified both remote-tracking refs at `2d6a89ea83a61c6b134db17f7330b5d0d8b89049`. Gate 0 freshness is therefore satisfied. Codex executor DNS failures are an executor-environment limitation, not proof that the owning Mac is offline.
 
-- it observes generic `NSWorkspace`/Accessibility focus and focused-element value changes;
-- it does not observe Doubao IME session OPEN/LISTENING or STOPPED/CLOSED;
-- legacy `persistent_session_*` fields reflect RemoteOrbit internal state, not external truth;
-- its source provenance is not bound to the installed binary;
-- its source lacks a verified monotonic clock contract;
-- it reads text values and persists deterministic hashes/lengths, which are unnecessary for the P0-A contract.
+## Executor feasibility disposition
 
-## Local Gate 0 — mandatory freshness blocker
+The authorized clean worktree at `/private/tmp/remoteorbit-p0a-external-ime-observer` remained unchanged. The executor found no verified external semantic signal and correctly stopped without implementing a proxy observer.
 
-Do not start source construction until the owning Mac completes a successful live remote refresh.
-
-Current accepted network state:
+Treat the result as:
 
 ```text
-SYSTEM/PYTHON DNS: intermittent failure for github.com/api.github.com
-CURL: previously succeeded, later failed name resolution on same /usr/bin/curl path
-GIT LS-REMOTE: failed name resolution
-PROXY ENV: none
-SYSTEM PROXY: none
-GIT PROXY / URL REWRITE: none found
-CURL-vs-GIT PROXY SPLIT: not confirmed
+P0A_SIGNAL_FEASIBILITY_IN_CODEX_EXECUTOR: UNOBSERVABLE
+P0A_SIGNAL_FEASIBILITY_ON_HOST: NOT_YET_ASSESSED
 ```
 
-The strongest supported classification is `INTERMITTENT_DNS_RESOLVER_FAILURE`. Different resolver configuration exists on tunnel and physical interfaces, but no specific resolver/path is proven causal.
+Why it is not a global `UNOBSERVABLE` conclusion:
 
-Gate 0 requires all of the following in one successful live attempt:
+- process enumeration was denied in the executor;
+- Unified Log `log show` was sandbox-blocked;
+- executor Accessibility trust was false;
+- no live external semantic signal could be verified from the remaining surfaces.
 
-```text
-git fetch origin --prune
-origin/main == authoritative current main
-origin/codex/p0a-external-ime-observer-minimal == authoritative authorized branch head
-AGENTS.md read from refreshed origin/main
-CURRENT_STATUS.md read from refreshed origin/main
-CURRENT_TASK.md read from refreshed origin/main
-```
+## Objective
 
-Cached refs are not acceptable substitutes. If DNS/fetch fails, stop with no branch/worktree/source mutation.
+Determine, from the owning Mac's normal Terminal environment, whether a passive external-origin signal exists that genuinely represents Doubao voice-session state.
 
-## Objective after Gate 0 PASS
+### Allowed host-native read-only surfaces
 
-Build the smallest diagnostic-only capability that can machine-observe the external IME semantic transition relevant to this incident.
+- process identity and lifecycle (`ps`, `pgrep`, `launchctl print` read-only queries);
+- installed bundle metadata, Info.plist, symbols/strings already present on disk;
+- `log show` / `log stream` read-only inspection of relevant Doubao/InputMethodKit/system-service messages;
+- read-only Accessibility inspection if the querying host process already has permission;
+- window/UI attributes that directly encode a voice-session/listening state;
+- passive OS APIs that do not mutate IME or target state.
 
-### Gate 1 — external signal feasibility
+### Invalid semantic proxies
 
-Before writing a semantic observer, identify a passive external-origin signal that genuinely represents Doubao voice-session state.
-
-Allowed read-only surfaces include, when available and privacy-safe:
-
-- Doubao/IME process and accessibility state;
-- OS/unified-log state exposed by the IME or relevant system service;
-- process/window/UI attributes that directly encode voice-session/listening state;
-- other passive system APIs that do not mutate the IME or target application.
-
-A signal is valid only if its semantics can be demonstrated as external session state, rather than inferred from:
+Do not treat any of these as session truth by themselves:
 
 - RemoteOrbit `persistent_open`;
 - trigger send/success intent;
 - focus changes alone;
-- text/value changes alone;
-- audio/BLE/ATVV lifecycle alone;
-- file-write ordering.
+- target text/value changes alone;
+- BLE/ATVV/audio lifecycle alone;
+- presence of internal ASR/session symbols in the binary;
+- file-write order.
 
-If no verified external semantic signal is available, STOP with:
+### Valid host signal standard
+
+A signal is `VERIFIED` only if all are satisfied:
+
+1. it originates outside RemoteOrbit;
+2. its semantics can be tied directly to Doubao voice-session/listening state;
+3. it can distinguish an active/open/listening state from stopped/closed, or expose a documented state transition equivalent;
+4. it is passively readable without injecting events or changing IME state;
+5. its source process/service identity can be recorded;
+6. its timing can be machine recorded with wall clock and, where possible, a declared monotonic source.
+
+If no such signal can be established from the host environment, stop with:
 
 ```text
-P0A_SIGNAL_FEASIBILITY: UNOBSERVABLE
+P0A_SIGNAL_FEASIBILITY_ON_HOST: UNOBSERVABLE
 NEW_PROBE_IMPLEMENTED: NO
+ROOT_CAUSE: UNKNOWN
 PRODUCT_CONSTRUCTION_GATE: BLOCKED
 ```
 
 Do not manufacture a proxy state.
 
-### Gate 2 — minimal transition-only probe
+## Forbidden
 
-Only if Gate 1 identifies a verified external-origin signal, implement a standalone diagnostic observer on the authorized branch.
+- no source changes;
+- no new probe implementation;
+- no user SHORT/LONG reproduction;
+- no restart/reinstall;
+- no TCC/Accessibility permission changes;
+- no driver/CoreAudio/settings mutation;
+- no event injection or IME control;
+- no speculative product fix.
 
-Required output contract:
+## Handoff
 
-```text
-run_id
-observer_pid
-observer_executable_sha256
-wall_clock
-monotonic_timestamp
-monotonic_clock_domain
-target_pid
-target_bundle_id
-external_signal_source
-external_session_state = OPEN | LISTENING | STOPPED | CLOSED | UNKNOWN | ERROR | UNOBSERVABLE
-transition_reason_or_signal
-```
-
-Requirements:
-
-- read-only toward Doubao/IME and target application;
-- transition-only output, not polling-volume logging;
-- no plaintext text content;
-- no deterministic text-derived hashes;
-- explicit `UNKNOWN/ERROR/UNOBSERVABLE` fail-closed semantics;
-- declared wall-clock and monotonic clock domains;
-- stable observer and target identity;
-- no dependency on RemoteOrbit internal state to determine the external state;
-- no event injection, focus change, IME control, settings change, or accessibility mutation.
-
-## Scope
-
-Allowed source changes are limited to the standalone P0-A diagnostic helper, its focused tests, minimal build wiring needed to compile/run that helper, and diagnostic documentation required to state its schema and limitations.
-
-Do not modify:
-
-- SHORT/LONG classifier;
-- `VoicePressCoordinator` behavior;
-- `HardwareOptionGate` behavior;
-- mapped trigger behavior;
-- BLE/ATVV behavior;
-- `AudioPipe` behavior;
-- persistent-session semantics;
-- app install/release behavior;
-- driver/CoreAudio/TCC/settings.
-
-Do not migrate unrelated producers into `DiagnosticAuthority` in this task.
-
-## Validation
-
-Before handoff, require:
-
-1. exact branch/head/worktree identity and clean baseline;
-2. focused tests proving transition deduplication and fail-closed UNKNOWN/UNOBSERVABLE behavior;
-3. privacy test proving no plaintext or deterministic text-derived hashes are persisted;
-4. read-only audit proving no event injection/state mutation paths exist;
-5. `swift test` and `git diff --check` PASS if package wiring is touched;
-6. no app installation, runtime replacement, driver/CoreAudio/TCC/settings mutation;
-7. a machine-readable sample using synthetic/test signal input only unless a later control-plane transition explicitly authorizes a live reproduction.
-
-## Handoff gate
-
-Return at `WAITING_FOR_INDEPENDENT_WEB_P0A_IMPLEMENTATION_AUDIT` with:
+Return:
 
 ```text
 CONTROL_HEAD:
-BRANCH:
-BASE_HEAD:
-FINAL_HEAD:
-WORKTREE:
+HOST_NATIVE_AUDIT_ENVIRONMENT:
 
-P0A_SIGNAL_FEASIBILITY:
+DOUBAO_PROCESS_FOUND:
+DOUBAO_PID:
+DOUBAO_BUNDLE_ID:
+
+HOST_PROCESS_ENUMERATION:
+HOST_UNIFIED_LOG_ACCESS:
+HOST_ACCESSIBILITY_READ_ACCESS:
+
+EXTERNAL_SIGNAL_CANDIDATES:
+
+P0A_SIGNAL_FEASIBILITY_ON_HOST:
 VERIFIED_EXTERNAL_SIGNAL:
+SIGNAL_SOURCE:
+SIGNAL_SOURCE_IDENTITY:
 SIGNAL_SEMANTICS_EVIDENCE:
+SIGNAL_ACTIVE_STATE:
+SIGNAL_STOPPED_STATE:
+WALL_CLOCK_AVAILABLE:
+MONOTONIC_CLOCK_AVAILABLE:
 
-NEW_PROBE_IMPLEMENTED:
-PROBE_PATH:
-OUTPUT_SCHEMA:
-CLOCK_DOMAIN:
-TARGET_IDENTITY:
-FAIL_CLOSED_BEHAVIOR:
+WHY_NOT_PROXY:
 
-FOCUSED_TESTS:
-FULL_SWIFT_TEST:
-DIFF_CHECK:
-PRIVACY_TEST:
-READ_ONLY_AUDIT:
-
-PRODUCT_SOURCE_BEHAVIOR_CHANGED: NO
+NEW_PROBE_IMPLEMENTED: NO
+SOURCE_CHANGES: NONE
 RUNTIME_MUTATIONS: NONE
 USER_REPRODUCTION_PERFORMED: NO
 ROOT_CAUSE: UNKNOWN
 PRODUCT_CONSTRUCTION_GATE: BLOCKED
 
 FINAL_STATE:
-WAITING_FOR_INDEPENDENT_WEB_P0A_IMPLEMENTATION_AUDIT
+WAITING_FOR_INDEPENDENT_WEB_HOST_P0A_FEASIBILITY_AUDIT
 ```
