@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-05
-State: ACTIVE INCIDENT — P0-A EXTERNAL IME OBSERVER REQUIRED / DIAGNOSTIC CONSTRUCTION AUTHORIZED / PRODUCT CONSTRUCTION BLOCKED
+State: ACTIVE INCIDENT — P0-A EXTERNAL IME OBSERVER REQUIRED / DIAGNOSTIC CONSTRUCTION AUTHORIZED / LOCAL GATE 0 NETWORK BLOCKED / PRODUCT CONSTRUCTION BLOCKED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
@@ -9,7 +9,7 @@ This file is the authority for mutable current project state. Historical detail 
 ## Control-plane integrity
 
 - Commit `b43a0eb8c9fa21bb869ea1d9177ad96acd8f699d` updated `CURRENT_STATUS.md` without the matching `CURRENT_TASK.md` transition and is therefore a non-authoritative partial transition under `AGENTS.md`.
-- The atomic commit containing this STATUS together with the matching TASK supersedes that partial transition and is the authoritative P0-A transition.
+- Commit `6561d8ac14b3de9478f414719877d853e86e434a` atomically updated STATUS + TASK and is the authoritative P0-A authorization baseline.
 
 ## Foundation
 
@@ -92,6 +92,29 @@ SOURCE_TREE_STATE: untracked candidate source
 
 The observer reads generic frontmost/focused-element AX state and text-derived length/hash data. It does not observe an external-origin Doubao session state machine. Existing JSONL `persistent_session_*` fields are RemoteOrbit internal state, not external IME truth. The source app also lacks a verified monotonic timestamp contract; legacy JSONL monotonic/uptime field provenance is unverified.
 
+## Local Gate 0 network blocker
+
+The owning Mac cannot currently satisfy repository freshness requirements because GitHub hostname resolution is intermittent.
+
+Accepted network facts:
+
+```text
+SYSTEM_RESOLVER_GITHUB: intermittent / currently failing
+PYTHON_GETADDRINFO_GITHUB: intermittent / currently failing
+CURL_GITHUB: previously HTTP/2 200, later Could not resolve host
+CURL_API_GITHUB: previously HTTP/2 200, later Could not resolve host
+GIT_LS_REMOTE: failed on github.com name resolution
+PROXY_ENV: none
+SYSTEM_PROXY: none
+GIT_PROXY_OR_URL_REWRITE: none found
+CURL_WRAPPER: none; /usr/bin/curl
+NETWORK_PATH_SPLIT: NOT CONFIRMED
+```
+
+The strongest supported explanation is intermittent DNS/resolver behavior, not a proven curl-vs-Git proxy split. `scutil --dns` showed tunnel and physical interfaces with different resolver configuration, but no specific resolver has yet been proven causal.
+
+Local construction MUST remain stopped at Gate 0 until a successful live `git fetch origin --prune` verifies both `origin/main` and the authorized branch. Cached refs must not substitute for remote freshness.
+
 ## Independent audit conclusion
 
 The current evidence is sufficient to authorize **diagnostic construction only** for a minimal P0-A external IME semantic-session observer feasibility/probe task. Product behavior repair remains blocked.
@@ -114,7 +137,8 @@ Required probe contract:
 
 ```text
 AUTHORIZED_DIAGNOSTIC_BRANCH: codex/p0a-external-ime-observer-minimal
-ALLOWED_NEXT_WORK: P0-A SIGNAL FEASIBILITY + MINIMAL DIAGNOSTIC PROBE ONLY
+ALLOWED_NEXT_WORK_AFTER_GATE0: P0-A SIGNAL FEASIBILITY + MINIMAL DIAGNOSTIC PROBE ONLY
+LOCAL_GATE_0: BLOCKED_BY_INTERMITTENT_GITHUB_DNS
 PRODUCT_BEHAVIOR_CHANGE: FORBIDDEN
 ROOT_CAUSE: UNKNOWN
 PRODUCT_CONSTRUCTION_GATE: BLOCKED

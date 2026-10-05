@@ -2,9 +2,8 @@
 
 ## Current task — RO-INCIDENT-20261004-01 / P0-A EXTERNAL IME SEMANTIC OBSERVER
 
-- **Status:** AUTHORIZED / DIAGNOSTIC CONSTRUCTION ONLY
+- **Status:** AUTHORIZED / DIAGNOSTIC CONSTRUCTION ONLY / LOCAL GATE 0 NETWORK BLOCKED
 - **Incident ID:** `RO-INCIDENT-20261004-01`
-- **Control-plane base before authorization:** `b43a0eb8c9fa21bb869ea1d9177ad96acd8f699d`
 - **Authorized branch:** `codex/p0a-external-ime-observer-minimal`
 - **Installed runtime source:** `77812cb1ccab051aca0e7d79b82f2db309074775`
 - **Product Construction Gate:** BLOCKED
@@ -43,11 +42,40 @@ The local `RemoteOrbit P1A5 Observer.app` is not sufficient for P0-A:
 - its source lacks a verified monotonic clock contract;
 - it reads text values and persists deterministic hashes/lengths, which are unnecessary for the P0-A contract.
 
-## Objective
+## Local Gate 0 — mandatory freshness blocker
+
+Do not start source construction until the owning Mac completes a successful live remote refresh.
+
+Current accepted network state:
+
+```text
+SYSTEM/PYTHON DNS: intermittent failure for github.com/api.github.com
+CURL: previously succeeded, later failed name resolution on same /usr/bin/curl path
+GIT LS-REMOTE: failed name resolution
+PROXY ENV: none
+SYSTEM PROXY: none
+GIT PROXY / URL REWRITE: none found
+CURL-vs-GIT PROXY SPLIT: not confirmed
+```
+
+The strongest supported classification is `INTERMITTENT_DNS_RESOLVER_FAILURE`. Different resolver configuration exists on tunnel and physical interfaces, but no specific resolver/path is proven causal.
+
+Gate 0 requires all of the following in one successful live attempt:
+
+```text
+git fetch origin --prune
+origin/main == authoritative current main
+origin/codex/p0a-external-ime-observer-minimal == authoritative authorized branch head
+AGENTS.md read from refreshed origin/main
+CURRENT_STATUS.md read from refreshed origin/main
+CURRENT_TASK.md read from refreshed origin/main
+```
+
+Cached refs are not acceptable substitutes. If DNS/fetch fails, stop with no branch/worktree/source mutation.
+
+## Objective after Gate 0 PASS
 
 Build the smallest diagnostic-only capability that can machine-observe the external IME semantic transition relevant to this incident.
-
-The task has two gates:
 
 ### Gate 1 — external signal feasibility
 
@@ -95,7 +123,7 @@ monotonic_clock_domain
 target_pid
 target_bundle_id
 external_signal_source
-external_session_state = OPEN | LISTENING | STOPPED | CLOSED | UNKNOWN | ERROR
+external_session_state = OPEN | LISTENING | STOPPED | CLOSED | UNKNOWN | ERROR | UNOBSERVABLE
 transition_reason_or_signal
 ```
 
