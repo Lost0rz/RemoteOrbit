@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-05
-State: ACTIVE INCIDENT — EXTERNAL IME SESSION EXIT CONFIRMED / PRODUCT CONSTRUCTION BLOCKED
+State: ACTIVE INCIDENT — P0-A EXTERNAL IME OBSERVER REQUIRED / DIAGNOSTIC CONSTRUCTION AUTHORIZED / PRODUCT CONSTRUCTION BLOCKED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
@@ -33,15 +33,16 @@ Validation: 292/292 Swift tests PASS; release build/package/diff check PASS; ins
 INCIDENT_ID: RO-INCIDENT-20261004-01
 EXPECTED: SHORT opens persistent session; LONG while open is audio-only and must leave it open.
 OBSERVED: user confirmed the external Doubao IME session exits after LONG.
+INTENDED_REPRO_BINDING: CONFIRMED
+BOUND_SHORT_GESTURE_ID: 9D7DDD10-95CD-4494-A73C-C09923D6A6D4
+BOUND_LONG_GESTURE_ID: 05DE2189-B9AA-4B05-9385-46CD3667E3D5
 ROOT_CAUSE: UNKNOWN
 PRODUCT_CONSTRUCTION_GATE: BLOCKED
 ```
 
-Strongest correlated candidate:
+Correlated internal facts:
 
 ```text
-SHORT_GESTURE_ID: 9D7DDD10-95CD-4494-A73C-C09923D6A6D4
-LONG_GESTURE_ID: 05DE2189-B9AA-4B05-9385-46CD3667E3D5
 SHORT_INTERNAL: idle -> persistent_open
 LONG_CLASSIFICATION: hold (313 ms)
 REMOTE_SEGMENT_POLICY: audio_only
@@ -50,32 +51,63 @@ PERSISTENT_MODE_AFTER_LONG: persistent_open
 MAPPED_TRIGGER_DURING_LONG: none correlated
 SHORT_REPLAY_DURING_LONG: none observed
 PERSISTENT_TOGGLE_DURING_LONG: none observed
+PERSISTENT_SEGMENT_COMPLETE: session_remains_open=true
 USER_VISIBLE_EXTERNAL_RESULT: session exited
 ```
 
-The capture window contained additional gestures, so those UUIDs are the strongest local match rather than independently user-bound identifiers. The user-visible exit for the intended controlled reproduction is confirmed.
-
 ## Boundary disposition
 
-- B1: OBSERVED for strongest candidate.
+- B1: OBSERVED.
 - B2: OBSERVED.
-- B3: OBSERVED; candidate LONG has no correlated mapped trigger and `trigger_edge_emitted=false`.
+- B3: OBSERVED; bound LONG has no correlated mapped trigger and `trigger_edge_emitted=false`.
 - B4: UNKNOWN; no external IME trigger-receipt acknowledgement.
-- B5 internal: OBSERVED / healthy for candidate; RemoteOrbit remains `persistent_open`.
-- B5 external: BROKEN at user-visible semantic level; external session exited.
+- B5 internal: OBSERVED / preserved; RemoteOrbit remains `persistent_open`.
+- B5 external: BROKEN; user-confirmed external session exit while internal state remains open.
 - B6: OBSERVED.
 - B7: UNKNOWN; no target-process audio-consumption proof.
 - B8: UNKNOWN for gesture interval.
-- B9: BROKEN at user-visible level; no machine-readable external semantic observer.
+- B9: BROKEN at user-visible semantic level; no machine-readable external semantic session timestamp.
 
-## Current conclusion
+## P0-A existing observer audit
 
-Evidence does not support LONG-as-SHORT misclassification, a RemoteOrbit persistent toggle during LONG, or a correlated mapped-trigger replay as the direct close mechanism. The failure is localized to the handoff between RemoteOrbit's preserved internal persistent-open state and the external IME/session semantics, but the exact mechanism remains unknown.
+The existing local `RemoteOrbit P1A5 Observer.app` is **not sufficient** for P0-A.
 
-Only minimal diagnostic gap closure at B4/B5-external/B9 is authorized next. No threshold, gate, trigger, BLE/audio, or persistent-session behavior change is authorized.
+Accepted local audit facts:
 
 ```text
-ALLOWED_NEXT_WORK: MINIMAL DIAGNOSTIC BOUNDARY-GAP CLOSURE ONLY
+OBSERVER_BUNDLE_ID: com.lost0rz.RemoteOrbit.P1A5Observer
+OBSERVER_SHA256: d71af5e7d51e935b4cf62516283a44167457cf1d71139236f47d99c87ec43e26
+EXISTING_OBSERVER_P0A_SUFFICIENT: NO
+OBSERVES_IME_SESSION_OPEN: NO
+OBSERVES_IME_SESSION_CLOSE: NO
+OBSERVES_VOICE_LISTENING_STATE: NO
+SOURCE_PROVENANCE: candidate source found, exact binary-to-source mapping unverified
+SOURCE_TREE_STATE: untracked candidate source
+```
+
+The observer reads generic frontmost/focused-element AX state and text-derived length/hash data. It does not observe an external-origin Doubao session state machine. Existing JSONL `persistent_session_*` fields are RemoteOrbit internal state, not external IME truth. The source app also lacks a verified monotonic timestamp contract; legacy JSONL monotonic/uptime field provenance is unverified.
+
+## Independent audit conclusion
+
+The current evidence is sufficient to authorize **diagnostic probe construction only** for one minimal P0-A external IME semantic-session observer. Product behavior repair remains blocked.
+
+Required probe contract:
+
+- external to RemoteOrbit persistent-session state;
+- read-only with respect to IME and target application;
+- transition-only;
+- records only externally supported `OPEN/LISTENING`, `STOPPED/CLOSED`, `UNKNOWN/ERROR` transitions;
+- wall clock plus a declared monotonic clock suitable for correlation;
+- observer PID/executable identity;
+- external IME process/bundle/PID or other verified stable target identity;
+- explicit run/correlation identifier;
+- stores no plaintext text and no deterministic text-derived hashes unless strictly required by the external signal contract;
+- never infers IME semantic state from focus changes, target text changes, RemoteOrbit internal mode, trigger intent, or audio lifecycle alone;
+- if no verified external semantic signal is technically available, the implementation must fail closed as `UNOBSERVABLE` rather than fabricate state.
+
+```text
+ALLOWED_NEXT_WORK: P0-A MINIMAL DIAGNOSTIC PROBE CONSTRUCTION ONLY
+PRODUCT_BEHAVIOR_CHANGE: FORBIDDEN
 ROOT_CAUSE: UNKNOWN
 PRODUCT_CONSTRUCTION_GATE: BLOCKED
 ```
