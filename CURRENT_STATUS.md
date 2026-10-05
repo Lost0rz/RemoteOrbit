@@ -6,6 +6,11 @@ Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
 
+## Control-plane integrity
+
+- Commit `b43a0eb8c9fa21bb869ea1d9177ad96acd8f699d` updated `CURRENT_STATUS.md` without the matching `CURRENT_TASK.md` transition and is therefore a non-authoritative partial transition under `AGENTS.md`.
+- The atomic commit containing this STATUS together with the matching TASK supersedes that partial transition and is the authoritative P0-A transition.
+
 ## Foundation
 
 - Lane A governance: CLOSED.
@@ -89,24 +94,27 @@ The observer reads generic frontmost/focused-element AX state and text-derived l
 
 ## Independent audit conclusion
 
-The current evidence is sufficient to authorize **diagnostic probe construction only** for one minimal P0-A external IME semantic-session observer. Product behavior repair remains blocked.
+The current evidence is sufficient to authorize **diagnostic construction only** for a minimal P0-A external IME semantic-session observer feasibility/probe task. Product behavior repair remains blocked.
+
+The task must first identify and verify a genuine external-origin semantic signal. If no such signal is available from supported passive OS/AX/process/unified-log surfaces, the probe must fail closed as `UNOBSERVABLE`; it must not infer IME state from focus, text change, RemoteOrbit state, trigger intent, or audio lifecycle.
 
 Required probe contract:
 
 - external to RemoteOrbit persistent-session state;
 - read-only with respect to IME and target application;
 - transition-only;
-- records only externally supported `OPEN/LISTENING`, `STOPPED/CLOSED`, `UNKNOWN/ERROR` transitions;
+- records only externally supported `OPEN/LISTENING`, `STOPPED/CLOSED`, `UNKNOWN/ERROR/UNOBSERVABLE` transitions;
 - wall clock plus a declared monotonic clock suitable for correlation;
 - observer PID/executable identity;
 - external IME process/bundle/PID or other verified stable target identity;
 - explicit run/correlation identifier;
-- stores no plaintext text and no deterministic text-derived hashes unless strictly required by the external signal contract;
-- never infers IME semantic state from focus changes, target text changes, RemoteOrbit internal mode, trigger intent, or audio lifecycle alone;
-- if no verified external semantic signal is technically available, the implementation must fail closed as `UNOBSERVABLE` rather than fabricate state.
+- stores no plaintext text and no deterministic text-derived hashes;
+- no HID/BLE/PCM/AudioPipe expansion;
+- no RemoteOrbit product behavior change.
 
 ```text
-ALLOWED_NEXT_WORK: P0-A MINIMAL DIAGNOSTIC PROBE CONSTRUCTION ONLY
+AUTHORIZED_DIAGNOSTIC_BRANCH: codex/p0a-external-ime-observer-minimal
+ALLOWED_NEXT_WORK: P0-A SIGNAL FEASIBILITY + MINIMAL DIAGNOSTIC PROBE ONLY
 PRODUCT_BEHAVIOR_CHANGE: FORBIDDEN
 ROOT_CAUSE: UNKNOWN
 PRODUCT_CONSTRUCTION_GATE: BLOCKED
