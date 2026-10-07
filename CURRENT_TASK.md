@@ -1,257 +1,224 @@
 # RemoteOrbit Current Task
 
-## Current task — RO-INCIDENT-20261004-01 / DISABLED-SHORT CLASSIFIER MINIMAL REGRESSION FIX
+## Current task — RO-INCIDENT-20261004-01 / DISABLED-SHORT CANDIDATE CONTROLLED HARDWARE ACCEPTANCE
 
-- **Status:** ACTIVE / NARROW PRODUCT FIX CANDIDATE AUTHORIZED
+- **Status:** ACTIVE / EXACT-CANDIDATE INSTALL + MINIMAL HARDWARE ACCEPTANCE AUTHORIZED
 - **Incident ID:** `RO-INCIDENT-20261004-01`
-- **Control parent before task authorization:** `4cf70339b9f8243b07b13b70cdbb336bf38dcdad`
-- **Authorized branch:** `codex/disabled-short-classifier-regression-fix`
-- **Planned worktree:** `/private/tmp/remoteorbit-disabled-short-classifier-regression-fix`
-- **Product Construction Gate:** OPEN ONLY FOR THIS EXACT CLASSIFIER CORRECTIVE
-- **Install/runtime replacement:** NOT AUTHORIZED
-- **User hardware reproduction:** NOT AUTHORIZED before independent Web audit
+- **Candidate branch:** `codex/disabled-short-classifier-regression-fix`
+- **Candidate HEAD:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
+- **Candidate worktree:** `/private/tmp/remoteorbit-disabled-short-classifier-regression-fix`
+- **Merge:** FORBIDDEN before acceptance
+- **Source mutation:** FORBIDDEN
+- **Runtime replacement:** AUTHORIZED only for exact candidate app
+- **Hardware reproduction:** AUTHORIZED only for the sequence below
 
 ## Objective
 
-Restore the previously hardware-validated Disabled-SHORT semantic without changing the accepted physical/system-mapped trigger architecture:
+Test one causal question:
 
-> When microphone SHORT is Disabled, a quick press must still remain inside the normal ~300 ms SHORT/LONG classifier and be dropped as a disabled SHORT. Only a true hold crossing the existing threshold may enter the remote-microphone HOLD path.
+> Does restoring Disabled SHORT to the existing ~300 ms classifier eliminate the user-visible fast-click Doubao Session OPEN while preserving true LONG remote voice?
 
-This task does **not** claim that the exact external Doubao event mechanism is already known. It tests the confirmed PR #14 semantic regression as the smallest behavior candidate for the current user-visible symptom.
+Do not use this acceptance to redesign the trigger path or investigate unrelated persistent-session behavior.
 
-## Evidence basis
+## Accepted code evidence
 
-### Historical good contract
-
-- PR #6 / `80ec3adfe065eac90547f7a76c58f0b510c639b9`: Disabled SHORT does not bypass classifier.
-- Accepted PR #7 selectively incorporated this corrective.
-- Historical hardware acceptance: Disabled SHORT 20/20 without BLE/audio start; Disabled LONG 10/10 entered holding/BLE.
-- Accepted production architecture retained physical/system-mapped Option as normal owner; synthetic normal-owner architecture was not adopted.
-
-### Regression
-
-- PR #14 / `346b064de1c320c84706ecd590aa952cfe473da6`, merged as `924a8d3a26d213552fe9b42c9bb5e3bf31755a25`, changed `bypassesShortClassification(for:)` from always false to `binding.isDisabled`.
-- Current main still has:
-
-```swift
-static func bypassesShortClassification(for binding: ButtonBinding) -> Bool {
-    binding.isDisabled
-}
-```
-
-- Current `VoicePressCoordinator` immediately logs HOLD and enters `holding` when that bypass is true.
-- Current `DisabledShortClassifierTests` explicitly encode this PR #14 behavior.
-
-### Current sealed runtime evidence
+Independent Web audit accepted candidate `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`:
 
 ```text
-WINDOW: 2026-10-07 18:59:41–19:06:46 +08:00
-SEQ: 4437–4779
-GESTURE_COUNT: 16
-BYPASS_TRUE_COUNT: 16
-GESTURE_RESULT_HOLD_COUNT: 16
-SESSION_MODE_IDLE_COUNT: 16
-MAPPED_TRIGGER_EVENT_COUNT: 0
-SYNTHETIC_TRIGGER_EDGE_COUNT: 0
+PRODUCT_CHANGE: AppController.bypassesShortClassification(for:) returns false
+HOLD_THRESHOLD: unchanged at existing 0.30 s
+HARDWARE_OPTION_MAPPING_CHANGED: NO
+VOICEKEYFILTER_CHANGED: NO
+HARDWAREOPTIONGATE_CHANGED: NO
+BLE_AUDIO_CHANGED: NO
+PERSISTENT_SESSION_SEMANTICS_CHANGED: NO
 ```
 
-User-visible fact: with SHORT Disabled, a fast click can nevertheless visibly open a Doubao Session.
+Test evidence:
 
-## Gate 0 — exact authority and clean isolation
+```text
+DISABLED_TESTS: 4/4 PASS
+PERSISTENT_TRIGGER_TESTS: 97/97 PASS
+FULL_SWIFT_TESTS: 292/292 PASS
+SELF_TESTS: 3/3 PASS
+RELEASE_BUILD: PASS
+HARDWARE_QUICK_RELEASE_TEST:
+  uses_hardware_option=true
+  gate_begin=1
+  gate_cancel=1
+  gate_short_replay=0
+  hold=0
+  remote_route=0
+  synthetic_edges=0
+```
+
+## Gate 0 — exact authority
 
 1. `git fetch origin --prune`.
-2. Verify live `origin/main` equals the control HEAD containing this task. The executor must print the exact SHA before creating any branch/worktree.
-3. Verify canonical remote is `Lost0rz/RemoteOrbit`.
-4. Do not use, clean, reset, stash or repair the historical dirty/superseded canonical checkout.
-5. Create or reuse only:
-   - branch: `codex/disabled-short-classifier-regression-fix`
-   - worktree: `/private/tmp/remoteorbit-disabled-short-classifier-regression-fix`
-6. The authorized branch must start exactly from the current control HEAD and the worktree must be clean.
-7. Read `AGENTS.md`, `CURRENT_STATUS.md`, and `CURRENT_TASK.md` from that exact HEAD.
+2. Print and verify live `origin/main` equals the control HEAD containing this task.
+3. Print and verify `origin/codex/disabled-short-classifier-regression-fix` exactly equals `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
+4. Verify canonical remote is `Lost0rz/RemoteOrbit`.
+5. Candidate worktree must be clean at exact candidate HEAD.
+6. Read `AGENTS.md`, `CURRENT_STATUS.md`, `CURRENT_TASK.md` from live `origin/main` before runtime mutation.
+7. Do not rebase, merge, cherry-pick, amend, or edit the candidate.
 
-Any ref mismatch, dirty authorized worktree, unexpected branch ancestry or fetch failure => STOP without product mutation.
+Any mismatch => STOP.
 
-## Gate 1 — baseline read-only confirmation
+## Gate 1 — preserve current runtime evidence
 
-Before editing, confirm on the authorized baseline:
+Before replacing the app:
 
-1. `AppController.bypassesShortClassification(for: .preset(.disabled))` currently evaluates to true by implementation.
-2. `VoicePressCoordinator` immediately enters HOLD when `bypassesShortClassification == true`.
-3. `DisabledShortClassifierTests.swift` currently asserts the PR #14 immediate-HOLD behavior.
-4. No source change after PR #14 already restores the historical Disabled-SHORT classifier contract.
+- record current RemoteOrbit PID, executable path, app version/build, `RemoteOrbitDiagnosticSourceHead`, executable SHA-256 and code-sign identity;
+- preserve/hash the current relevant voice diagnostic log and diagnostic journal without truncating or deleting them;
+- record current microphone SHORT binding and momentary/persistent trigger-key settings read-only;
+- require microphone SHORT remains Disabled and trigger keys remain the user's current Left Option configuration;
+- do not reset defaults or alter input method settings.
 
-Return these facts in the final evidence report; do not broaden source audit beyond what is needed for this candidate.
+## Gate 2 — exact candidate build/install
 
-## Gate 2 — RED tests first
+From the clean candidate worktree at exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`:
 
-Modify the existing Disabled-SHORT test contract **before** product implementation so it describes the intended restored behavior.
+1. build/package using the repository's normal app packaging path;
+2. verify the staged app source marker equals the candidate HEAD exactly;
+3. record staged executable SHA-256 and app version/build;
+4. gracefully terminate the currently running RemoteOrbit only;
+5. replace only `/Applications/RemoteOrbit.app`;
+6. do **not** replace/restart the audio driver, CoreAudio, LaunchAgent, TCC, Accessibility or Input Monitoring state;
+7. launch the installed candidate normally;
+8. verify installed source marker equals candidate HEAD, new PID exists, executable SHA-256 matches staged candidate, version/build and code identity are recorded;
+9. confirm the user's SHORT Disabled and Left Option trigger configuration was preserved;
+10. run existing read-only diagnostics readiness checks where available (`diagnostics status/verify/query`) without changing runtime state.
 
-Required focused assertions, adapted to current APIs without restructuring unrelated code:
+If exact identity cannot be proven => STOP before hardware interaction.
 
-1. `testDisabledShortBindingDoesNotBypassClassifier`
-   - `.preset(.disabled)` => `bypassesShortClassification == false`.
+## Gate 3 — minimal user hardware acceptance
 
-2. Disabled quick release test
-   - keyDown with Disabled semantics enters `.pending`, not `.holding`;
-   - release before the threshold returns `.idle`;
-   - configured short action is not executed as a product action;
-   - HOLD/remote-route activation is not observed;
-   - no synthetic trigger edge is emitted by the test seam.
+Do not automate or synthesize the physical remote interaction. Ask the user to perform the following, one step at a time, after install identity is reported ready.
 
-3. Disabled true-long test
-   - before the threshold: remains `.pending`;
-   - after crossing the existing `holdActivationThreshold`: enters `.holding` exactly once;
-   - existing remote route preparation occurs exactly once after promotion;
-   - do not change the threshold value.
+### A. Disabled fast click
 
-4. Existing `.voiceKeyDefault` short/long classifier behavior remains pending/classified as before.
+Starting with no visible Doubao Session open:
 
-Run only the focused Disabled-SHORT test target and prove RED against the current product implementation. RED must be caused by the current PR #14 bypass behavior, not compilation errors or unrelated failures.
+1. User performs one normal fast physical click/release of the remote voice key.
+2. User reports whether a Doubao Session visibly opens.
+3. Executor captures the exact matching gesture/log window.
 
-If a valid RED cannot be established, STOP and report why.
+Valid A sample requires logs to show the gesture released before the existing hold threshold and was classified SHORT. If the user's press crosses the threshold, classify the sample INVALID_FOR_A and repeat only once.
 
-## Gate 3 — minimal GREEN implementation
-
-Authorized product change:
-
-- `remote-orbit/Sources/RemoteOrbit/main.swift`
-
-Implement the smallest current-code equivalent of the historical good contract:
+Expected candidate evidence:
 
 ```text
-Disabled SHORT must not bypass the short/long classifier.
+bypasses_short_classification=false
+GESTURE_CLASSIFIED=short
+session_mode=idle
+no HOLD promotion
+hardware gate begins then cancels
+no short replay of mapped trigger
+no synthetic trigger edge
+USER_VISIBLE_DOUBAO_SESSION_OPEN=NO
 ```
 
-Expected shape: `bypassesShortClassification(for:)` must return false for Disabled as well as the existing non-disabled bindings.
+If a valid A sample still opens Doubao Session => **STOP immediately**. Do not perform LONG and do not edit code. Final classification: classifier correction valid by contract, external opening mechanism unresolved; resume B4 later.
 
-Do not cherry-pick historical source wholesale. Do not revert PR #14 wholesale. Do not modify the 300 ms threshold.
+### B. Disabled true LONG
 
-Preserve the current `preparesRemoteTransport` plumbing unless a focused test proves it must change for the restored contract. In particular, pending transport preparation may remain transport-only; this task must not authorize micOpen/audio/trigger emission before true HOLD promotion.
+Only if A passes:
 
-## Strict source boundary
+1. User presses and holds the physical voice key clearly beyond 300 ms.
+2. User speaks a short phrase after the voice HUD/remote voice path becomes active.
+3. User releases the key.
+4. User reports whether remote speech input worked normally.
 
-Authorized product source path:
+Expected evidence:
 
 ```text
-remote-orbit/Sources/RemoteOrbit/main.swift
+bypasses_short_classification=false
+initial state=pending
+GESTURE_CLASSIFIED=hold after threshold
+HOLD/remote route starts once
+physical/system-mapped trigger architecture remains in use
+speech input works
+release completes normal momentary lifecycle
 ```
 
-Authorized primary test path:
+For this Disabled configuration, no persistent Session is expected to remain open after the true LONG. This task does not test the separate correctly-entered Persistent Session closure issue.
+
+## Gate 4 — evidence seal and stop
+
+After A and, if allowed, B:
+
+- seal/hash the exact candidate runtime log window;
+- record gesture IDs, timestamps, classifier outcomes, gate result, mapped/synthetic trigger observations, runtime identity, and the user's visible result;
+- do not merge candidate;
+- do not start new diagnostics or fixes;
+- leave installed candidate in place unless a safety/runtime failure requires restoring the preserved previous app.
+
+## Decision states
+
+### ACCEPTED_CAUSAL_FIX
+
+Use only if:
 
 ```text
-remote-orbit/Tests/RemoteOrbitTests/DisabledShortClassifierTests.swift
+A_VALID_SHORT_SAMPLE: YES
+A_CLASSIFIED_SHORT: YES
+A_DOUBAO_SESSION_OPEN: NO
+B_TRUE_LONG_SAMPLE: YES
+B_CLASSIFIED_HOLD: YES
+B_REMOTE_SPEECH_WORKS: YES
 ```
 
-A second existing test file may be touched only if required to express a current public/test seam that directly verifies this same classifier boundary. If that happens, report the exact reason before claiming completion.
+Then report that PR #14 Disabled-classifier regression is causally accepted for the current Disabled fast-click Session-open symptom. Do not claim resolution of any separately proven correctly-entered Persistent Session external-close behavior.
 
-Forbidden product changes:
+### CLASSIFIER_FIXED_EXTERNAL_MECHANISM_REMAINS
 
-- `RemoteVoiceKeyMapping` / hidutil mapping behavior;
-- F5/source HID mapping redesign;
-- `VoiceKeyFilter` behavior;
-- `HardwareOptionGate` behavior;
-- physical/system-mapped trigger ownership;
-- synthetic trigger architecture;
-- BLEBridge or AudioPipe behavior;
-- Persistent Session state semantics;
-- trigger-key selection semantics;
-- settings/UI behavior;
-- diagnostic schema/authority expansion;
-- timing constants;
-- driver/CoreAudio/TCC/Input Monitoring/Accessibility changes.
+Use if a valid A sample is classified SHORT under the candidate but Doubao Session still opens. Stop and preserve evidence; B4 becomes the next investigation.
 
-No opportunistic cleanup or refactor.
+### CANDIDATE_REGRESSION
 
-## Gate 4 — focused validation
+Use if A no longer opens Session but a valid true LONG no longer works as expected. Stop; do not merge.
 
-After GREEN:
-
-1. Run `DisabledShortClassifierTests` and require PASS.
-2. Run the smallest existing focused suites covering current persistent-session and trigger runtime semantics. Prefer existing test files; do not add new diagnostics solely for this task.
-3. Explicitly verify tests still cover:
-   - `.voiceKeyDefault` SHORT behavior unchanged;
-   - persistent SHORT classification unchanged;
-   - persistent LONG remains audio-only once `persistent_open`;
-   - physical/system-mapped trigger path remains the normal production path.
-
-If any focused test fails, STOP. Do not widen the code fix until Web audits the failure.
-
-## Gate 5 — full validation
-
-Run:
-
-1. full Swift test suite;
-2. repository self-tests if currently required by `AGENTS.md` / existing project workflow;
-3. release build;
-4. `git diff --check`;
-5. scope audit proving only authorized source/test/control paths changed.
-
-No runtime installation and no user hardware interaction in this task.
-
-## Gate 6 — commit, push, handoff
-
-If all validation passes:
-
-1. commit the minimal candidate on `codex/disabled-short-classifier-regression-fix`;
-2. push the branch;
-3. verify local HEAD == remote branch HEAD;
-4. require clean worktree;
-5. do **not** merge;
-6. do **not** install;
-7. stop for Web independent audit.
-
-## Required completion report
-
-Return exactly the important evidence needed for Web review:
+## Required report
 
 ```text
-TASK_ID: RO-DISABLED-SHORT-CLASSIFIER-REGRESSION-FIX-001
+TASK_ID: RO-DISABLED-SHORT-HARDWARE-ACCEPTANCE-002
 CONTROL_HEAD:
-AUTHORIZED_BRANCH: codex/disabled-short-classifier-regression-fix
-WORKTREE: /private/tmp/remoteorbit-disabled-short-classifier-regression-fix
-BASELINE_GATE:
-WORKTREE_CLEAN_START:
+CANDIDATE_HEAD: 172427957fd18a2b5827edd1cb1c4bddb6a5b7db
+CANDIDATE_REMOTE_MATCH:
+WORKTREE_CLEAN:
 
-BASELINE_BYPASS_DISABLED:
-BASELINE_IMMEDIATE_HOLD_TEST_PRESENT:
+PREVIOUS_RUNTIME_PID:
+PREVIOUS_RUNTIME_SOURCE_HEAD:
+PREVIOUS_RUNTIME_SHA256:
+EVIDENCE_PRESERVED:
 
-RED_TEST_COMMAND:
-RED_RESULT:
-RED_FAILURES_EXPECTED:
+INSTALLED_RUNTIME_PID:
+INSTALLED_SOURCE_HEAD:
+INSTALLED_SHA256:
+STAGED_INSTALLED_MATCH:
+SETTINGS_PRESERVED:
+DIAGNOSTIC_READINESS:
 
-IMPLEMENTATION_SUMMARY:
-CHANGED_PATHS:
-BYPASS_DISABLED_AFTER_FIX:
-HOLD_THRESHOLD_CHANGED: NO
-HARDWARE_OPTION_PATH_CHANGED: NO
-BLE_AUDIO_PATH_CHANGED: NO
-PERSISTENT_SESSION_SEMANTICS_CHANGED: NO
+A_SAMPLE_VALID:
+A_GESTURE_ID:
+A_DURATION_MS:
+A_BYPASS:
+A_CLASSIFICATION:
+A_GATE_RESULT:
+A_MAPPED_TRIGGER:
+A_SYNTHETIC_TRIGGER:
+A_DOUBAO_SESSION_OPEN:
 
-FOCUSED_DISABLED_TESTS:
-FOCUSED_PERSISTENT_TRIGGER_TESTS:
-FULL_SWIFT_TEST:
-SELF_TESTS:
-RELEASE_BUILD:
-DIFF_CHECK:
-SCOPE_AUDIT:
+B_PERFORMED:
+B_GESTURE_ID:
+B_DURATION_MS:
+B_CLASSIFICATION:
+B_REMOTE_ROUTE:
+B_SPEECH_WORKED:
+B_RELEASE_RESULT:
 
-USER_REPRODUCTION_PERFORMED: NO
-RUNTIME_INSTALLED: NO
-
-FINAL_HEAD:
-REMOTE_HEAD:
-LOCAL_REMOTE_MATCH:
-FINAL_WORKTREE_CLEAN:
-FINAL_STATE: WAITING_FOR_INDEPENDENT_WEB_MINIMAL_FIX_AUDIT
+PRODUCT_SOURCE_CHANGED_DURING_ACCEPTANCE: NO
+MERGED: NO
+EVIDENCE_HASHES:
+FINAL_STATE:
 ```
-
-## Web acceptance boundary
-
-Web will independently inspect the exact branch diff and returned test evidence. Only after Web explicitly accepts the candidate may the installed runtime be replaced for one controlled hardware acceptance:
-
-```text
-SHORT Disabled + fast click → Doubao Session must not open
-SHORT Disabled + true LONG → remote voice must still start after classifier threshold
-```
-
-If the first condition still fails, do not expand this patch. Resume the paused B4 external event-plane investigation with the remaining external mechanism classified unresolved.
