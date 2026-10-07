@@ -1,122 +1,109 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-07
-State: ACTIVE INCIDENT — DUAL-MODE SHORTCUT COLLISION IDENTIFIED / SPLIT-KEY ACCEPTANCE REQUIRED
+State: SINGLE-IME COLLISION RESOLVED / CROSS-RECEIVER SESSION OWNERSHIP ACTIVE
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
 
 ## Control-plane integrity
 
-- Previous control HEAD: `798c7e71cf08d434b23d1e058f5019a3f1c9d661`.
+- Previous control HEAD: `e30a8db084d4487144644b6e10f6b2444efe3948`.
 - Candidate branch remains `codex/disabled-short-classifier-regression-fix` at exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
 - Installed candidate remains PID `79232`, source HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`, executable SHA-256 `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017` unless a later task records otherwise.
 - Candidate remains unmerged.
 
-## Newly established external semantic model
+## Single-input-method incident resolved
 
-The user identified that Doubao exposes two independent voice-input shortcut modes:
+The user identified the root cause of the prior unwanted fast-click Session opening in Doubao: Doubao has two independent shortcut semantics — click/toggle Session and hold-to-talk — and both had been bound to Left Option. A brief Left Option from the remote could therefore legitimately activate the click/toggle Session even when RemoteOrbit classified the physical gesture as SHORT and never promoted it to LONG.
 
-1. **Click/toggle Session** — press once to start a persistent Session, press again to stop.
-2. **Hold-to-talk** — hold the shortcut while speaking, release to stop.
+Separating the two Doubao shortcuts removes that unwanted fast-click activation. Treat the single-input-method shortcut-collision investigation as complete unless the symptom returns under separated shortcuts.
 
-These are separate receiver semantics and may be assigned different keys.
+The separate PR #14 Disabled-SHORT classifier regression remains real and the candidate fix remains relevant: `bypassesShortClassification = false`.
 
-RemoteOrbit likewise has separate trigger roles:
+## New user-observed multi-input-method scenario
 
-```text
-RemoteOrbit Persistent Trigger  <-> Doubao click/toggle Session shortcut
-RemoteOrbit Momentary Trigger   <-> Doubao hold-to-talk shortcut
-```
-
-## Configuration collision that explains the symptom
-
-The problematic environment had both Doubao modes assigned to **Left Option**. RemoteOrbit's persistent and momentary trigger roles were also using Left Option in the incident environment.
-
-Therefore a fast remote voice-key tap could briefly present Left Option to the system/receiver even though RemoteOrbit later classified the physical gesture as SHORT and did not promote it to LONG. Doubao could interpret that brief Left Option as its click/toggle Session shortcut and open a persistent Session.
-
-This directly explains the observed matched production sample:
+The user now reports a distinct configuration involving two different input receivers:
 
 ```text
-RemoteOrbit momentary = Left Option
-Doubao click/toggle = Left Option
-Doubao hold-to-talk = Left Option
+Receiver A / Doubao persistent-style shortcut = Left Option
+Receiver B / another input method shortcut     = Right Option
 
-remote fast click = 210.171 ms
-bypasses_short_classification = false
-classification = short
-session_mode = idle
-HOLD = 0
-gate begin/cancel = 1/1
-gate short replay = 0
-synthetic trigger down/up = 0
-Doubao Session = OPEN
+Remote short intended to activate Left Option / Receiver A
+Remote long intended to activate Right Option / Receiver B
 ```
 
-The visible Session opening therefore no longer needs to be explained as a mysterious LONG promotion. It is consistent with a **receiver-side shortcut semantic collision**: the same Left Option edge is valid input for both Doubao modes.
+The user observes that the two visible voice conversations still interfere or "fight".
 
-## User-observed split-key behavior
+This is a new scope. Do not reuse the single-input-method shortcut-collision diagnosis as the explanation.
 
-The user reports that when Doubao is configured instead as:
+## Existing state-machine assumption
+
+Current source architecture models one persistent voice-session owner. When a press begins while the persistent Session is already open, `VoicePressCoordinator` selects:
 
 ```text
-Doubao click/toggle Session = Left Control
-Doubao hold-to-talk = Left Option
+remoteSegmentTriggerPolicy = audioOnly
 ```
 
-a quick remote click no longer enters the unwanted click/toggle Session state.
+rather than `momentaryTrigger`.
 
-This is strong causal evidence for the shortcut-collision model. One bounded split-key acceptance is still required before declaring the incident fully closed.
-
-## Separate code regression remains real
-
-The PR #14 Disabled-SHORT classifier bypass was independently proven to be a real regression. The candidate correctly restores normal short/long classification:
+On LONG confirmation in this state, the coordinator attempts to suppress the mapped momentary hardware trigger and keep the current persistent receiver as the session owner. In other words, current architecture assumes:
 
 ```text
-bypassesShortClassification = false
+SHORT opens persistent receiver A
+LONG while A remains open -> audio-only continuation into A
 ```
 
-That code regression and the Doubao dual-mode shortcut collision are separate issues:
-
-1. **Code regression:** Disabled SHORT incorrectly bypassed classification into HOLD. Candidate fixes this.
-2. **Configuration/semantic collision:** Doubao click/toggle and hold-to-talk were both bound to Left Option, so a brief Left Option could start the click/toggle Session even without a LONG classification.
-
-Do not discard the classifier candidate because the external symptom also had a configuration cause.
-
-## Retractions / cancelled paths
-
-- `MAPPED_MODIFIER_DEPENDENCY_SUPPORTED` remains RETRACTED. The prior Left Control experiment changed only the RemoteOrbit side while Doubao still listened to Left Option.
-- `RO-PHYSICAL-LEFT-OPTION-VISIBILITY-013` remains CANCELLED. Event-plane visibility is not the primary causal question now.
-- Do not perform additional Left Option visibility or unmatched-key experiments unless the split-key acceptance fails.
-
-## Target split-key contract
-
-For the intended product semantics, use distinct receiver shortcuts and matching RemoteOrbit roles:
+It does NOT model a cross-receiver handoff:
 
 ```text
-Doubao click/toggle Session = Left Control
-RemoteOrbit Persistent Trigger = Left Control
-
-Doubao hold-to-talk = Left Option
-RemoteOrbit Momentary Trigger = Left Option
+SHORT opens receiver A
+LONG -> transfer ownership from A to separate receiver B
 ```
 
-The current Disabled-SHORT incident test may keep the short business action disabled while validating that a fast remote click no longer opens Doubao. Final product acceptance can then restore the intended persistent SHORT behavior separately.
+## Current interpretation
 
-## Current causal classification
+The two-input-method conflict is therefore most likely one of two classes:
 
-`HIGH-CONFIDENCE ROOT CAUSE CANDIDATE: DUAL-MODE SHORTCUT COLLISION`
+1. **State-model / ownership mismatch:** Receiver A remains persistently open while the user expects LONG to activate independent Receiver B. Two external receivers can then compete for focus/session/audio semantics.
+2. **Suppression failure or trigger leakage:** while RemoteOrbit internally selects `audioOnly`, the Right Option momentary path still reaches Receiver B, producing an unintended second active receiver.
 
-Expected mechanism:
+These two cases must be separated with one fresh existing-diagnostics capture before any behavior change.
+
+## Next diagnostic boundary
+
+Use existing diagnostics only; add no probes yet.
+
+Fresh sequence to capture:
 
 ```text
-remote physical tap
--> system-mapped Left Option edge
--> Doubao sees Left Option
--> because click/toggle mode also owns Left Option, Doubao opens persistent Session
--> RemoteOrbit later resolves gesture as SHORT and cancels its own long-path ownership
+initial: no visible receiver Session open
+1. one SHORT -> Receiver A / Left Option opens
+2. verify RemoteOrbit internal session_mode becomes persistent_open
+3. exactly one LONG while A is still visibly open
+4. user reports which receiver/dialogs are visible and which one reacts
 ```
 
-The classifier result does not undo a receiver action that already occurred on the same shortcut edge.
+For the LONG gesture, extract at minimum:
 
-No product source change beyond the existing classifier candidate is authorized before split-key acceptance.
+```text
+GESTURE_CLASSIFIED
+session_mode
+remoteSegmentTriggerPolicy
+PERSISTENT_SEGMENT_BEGIN
+persistent owner key
+momentary configured key
+OPTION_GATE / suppression outcome
+MAPPED_TRIGGER_EVENT for right_option
+synthetic trigger events
+AUDIO_START / AUDIO_FIRST / AUDIO_STOP
+frontmost/input-source transitions if already available
+```
+
+Decision:
+
+- `audioOnly` + no Right Option event + Receiver B does not activate => current architecture is behaving as designed; product requirement must decide whether cross-receiver handoff is desired.
+- `audioOnly` but Right Option reaches Receiver B => suppression/ownership bug; isolate exact edge before fixing.
+- internal mode is not `persistent_open` after SHORT => persistent ownership state is already drifting and that becomes the first bug to address.
+
+No source change is authorized before this capture.
