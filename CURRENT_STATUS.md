@@ -1,98 +1,114 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-07
-State: ACTIVE INCIDENT — DISABLED-SHORT CANDIDATE IN CONTROLLED HARDWARE ACCEPTANCE
+State: ACTIVE INCIDENT — CANDIDATE INSTALLED / DIAGNOSTIC JOURNAL READINESS RECOVERY AUTHORIZED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
 
 ## Control-plane integrity
 
-- Prior control HEAD: `3c35a8eebe300b1064adb73842fd499f46c4b46c`.
-- Prior B4 external event-plane investigation remains PAUSED, not deleted.
-- Lane A governance: CLOSED.
-- PR #18 boundary probes: MERGED + CLOSED.
-- PR #19 DiagnosticAuthority: MERGED + CLOSED.
-- PR #20 read-only Diagnostic CLI v1: MERGED + CLOSED.
+- Previous control HEAD: `8f3c294e895923178449c287d74428a9c2cb92b9`.
+- Candidate branch remains `codex/disabled-short-classifier-regression-fix` at exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
+- Candidate source is unchanged and unmerged.
+- Prior B4 external event-plane investigation remains PAUSED.
 
-## Active incident
+## Installed candidate
 
 ```text
-INCIDENT_ID: RO-INCIDENT-20261004-01
-USER_CONFIGURATION: microphone SHORT = Disabled; momentary trigger = Left Option; Doubao IME
-SYMPTOM_A: fast physical click can visibly open Doubao Session although SHORT is Disabled
-SYMPTOM_B: later LONG can speak, but release can close that visible Session
-FULL_EXTERNAL_CAUSAL_CHAIN: NOT YET CLOSED
-```
-
-## Confirmed regression and accepted candidate
-
-Historical and current evidence establish:
-
-1. PR #6 / commit `80ec3adfe065eac90547f7a76c58f0b510c639b9` restored Disabled SHORT to the normal ~300 ms classifier.
-2. Accepted PR #7 retained that semantic together with physical/system-mapped Option as the production trigger owner.
-3. PR #14 / commit `346b064de1c320c84706ecd590aa952cfe473da6`, merged as `924a8d3a26d213552fe9b42c9bb5e3bf31755a25`, reversed only the Disabled-SHORT classifier contract so Disabled bypassed classification and entered HOLD immediately.
-4. Sealed 2026-10-07 runtime evidence showed 16/16 presses with `bypasses_short_classification=true`, 16/16 classified HOLD, and internal session mode idle.
-5. Candidate branch restores only that classifier boundary.
-
-Accepted candidate:
-
-```text
-AUTHORIZED_BRANCH: codex/disabled-short-classifier-regression-fix
 CANDIDATE_HEAD: 172427957fd18a2b5827edd1cb1c4bddb6a5b7db
-BASE_CONTROL_HEAD: 3c35a8eebe300b1064adb73842fd499f46c4b46c
-PRODUCT_DIFF: main.swift classifier helper only; Disabled no longer bypasses classifier
-HARDWARE_OPTION_MAPPING_CHANGED: NO
-VOICEKEYFILTER_CHANGED: NO
-HARDWAREOPTIONGATE_CHANGED: NO
-BLE_AUDIO_CHANGED: NO
-PERSISTENT_SESSION_SEMANTICS_CHANGED: NO
-TIMING_THRESHOLD_CHANGED: NO
+INSTALLED_RUNTIME_PID_BEFORE_RECOVERY: 72913
+INSTALLED_SOURCE_HEAD: 172427957fd18a2b5827edd1cb1c4bddb6a5b7db
+INSTALLED_SHA256: a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017
+STAGED_INSTALLED_MATCH: YES
+SHORT_BINDING: Disabled
+MOMENTARY_TRIGGER: left_option
+PERSISTENT_TRIGGER: left_option
+LEGACY_TRIGGER: left_option
+CURRENT_INPUT_SOURCE: com.bytedance.inputmethod.doubaoime.pinyin
+SOURCE_MUTATION: NO
+MERGED: NO
+HARDWARE_ACCEPTANCE_A_OR_B_PERFORMED: NO
 ```
 
-Independent Web audit of exact remote commits found:
+Pre-install evidence is preserved at:
+
+`/private/tmp/remoteorbit-disabled-short-hardware-acceptance-20261007`
+
+Known hashes:
 
 ```text
-INITIAL_CANDIDATE_HEAD: 4d37284707c741d28f9a4745a03fbf36f918ed8a
-TEST_ONLY_CORRECTIVE_HEAD: 172427957fd18a2b5827edd1cb1c4bddb6a5b7db
-TEST_ONLY_CORRECTIVE_PRODUCT_SOURCE_CHANGE: NONE
-HARDWARE_PATH_QUICK_RELEASE_TEST: gate_begin=1; gate_cancel=1; short_replay=0; hold=0; remote_route=0; synthetic_edges=0
-FOCUSED_DISABLED_TESTS: 4/4 PASS
-FOCUSED_PERSISTENT_TRIGGER_TESTS: 97/97 PASS
-FULL_SWIFT_TESTS: 292/292 PASS
-SELF_TESTS: 3/3 PASS
-RELEASE_BUILD: PASS
-DIFF_CHECK: PASS
+VOICE_DIAGNOSTIC_SHA256: 77ec5da36c6c17b964965355d3bd2a455964c7e5eb655d3c674335a06ff33410
+DIAGNOSTIC_JOURNAL_SHA256: 89b0b05fcb66eab1ff92dfbd7e47681bda6c66402933d51f40bfbf43299aec9b
 ```
 
-## Controlled installation authorization
+## Diagnostic readiness blocker
 
-The exact candidate HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db` is authorized for one hardware acceptance cycle.
+After exact-candidate installation:
 
-Allowed:
+```text
+diagnostics status: PASS
+diagnostics verify: EXIT 65 — corrupt diagnostic journal at record 1
+diagnostics query: EXIT 65 — corrupt diagnostic journal at record 1
+```
 
-- build/package the exact candidate branch HEAD;
-- preserve current installed-app identity and current diagnostic evidence before replacement;
-- gracefully terminate only RemoteOrbit;
-- replace only `/Applications/RemoteOrbit.app` with the exact candidate build;
-- relaunch RemoteOrbit;
-- verify source marker, executable hash, version/build, PID, code identity, settings preservation, and diagnostic readiness;
-- perform the exact user hardware acceptance in `CURRENT_TASK.md`.
+Independent source audit establishes:
+
+- `diagnostics status` checks journal existence/metadata and does not prove records decode.
+- `verify` and `query` decode the JSONL from record 1 and fail closed on a corrupt/unsupported record.
+- the journal writer appends by seeking to the end and does not pre-validate historical records before writing.
+- therefore a pre-existing corrupt or incompatible record 1 can block CLI verification while the newly installed candidate itself remains valid.
+
+Classification:
+
+```text
+CANDIDATE_PRODUCT_FAILURE_ESTABLISHED: NO
+CURRENT_RUNTIME_JOURNAL_CORRUPTION_ESTABLISHED: NOT YET
+PREEXISTING_JOURNAL_RECORD1_HYPOTHESIS: MUST BE PROVEN BEFORE ROTATION
+HARDWARE_ACCEPTANCE_A: BLOCKED UNTIL READINESS RECOVERY PASSES
+```
+
+## Authorized runtime-evidence maintenance
+
+Only the following is authorized before User A:
+
+1. read-only compare record 1 of the preserved pre-install journal with record 1 of the current live journal;
+2. record hashes and minimal JSON/schema facts for both first records without editing either file;
+3. proceed only if the first records are byte-identical, proving the corrupt first record predates candidate installation;
+4. preserve/hash the full current live journal again;
+5. gracefully quit RemoteOrbit so the journal handle is closed;
+6. archive/move the live journal out of the active journal pathname without deleting or truncating it, and retain a copy/reference in the evidence directory;
+7. relaunch the same already-installed exact candidate app; do not rebuild or reinstall;
+8. re-verify exact source HEAD, binary SHA-256, settings and input source;
+9. run `diagnostics status`, `diagnostics verify`, and `diagnostics query --limit 1` against the fresh live journal path.
+
+No hardware gesture is authorized during this recovery.
+
+## Recovery decision
+
+Use `READY_FOR_USER_A` only if:
+
+```text
+PREINSTALL_RECORD1_EQUALS_BLOCKED_LIVE_RECORD1: YES
+OLD_LIVE_JOURNAL_ARCHIVED_INTACT: YES
+RELAUNCHED_SOURCE_HEAD: 172427957fd18a2b5827edd1cb1c4bddb6a5b7db
+RELAUNCHED_BINARY_SHA256: a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017
+SETTINGS_PRESERVED: YES
+diagnostics status: PASS
+diagnostics verify: PASS
+diagnostics query --limit 1: PASS
+```
+
+An empty fresh journal is acceptable if `verify/query` pass and no producer naturally emitted yet. Do not synthesize an event solely to populate it.
+
+If the preserved and live first records differ, STOP without journal rotation and return `RECORD1_ATTRIBUTION_NOT_PROVEN`.
+
+If a fresh journal again becomes corrupt at record 1 under the same candidate, STOP and return `CURRENT_RUNTIME_DIAGNOSTIC_CORRUPTION_REPRODUCED`.
 
 Forbidden:
 
-- merge candidate to main before hardware acceptance;
-- source edits or additional diagnostics;
-- driver/CoreAudio/TCC/Input Monitoring/Accessibility changes;
-- settings reset or trigger-key changes;
-- hidutil/HardwareOptionGate/VoiceKeyFilter mutation;
-- deletion/truncation of prior evidence;
-- broad exploratory reproduction.
-
-## Acceptance interpretation
-
-If Disabled fast clicks are now classified SHORT and do not open Doubao Session, while true LONG still works after the existing threshold, the PR #14 classifier regression is accepted as the causal explanation for **SYMPTOM_A**.
-
-Do not automatically claim the historical genuine-persistent external-close sample is solved. `SYMPTOM_B` is closed as downstream of the fake-open state only for the current Disabled configuration if the acceptance sequence confirms it; any correctly-entered persistent-session closure remains a separate preserved issue.
-
-If a valid Disabled fast click still opens Doubao Session, stop without expanding the patch and resume the paused B4 external event-plane investigation.
+- no source edit, rebuild, reinstall or merge;
+- no driver/CoreAudio/LaunchAgent/TCC/settings mutation;
+- no journal deletion or truncation;
+- no synthetic input or user SHORT/LONG gesture;
+- no resumption of B4 unless Web later authorizes it.
