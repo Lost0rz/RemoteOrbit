@@ -1,258 +1,120 @@
 # RemoteOrbit Current Task
 
-## Current task — RO-INCIDENT-20261004-01 / CROSS-RECEIVER SESSION OWNERSHIP
+## Current task — DUAL-RECEIVER HOLD-GESTURE ARCHITECTURE DESIGN
 
-- **Status:** ACTIVE / FRESH READ-ONLY CAPTURE REQUIRED
-- **Task ID:** `RO-CROSS-RECEIVER-SESSION-OWNERSHIP-015`
-- **Incident ID:** `RO-INCIDENT-20261004-01`
+- **Status:** HOLD / USER INTERACTION CONTRACT APPROVAL REQUIRED
+- **Task ID:** `RO-DUAL-RECEIVER-GESTURE-ARCHITECTURE-016`
 - **Candidate branch:** `codex/disabled-short-classifier-regression-fix`
 - **Candidate HEAD:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
-- **Installed source HEAD:** must remain `172427957fd18a2b5827edd1cb1c4bddb6a5b7db` unless independently changed and reported.
-- **Installed executable SHA-256:** expected `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017` unless independently changed and reported.
 - **Source mutation:** FORBIDDEN
 - **New probes:** FORBIDDEN
+- **Hardware experiment:** FORBIDDEN until the interaction contract is selected
 - **Rebuild/reinstall:** FORBIDDEN
 - **Merge:** FORBIDDEN
 
-## Closed prior scope
+## Why this supersedes the prior cross-receiver capture
 
-The single-input-method Doubao dual-mode shortcut collision is considered resolved by separating Doubao's click/toggle and hold-to-talk shortcuts. Do not continue the prior Left Option visibility or unmatched-key experiments unless that single-input symptom returns.
+The user clarified a hard hardware constraint: the Xiaomi remote microphone produces useful audio only while the physical microphone button is held. Therefore a two-receiver product cannot treat one receiver as a tap-only audio path and the other as the hold path if both are expected to receive Xiaomi remote audio.
 
-The independent PR #14 classifier regression remains real; the current candidate still fixes it by restoring normal short/long classification.
+The previous `RO-CROSS-RECEIVER-SESSION-OWNERSHIP-015` capture is superseded as the immediate task. It may still be useful later for a regression sample, but the product contract must be chosen first.
 
-## New scenario
+## Accepted source-audit facts
 
-The user is testing two different input receivers:
+1. `VoicePressCoordinator` has one persistent owner model: `idle | persistentOpen`.
+2. When a gesture starts while `persistentOpen`, the policy becomes `audioOnly`, and the current implementation suppresses the momentary mapped trigger. The LONG is designed to continue the same persistent receiver, not select a second receiver.
+3. RemoteOrbit cannot authoritatively observe whether an external IME voice UI/session was manually or independently closed; persistent ownership is internal.
+4. Repeated Persistent LONG segments intentionally reuse the same external Session without an explicit external trigger transaction per segment. This is a plausible architecture risk for duplicate/repeated composition, but current diagnostics do not prove the external text-commit cause.
+5. The generic `ButtonGestureRecognizer` already supports single tap, double tap, long press, and a second-tap long represented by `clickCount = 2`.
+6. The microphone button does not currently use that generic gesture path when remote-microphone LONG is enabled; it is routed directly to `VoicePressCoordinator`.
+7. Current device-scoped HID mapping has one active mapped trigger target at a time. A per-gesture receiver choice is therefore not a settings-only change.
 
-```text
-Receiver A / Doubao persistent shortcut = Left Option
-Receiver B / another input method shortcut = Right Option
+## Candidate interaction contracts
 
-SHORT intended -> Left Option / Receiver A
-LONG intended  -> Right Option / Receiver B
-```
-
-User reports the two voice dialogs still interfere.
-
-## Source-model fact
-
-Current RemoteOrbit state machine assumes a persistent Session has one receiver owner. If a new press starts while `voiceSessionMode == persistentOpen`, `VoicePressCoordinator` selects `remoteSegmentTriggerPolicy = audioOnly`. On LONG confirmation it attempts to suppress the mapped momentary hardware trigger rather than hand ownership to a second receiver.
-
-Therefore the present architecture supports:
+### Option A — one microphone button, two hold gestures
 
 ```text
-SHORT opens persistent receiver A
-LONG while A open -> audio-only continuation into A
+Direct LONG                  -> Receiver A
+Double-tap, hold second down -> Receiver B
 ```
 
-It does not explicitly support:
+Both receivers use independent momentary voice transactions. No external persistent Session is kept alive between utterances.
+
+Required architectural property:
+- receiver selection must resolve before the selected receiver sees its trigger;
+- the unselected receiver must receive no trigger edge;
+- first remote PCM remains the authorization boundary for the selected receiver trigger where practical;
+- release/output drain balances only that transaction.
+
+This is the preferred contract when one-button UX is the highest priority, but it requires redesign of microphone gesture routing and trigger ownership.
+
+### Option B — explicit receiver selector + one microphone LONG
 
 ```text
-SHORT opens receiver A
-LONG while A open -> close/suspend A and activate independent receiver B
+Separate remote control selects Receiver A or B while idle
+Microphone LONG -> currently selected receiver
 ```
 
-## Goal
+No external persistent Session is kept alive between utterances.
 
-Use existing diagnostics to determine which of these actually happens in the reported conflict:
+This is the preferred contract when reliability/minimum implementation risk is the highest priority because receiver identity is known before microphone down and the existing physical/system mapped trigger architecture can largely be preserved.
 
-1. current state machine remains `persistent_open/audioOnly` and Receiver B is not actually triggered — then the issue is a product-semantics/receiver-ownership mismatch;
-2. current state machine is `persistent_open/audioOnly` but a Right Option reaches Receiver B anyway — then there is a suppression/trigger-leak bug;
-3. the SHORT never establishes or retains `persistent_open` internally — then session state drift is the first bug.
-
-Do not design or implement a handoff fix before this distinction is proven.
-
-## Gate 0 — exact readiness
-
-1. `git fetch origin --prune`.
-2. Read live `AGENTS.md`, `CURRENT_STATUS.md`, and this task from `origin/main`.
-3. Verify candidate/runtime identity and current trigger configuration; report any drift, but do not restart or reinstall to force a match.
-4. Record the two receiver shortcut assignments exactly as currently configured.
-5. Verify existing voice/app diagnostics are readable.
-6. Confirm no visible voice Session/dialog is open before the fresh sequence.
-
-No source edits.
-
-## Gate 1 — fresh append-only baseline
-
-Create a fresh evidence subdirectory under the existing incident evidence root.
-
-Do not clear or rotate logs.
-
-Record:
+### Option C — Persistent A plus LONG handoff to B
 
 ```text
-wall-clock baseline
-voice log path/size/record count/last seq
-app log path/size/line count/last relevant timestamp
-runtime PID/source HEAD/binary SHA
-RemoteOrbit persistent trigger
-RemoteOrbit momentary trigger
-Receiver A shortcut
-Receiver B shortcut
-current internal session mode if observable
+SHORT -> keep Receiver A externally open
+LONG -> suspend/close A, run Receiver B, optionally restore A
 ```
 
-Seal/hash baseline metadata.
+Not recommended as the default architecture. RemoteOrbit does not own authoritative external IME Session state, so coordinating two external Session owners adds avoidable state drift and composition/transaction risk.
 
-Then return only:
+## Recommended architecture principle
 
-`READY_FOR_CROSS_RECEIVER_SHORT — perform exactly one SHORT that opens Receiver A; do not LONG yet.`
+For a two-receiver workflow, model every spoken hold as exactly one explicit `VoiceTransaction` with one receiver owner and one balanced trigger/audio lifetime.
 
-## Gate 2 — establish Receiver A ownership
-
-User performs exactly one SHORT intended to open Receiver A.
-
-Capture only post-baseline records and verify:
+Conceptually:
 
 ```text
-classification = short
-RemoteOrbit internal session_mode after accepted toggle = persistent_open
-persistent owner key = expected Left Option (or actual configured key)
-Receiver A visibly open = YES
-Receiver B visibly open = NO
+VoiceTransaction
+- transaction_id
+- receiver_id
+- gesture_kind
+- trigger_key
+- physical_press_id
+- trigger ownership
+- first-PCM authorization
+- audio route lifetime
+- release/output-drain completion
 ```
 
-If internal `persistent_open` is not established, return:
+Do not use `persistentOpen` as global authority for the dual-receiver mode.
 
-`PERSISTENT_OWNER_STATE_NOT_ESTABLISHED`
+A single-receiver Persistent mode may remain as a separate optional product mode if desired, but it must not be the ownership model for two independent receivers.
 
-STOP before LONG.
+## Evidence status of historical problems
 
-If Receiver B is already open, sample is invalid for this task.
+### Persistent Session exits when LONG begins
 
-If valid, seal a second append-only boundary and return only:
+Current source intends the opposite: while internally `persistentOpen`, LONG is `audioOnly` and should leave the Session open. If the external receiver visibly exits, current diagnostics can prove the internal policy and trigger/gate edges but cannot prove the receiver's own Session transition. External/internal ownership drift or trigger leakage are plausible; exact historical cause is not proven.
 
-`READY_FOR_CROSS_RECEIVER_LONG — with Receiver A still open, perform exactly one LONG intended for Receiver B; release once; do not repeat.`
+### Repeated text after segmented Persistent LONGs
 
-## Gate 3 — one LONG while Receiver A remains open
+Current source intentionally sends multiple audio-only segments into one long-lived external Persistent Session without a fresh external transaction boundary per hold. This is a plausible contributor to receiver recomposition/duplicate commits. Exact duplicate-text causality is not proven because RemoteOrbit does not observe the receiver's composition/commit stream.
 
-User performs exactly one deliberate LONG while Receiver A is still visibly open.
+The abandoned PR #16 explored per-segment transaction isolation, which supports treating transaction boundaries as a real design concern, but it is not an accepted implementation and must not be revived wholesale.
 
-User reports:
+## User decision required
 
-```text
-Receiver A after LONG: open / closed / changed
-Receiver B during LONG: opened / did not open
-After release: which dialogs remain visible
-Which receiver appears to own dictation/output
-```
+Choose the interaction contract before implementation planning:
 
-Analyze only records after the second boundary.
+- **A** — direct LONG = Receiver A; double-tap + hold second = Receiver B.
+- **B** — select Receiver A/B first with another control; microphone LONG uses the selected receiver.
 
-Extract at minimum:
+Option C is not recommended.
 
-```text
-GESTURE_ID
-duration
-GESTURE_CLASSIFIED
-session_mode at begin/classification/release
-remoteSegmentTriggerPolicy
-PERSISTENT_SEGMENT_BEGIN count/fields
-persistent owner key
-momentary configured key
-OPTION_GATE begin/suppress/cancel/reset/replay events
-hardware-trigger suppression outcome
-MAPPED_TRIGGER_EVENT count/actions for right_option
-synthetic trigger down/up for right_option
-AUDIO_START/AUDIO_FIRST/AUDIO_STOP
-frontmost/input-source transitions already provided by existing diagnostics
-```
+After the user selects A or B, write the architecture spec and implementation plan. Do not modify product source before that approval.
 
-Do not add new probes.
+## Current executor instruction
 
-## Decision
+If local AI fetches this task now, return only:
 
-### Case A — architecture behaves as designed
-
-If:
-
-```text
-session_mode = persistent_open
-policy = audioOnly
-Right Option mapped/synthetic trigger reaching Receiver B = NO
-Receiver B visibly does not open
-```
-
-return:
-
-`CROSS_RECEIVER_HANDOFF_NOT_MODELED`
-
-Interpretation: current product intentionally keeps Receiver A as owner. If product requirement is LONG -> independent Receiver B while A is open, that requires a new explicit receiver-handoff design rather than a bug fix in the current same-owner persistent model.
-
-### Case B — suppression/trigger leakage
-
-If:
-
-```text
-session_mode = persistent_open
-policy = audioOnly
-but Right Option reaches Receiver B or Receiver B visibly opens
-```
-
-return:
-
-`AUDIO_ONLY_MOMENTARY_SUPPRESSION_BROKEN`
-
-Preserve exact trigger/gate ordering. Do not fix yet.
-
-### Case C — ownership state drift
-
-If Receiver A visibly opens after SHORT but RemoteOrbit does not retain `persistent_open`, return:
-
-`VISIBLE_PERSISTENT_INTERNAL_OWNERSHIP_DRIFT`
-
-This becomes the first causal problem to isolate.
-
-## Required report
-
-```text
-TASK_ID: RO-CROSS-RECEIVER-SESSION-OWNERSHIP-015
-CONTROL_HEAD:
-CANDIDATE_HEAD:
-INSTALLED_PID:
-INSTALLED_SOURCE_HEAD:
-INSTALLED_SHA256:
-
-RECEIVER_A:
-RECEIVER_A_SHORTCUT:
-RECEIVER_B:
-RECEIVER_B_SHORTCUT:
-REMOTE_PERSISTENT_TRIGGER:
-REMOTE_MOMENTARY_TRIGGER:
-
-FRESH_BASELINE_SEALED:
-SHORT_PERFORMED:
-SHORT_GESTURE_ID:
-SHORT_CLASSIFICATION:
-SHORT_INTERNAL_SESSION_MODE_AFTER:
-SHORT_PERSISTENT_OWNER_KEY:
-RECEIVER_A_OPEN_AFTER_SHORT:
-RECEIVER_B_OPEN_AFTER_SHORT:
-SECOND_BOUNDARY_SEALED:
-
-LONG_PERFORMED:
-LONG_GESTURE_ID:
-LONG_DURATION_MS:
-LONG_CLASSIFICATION:
-LONG_SESSION_MODE:
-LONG_TRIGGER_POLICY:
-PERSISTENT_SEGMENT_BEGIN:
-PERSISTENT_OWNER_KEY:
-MOMENTARY_CONFIGURED_KEY:
-HARDWARE_TRIGGER_SUPPRESSION:
-RIGHT_OPTION_MAPPED_TRIGGER_EVENTS:
-RIGHT_OPTION_SYNTHETIC_TRIGGER_EVENTS:
-AUDIO_EVENTS:
-RECEIVER_A_AFTER_LONG:
-RECEIVER_B_DURING_LONG:
-VISIBLE_DIALOGS_AFTER_RELEASE:
-USER_OBSERVED_OWNER:
-
-PRODUCT_SOURCE_CHANGED: NO
-NEW_PROBES_ADDED: NO
-REBUILD_OR_REINSTALL: NO
-MERGED: NO
-
-FINAL_STATE:
-```
+`HOLD_FOR_DUAL_RECEIVER_GESTURE_DESIGN_APPROVAL`
