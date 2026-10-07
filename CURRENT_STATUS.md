@@ -8,7 +8,7 @@ This file is the authority for mutable current project state. Historical detail 
 
 ## Control-plane integrity
 
-- Previous control HEAD: `e03495e468342aa1e298a196dcd566797d3caa16`.
+- Previous control HEAD: `f5196526cde10ad66f64eb0ec960e24617bffe94`.
 - Candidate branch remains `codex/disabled-short-classifier-regression-fix` at exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
 - Candidate source is unchanged and unmerged.
 - Installed candidate remains the active incident runtime unless a later task records otherwise.
@@ -40,15 +40,43 @@ Accepted conclusion:
 
 The PR #14 Disabled-SHORT immediate-HOLD regression is real and corrected by the candidate, but it is not sufficient to explain the visible fast-click Session opening. Do not claim the exact external mechanism is known.
 
+## Fresh-A mapped-trigger evidence
+
+Gate 0 re-read of the sealed Fresh A evidence established:
+
+```text
+FRESH_A_MAPPED_TRIGGER_EVENT_COUNT: 0
+FRESH_A_MAPPED_TRIGGER_ACTIONS: none
+```
+
+This further narrows the observed candidate-visible event path, but it still does not prove that no modifier edge exists below or outside the current RemoteOrbit observation plane.
+
 ## Existing diagnostic capability
 
 Merged PR #18 already provides raw HID report/edge sequence, mapped-trigger CGEvent timestamp/action, HID-vs-fallback correlation, and frontmost-application transition diagnostics. Do not add new probes before using these signals.
 
-## Mapped-modifier discriminator correction
+## Mapped-modifier discriminator
 
-The previously proposed Right Option negative control is INVALID because the user reports Right Option has an existing input-method function. Using it would introduce a second semantic effect and make the experiment uninterpretable.
+Right Option is explicitly disallowed because the user reports it has an existing input-method function.
 
-RemoteOrbit supports Left/Right Option, Left/Right Control, and Left/Right Command as trigger targets. At the user's request, the next bounded discriminator will use **Left Control**, but only if the user's physical-keyboard Left Control tap is first confirmed to have no visible Doubao/input-method/other semantic effect.
+RemoteOrbit supports Left/Right Option, Left/Right Control, and Left/Right Command as trigger targets. At the user's request, the bounded discriminator uses **Left Control**, but only if the user's physical-keyboard Left Control tap is first confirmed to have no visible Doubao/input-method/other semantic effect.
+
+## Input-source readback reconciliation
+
+Latest Gate 0 observed conflicting input-source signals:
+
+- HIToolbox selected-source list included Doubao;
+- realtime TIS query returned `com.apple.keylayout.ABC` while also reporting an input-source service connection error.
+
+A TIS result accompanied by its own service/connection failure is not authoritative evidence that ABC is truly active. For this bounded hardware experiment, when realtime TIS is unhealthy, the user's direct visual confirmation of the currently active menu-bar input method is accepted as the input-source authority.
+
+Therefore:
+
+- if the user visually confirms the menu-bar active input method is Doubao, Gate 0 may continue;
+- if the menu bar shows another input method, STOP and do not perform the Left Control control;
+- do not switch input methods merely to satisfy the diagnostic readback disagreement unless the user explicitly chooses to restore Doubao.
+
+Record the conflicting machine readbacks and the user's visual confirmation in the evidence report. Do not expand this into a separate input-source diagnostics project during the current incident.
 
 Current hypotheses remain:
 
