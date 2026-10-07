@@ -2,7 +2,7 @@
 
 ## Current task — RO-INCIDENT-20261004-01 / MAPPED-TRIGGER DEPENDENCY DISCRIMINATION
 
-- **Status:** ACTIVE / RIGHT-CONTROL NEGATIVE CONTROL REQUIRED
+- **Status:** ACTIVE / LEFT-CONTROL NEGATIVE CONTROL REQUIRED
 - **Incident ID:** `RO-INCIDENT-20261004-01`
 - **Candidate branch:** `codex/disabled-short-classifier-regression-fix`
 - **Candidate HEAD:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
@@ -40,7 +40,7 @@ Discriminate whether the visible Doubao Session opening depends on the configure
 
 Right Option is explicitly disallowed as a control because the user reports it has an existing input-method function.
 
-The proposed control is **Right Control**, but it may be used only after a physical-keyboard Right Control tap is confirmed to have no visible Doubao/input-method/other semantic effect.
+At the user's request, the control key is **Left Control**, but it may be used only after a physical-keyboard Left Control tap is confirmed to have no visible Doubao/input-method/other semantic effect.
 
 ## Gate 0 — exact runtime and evidence audit
 
@@ -55,9 +55,9 @@ The proposed control is **Right Control**, but it may be used only after a physi
 
 STOP for runtime/source/hash/control mismatch. Do not edit code.
 
-## Gate 1 — establish Right Control as a negative control
+## Gate 1 — establish Left Control as a negative control
 
-Before changing RemoteOrbit, ask the user to ensure no Doubao Session is open, then tap the **physical keyboard Right Control once**. Do not use the remote.
+Before changing RemoteOrbit, ask the user to ensure no Doubao Session is open, then tap the **physical keyboard Left Control once**. Do not use the remote.
 
 User reports whether that single tap:
 
@@ -67,13 +67,13 @@ User reports whether that single tap:
 
 If any such effect occurs:
 
-`RIGHT_CONTROL_NOT_VALID_NEGATIVE_CONTROL`
+`LEFT_CONTROL_NOT_VALID_NEGATIVE_CONTROL`
 
 STOP. Do not change RemoteOrbit settings.
 
 If no effect occurs:
 
-`RIGHT_CONTROL_NEGATIVE_CONTROL=PASS`
+`LEFT_CONTROL_NEGATIVE_CONTROL=PASS`
 
 Continue.
 
@@ -82,7 +82,7 @@ Continue.
 Using the normal RemoteOrbit settings UI, the user changes only:
 
 ```text
-Momentary trigger: Left Option -> Right Control
+Momentary trigger: Left Option -> Left Control
 ```
 
 Keep unchanged:
@@ -98,7 +98,7 @@ Keep unchanged:
 
 Do not restart the app.
 
-Read-only verify effective runtime/HID mapping target is now `right_control` and HID readback/filter configuration agrees.
+Read-only verify effective runtime/HID mapping target is now `left_control` and HID readback/filter configuration agrees.
 
 ## Gate 3 — fresh append-only baseline
 
@@ -108,7 +108,7 @@ Record exact append-only baselines for diagnostic journal and app/voice logs: ti
 
 Only after baseline is sealed return:
 
-`READY_FOR_RIGHT_CONTROL_REMOTE_A — perform exactly one fast remote click/release; do not LONG or repeat.`
+`READY_FOR_LEFT_CONTROL_REMOTE_A — perform exactly one fast remote click/release; do not LONG or repeat.`
 
 ## Gate 4 — exactly one remote fast-click control
 
@@ -135,7 +135,7 @@ If invalid/multiple gestures: STOP at `CONTROL_SAMPLE_INVALID`.
 
 ### Decision
 
-If physical Right Control has no semantic effect and the valid remote sample mapped to Right Control has `DOUBAO_SESSION_OPEN=NO`, return:
+If physical Left Control has no semantic effect and the valid remote sample mapped to Left Control has `DOUBAO_SESSION_OPEN=NO`, return:
 
 `MAPPED_MODIFIER_DEPENDENCY_SUPPORTED`
 
@@ -154,7 +154,7 @@ Do not perform LONG and do not edit source.
 After evidence is sealed, use the normal RemoteOrbit settings UI to restore only:
 
 ```text
-Momentary trigger: Right Control -> Left Option
+Momentary trigger: Left Control -> Left Option
 ```
 
 Read-only verify effective HID mapping is again Left Option. Do not restart the app.
@@ -162,7 +162,7 @@ Read-only verify effective HID mapping is again Left Option. Do not restart the 
 ## Required report
 
 ```text
-TASK_ID: RO-MAPPED-TRIGGER-DEPENDENCY-010
+TASK_ID: RO-MAPPED-TRIGGER-DEPENDENCY-011
 CONTROL_HEAD:
 CANDIDATE_HEAD:
 INSTALLED_PID:
@@ -170,11 +170,11 @@ INSTALLED_SOURCE_HEAD:
 INSTALLED_SHA256:
 FRESH_A_MAPPED_TRIGGER_EVENT_COUNT:
 FRESH_A_MAPPED_TRIGGER_ACTIONS:
-RIGHT_CONTROL_KEYBOARD_CONTROL_PERFORMED:
-RIGHT_CONTROL_KEYBOARD_DOUBAO_OPEN:
-RIGHT_CONTROL_KEYBOARD_INPUT_SWITCH:
-RIGHT_CONTROL_KEYBOARD_OTHER_EFFECT:
-RIGHT_CONTROL_NEGATIVE_CONTROL:
+LEFT_CONTROL_KEYBOARD_CONTROL_PERFORMED:
+LEFT_CONTROL_KEYBOARD_DOUBAO_OPEN:
+LEFT_CONTROL_KEYBOARD_INPUT_SWITCH:
+LEFT_CONTROL_KEYBOARD_OTHER_EFFECT:
+LEFT_CONTROL_NEGATIVE_CONTROL:
 MOMENTARY_BEFORE:
 MOMENTARY_CONTROL:
 HID_MAPPING_CONTROL:
