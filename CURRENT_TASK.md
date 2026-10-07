@@ -30,6 +30,7 @@ GATE_SHORT_REPLAY: 0
 HOLD_PROMOTION: 0
 SYNTHETIC_TRIGGER_DOWN_UP: 0
 USER_VISIBLE_DOUBAO_SESSION_OPEN: YES
+MAPPED_TRIGGER_EVENT_COUNT: 0
 ```
 
 Decision: `CLASSIFIER_FIXED_EXTERNAL_MECHANISM_REMAINS`.
@@ -38,22 +39,31 @@ Decision: `CLASSIFIER_FIXED_EXTERNAL_MECHANISM_REMAINS`.
 
 Discriminate whether the visible Doubao Session opening depends on the configured system-mapped modifier while keeping classifier, pending transport/prewarm, candidate binary, input method, and remote hardware unchanged.
 
-Right Option is explicitly disallowed as a control because the user reports it has an existing input-method function.
+Right Option is explicitly disallowed because the user reports it has an existing input-method function.
 
 At the user's request, the control key is **Left Control**, but it may be used only after a physical-keyboard Left Control tap is confirmed to have no visible Doubao/input-method/other semantic effect.
 
-## Gate 0 — exact runtime and evidence audit
+## Gate 0 — exact runtime, evidence, and input-source authority
 
 1. `git fetch origin --prune`.
 2. Verify live `origin/main` exactly equals the control HEAD containing this task.
 3. Verify candidate remote exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
 4. Read `AGENTS.md`, `CURRENT_STATUS.md`, and this task from live `origin/main`.
 5. Verify runtime identity/hash remains exact.
-6. Verify SHORT remains Disabled and input source is Doubao.
-7. Read the sealed fresh-A `analysis.json` and appended diagnostics; record exact `MAPPED_TRIGGER_EVENT` count/actions for gesture `66EAAC65-0704-482C-B01B-4F89F3DE0E19` rather than assuming zero.
+6. Verify SHORT remains Disabled.
+7. Read the sealed fresh-A `analysis.json` and appended diagnostics and record exact `MAPPED_TRIGGER_EVENT` count/actions. Accepted current result is count 0 / actions none.
 8. Verify diagnostics remain readable.
+9. Resolve current input source as follows:
+   - record HIToolbox selected-source evidence;
+   - record realtime TIS result and any service/connection error;
+   - if realtime TIS is healthy and unambiguous, use it;
+   - if realtime TIS reports a service/connection failure, do **not** treat an ABC fallback result as authoritative. Ask the user to visually confirm the active menu-bar input method;
+   - if the user visually confirms Doubao, record `INPUT_SOURCE_VISUAL_AUTHORITY=Doubao` and continue;
+   - if the menu bar shows another input method, STOP before Gate 1.
 
-STOP for runtime/source/hash/control mismatch. Do not edit code.
+Do not switch input methods merely to reconcile conflicting machine readbacks. Do not create a separate input-source diagnostics task.
+
+STOP for runtime/source/hash/control mismatch, or if the active input method cannot be established as Doubao by the authority rule above. Do not edit code.
 
 ## Gate 1 — establish Left Control as a negative control
 
@@ -89,7 +99,7 @@ Keep unchanged:
 
 - SHORT = Disabled;
 - persistent trigger = Left Option;
-- Doubao input source;
+- active input source remains Doubao by the accepted authority rule;
 - candidate binary/source;
 - all timing/classifier logic;
 - pending transport/prewarm;
@@ -162,7 +172,7 @@ Read-only verify effective HID mapping is again Left Option. Do not restart the 
 ## Required report
 
 ```text
-TASK_ID: RO-MAPPED-TRIGGER-DEPENDENCY-011
+TASK_ID: RO-MAPPED-TRIGGER-DEPENDENCY-012
 CONTROL_HEAD:
 CANDIDATE_HEAD:
 INSTALLED_PID:
@@ -170,6 +180,10 @@ INSTALLED_SOURCE_HEAD:
 INSTALLED_SHA256:
 FRESH_A_MAPPED_TRIGGER_EVENT_COUNT:
 FRESH_A_MAPPED_TRIGGER_ACTIONS:
+HITOOLBOX_INPUT_SOURCE_EVIDENCE:
+TIS_INPUT_SOURCE_RESULT:
+TIS_SERVICE_ERROR:
+INPUT_SOURCE_VISUAL_AUTHORITY:
 LEFT_CONTROL_KEYBOARD_CONTROL_PERFORMED:
 LEFT_CONTROL_KEYBOARD_DOUBAO_OPEN:
 LEFT_CONTROL_KEYBOARD_INPUT_SWITCH:
