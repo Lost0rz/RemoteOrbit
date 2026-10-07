@@ -1,228 +1,154 @@
 # RemoteOrbit Current Task
 
-## Current task — RO-INCIDENT-20261004-01 / DIAGNOSTIC JOURNAL READINESS RECOVERY BEFORE USER A
+## Current task — RO-INCIDENT-20261004-01 / USER A DISABLED FAST-CLICK ACCEPTANCE
 
-- **Status:** ACTIVE / RUNTIME EVIDENCE MAINTENANCE ONLY
+- **Status:** ACTIVE / USER A AUTHORIZED
 - **Incident ID:** `RO-INCIDENT-20261004-01`
 - **Candidate branch:** `codex/disabled-short-classifier-regression-fix`
 - **Candidate HEAD:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
-- **Installed exact candidate SHA-256:** `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`
-- **Installed PID before this recovery:** `72913`
+- **Installed source HEAD:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
+- **Installed executable SHA-256:** `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`
+- **Installed PID after journal recovery:** `79232`
 - **Evidence directory:** `/private/tmp/remoteorbit-disabled-short-hardware-acceptance-20261007`
-- **Observed input source at prior STOP:** `com.tencent.inputmethod.chatterfly.pinyin`
 - **Source mutation:** FORBIDDEN
 - **Rebuild/reinstall:** FORBIDDEN
 - **Merge:** FORBIDDEN
-- **User hardware A/B:** BLOCKED until journal readiness passes and Doubao is later restored manually
+- **User A:** AUTHORIZED after read-only Doubao confirmation
+- **User B:** FORBIDDEN until A passes
 
-## Objective
+## Accepted readiness evidence
 
-Recover a trustworthy fresh DiagnosticAuthority journal without losing or altering the existing evidence, after the exact candidate installation exposed:
+The journal blocker is closed:
 
 ```text
-diagnostics status: PASS
-diagnostics verify: EXIT 65 — corrupt diagnostic journal at record 1
-diagnostics query: EXIT 65 — corrupt diagnostic journal at record 1
+PREINSTALL_RECORD1_EQUALS_BLOCKED_LIVE_RECORD1: YES
+ARCHIVE_HASH_MATCH: YES
+STATUS_EXIT: 0
+VERIFY_EXIT: 0
+QUERY_EXIT: 0
+FRESH_LIVE_JOURNAL_STATE: absent/empty
 ```
 
-This task is not a product fix and does not diagnose the Disabled-SHORT behavior itself.
+Input-source observation during recovery:
 
-## Reconciliation of prior Gate 0 STOP
+```text
+BEFORE_RELAUNCH: com.tencent.inputmethod.chatterfly.pinyin
+AFTER_RELAUNCH: com.bytedance.inputmethod.doubaoime.pinyin
+AGENT_INPUT_SOURCE_CHANGE_COMMAND: NONE
+CAUSE_OF_CHANGE: UNKNOWN
+```
 
-The previous task incorrectly required Doubao to be active during journal recovery. The executor read back:
+Do not diagnose or fix that input-source transition in this task. The current post-relaunch source is Doubao, which is the required acceptance environment.
 
-`com.tencent.inputmethod.chatterfly.pinyin`
-
-That mismatch is irrelevant to record-1 provenance, journal archival, same-binary relaunch and CLI decode readiness. It is therefore no longer a STOP condition for this maintenance task.
-
-Rules:
-
-- keep the currently observed input source unchanged during this local recovery;
-- do not switch to Doubao or any other source during this task;
-- record the source before and after and require it to remain unchanged;
-- User A is still forbidden while Chatterfly is active;
-- after journal readiness passes, stop and hand back for a separate user-driven Doubao restore and verification.
-
-## Source-audit basis
-
-Current implementation behavior has been independently checked:
-
-1. `diagnostics status` reports file metadata and does not decode journal records.
-2. `verify/query` decode from JSONL record 1 and fail closed on corrupt/unsupported data.
-3. `JSONLinesDiagnosticJournal.append` seeks to the end and appends without validating old records first.
-4. Therefore the existing record-1 failure may predate this candidate and must be attributed before any live-journal rotation.
-
-Do not waive `verify/query`. Do not delete or truncate the journal.
-
-## Gate 0 — current authority and identity
+## Gate 0 — exact authority and runtime identity
 
 1. `git fetch origin --prune`.
 2. Verify live `origin/main` exactly equals the control HEAD containing this task.
 3. Verify `origin/codex/disabled-short-classifier-regression-fix` exactly equals `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
-4. Read `AGENTS.md`, `CURRENT_STATUS.md`, and `CURRENT_TASK.md` from that live `origin/main`.
-5. Verify the installed RemoteOrbit still has:
+4. Read `AGENTS.md`, `CURRENT_STATUS.md`, and this `CURRENT_TASK.md` from live `origin/main`.
+5. Verify installed RemoteOrbit still has:
    - source HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`;
    - executable SHA-256 `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`;
    - SHORT = Disabled;
    - momentary/persistent/legacy = `left_option`.
-6. Read and record the currently active input source. It is allowed to be `com.tencent.inputmethod.chatterfly.pinyin`; do not require Doubao for this task.
-7. No hardware gesture.
+6. Read the active input source once, read-only.
+7. Required for A: `com.bytedance.inputmethod.doubaoime.pinyin`.
 
-STOP only for candidate identity/hash/key-setting mismatch, control/ref mismatch, or inability to determine the live journal/evidence. Do not STOP solely because the active input source is Chatterfly.
+If the source is not Doubao, STOP and report the actual source. Do not switch it automatically.
 
-## Gate 1 — prove record-1 provenance read-only
+No additional diagnostics, source edits, rebuild, reinstall, merge, settings reset, driver/CoreAudio/TCC changes, or synthetic input are allowed.
 
-Locate:
+## Gate 1 — User A: one Disabled fast click
 
-- the pre-install journal copy/hash preserved in `/private/tmp/remoteorbit-disabled-short-hardware-acceptance-20261007`;
-- the current live `diagnostic-events-v1.jsonl` used by the installed candidate.
+Starting with no visible Doubao Session open:
 
-Without modifying either file:
+1. Tell the user: perform **one normal fast physical click/release** of the remote voice key; do not hold it.
+2. The user reports only whether a Doubao Session visibly opened.
+3. Immediately capture the exact matching gesture/log window.
 
-1. extract only raw record 1 from each;
-2. record byte count and SHA-256 of each raw record 1;
-3. compare them byte-for-byte;
-4. report whether each record is valid JSON;
-5. if valid JSON, report only structural metadata useful for compatibility attribution (for example schema/version/event name/source revision when present); do not dump unrelated payload/user content;
-6. preserve these findings in the evidence directory.
+A valid sample must show release before the existing hold threshold and classification `short`.
 
-PASS condition:
+Expected candidate evidence:
 
 ```text
-PREINSTALL_RECORD1_EQUALS_BLOCKED_LIVE_RECORD1: YES
+bypasses_short_classification=false
+GESTURE_CLASSIFIED=short
+session_mode=idle
+no HOLD promotion
+hardware gate begins then cancels
+no short replay of mapped trigger
+no synthetic trigger edge
+USER_VISIBLE_DOUBAO_SESSION_OPEN=NO
 ```
 
-If NO or indeterminate => STOP at:
+If the press crosses the hold threshold, mark `A_SAMPLE_VALID=NO / INVALID_FOR_A` and allow exactly one retry. Do not change settings or code.
+
+### Decision after A
+
+If valid A shows:
 
 ```text
-RECORD1_ATTRIBUTION_NOT_PROVEN
+A_CLASSIFICATION=short
+A_DOUBAO_SESSION_OPEN=NO
 ```
 
-Do not rotate/archive the live journal in that case.
+then stop and return `A_PASS_READY_FOR_USER_B`. Do not perform LONG until Web authorizes B.
 
-## Gate 2 — archive blocked live journal intact
-
-Only after Gate 1 PASS:
-
-1. hash the complete current live journal and record size/mtime/path;
-2. copy it into the evidence directory if an exact copy is not already present;
-3. verify the copied hash matches the live hash;
-4. gracefully terminate RemoteOrbit PID/runtime and confirm it exits;
-5. after the process has exited, rename/move the live `diagnostic-events-v1.jsonl` to an archival filename that cannot be reopened as the active journal, preserving bytes exactly;
-6. hash the archived file and require it equals the pre-move live hash;
-7. do not delete/truncate/edit the archived journal.
-
-Do not touch voice diagnostic logs or other diagnostic evidence except read/copy/hash.
-
-## Gate 3 — relaunch same installed candidate and recover readiness
-
-Do not rebuild or reinstall.
-
-1. launch the existing `/Applications/RemoteOrbit.app` normally;
-2. record new PID;
-3. re-check:
-   - source HEAD exactly `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`;
-   - executable SHA-256 exactly `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`;
-   - SHORT still Disabled;
-   - momentary/persistent/legacy still `left_option`;
-   - active input source is unchanged from Gate 0; do not require Doubao here.
-4. inspect the live diagnostic journal pathname read-only.
-5. Run:
-   - `diagnostics status`
-   - `diagnostics verify`
-   - `diagnostics query --limit 1`
-
-Required readiness:
+If valid A shows:
 
 ```text
-STATUS_EXIT: 0
-VERIFY_EXIT: 0
-QUERY_EXIT: 0
+A_CLASSIFICATION=short
+A_DOUBAO_SESSION_OPEN=YES
 ```
 
-If a fresh journal naturally contains a record, report its schema/event/source revision and prove it belongs to the current candidate where available. If the journal is absent/empty but the CLI legitimately returns success, do not generate synthetic events merely to populate it.
+stop immediately at:
 
-If the fresh journal immediately reproduces a corrupt first record => STOP at:
+`CLASSIFIER_FIXED_EXTERNAL_MECHANISM_REMAINS`
 
-```text
-CURRENT_RUNTIME_DIAGNOSTIC_CORRUPTION_REPRODUCED
-```
+Do not perform B and do not edit code.
 
-Do not proceed to User A.
+## Gate 2 — evidence seal
 
-## Gate 4 — handoff only
+After A:
 
-If Gates 0–3 pass and the active input source remains Chatterfly, stop and return:
-
-```text
-JOURNAL_READY_DOUBAO_RESTORE_REQUIRED
-```
-
-Do not switch input sources yourself. Do not perform the user's fast-click A. Do not ask the user to do LONG yet.
-
-If, without this task changing it, the active source is already Doubao at Gate 0 and remains Doubao after Gate 3, return:
-
-```text
-READY_FOR_USER_A
-```
-
-The Doubao identifier required for User A is:
-
-`com.bytedance.inputmethod.doubaoime.pinyin`
-
-## Forbidden
-
-- no product source/test/control mutation during local execution;
-- no rebuild/reinstall of candidate;
-- no merge/rebase/cherry-pick/amend;
-- no driver/CoreAudio/LaunchAgent/TCC/Accessibility/Input Monitoring changes;
-- no UserDefaults/settings reset or trigger-key change;
-- no input-source change during this task;
-- no journal deletion, truncation, in-place edit or repair;
-- no synthetic trigger/event generation;
-- no remote hardware gesture A/B;
-- no broad B4 investigation.
+- preserve/hash the exact matching runtime log window;
+- record gesture ID, timestamps, duration, classifier result, gate result, mapped/synthetic trigger observations, runtime identity and user-visible result;
+- run read-only diagnostics query only if useful for sealing the A sample; do not mutate runtime state;
+- do not merge.
 
 ## Required report
 
 ```text
-TASK_ID: RO-DIAGNOSTIC-JOURNAL-READINESS-RECOVERY-004
+TASK_ID: RO-DISABLED-SHORT-HARDWARE-A-005
 CONTROL_HEAD:
 CANDIDATE_HEAD: 172427957fd18a2b5827edd1cb1c4bddb6a5b7db
-INSTALLED_SOURCE_HEAD_BEFORE:
-INSTALLED_SHA256_BEFORE:
-SETTINGS_BEFORE:
-INPUT_SOURCE_BEFORE:
+CANDIDATE_REMOTE_MATCH:
+INSTALLED_PID:
+INSTALLED_SOURCE_HEAD:
+INSTALLED_SHA256:
+SETTINGS_PRESERVED:
+INPUT_SOURCE_BEFORE_A:
+DIAGNOSTIC_READINESS: PASS
 
-PREINSTALL_JOURNAL_PATH:
-BLOCKED_LIVE_JOURNAL_PATH:
-PREINSTALL_RECORD1_SHA256:
-BLOCKED_LIVE_RECORD1_SHA256:
-PREINSTALL_RECORD1_EQUALS_BLOCKED_LIVE_RECORD1:
-RECORD1_JSON_CLASSIFICATION:
-RECORD1_COMPATIBILITY_METADATA:
+A_PERFORMED:
+A_SAMPLE_VALID:
+A_GESTURE_ID:
+A_DURATION_MS:
+A_BYPASS:
+A_CLASSIFICATION:
+A_SESSION_MODE:
+A_HOLD_PROMOTION:
+A_GATE_BEGIN:
+A_GATE_CANCEL:
+A_GATE_SHORT_REPLAY:
+A_MAPPED_TRIGGER:
+A_SYNTHETIC_TRIGGER:
+A_DOUBAO_SESSION_OPEN:
 
-BLOCKED_LIVE_FULL_SHA256:
-ARCHIVED_JOURNAL_PATH:
-ARCHIVED_JOURNAL_SHA256:
-ARCHIVE_HASH_MATCH:
-
-RELAUNCHED_PID:
-RELAUNCHED_SOURCE_HEAD:
-RELAUNCHED_SHA256:
-SETTINGS_AFTER:
-INPUT_SOURCE_AFTER:
-INPUT_SOURCE_UNCHANGED:
-FRESH_LIVE_JOURNAL_PATH:
-FRESH_LIVE_JOURNAL_STATE:
-STATUS_EXIT:
-VERIFY_EXIT:
-QUERY_EXIT:
-FRESH_RECORD_METADATA:
-
-SOURCE_MUTATION: NO
+EVIDENCE_PATHS:
+EVIDENCE_HASHES:
+PRODUCT_SOURCE_CHANGED: NO
 REBUILD_OR_REINSTALL: NO
 MERGED: NO
-HARDWARE_ACTION_A_OR_B: NOT PERFORMED
 FINAL_STATE:
 ```
