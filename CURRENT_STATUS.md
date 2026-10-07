@@ -1,126 +1,122 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-07
-State: ACTIVE INCIDENT — MATCHED-ENDPOINT CAUSAL MODEL REQUIRED
+State: ACTIVE INCIDENT — DUAL-MODE SHORTCUT COLLISION IDENTIFIED / SPLIT-KEY ACCEPTANCE REQUIRED
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
 
 ## Control-plane integrity
 
-- Previous control HEAD: `03d4de274c311fc61eadfda70448baa0e0993e17`.
+- Previous control HEAD: `798c7e71cf08d434b23d1e058f5019a3f1c9d661`.
 - Candidate branch remains `codex/disabled-short-classifier-regression-fix` at exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
 - Installed candidate remains PID `79232`, source HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`, executable SHA-256 `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017` unless a later task records otherwise.
-- Candidate remains unmerged. User B / LONG remains forbidden.
+- Candidate remains unmerged.
 
-## Valid matched-endpoint fresh User A
+## Newly established external semantic model
 
-The normal production pair was aligned at both ends:
+The user identified that Doubao exposes two independent voice-input shortcut modes:
 
-```text
-RemoteOrbit momentary trigger: left_option
-Doubao shortcut: Left Option
-```
+1. **Click/toggle Session** — press once to start a persistent Session, press again to stop.
+2. **Hold-to-talk** — hold the shortcut while speaking, release to stop.
 
-Fresh User A produced exactly one remote gesture:
+These are separate receiver semantics and may be assigned different keys.
 
-```text
-GESTURE_ID: 66EAAC65-0704-482C-B01B-4F89F3DE0E19
-RAW_HID_DOWN_UP_MS: 210.171
-BYPASSES_SHORT_CLASSIFICATION: false
-CLASSIFICATION: short
-SESSION_MODE: idle
-GATE_BEGIN/CANCEL: 1/1
-GATE_SHORT_REPLAY: 0
-HOLD_PROMOTION: 0
-SYNTHETIC_TRIGGER_DOWN_UP: 0
-MAPPED_TRIGGER_EVENT_COUNT: 0
-USER_VISIBLE_DOUBAO_SESSION_OPEN: YES
-```
-
-Accepted conclusion remains:
-
-`CLASSIFIER_FIXED_EXTERNAL_MECHANISM_REMAINS`
-
-The PR #14 Disabled-SHORT immediate-HOLD regression is real and corrected by the candidate, but a valid matched Left Option/Left Option fast SHORT still opens the visible Doubao Session. The complete mechanism is therefore not explained by the classifier regression alone.
-
-## Retraction of RO-MAPPED-TRIGGER-DEPENDENCY-012 inference
-
-The Left Control discriminator changed only the RemoteOrbit side:
+RemoteOrbit likewise has separate trigger roles:
 
 ```text
-RemoteOrbit momentary trigger: left_control
-Doubao shortcut: remained Left Option
+RemoteOrbit Persistent Trigger  <-> Doubao click/toggle Session shortcut
+RemoteOrbit Momentary Trigger   <-> Doubao hold-to-talk shortcut
 ```
 
-Observed control sample:
+## Configuration collision that explains the symptom
+
+The problematic environment had both Doubao modes assigned to **Left Option**. RemoteOrbit's persistent and momentary trigger roles were also using Left Option in the incident environment.
+
+Therefore a fast remote voice-key tap could briefly present Left Option to the system/receiver even though RemoteOrbit later classified the physical gesture as SHORT and did not promote it to LONG. Doubao could interpret that brief Left Option as its click/toggle Session shortcut and open a persistent Session.
+
+This directly explains the observed matched production sample:
 
 ```text
-CONTROL_GESTURE_ID: 30EFEA60-0465-4719-88A9-C2F09D61223E
-CONTROL_DURATION_MS: 89.823
-CONTROL_BYPASS: false
-CONTROL_CLASSIFICATION: short
-CONTROL_SESSION_MODE: idle
-CONTROL_HOLD_PROMOTION: 0
-CONTROL_GATE_BEGIN/CANCEL: 1/1
-CONTROL_GATE_SHORT_REPLAY: 0
-CONTROL_SYNTHETIC_TRIGGER_DOWN_UP: 0
-CONTROL_DOUBAO_SESSION_OPEN: NO
-left_control mapped events: defer_down -> pass
+RemoteOrbit momentary = Left Option
+Doubao click/toggle = Left Option
+Doubao hold-to-talk = Left Option
+
+remote fast click = 210.171 ms
+bypasses_short_classification = false
+classification = short
+session_mode = idle
+HOLD = 0
+gate begin/cancel = 1/1
+gate short replay = 0
+synthetic trigger down/up = 0
+Doubao Session = OPEN
 ```
 
-This sample is real and remains preserved, but its previous causal interpretation is INVALID because the receiver shortcut was not changed to Left Control. A RemoteOrbit Left Control mapping could not be expected to activate a Doubao receiver still configured for Left Option.
+The visible Session opening therefore no longer needs to be explained as a mysterious LONG promotion. It is consistent with a **receiver-side shortcut semantic collision**: the same Left Option edge is valid input for both Doubao modes.
 
-Therefore the previous conclusion:
+## User-observed split-key behavior
 
-`MAPPED_MODIFIER_DEPENDENCY_SUPPORTED`
-
-is RETRACTED and must not be used for further causal reasoning.
-
-## Cancelled follow-up
-
-`RO-PHYSICAL-LEFT-OPTION-VISIBILITY-013` is cancelled before execution. Physical Left Option visibility may still be useful later for observability work, but it does not answer the primary causal question created by the two-ended shortcut contract.
-
-## Correct causal model
-
-The external trigger is a two-ended contract:
+The user reports that when Doubao is configured instead as:
 
 ```text
-RemoteOrbit mapped trigger key
-        must match
-Doubao configured voice shortcut key
+Doubao click/toggle Session = Left Control
+Doubao hold-to-talk = Left Option
 ```
 
-A valid modifier comparison must keep the endpoint contract matched on both sides.
+a quick remote click no longer enters the unwanted click/toggle Session state.
 
-Current evidence therefore supports only:
+This is strong causal evidence for the shortcut-collision model. One bounded split-key acceptance is still required before declaring the incident fully closed.
 
-1. with the matched pair Left Option / Left Option, a valid fast SHORT still opens Doubao despite classifier short, no HOLD, no replay, and no synthetic trigger;
-2. the unmatched Left Control / Left Option control cannot discriminate whether the issue is Left Option-specific, generic to matched system-mapped trigger delivery, or caused by some other pre-classification mechanism;
-3. exact event-plane/root cause remains UNKNOWN.
+## Separate code regression remains real
 
-## Next candidate discriminator — NOT YET AUTHORIZED
-
-The clean comparison is a matched-pair control:
+The PR #14 Disabled-SHORT classifier bypass was independently proven to be a real regression. The candidate correctly restores normal short/long classification:
 
 ```text
-Baseline pair:
-  RemoteOrbit = Left Option
-  Doubao shortcut = Left Option
-
-Control pair:
-  RemoteOrbit = Left Control
-  Doubao shortcut = Left Control
+bypassesShortClassification = false
 ```
 
-Before any execution, the user must approve this bounded hardware/configuration spike because it temporarily changes the Doubao shortcut as well as RemoteOrbit's momentary trigger. The experiment must restore both ends afterward.
+That code regression and the Doubao dual-mode shortcut collision are separate issues:
 
-If approved, the control must first prove physical Left Control now opens Doubao under the changed Doubao shortcut, then perform exactly one fresh remote fast click with RemoteOrbit also mapped to Left Control.
+1. **Code regression:** Disabled SHORT incorrectly bypassed classification into HOLD. Candidate fixes this.
+2. **Configuration/semantic collision:** Doubao click/toggle and hold-to-talk were both bound to Left Option, so a brief Left Option could start the click/toggle Session even without a LONG classification.
 
-Decision intent:
+Do not discard the classifier candidate because the external symptom also had a configuration cause.
 
-- matched Left Control / Left Control also opens Doubao on remote fast SHORT => problem is not Left Option-specific; prioritize generic pre-classification/system-mapped trigger timing/ownership;
-- physical Left Control opens Doubao but matched remote Left Control fast SHORT does not => strong evidence of a Left Option-specific or delivery-path asymmetry;
-- invalid receiver shortcut/control setup => no inference.
+## Retractions / cancelled paths
 
-No product source change, rebuild, reinstall, restart, LONG, merge, or new probe is authorized yet.
+- `MAPPED_MODIFIER_DEPENDENCY_SUPPORTED` remains RETRACTED. The prior Left Control experiment changed only the RemoteOrbit side while Doubao still listened to Left Option.
+- `RO-PHYSICAL-LEFT-OPTION-VISIBILITY-013` remains CANCELLED. Event-plane visibility is not the primary causal question now.
+- Do not perform additional Left Option visibility or unmatched-key experiments unless the split-key acceptance fails.
+
+## Target split-key contract
+
+For the intended product semantics, use distinct receiver shortcuts and matching RemoteOrbit roles:
+
+```text
+Doubao click/toggle Session = Left Control
+RemoteOrbit Persistent Trigger = Left Control
+
+Doubao hold-to-talk = Left Option
+RemoteOrbit Momentary Trigger = Left Option
+```
+
+The current Disabled-SHORT incident test may keep the short business action disabled while validating that a fast remote click no longer opens Doubao. Final product acceptance can then restore the intended persistent SHORT behavior separately.
+
+## Current causal classification
+
+`HIGH-CONFIDENCE ROOT CAUSE CANDIDATE: DUAL-MODE SHORTCUT COLLISION`
+
+Expected mechanism:
+
+```text
+remote physical tap
+-> system-mapped Left Option edge
+-> Doubao sees Left Option
+-> because click/toggle mode also owns Left Option, Doubao opens persistent Session
+-> RemoteOrbit later resolves gesture as SHORT and cancels its own long-path ownership
+```
+
+The classifier result does not undo a receiver action that already occurred on the same shortcut edge.
+
+No product source change beyond the existing classifier candidate is authorized before split-key acceptance.
