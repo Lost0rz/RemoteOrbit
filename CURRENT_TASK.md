@@ -1,224 +1,197 @@
 # RemoteOrbit Current Task
 
-## Current task — RO-INCIDENT-20261004-01 / DISABLED-SHORT CANDIDATE CONTROLLED HARDWARE ACCEPTANCE
+## Current task — RO-INCIDENT-20261004-01 / DIAGNOSTIC JOURNAL READINESS RECOVERY BEFORE USER A
 
-- **Status:** ACTIVE / EXACT-CANDIDATE INSTALL + MINIMAL HARDWARE ACCEPTANCE AUTHORIZED
+- **Status:** ACTIVE / RUNTIME EVIDENCE MAINTENANCE ONLY
 - **Incident ID:** `RO-INCIDENT-20261004-01`
 - **Candidate branch:** `codex/disabled-short-classifier-regression-fix`
 - **Candidate HEAD:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
-- **Candidate worktree:** `/private/tmp/remoteorbit-disabled-short-classifier-regression-fix`
-- **Merge:** FORBIDDEN before acceptance
+- **Installed exact candidate SHA-256:** `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`
+- **Installed PID before this recovery:** `72913`
+- **Evidence directory:** `/private/tmp/remoteorbit-disabled-short-hardware-acceptance-20261007`
 - **Source mutation:** FORBIDDEN
-- **Runtime replacement:** AUTHORIZED only for exact candidate app
-- **Hardware reproduction:** AUTHORIZED only for the sequence below
+- **Rebuild/reinstall:** FORBIDDEN
+- **Merge:** FORBIDDEN
+- **User hardware A/B:** BLOCKED until this task returns `READY_FOR_USER_A`
 
 ## Objective
 
-Test one causal question:
-
-> Does restoring Disabled SHORT to the existing ~300 ms classifier eliminate the user-visible fast-click Doubao Session OPEN while preserving true LONG remote voice?
-
-Do not use this acceptance to redesign the trigger path or investigate unrelated persistent-session behavior.
-
-## Accepted code evidence
-
-Independent Web audit accepted candidate `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`:
+Recover a trustworthy fresh DiagnosticAuthority journal without losing or altering the existing evidence, after the exact candidate installation exposed:
 
 ```text
-PRODUCT_CHANGE: AppController.bypassesShortClassification(for:) returns false
-HOLD_THRESHOLD: unchanged at existing 0.30 s
-HARDWARE_OPTION_MAPPING_CHANGED: NO
-VOICEKEYFILTER_CHANGED: NO
-HARDWAREOPTIONGATE_CHANGED: NO
-BLE_AUDIO_CHANGED: NO
-PERSISTENT_SESSION_SEMANTICS_CHANGED: NO
+diagnostics status: PASS
+diagnostics verify: EXIT 65 — corrupt diagnostic journal at record 1
+diagnostics query: EXIT 65 — corrupt diagnostic journal at record 1
 ```
 
-Test evidence:
+This task is not a product fix and does not diagnose the Disabled-SHORT behavior itself.
 
-```text
-DISABLED_TESTS: 4/4 PASS
-PERSISTENT_TRIGGER_TESTS: 97/97 PASS
-FULL_SWIFT_TESTS: 292/292 PASS
-SELF_TESTS: 3/3 PASS
-RELEASE_BUILD: PASS
-HARDWARE_QUICK_RELEASE_TEST:
-  uses_hardware_option=true
-  gate_begin=1
-  gate_cancel=1
-  gate_short_replay=0
-  hold=0
-  remote_route=0
-  synthetic_edges=0
-```
+## Source-audit basis
 
-## Gate 0 — exact authority
+Current implementation behavior has been independently checked:
+
+1. `diagnostics status` reports file metadata and does not decode journal records.
+2. `verify/query` decode from JSONL record 1 and fail closed on corrupt/unsupported data.
+3. `JSONLinesDiagnosticJournal.append` seeks to the end and appends without validating old records first.
+4. Therefore the existing record-1 failure may predate this candidate and must be attributed before any live-journal rotation.
+
+Do not waive `verify/query`. Do not delete or truncate the journal.
+
+## Gate 0 — current authority and identity
 
 1. `git fetch origin --prune`.
-2. Print and verify live `origin/main` equals the control HEAD containing this task.
-3. Print and verify `origin/codex/disabled-short-classifier-regression-fix` exactly equals `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
-4. Verify canonical remote is `Lost0rz/RemoteOrbit`.
-5. Candidate worktree must be clean at exact candidate HEAD.
-6. Read `AGENTS.md`, `CURRENT_STATUS.md`, `CURRENT_TASK.md` from live `origin/main` before runtime mutation.
-7. Do not rebase, merge, cherry-pick, amend, or edit the candidate.
+2. Verify live `origin/main` exactly equals the control HEAD containing this task.
+3. Verify `origin/codex/disabled-short-classifier-regression-fix` exactly equals `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
+4. Read `AGENTS.md`, `CURRENT_STATUS.md`, and `CURRENT_TASK.md` from that live `origin/main`.
+5. Verify the installed RemoteOrbit still has:
+   - source HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`;
+   - executable SHA-256 `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`;
+   - SHORT = Disabled;
+   - momentary/persistent/legacy = `left_option`;
+   - Doubao input source remains active.
+6. No hardware gesture.
 
-Any mismatch => STOP.
+Any identity/config mismatch => STOP.
 
-## Gate 1 — preserve current runtime evidence
+## Gate 1 — prove record-1 provenance read-only
 
-Before replacing the app:
+Locate:
 
-- record current RemoteOrbit PID, executable path, app version/build, `RemoteOrbitDiagnosticSourceHead`, executable SHA-256 and code-sign identity;
-- preserve/hash the current relevant voice diagnostic log and diagnostic journal without truncating or deleting them;
-- record current microphone SHORT binding and momentary/persistent trigger-key settings read-only;
-- require microphone SHORT remains Disabled and trigger keys remain the user's current Left Option configuration;
-- do not reset defaults or alter input method settings.
+- the pre-install journal copy/hash preserved in `/private/tmp/remoteorbit-disabled-short-hardware-acceptance-20261007`;
+- the current live `diagnostic-events-v1.jsonl` used by the installed candidate.
 
-## Gate 2 — exact candidate build/install
+Without modifying either file:
 
-From the clean candidate worktree at exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`:
+1. extract only raw record 1 from each;
+2. record byte count and SHA-256 of each raw record 1;
+3. compare them byte-for-byte;
+4. report whether each record is valid JSON;
+5. if valid JSON, report only structural metadata useful for compatibility attribution (for example schema/version/event name/source revision when present); do not dump unrelated payload/user content;
+6. preserve these findings in the evidence directory.
 
-1. build/package using the repository's normal app packaging path;
-2. verify the staged app source marker equals the candidate HEAD exactly;
-3. record staged executable SHA-256 and app version/build;
-4. gracefully terminate the currently running RemoteOrbit only;
-5. replace only `/Applications/RemoteOrbit.app`;
-6. do **not** replace/restart the audio driver, CoreAudio, LaunchAgent, TCC, Accessibility or Input Monitoring state;
-7. launch the installed candidate normally;
-8. verify installed source marker equals candidate HEAD, new PID exists, executable SHA-256 matches staged candidate, version/build and code identity are recorded;
-9. confirm the user's SHORT Disabled and Left Option trigger configuration was preserved;
-10. run existing read-only diagnostics readiness checks where available (`diagnostics status/verify/query`) without changing runtime state.
-
-If exact identity cannot be proven => STOP before hardware interaction.
-
-## Gate 3 — minimal user hardware acceptance
-
-Do not automate or synthesize the physical remote interaction. Ask the user to perform the following, one step at a time, after install identity is reported ready.
-
-### A. Disabled fast click
-
-Starting with no visible Doubao Session open:
-
-1. User performs one normal fast physical click/release of the remote voice key.
-2. User reports whether a Doubao Session visibly opens.
-3. Executor captures the exact matching gesture/log window.
-
-Valid A sample requires logs to show the gesture released before the existing hold threshold and was classified SHORT. If the user's press crosses the threshold, classify the sample INVALID_FOR_A and repeat only once.
-
-Expected candidate evidence:
+PASS condition:
 
 ```text
-bypasses_short_classification=false
-GESTURE_CLASSIFIED=short
-session_mode=idle
-no HOLD promotion
-hardware gate begins then cancels
-no short replay of mapped trigger
-no synthetic trigger edge
-USER_VISIBLE_DOUBAO_SESSION_OPEN=NO
+PREINSTALL_RECORD1_EQUALS_BLOCKED_LIVE_RECORD1: YES
 ```
 
-If a valid A sample still opens Doubao Session => **STOP immediately**. Do not perform LONG and do not edit code. Final classification: classifier correction valid by contract, external opening mechanism unresolved; resume B4 later.
-
-### B. Disabled true LONG
-
-Only if A passes:
-
-1. User presses and holds the physical voice key clearly beyond 300 ms.
-2. User speaks a short phrase after the voice HUD/remote voice path becomes active.
-3. User releases the key.
-4. User reports whether remote speech input worked normally.
-
-Expected evidence:
+If NO or indeterminate => STOP at:
 
 ```text
-bypasses_short_classification=false
-initial state=pending
-GESTURE_CLASSIFIED=hold after threshold
-HOLD/remote route starts once
-physical/system-mapped trigger architecture remains in use
-speech input works
-release completes normal momentary lifecycle
+RECORD1_ATTRIBUTION_NOT_PROVEN
 ```
 
-For this Disabled configuration, no persistent Session is expected to remain open after the true LONG. This task does not test the separate correctly-entered Persistent Session closure issue.
+Do not rotate/archive the live journal in that case.
 
-## Gate 4 — evidence seal and stop
+## Gate 2 — archive blocked live journal intact
 
-After A and, if allowed, B:
+Only after Gate 1 PASS:
 
-- seal/hash the exact candidate runtime log window;
-- record gesture IDs, timestamps, classifier outcomes, gate result, mapped/synthetic trigger observations, runtime identity, and the user's visible result;
-- do not merge candidate;
-- do not start new diagnostics or fixes;
-- leave installed candidate in place unless a safety/runtime failure requires restoring the preserved previous app.
+1. hash the complete current live journal and record size/mtime/path;
+2. copy it into the evidence directory if an exact copy is not already present;
+3. verify the copied hash matches the live hash;
+4. gracefully terminate RemoteOrbit PID/runtime and confirm it exits;
+5. after the process has exited, rename/move the live `diagnostic-events-v1.jsonl` to an archival filename that cannot be reopened as the active journal, preserving bytes exactly;
+6. hash the archived file and require it equals the pre-move live hash;
+7. do not delete/truncate/edit the archived journal.
 
-## Decision states
+Do not touch voice diagnostic logs or other diagnostic evidence except read/copy/hash.
 
-### ACCEPTED_CAUSAL_FIX
+## Gate 3 — relaunch same installed candidate and recover readiness
 
-Use only if:
+Do not rebuild or reinstall.
+
+1. launch the existing `/Applications/RemoteOrbit.app` normally;
+2. record new PID;
+3. re-check:
+   - source HEAD exactly `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`;
+   - executable SHA-256 exactly `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`;
+   - SHORT still Disabled;
+   - momentary/persistent/legacy still `left_option`;
+   - Doubao input source remains active;
+4. inspect the live diagnostic journal pathname read-only.
+5. Run:
+   - `diagnostics status`
+   - `diagnostics verify`
+   - `diagnostics query --limit 1`
+
+Required readiness:
 
 ```text
-A_VALID_SHORT_SAMPLE: YES
-A_CLASSIFIED_SHORT: YES
-A_DOUBAO_SESSION_OPEN: NO
-B_TRUE_LONG_SAMPLE: YES
-B_CLASSIFIED_HOLD: YES
-B_REMOTE_SPEECH_WORKS: YES
+STATUS_EXIT: 0
+VERIFY_EXIT: 0
+QUERY_EXIT: 0
 ```
 
-Then report that PR #14 Disabled-classifier regression is causally accepted for the current Disabled fast-click Session-open symptom. Do not claim resolution of any separately proven correctly-entered Persistent Session external-close behavior.
+If a fresh journal naturally contains a record, report its schema/event/source revision and prove it belongs to the current candidate where available. If the journal is absent/empty but the CLI legitimately returns success, do not generate synthetic events merely to populate it.
 
-### CLASSIFIER_FIXED_EXTERNAL_MECHANISM_REMAINS
+If the fresh journal immediately reproduces a corrupt first record => STOP at:
 
-Use if a valid A sample is classified SHORT under the candidate but Doubao Session still opens. Stop and preserve evidence; B4 becomes the next investigation.
+```text
+CURRENT_RUNTIME_DIAGNOSTIC_CORRUPTION_REPRODUCED
+```
 
-### CANDIDATE_REGRESSION
+Do not proceed to User A.
 
-Use if A no longer opens Session but a valid true LONG no longer works as expected. Stop; do not merge.
+## Gate 4 — handoff only
+
+If Gates 0–3 pass, stop and return:
+
+```text
+READY_FOR_USER_A
+```
+
+Do not perform the user's fast-click A yourself. Do not ask the user to do LONG yet.
+
+## Forbidden
+
+- no product source/test/control mutation during local execution;
+- no rebuild/reinstall of candidate;
+- no merge/rebase/cherry-pick/amend;
+- no driver/CoreAudio/LaunchAgent/TCC/Accessibility/Input Monitoring changes;
+- no UserDefaults/settings reset or trigger-key change;
+- no journal deletion, truncation, in-place edit or repair;
+- no synthetic trigger/event generation;
+- no remote hardware gesture A/B;
+- no broad B4 investigation.
 
 ## Required report
 
 ```text
-TASK_ID: RO-DISABLED-SHORT-HARDWARE-ACCEPTANCE-002
+TASK_ID: RO-DIAGNOSTIC-JOURNAL-READINESS-RECOVERY-003
 CONTROL_HEAD:
 CANDIDATE_HEAD: 172427957fd18a2b5827edd1cb1c4bddb6a5b7db
-CANDIDATE_REMOTE_MATCH:
-WORKTREE_CLEAN:
+INSTALLED_SOURCE_HEAD_BEFORE:
+INSTALLED_SHA256_BEFORE:
+SETTINGS_BEFORE:
 
-PREVIOUS_RUNTIME_PID:
-PREVIOUS_RUNTIME_SOURCE_HEAD:
-PREVIOUS_RUNTIME_SHA256:
-EVIDENCE_PRESERVED:
+PREINSTALL_JOURNAL_PATH:
+BLOCKED_LIVE_JOURNAL_PATH:
+PREINSTALL_RECORD1_SHA256:
+BLOCKED_LIVE_RECORD1_SHA256:
+PREINSTALL_RECORD1_EQUALS_BLOCKED_LIVE_RECORD1:
+RECORD1_JSON_CLASSIFICATION:
+RECORD1_COMPATIBILITY_METADATA:
 
-INSTALLED_RUNTIME_PID:
-INSTALLED_SOURCE_HEAD:
-INSTALLED_SHA256:
-STAGED_INSTALLED_MATCH:
-SETTINGS_PRESERVED:
-DIAGNOSTIC_READINESS:
+BLOCKED_LIVE_FULL_SHA256:
+ARCHIVED_JOURNAL_PATH:
+ARCHIVED_JOURNAL_SHA256:
+ARCHIVE_HASH_MATCH:
 
-A_SAMPLE_VALID:
-A_GESTURE_ID:
-A_DURATION_MS:
-A_BYPASS:
-A_CLASSIFICATION:
-A_GATE_RESULT:
-A_MAPPED_TRIGGER:
-A_SYNTHETIC_TRIGGER:
-A_DOUBAO_SESSION_OPEN:
+RELAUNCHED_PID:
+RELAUNCHED_SOURCE_HEAD:
+RELAUNCHED_SHA256:
+SETTINGS_AFTER:
+FRESH_LIVE_JOURNAL_PATH:
+FRESH_LIVE_JOURNAL_STATE:
+STATUS_EXIT:
+VERIFY_EXIT:
+QUERY_EXIT:
+FRESH_RECORD_METADATA:
 
-B_PERFORMED:
-B_GESTURE_ID:
-B_DURATION_MS:
-B_CLASSIFICATION:
-B_REMOTE_ROUTE:
-B_SPEECH_WORKED:
-B_RELEASE_RESULT:
-
-PRODUCT_SOURCE_CHANGED_DURING_ACCEPTANCE: NO
+SOURCE_MUTATION: NO
+REBUILD_OR_REINSTALL: NO
 MERGED: NO
-EVIDENCE_HASHES:
+HARDWARE_ACTION_A_OR_B: NOT PERFORMED
 FINAL_STATE:
 ```
