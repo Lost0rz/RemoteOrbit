@@ -2,7 +2,7 @@
 
 ## Current task — RO-INCIDENT-20261004-01 / MAPPED-TRIGGER DEPENDENCY DISCRIMINATION
 
-- **Status:** ACTIVE / CONFIGURATION-ONLY A/B
+- **Status:** ACTIVE / RIGHT-CONTROL NEGATIVE CONTROL REQUIRED
 - **Incident ID:** `RO-INCIDENT-20261004-01`
 - **Candidate branch:** `codex/disabled-short-classifier-regression-fix`
 - **Candidate HEAD:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
@@ -34,13 +34,13 @@ USER_VISIBLE_DOUBAO_SESSION_OPEN: YES
 
 Decision: `CLASSIFIER_FIXED_EXTERNAL_MECHANISM_REMAINS`.
 
-Do not reinterpret the earlier ambiguous 17-gesture window as acceptance evidence.
-
 ## Goal
 
-Discriminate whether the visible Doubao Session opening requires the configured system-mapped **Left Option** target while keeping classifier, pending transport/prewarm, candidate binary, input method, and remote hardware unchanged.
+Discriminate whether the visible Doubao Session opening depends on the configured system-mapped modifier while keeping classifier, pending transport/prewarm, candidate binary, input method, and remote hardware unchanged.
 
-This is not a fix. It is one bounded configuration-only causal experiment using already-merged diagnostics.
+Right Option is explicitly disallowed as a control because the user reports it has an existing input-method function.
+
+The proposed control is **Right Control**, but it may be used only after a physical-keyboard Right Control tap is confirmed to have no visible Doubao/input-method/other semantic effect.
 
 ## Gate 0 — exact runtime and evidence audit
 
@@ -50,28 +50,39 @@ This is not a fix. It is one bounded configuration-only causal experiment using 
 4. Read `AGENTS.md`, `CURRENT_STATUS.md`, and this task from live `origin/main`.
 5. Verify runtime identity/hash remains exact.
 6. Verify SHORT remains Disabled and input source is Doubao.
-7. Verify the sealed fresh-A directory exists and read `analysis.json` plus appended voice diagnostics. Record, do not infer, the exact `MAPPED_TRIGGER_EVENT` count/actions for gesture `66EAAC65-0704-482C-B01B-4F89F3DE0E19`.
+7. Read the sealed fresh-A `analysis.json` and appended diagnostics; record exact `MAPPED_TRIGGER_EVENT` count/actions for gesture `66EAAC65-0704-482C-B01B-4F89F3DE0E19` rather than assuming zero.
 8. Verify diagnostics remain readable.
 
 STOP for runtime/source/hash/control mismatch. Do not edit code.
 
-## Gate 1 — establish Right Option as a negative Doubao control
+## Gate 1 — establish Right Control as a negative control
 
-Before changing RemoteOrbit, ask the user to perform one normal **physical keyboard Right Option tap** while no Doubao Session is open.
+Before changing RemoteOrbit, ask the user to ensure no Doubao Session is open, then tap the **physical keyboard Right Control once**. Do not use the remote.
 
-The user reports only whether Doubao Session opens.
+User reports whether that single tap:
 
-- If Right Option opens Doubao Session: STOP at `RIGHT_OPTION_NOT_VALID_NEGATIVE_CONTROL`. Do not change RemoteOrbit settings; Web will select another control key.
-- If Right Option does not open Doubao Session: record `RIGHT_OPTION_NEGATIVE_CONTROL=PASS` and continue.
+- opens Doubao Session;
+- switches input method;
+- causes any other visible semantic action.
 
-Do not use the remote in this gate.
+If any such effect occurs:
+
+`RIGHT_CONTROL_NOT_VALID_NEGATIVE_CONTROL`
+
+STOP. Do not change RemoteOrbit settings.
+
+If no effect occurs:
+
+`RIGHT_CONTROL_NEGATIVE_CONTROL=PASS`
+
+Continue.
 
 ## Gate 2 — change only RemoteOrbit momentary target
 
 Using the normal RemoteOrbit settings UI, the user changes only:
 
 ```text
-Momentary trigger: Left Option -> Right Option
+Momentary trigger: Left Option -> Right Control
 ```
 
 Keep unchanged:
@@ -83,28 +94,21 @@ Keep unchanged:
 - all timing/classifier logic;
 - pending transport/prewarm;
 - driver/CoreAudio/TCC;
-- legacy compatibility value unless the normal app UI updates it incidentally; record but do not manually edit it.
+- legacy compatibility value unless the normal UI updates it incidentally; record but do not manually edit it.
 
 Do not restart the app.
 
-Read-only verify effective runtime/HID mapping target is now `right_option` and HID readback/filter configuration agrees.
+Read-only verify effective runtime/HID mapping target is now `right_control` and HID readback/filter configuration agrees.
 
 ## Gate 3 — fresh append-only baseline
 
-Create a new evidence subdirectory.
+Create a new evidence subdirectory. Do not clear/rotate logs.
 
-Without clearing/rotating logs, record exact append-only baselines for diagnostic journal and app/voice logs:
-
-- wall-clock timestamp;
-- byte size/offset;
-- record count;
-- last sequence if available;
-- last gesture ID/event timestamp;
-- SHA-256/metadata needed to prove pre/post boundary.
+Record exact append-only baselines for diagnostic journal and app/voice logs: timestamp, byte size/offset, record count, last sequence if available, last gesture ID/event timestamp, and hashes/metadata needed to prove the boundary.
 
 Only after baseline is sealed return:
 
-`READY_FOR_RIGHT_OPTION_REMOTE_A — perform exactly one fast remote click/release; do not LONG or repeat.`
+`READY_FOR_RIGHT_CONTROL_REMOTE_A — perform exactly one fast remote click/release; do not LONG or repeat.`
 
 ## Gate 4 — exactly one remote fast-click control
 
@@ -127,42 +131,30 @@ synthetic trigger down/up = 0
 
 Record exact mapped-trigger events/actions rather than assuming zero.
 
-If the sample is invalid or multiple gestures appear: STOP at `CONTROL_SAMPLE_INVALID`.
+If invalid/multiple gestures: STOP at `CONTROL_SAMPLE_INVALID`.
 
 ### Decision
 
-If Right Option is confirmed not to trigger Doubao from the physical keyboard, and the valid remote control sample with RemoteOrbit mapped to Right Option has:
-
-```text
-DOUBAO_SESSION_OPEN = NO
-```
-
-return:
+If physical Right Control has no semantic effect and the valid remote sample mapped to Right Control has `DOUBAO_SESSION_OPEN=NO`, return:
 
 `MAPPED_MODIFIER_DEPENDENCY_SUPPORTED`
 
-Interpretation: changing only the mapped modifier removed the visible effect while classifier/prewarm remained. This strongly localizes the remaining mechanism to the system-mapped modifier path. Do not claim the exact event plane yet.
+This supports dependence on the mapped modifier path, but does not yet identify the exact event plane.
 
-If the valid Right-Option remote sample still has:
+If the valid remote sample still has `DOUBAO_SESSION_OPEN=YES`, return:
 
-```text
-DOUBAO_SESSION_OPEN = YES
-```
+`LEFT_OPTION_MAPPING_NOT_REQUIRED`
 
-return:
+Then prioritize pending transport/prewarm, raw/native remote behavior, or another external mechanism.
 
-`MAPPED_LEFT_OPTION_NOT_REQUIRED`
-
-Interpretation: Left Option mapping is not necessary for the visible Session opening; next analysis should prioritize pending transport/native remote/other external mechanisms.
-
-Do not perform LONG and do not edit source in either case.
+Do not perform LONG and do not edit source.
 
 ## Gate 5 — restore original acceptance configuration
 
 After evidence is sealed, use the normal RemoteOrbit settings UI to restore only:
 
 ```text
-Momentary trigger: Right Option -> Left Option
+Momentary trigger: Right Control -> Left Option
 ```
 
 Read-only verify effective HID mapping is again Left Option. Do not restart the app.
@@ -170,7 +162,7 @@ Read-only verify effective HID mapping is again Left Option. Do not restart the 
 ## Required report
 
 ```text
-TASK_ID: RO-MAPPED-TRIGGER-DEPENDENCY-009
+TASK_ID: RO-MAPPED-TRIGGER-DEPENDENCY-010
 CONTROL_HEAD:
 CANDIDATE_HEAD:
 INSTALLED_PID:
@@ -178,9 +170,11 @@ INSTALLED_SOURCE_HEAD:
 INSTALLED_SHA256:
 FRESH_A_MAPPED_TRIGGER_EVENT_COUNT:
 FRESH_A_MAPPED_TRIGGER_ACTIONS:
-RIGHT_OPTION_KEYBOARD_CONTROL_PERFORMED:
-RIGHT_OPTION_KEYBOARD_DOUBAO_OPEN:
-RIGHT_OPTION_NEGATIVE_CONTROL:
+RIGHT_CONTROL_KEYBOARD_CONTROL_PERFORMED:
+RIGHT_CONTROL_KEYBOARD_DOUBAO_OPEN:
+RIGHT_CONTROL_KEYBOARD_INPUT_SWITCH:
+RIGHT_CONTROL_KEYBOARD_OTHER_EFFECT:
+RIGHT_CONTROL_NEGATIVE_CONTROL:
 MOMENTARY_BEFORE:
 MOMENTARY_CONTROL:
 HID_MAPPING_CONTROL:
