@@ -8,7 +8,7 @@ This file is the authority for mutable current project state. Historical detail 
 
 ## Control-plane integrity
 
-- Previous control HEAD: `4c70273c90f5548ea21e847a7f59d2a84a33a07b`.
+- Previous control HEAD: `e03495e468342aa1e298a196dcd566797d3caa16`.
 - Candidate branch remains `codex/disabled-short-classifier-regression-fix` at exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
 - Candidate source is unchanged and unmerged.
 - Installed candidate remains the active incident runtime unless a later task records otherwise.
@@ -32,29 +32,27 @@ SYNTHETIC_TRIGGER_DOWN_UP: 0
 USER_VISIBLE_DOUBAO_SESSION_OPEN: YES
 ```
 
-The earlier ambiguous 17-gesture A window remains preserved but is INVALID for causal acceptance. It is not used to decide this state.
+The earlier ambiguous 17-gesture A window remains preserved but is INVALID for causal acceptance.
 
 Accepted conclusion:
 
 `CLASSIFIER_FIXED_EXTERNAL_MECHANISM_REMAINS`
 
-This proves the PR #14 Disabled-SHORT immediate-HOLD classifier regression is not sufficient to explain the current visible fast-click Session opening. A valid <300 ms press now classifies SHORT and avoids HOLD/replay/synthetic trigger, yet Doubao still opens.
-
-Do not claim the exact external mechanism is known yet.
+The PR #14 Disabled-SHORT immediate-HOLD regression is real and corrected by the candidate, but it is not sufficient to explain the visible fast-click Session opening. Do not claim the exact external mechanism is known.
 
 ## Existing diagnostic capability
 
-Merged PR #18 already provides the required bounded boundary evidence: raw HID report/edge sequence, mapped-trigger CGEvent timestamp/action, HID-vs-fallback correlation, and frontmost-application transition diagnostics. Do not add new probes before using these existing signals.
+Merged PR #18 already provides raw HID report/edge sequence, mapped-trigger CGEvent timestamp/action, HID-vs-fallback correlation, and frontmost-application transition diagnostics. Do not add new probes before using these signals.
 
-## Current discriminating hypotheses
+## Mapped-modifier discriminator correction
 
-Highest-value remaining split:
+The previously proposed Right Option negative control is INVALID because the user reports Right Option has an existing input-method function. Using it would introduce a second semantic effect and make the experiment uninterpretable.
 
-1. the physical/system HID mapping target itself is required for the external Doubao trigger (for example a modifier edge visible below or outside RemoteOrbit's gate/event-tap observation);
+RemoteOrbit supports Left/Right Option, Left/Right Control, and Left/Right Command as trigger targets. The next bounded discriminator will use **Right Control only if the user's physical-keyboard Right Control tap is first confirmed to have no visible Doubao/input-method/other semantic effect**.
+
+Current hypotheses remain:
+
+1. the configured system-mapped modifier path is required for the external Doubao trigger;
 2. the Session opening does not require the configured mapped modifier, leaving pending transport/prewarm, raw/native remote behavior, or another external mechanism as candidates.
 
-The next task is a configuration-only A/B discriminator. No product source change is authorized.
-
-## Candidate merge status
-
-Do not merge the candidate yet. The classifier correction is semantically restored and independently tested, but the user-visible defect remains. Keep the exact candidate installed/unmerged while the external mechanism is isolated.
+No source change is authorized. Do not merge the candidate yet.
