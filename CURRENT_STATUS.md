@@ -48,7 +48,7 @@ Merged PR #18 already provides raw HID report/edge sequence, mapped-trigger CGEv
 
 The previously proposed Right Option negative control is INVALID because the user reports Right Option has an existing input-method function. Using it would introduce a second semantic effect and make the experiment uninterpretable.
 
-RemoteOrbit supports Left/Right Option, Left/Right Control, and Left/Right Command as trigger targets. The next bounded discriminator will use **Right Control only if the user's physical-keyboard Right Control tap is first confirmed to have no visible Doubao/input-method/other semantic effect**.
+RemoteOrbit supports Left/Right Option, Left/Right Control, and Left/Right Command as trigger targets. At the user's request, the next bounded discriminator will use **Left Control**, but only if the user's physical-keyboard Left Control tap is first confirmed to have no visible Doubao/input-method/other semantic effect.
 
 Current hypotheses remain:
 
