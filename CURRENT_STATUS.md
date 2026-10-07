@@ -1,85 +1,60 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-07
-State: ACTIVE INCIDENT — USER A PRIOR SAMPLE INVALID / FRESH BASELINE REQUIRED
+State: ACTIVE INCIDENT — CLASSIFIER FIXED / EXTERNAL TRIGGER MECHANISM REMAINS
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
 
 ## Control-plane integrity
 
-- Previous control HEAD: `f095963ce3d40f926210f4be39b6674f96f84c7f`.
+- Previous control HEAD: `4c70273c90f5548ea21e847a7f59d2a84a33a07b`.
 - Candidate branch remains `codex/disabled-short-classifier-regression-fix` at exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
 - Candidate source is unchanged and unmerged.
-- Prior B4 external event-plane investigation remains PAUSED.
+- Installed candidate remains the active incident runtime unless a later task records otherwise.
+- User B / LONG remains forbidden.
 
-## Installed exact candidate / accepted readiness
+## Valid fresh User A result
 
-```text
-INSTALLED_RUNTIME_PID: 79232
-INSTALLED_SOURCE_HEAD: 172427957fd18a2b5827edd1cb1c4bddb6a5b7db
-INSTALLED_SHA256: a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017
-SHORT_BINDING: Disabled
-MOMENTARY_EFFECTIVE: left_option
-PERSISTENT_TRIGGER: left_option
-CURRENT_INPUT_SOURCE: com.bytedance.inputmethod.doubaoime.pinyin
-HID_MAPPING_TARGET: left_option
-DIAGNOSTIC_READINESS: PASS
-APP_RESTARTED_AFTER_RECONCILIATION: NO
-SOURCE_MUTATION: NO
-REBUILD_OR_REINSTALL: NO
-MERGED: NO
-```
-
-The separate suite-domain preference discrepancy remains recorded but is not the effective runtime authority for this acceptance.
-
-## Prior User A attempt — INVALID / preserved
-
-The user intentionally performed multiple additional remote gestures while checking whether LONG behavior reproduced. The captured 22:24:38–22:25:28 +08:00 window therefore contains 17 gestures and cannot uniquely associate the user-visible report `Doubao Session did not open` with one specific gesture.
-
-Observed in that ambiguous window:
+Fresh-baseline A produced exactly one physical remote voice gesture:
 
 ```text
-TOTAL_GESTURES: 17
-SHORT_CLASSIFICATIONS: 13
-HOLD_CLASSIFICATIONS: 4
-BYPASSES_SHORT_CLASSIFICATION_FALSE: 17/17
-USER_VISIBLE_DOUBAO_SESSION_OPEN_REPORTED: NO
-A_SAMPLE_VALID: NO
-DECISION_FROM_THIS_WINDOW: NONE
+GESTURE_ID: 66EAAC65-0704-482C-B01B-4F89F3DE0E19
+RAW_HID_DOWN_UP_MS: 210.171
+BYPASSES_SHORT_CLASSIFICATION: false
+CLASSIFICATION: short
+SESSION_MODE: idle
+GATE_BEGIN: 1
+GATE_CANCEL: 1
+GATE_SHORT_REPLAY: 0
+HOLD_PROMOTION: 0
+SYNTHETIC_TRIGGER_DOWN_UP: 0
+USER_VISIBLE_DOUBAO_SESSION_OPEN: YES
 ```
 
-Preserved evidence:
+The earlier ambiguous 17-gesture A window remains preserved but is INVALID for causal acceptance. It is not used to decide this state.
 
-```text
-raw-window.jsonl SHA256: cf0da5ce35a7be4f7449c2ec4f9dc77d675692ab15362762299065972edd1f87
-app-log-window.log SHA256: 203eb0897ad92050d9a55ae9b4ac0c0eee2a45edf5ca3c200fe673331b8ac529
-candidate-summary.json SHA256: 4ce81c73c7023f528e87f57472b3eeac9a34e03cf254350fa86db9a9289ffaa0
-```
+Accepted conclusion:
 
-This window must not be mined post hoc for a passing A sample. It is retained only as non-decisive evidence that classifier bypass remained disabled across repeated gestures.
+`CLASSIFIER_FIXED_EXTERNAL_MECHANISM_REMAINS`
 
-## Fresh User A policy
+This proves the PR #14 Disabled-SHORT immediate-HOLD classifier regression is not sufficient to explain the current visible fast-click Session opening. A valid <300 ms press now classifies SHORT and avoids HOLD/replay/synthetic trigger, yet Doubao still opens.
 
-A new User A is authorized only after a fresh append-only baseline is armed on the existing runtime.
+Do not claim the exact external mechanism is known yet.
 
-Do not clear, rotate, truncate, restart, rebuild or reinstall merely to create the baseline.
+## Existing diagnostic capability
 
-The executor must first record read-only baseline anchors immediately before asking the user to act, including where available:
+Merged PR #18 already provides the required bounded boundary evidence: raw HID report/edge sequence, mapped-trigger CGEvent timestamp/action, HID-vs-fallback correlation, and frontmost-application transition diagnostics. Do not add new probes before using these existing signals.
 
-- diagnostic journal path, byte size, hash and last record/sequence/gesture identifier;
-- app log path, byte size and last timestamp/gesture identifier;
-- exact runtime PID/source SHA/binary SHA;
-- SHORT, effective momentary, persistent, input source and HID mapping target.
+## Current discriminating hypotheses
 
-After the executor reports `READY_FOR_FRESH_USER_A`, the user performs exactly one normal fast physical click/release and reports whether Doubao Session visibly opened.
+Highest-value remaining split:
 
-Only records appended after the baseline anchors may be used for the decision. A valid sample must contain exactly one new physical voice gesture, be below the 300 ms threshold, and classify `short`.
+1. the physical/system HID mapping target itself is required for the external Doubao trigger (for example a modifier edge visible below or outside RemoteOrbit's gate/event-tap observation);
+2. the Session opening does not require the configured mapped modifier, leaving pending transport/prewarm, raw/native remote behavior, or another external mechanism as candidates.
 
-Decision:
+The next task is a configuration-only A/B discriminator. No product source change is authorized.
 
-- valid fresh A + Session does NOT open => `A_PASS_READY_FOR_USER_B`;
-- valid fresh A + Session opens => `CLASSIFIER_FIXED_EXTERNAL_MECHANISM_REMAINS`;
-- zero or more than one new physical gesture, or duration >= 300 ms => fresh A invalid; do not infer pass/fail.
+## Candidate merge status
 
-User B remains forbidden until a valid fresh A passes and Web explicitly authorizes B.
+Do not merge the candidate yet. The classifier correction is semantically restored and independently tested, but the user-visible defect remains. Keep the exact candidate installed/unmerged while the external mechanism is isolated.
