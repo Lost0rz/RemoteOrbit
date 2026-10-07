@@ -1,218 +1,210 @@
 # RemoteOrbit Current Task
 
-## Current task — RO-INCIDENT-20261004-01 / FRESH-BASELINE USER A RETRY
+## Current task — RO-INCIDENT-20261004-01 / MAPPED-TRIGGER DEPENDENCY DISCRIMINATION
 
-- **Status:** ACTIVE / FRESH BASELINE REQUIRED BEFORE USER A
+- **Status:** ACTIVE / CONFIGURATION-ONLY A/B
 - **Incident ID:** `RO-INCIDENT-20261004-01`
 - **Candidate branch:** `codex/disabled-short-classifier-regression-fix`
 - **Candidate HEAD:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
-- **Installed source HEAD:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
-- **Installed executable SHA-256:** `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`
-- **Installed PID:** `79232`
+- **Installed source HEAD:** must remain `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
+- **Installed executable SHA-256:** must remain `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`
 - **Evidence root:** `/private/tmp/remoteorbit-disabled-short-hardware-acceptance-20261007`
 - **Source mutation:** FORBIDDEN
-- **Restart/rebuild/reinstall:** FORBIDDEN
+- **Rebuild/reinstall/restart:** FORBIDDEN
 - **Merge:** FORBIDDEN
-- **User A:** BLOCKED until fresh baseline is armed
-- **User B:** FORBIDDEN until valid fresh A passes and Web authorizes B
+- **LONG/User B:** FORBIDDEN
 
-## Prior A sample disposition
+## Accepted fact from fresh User A
 
-The 22:24:38–22:25:28 +08:00 window contained 17 gestures (13 short, 4 hold). Because the user performed multiple extra checks, the report that Doubao Session did not open cannot be uniquely associated with one gesture.
-
-Therefore:
+Exactly one post-baseline remote gesture was observed:
 
 ```text
-PRIOR_A_SAMPLE_VALID: NO
-PRIOR_A_FINAL_STATE: A_SAMPLE_INVALID_AMBIGUOUS_WINDOW
-POST_HOC_SELECTION_FOR_PASS: FORBIDDEN
+GESTURE_ID: 66EAAC65-0704-482C-B01B-4F89F3DE0E19
+RAW_HID_DOWN_UP_MS: 210.171
+BYPASSES_SHORT_CLASSIFICATION: false
+CLASSIFICATION: short
+SESSION_MODE: idle
+GATE_BEGIN: 1
+GATE_CANCEL: 1
+GATE_SHORT_REPLAY: 0
+HOLD_PROMOTION: 0
+SYNTHETIC_TRIGGER_DOWN_UP: 0
+USER_VISIBLE_DOUBAO_SESSION_OPEN: YES
 ```
 
-Preserve that evidence unchanged. Do not delete or reuse one of its gestures as a decisive A sample.
+Decision: `CLASSIFIER_FIXED_EXTERNAL_MECHANISM_REMAINS`.
 
-## Gate 0 — authority and runtime identity
+Do not reinterpret the earlier ambiguous 17-gesture window as acceptance evidence.
+
+## Goal
+
+Discriminate whether the visible Doubao Session opening requires the configured system-mapped **Left Option** target while keeping classifier, pending transport/prewarm, candidate binary, input method, and remote hardware unchanged.
+
+This is not a fix. It is one bounded configuration-only causal experiment using already-merged diagnostics.
+
+## Gate 0 — exact runtime and evidence audit
 
 1. `git fetch origin --prune`.
 2. Verify live `origin/main` exactly equals the control HEAD containing this task.
-3. Verify candidate remote exactly equals `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
-4. Read `AGENTS.md`, `CURRENT_STATUS.md`, and this `CURRENT_TASK.md` from live `origin/main`.
-5. Verify the existing installed runtime remains:
-   - PID still the same running candidate unless macOS independently changed it; if PID changed, STOP and report rather than restart;
-   - source HEAD exactly `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`;
-   - executable SHA-256 exactly `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`.
-6. Verify read-only:
-   - SHORT = Disabled;
-   - effective momentary trigger = `left_option`;
-   - persistent trigger = `left_option`;
-   - input source = `com.bytedance.inputmethod.doubaoime.pinyin`;
-   - effective HID mapping/readback target = `left_option`;
-   - diagnostic readiness still usable.
-7. Do not change settings or perform a remote gesture.
+3. Verify candidate remote exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
+4. Read `AGENTS.md`, `CURRENT_STATUS.md`, and this task from live `origin/main`.
+5. Verify runtime identity/hash remains exact.
+6. Verify SHORT remains Disabled and input source is Doubao.
+7. Verify the sealed fresh-A directory exists and read `analysis.json` plus appended voice diagnostics. Record, do not infer, the exact `MAPPED_TRIGGER_EVENT` count/actions for gesture `66EAAC65-0704-482C-B01B-4F89F3DE0E19`.
+8. Verify diagnostics remain readable.
 
-STOP only for a real mismatch in the effective runtime conditions above. Do not stop merely because the separate suite-domain compatibility readback differs.
+STOP for runtime/source/hash/control mismatch. Do not edit code.
 
-## Gate 1 — arm a fresh append-only baseline
+## Gate 1 — establish Right Option as a negative Doubao control
 
-Without clearing, rotating, truncating, restarting or mutating any live evidence source, create a new evidence subdirectory such as:
+Before changing RemoteOrbit, ask the user to perform one normal **physical keyboard Right Option tap** while no Doubao Session is open.
 
-`fresh-user-a-008-<timestamp>`
+The user reports only whether Doubao Session opens.
 
-Immediately before asking the user to act, record read-only baseline anchors for every source that will be used to identify the gesture.
+- If Right Option opens Doubao Session: STOP at `RIGHT_OPTION_NOT_VALID_NEGATIVE_CONTROL`. Do not change RemoteOrbit settings; Web will select another control key.
+- If Right Option does not open Doubao Session: record `RIGHT_OPTION_NEGATIVE_CONTROL=PASS` and continue.
 
-For the DiagnosticAuthority journal, record where available:
+Do not use the remote in this gate.
 
-- live path;
-- existence;
-- byte size;
-- SHA-256 of current complete file if present;
+## Gate 2 — change only RemoteOrbit momentary target
+
+Using the normal RemoteOrbit settings UI, the user changes only:
+
+```text
+Momentary trigger: Left Option -> Right Option
+```
+
+Keep unchanged:
+
+- SHORT = Disabled;
+- persistent trigger = Left Option;
+- Doubao input source;
+- candidate binary/source;
+- all timing/classifier logic;
+- pending transport/prewarm;
+- driver/CoreAudio/TCC;
+- legacy compatibility value unless the normal app UI updates it incidentally; record but do not manually edit it.
+
+Do not restart the app.
+
+Read-only verify effective runtime/HID mapping target is now `right_option` and HID readback/filter configuration agrees.
+
+## Gate 3 — fresh append-only baseline
+
+Create a new evidence subdirectory.
+
+Without clearing/rotating logs, record exact append-only baselines for diagnostic journal and app/voice logs:
+
+- wall-clock timestamp;
+- byte size/offset;
 - record count;
-- last sequence number;
-- last gesture ID;
-- last event timestamp.
+- last sequence if available;
+- last gesture ID/event timestamp;
+- SHA-256/metadata needed to prove pre/post boundary.
 
-For the app/voice log used for gesture correlation, record where available:
+Only after baseline is sealed return:
 
-- live path/source;
-- byte size or equivalent cursor/offset;
-- last timestamp;
-- last gesture ID / last relevant event marker.
+`READY_FOR_RIGHT_OPTION_REMOTE_A — perform exactly one fast remote click/release; do not LONG or repeat.`
 
-Also record:
+## Gate 4 — exactly one remote fast-click control
 
-- baseline wall-clock timestamp with timezone;
-- PID/source HEAD/binary SHA;
-- SHORT/effective momentary/persistent/input source/HID target.
+After the user performs one fast remote click and reports whether Doubao Session opened, analyze only records appended after the fresh baseline.
 
-Write these anchors into the evidence directory and hash the baseline metadata file.
-
-PASS condition:
+Required valid sample:
 
 ```text
-FRESH_BASELINE_ARMED: YES
+NEW_PHYSICAL_VOICE_GESTURE_COUNT = 1
+duration < 300 ms
+bypasses_short_classification = false
+classification = short
+session_mode = idle
+HOLD_PROMOTION = 0
+gate begin = 1
+gate cancel = 1
+gate short replay = 0
+synthetic trigger down/up = 0
 ```
 
-Only then tell the user exactly:
+Record exact mapped-trigger events/actions rather than assuming zero.
 
-`READY_FOR_FRESH_USER_A — perform exactly one fast click/release now; do not LONG or repeat.`
+If the sample is invalid or multiple gestures appear: STOP at `CONTROL_SAMPLE_INVALID`.
 
-Then stop and wait for the user's physical action/report.
+### Decision
 
-## Gate 2 — capture only append-after-baseline evidence
-
-After the user reports the one fast click and whether Doubao Session visibly opened:
-
-1. capture only records/log content appended after the Gate 1 baseline offsets/sequence anchors;
-2. do not use pre-baseline gestures to satisfy the sample;
-3. correlate the new physical HID down/up pair to the new gesture ID;
-4. count new physical voice gestures after baseline.
-
-A valid sample requires:
+If Right Option is confirmed not to trigger Doubao from the physical keyboard, and the valid remote control sample with RemoteOrbit mapped to Right Option has:
 
 ```text
-NEW_PHYSICAL_VOICE_GESTURE_COUNT: 1
-A_DURATION_MS: < 300
-A_BYPASS: false
-A_CLASSIFICATION: short
-A_SESSION_MODE: idle
-A_HOLD_PROMOTION: 0
-A_GATE_BEGIN: 1
-A_GATE_CANCEL: 1
-A_GATE_SHORT_REPLAY: 0
-A_SYNTHETIC_TRIGGER: 0
+DOUBAO_SESSION_OPEN = NO
 ```
 
-Report mapped-trigger observations exactly as seen; expected candidate result is no mapped trigger replay/edge reaching the product path.
+return:
 
-If no new physical gesture or more than one appears after the baseline, mark:
+`MAPPED_MODIFIER_DEPENDENCY_SUPPORTED`
 
-`A_SAMPLE_INVALID_FRESH_WINDOW`
+Interpretation: changing only the mapped modifier removed the visible effect while classifier/prewarm remained. This strongly localizes the remaining mechanism to the system-mapped modifier path. Do not claim the exact event plane yet.
 
-and STOP. Do not infer pass/fail.
-
-If duration >= 300 ms, mark:
-
-`A_SAMPLE_INVALID_THRESHOLD`
-
-and STOP. Do not infer pass/fail.
-
-## Gate 3 — decision and evidence seal
-
-For a valid fresh sample:
-
-If:
+If the valid Right-Option remote sample still has:
 
 ```text
-A_CLASSIFICATION=short
-A_DOUBAO_SESSION_OPEN=NO
+DOUBAO_SESSION_OPEN = YES
 ```
 
-seal/hashes the exact append-only evidence and return:
+return:
 
-`A_PASS_READY_FOR_USER_B`
+`MAPPED_LEFT_OPTION_NOT_REQUIRED`
 
-Do not perform B.
+Interpretation: Left Option mapping is not necessary for the visible Session opening; next analysis should prioritize pending transport/native remote/other external mechanisms.
 
-If:
+Do not perform LONG and do not edit source in either case.
+
+## Gate 5 — restore original acceptance configuration
+
+After evidence is sealed, use the normal RemoteOrbit settings UI to restore only:
 
 ```text
-A_CLASSIFICATION=short
-A_DOUBAO_SESSION_OPEN=YES
+Momentary trigger: Right Option -> Left Option
 ```
 
-seal/hashes the evidence and return:
-
-`CLASSIFIER_FIXED_EXTERNAL_MECHANISM_REMAINS`
-
-Do not perform B and do not edit code.
+Read-only verify effective HID mapping is again Left Option. Do not restart the app.
 
 ## Required report
 
 ```text
-TASK_ID: RO-DISABLED-SHORT-HARDWARE-A-FRESH-008
+TASK_ID: RO-MAPPED-TRIGGER-DEPENDENCY-009
 CONTROL_HEAD:
-CANDIDATE_HEAD: 172427957fd18a2b5827edd1cb1c4bddb6a5b7db
+CANDIDATE_HEAD:
 INSTALLED_PID:
 INSTALLED_SOURCE_HEAD:
 INSTALLED_SHA256:
-SHORT:
-MOMENTARY_EFFECTIVE:
-PERSISTENT:
-INPUT_SOURCE:
-HID_MAPPING_TARGET:
-DIAGNOSTIC_READINESS:
-
-FRESH_BASELINE_ARMED:
-BASELINE_TIMESTAMP:
-BASELINE_JOURNAL_PATH:
-BASELINE_JOURNAL_SIZE:
-BASELINE_JOURNAL_RECORD_COUNT:
-BASELINE_LAST_SEQUENCE:
-BASELINE_LAST_GESTURE_ID:
-BASELINE_APP_LOG_CURSOR:
-BASELINE_METADATA_PATH:
-BASELINE_METADATA_SHA256:
-
-A_PERFORMED:
-NEW_PHYSICAL_VOICE_GESTURE_COUNT:
-A_SAMPLE_VALID:
-A_GESTURE_ID:
-A_DURATION_MS:
-A_BYPASS:
-A_CLASSIFICATION:
-A_SESSION_MODE:
-A_HOLD_PROMOTION:
-A_GATE_BEGIN:
-A_GATE_CANCEL:
-A_GATE_SHORT_REPLAY:
-A_MAPPED_TRIGGER:
-A_SYNTHETIC_TRIGGER:
-A_DOUBAO_SESSION_OPEN:
-
-EVIDENCE_PATHS:
-EVIDENCE_HASHES:
+FRESH_A_MAPPED_TRIGGER_EVENT_COUNT:
+FRESH_A_MAPPED_TRIGGER_ACTIONS:
+RIGHT_OPTION_KEYBOARD_CONTROL_PERFORMED:
+RIGHT_OPTION_KEYBOARD_DOUBAO_OPEN:
+RIGHT_OPTION_NEGATIVE_CONTROL:
+MOMENTARY_BEFORE:
+MOMENTARY_CONTROL:
+HID_MAPPING_CONTROL:
+FRESH_BASELINE_SEALED:
+REMOTE_CONTROL_PERFORMED:
+CONTROL_SAMPLE_VALID:
+CONTROL_GESTURE_ID:
+CONTROL_DURATION_MS:
+CONTROL_BYPASS:
+CONTROL_CLASSIFICATION:
+CONTROL_SESSION_MODE:
+CONTROL_HOLD_PROMOTION:
+CONTROL_GATE_BEGIN:
+CONTROL_GATE_CANCEL:
+CONTROL_GATE_SHORT_REPLAY:
+CONTROL_MAPPED_TRIGGER_EVENTS:
+CONTROL_SYNTHETIC_TRIGGER:
+CONTROL_DOUBAO_SESSION_OPEN:
+MOMENTARY_RESTORED:
+HID_MAPPING_RESTORED:
 APP_RESTARTED: NO
 PRODUCT_SOURCE_CHANGED: NO
 REBUILD_OR_REINSTALL: NO
 MERGED: NO
+LONG_PERFORMED: NO
 FINAL_STATE:
 ```
