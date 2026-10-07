@@ -9,10 +9,11 @@
 - **Installed exact candidate SHA-256:** `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`
 - **Installed PID before this recovery:** `72913`
 - **Evidence directory:** `/private/tmp/remoteorbit-disabled-short-hardware-acceptance-20261007`
+- **Observed input source at prior STOP:** `com.tencent.inputmethod.chatterfly.pinyin`
 - **Source mutation:** FORBIDDEN
 - **Rebuild/reinstall:** FORBIDDEN
 - **Merge:** FORBIDDEN
-- **User hardware A/B:** BLOCKED until this task returns `READY_FOR_USER_A`
+- **User hardware A/B:** BLOCKED until journal readiness passes and Doubao is later restored manually
 
 ## Objective
 
@@ -25,6 +26,22 @@ diagnostics query: EXIT 65 — corrupt diagnostic journal at record 1
 ```
 
 This task is not a product fix and does not diagnose the Disabled-SHORT behavior itself.
+
+## Reconciliation of prior Gate 0 STOP
+
+The previous task incorrectly required Doubao to be active during journal recovery. The executor read back:
+
+`com.tencent.inputmethod.chatterfly.pinyin`
+
+That mismatch is irrelevant to record-1 provenance, journal archival, same-binary relaunch and CLI decode readiness. It is therefore no longer a STOP condition for this maintenance task.
+
+Rules:
+
+- keep the currently observed input source unchanged during this local recovery;
+- do not switch to Doubao or any other source during this task;
+- record the source before and after and require it to remain unchanged;
+- User A is still forbidden while Chatterfly is active;
+- after journal readiness passes, stop and hand back for a separate user-driven Doubao restore and verification.
 
 ## Source-audit basis
 
@@ -47,11 +64,11 @@ Do not waive `verify/query`. Do not delete or truncate the journal.
    - source HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`;
    - executable SHA-256 `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`;
    - SHORT = Disabled;
-   - momentary/persistent/legacy = `left_option`;
-   - Doubao input source remains active.
-6. No hardware gesture.
+   - momentary/persistent/legacy = `left_option`.
+6. Read and record the currently active input source. It is allowed to be `com.tencent.inputmethod.chatterfly.pinyin`; do not require Doubao for this task.
+7. No hardware gesture.
 
-Any identity/config mismatch => STOP.
+STOP only for candidate identity/hash/key-setting mismatch, control/ref mismatch, or inability to determine the live journal/evidence. Do not STOP solely because the active input source is Chatterfly.
 
 ## Gate 1 — prove record-1 provenance read-only
 
@@ -108,7 +125,7 @@ Do not rebuild or reinstall.
    - executable SHA-256 exactly `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`;
    - SHORT still Disabled;
    - momentary/persistent/legacy still `left_option`;
-   - Doubao input source remains active;
+   - active input source is unchanged from Gate 0; do not require Doubao here.
 4. inspect the live diagnostic journal pathname read-only.
 5. Run:
    - `diagnostics status`
@@ -135,13 +152,23 @@ Do not proceed to User A.
 
 ## Gate 4 — handoff only
 
-If Gates 0–3 pass, stop and return:
+If Gates 0–3 pass and the active input source remains Chatterfly, stop and return:
+
+```text
+JOURNAL_READY_DOUBAO_RESTORE_REQUIRED
+```
+
+Do not switch input sources yourself. Do not perform the user's fast-click A. Do not ask the user to do LONG yet.
+
+If, without this task changing it, the active source is already Doubao at Gate 0 and remains Doubao after Gate 3, return:
 
 ```text
 READY_FOR_USER_A
 ```
 
-Do not perform the user's fast-click A yourself. Do not ask the user to do LONG yet.
+The Doubao identifier required for User A is:
+
+`com.bytedance.inputmethod.doubaoime.pinyin`
 
 ## Forbidden
 
@@ -150,6 +177,7 @@ Do not perform the user's fast-click A yourself. Do not ask the user to do LONG 
 - no merge/rebase/cherry-pick/amend;
 - no driver/CoreAudio/LaunchAgent/TCC/Accessibility/Input Monitoring changes;
 - no UserDefaults/settings reset or trigger-key change;
+- no input-source change during this task;
 - no journal deletion, truncation, in-place edit or repair;
 - no synthetic trigger/event generation;
 - no remote hardware gesture A/B;
@@ -158,12 +186,13 @@ Do not perform the user's fast-click A yourself. Do not ask the user to do LONG 
 ## Required report
 
 ```text
-TASK_ID: RO-DIAGNOSTIC-JOURNAL-READINESS-RECOVERY-003
+TASK_ID: RO-DIAGNOSTIC-JOURNAL-READINESS-RECOVERY-004
 CONTROL_HEAD:
 CANDIDATE_HEAD: 172427957fd18a2b5827edd1cb1c4bddb6a5b7db
 INSTALLED_SOURCE_HEAD_BEFORE:
 INSTALLED_SHA256_BEFORE:
 SETTINGS_BEFORE:
+INPUT_SOURCE_BEFORE:
 
 PREINSTALL_JOURNAL_PATH:
 BLOCKED_LIVE_JOURNAL_PATH:
@@ -182,6 +211,8 @@ RELAUNCHED_PID:
 RELAUNCHED_SOURCE_HEAD:
 RELAUNCHED_SHA256:
 SETTINGS_AFTER:
+INPUT_SOURCE_AFTER:
+INPUT_SOURCE_UNCHANGED:
 FRESH_LIVE_JOURNAL_PATH:
 FRESH_LIVE_JOURNAL_STATE:
 STATUS_EXIT:
