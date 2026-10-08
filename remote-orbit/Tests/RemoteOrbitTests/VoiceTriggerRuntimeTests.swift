@@ -2,6 +2,316 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceTriggerRuntimeTests: XCTestCase {
+    func testDualModeUnavailableWithoutRawHIDDoesNotUseVoiceKeyFallback() {
+        let harness = VoiceTriggerRuntimeHarness(
+            persistedKey: .leftOption,
+            rawHIDReady: false,
+            eventSuppressorReady: true
+        )
+        var prewarmCount = 0
+        var routeCount = 0
+        harness.controller.voicePress.onRemoteTransportPreparation = { prewarmCount += 1 }
+        harness.controller.voicePress.onRemoteRoutePreparation = { routeCount += 1 }
+
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .unavailable(.rawHIDUnavailable)
+        )
+        harness.controller.beginVoicePress(
+            shortBinding: .voiceKeyDefault,
+            source: .voiceKeyFilterFallback
+        )
+
+        XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .idle)
+        XCTAssertEqual(prewarmCount, 0)
+        XCTAssertEqual(routeCount, 0)
+        XCTAssertTrue(harness.triggerEvents.isEmpty)
+        XCTAssertTrue(harness.mappingCalls.isEmpty)
+    }
+
+    func testDualModeUnavailableWithoutEventSuppressorDoesNotUseVoiceKeyFallback() {
+        let harness = VoiceTriggerRuntimeHarness(
+            persistedKey: .leftOption,
+            rawHIDReady: true,
+            eventSuppressorReady: false
+        )
+        var prewarmCount = 0
+        var routeCount = 0
+        harness.controller.voicePress.onRemoteTransportPreparation = { prewarmCount += 1 }
+        harness.controller.voicePress.onRemoteRoutePreparation = { routeCount += 1 }
+
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .unavailable(.eventSuppressorUnavailable)
+        )
+        harness.controller.beginVoicePress(
+            shortBinding: .voiceKeyDefault,
+            source: .voiceKeyFilterFallback
+        )
+
+        XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .idle)
+        XCTAssertEqual(prewarmCount, 0)
+        XCTAssertEqual(routeCount, 0)
+        XCTAssertTrue(harness.triggerEvents.isEmpty)
+        XCTAssertTrue(harness.mappingCalls.isEmpty)
+    }
+
+    func testDualModeMappingClearFailureFailsClosedDespiteCachedDisabledState() {
+        let harness = VoiceTriggerRuntimeHarness(
+            persistedKey: .leftOption,
+            applyResults: [false],
+            rawHIDReady: true,
+            eventSuppressorReady: true
+        )
+        var prewarmCount = 0
+        var routeCount = 0
+        harness.controller.voicePress.onRemoteTransportPreparation = { prewarmCount += 1 }
+        harness.controller.voicePress.onRemoteRoutePreparation = { routeCount += 1 }
+
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .unavailable(.mappingClearFailed)
+        )
+        XCTAssertFalse(harness.mappingEnabled)
+        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [false])
+        harness.controller.beginVoicePress(
+            shortBinding: .voiceKeyDefault,
+            source: .voiceKeyFilterFallback
+        )
+
+        XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .idle)
+        XCTAssertEqual(prewarmCount, 0)
+        XCTAssertEqual(routeCount, 0)
+        XCTAssertTrue(harness.triggerEvents.isEmpty)
+    }
+
+    func testSecondaryOffLeavesLegacyMappingPathUntouched() {
+        let harness = VoiceTriggerRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption
+        )
+
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: nil
+            ),
+            .applied(.legacy)
+        )
+        XCTAssertEqual(harness.controller.dualReceiverVoiceMode, .legacy)
+        XCTAssertTrue(harness.mappingCalls.isEmpty)
+        XCTAssertTrue(harness.mappingEnabled)
+    }
+
+    func testDisablingSecondaryRestoresSingleReceiverMapping() {
+        let harness = VoiceTriggerRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            applyResults: [true, true],
+            rawHIDReady: true,
+            eventSuppressorReady: true
+        )
+
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .applied(.active(receiverA: .leftOption, receiverB: .rightOption))
+        )
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: nil
+            ),
+            .applied(.legacy)
+        )
+
+        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [false, true])
+        XCTAssertTrue(harness.mappingEnabled)
+        XCTAssertEqual(harness.controller.dualReceiverVoiceMode, .legacy)
+    }
+
+    func testFailedLegacyMappingRestoreRemainsUnavailable() {
+        let harness = VoiceTriggerRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            applyResults: [true, false],
+            rawHIDReady: true,
+            eventSuppressorReady: true
+        )
+
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .applied(.active(receiverA: .leftOption, receiverB: .rightOption))
+        )
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: nil
+            ),
+            .unavailable(.legacyMappingRestoreFailed)
+        )
+        harness.controller.beginVoicePress(source: .voiceKeyFilterFallback)
+
+        XCTAssertEqual(harness.controller.dualReceiverVoiceMode, .unavailable(.legacyMappingRestoreFailed))
+        XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .idle)
+        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [false, true])
+    }
+
+    func testSuccessfulDualModeClearsMappingBeforeBecomingActive() {
+        let harness = VoiceTriggerRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            applyResults: [true],
+            rawHIDReady: true,
+            eventSuppressorReady: true
+        )
+
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .applied(.active(receiverA: .leftOption, receiverB: .rightOption))
+        )
+        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [false])
+        XCTAssertFalse(harness.mappingEnabled)
+    }
+
+    func testDualModeChangeRejectsFirstTapAndSecondTapOwnership() {
+        let harness = VoiceTriggerRuntimeHarness(
+            persistedKey: .leftOption,
+            rawHIDReady: true,
+            eventSuppressorReady: true
+        )
+        let recognizer = harness.controller.dualReceiverVoiceGestureRecognizer
+
+        _ = recognizer.handleDown(at: ProcessInfo.processInfo.systemUptime)
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .busy
+        )
+        XCTAssertTrue(harness.mappingCalls.isEmpty)
+
+        recognizer.cancel()
+        let downAt = ProcessInfo.processInfo.systemUptime
+        _ = recognizer.handleDown(at: downAt)
+        _ = recognizer.handleUp(at: downAt + 0.1)
+        XCTAssertEqual(recognizer.stateForTesting, .awaitingSecondPress)
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .busy
+        )
+        XCTAssertTrue(harness.mappingCalls.isEmpty)
+        recognizer.cancel()
+    }
+
+    func testDualModeChangeRejectsVoiceTransactionAndReleaseDrainOwnership() {
+        let harness = VoiceTriggerRuntimeHarness(
+            persistedKey: .leftOption,
+            rawHIDReady: true,
+            eventSuppressorReady: true
+        )
+        harness.controller.beginVoicePress()
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .busy
+        )
+        harness.controller.voicePress.stop()
+
+        harness.controller.voicePress.setRemoteStreaming(true)
+        harness.controller.voicePress.keyDown(sessionID: UUID())
+        waitForCoordinatorTiming(0.35)
+        harness.controller.voicePress.setRemoteAudioAvailable()
+        XCTAssertTrue(harness.controller.voicePress.keyUp())
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .busy
+        )
+        XCTAssertTrue(harness.mappingCalls.isEmpty)
+        harness.controller.voicePress.stop()
+    }
+
+    func testDualModeChangeRejectsPhysicalReleaseOwnership() {
+        let harness = VoiceTriggerRuntimeHarness(
+            persistedKey: .leftOption,
+            rawHIDReady: true,
+            eventSuppressorReady: true
+        )
+        let gestureID = UUID()
+        harness.filter.beginOptionDeferral(gestureID: gestureID)
+        XCTAssertTrue(harness.filter.captureDeferredHardwareOptionEdge(.down, copiedEvent: nil))
+        XCTAssertTrue(harness.filter.suppressDeferredHardwareTrigger(
+            gestureID: gestureID,
+            reason: "dual-mode-release-owner-test"
+        ))
+
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .busy
+        )
+        XCTAssertTrue(harness.mappingCalls.isEmpty)
+        XCTAssertTrue(harness.filter.resetSuppressedHardwareTrigger(
+            gestureID: gestureID,
+            reason: "dual-mode-release-owner-test-cleanup"
+        ))
+    }
+
+    func testDualModeChangeRejectsRuntimeTriggerReconfiguration() {
+        let harness = VoiceTriggerRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            applyDelay: 0.15,
+            rawHIDReady: true,
+            eventSuppressorReady: true
+        )
+        let expectation = expectation(description: "trigger reconfiguration completes")
+        harness.controller.applyVoiceTriggerKey(.rightCommand) { _ in expectation.fulfill() }
+
+        XCTAssertTrue(harness.controller.voiceTriggerReconfigurationInProgress)
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .busy
+        )
+        wait(for: [expectation], timeout: 5)
+    }
+
     func testDualRawInputMappingClearRequestsEmptyMappingBeforeTriggerEdges() {
         let harness = VoiceTriggerRuntimeHarness(
             connected: true,
@@ -520,6 +830,9 @@ private final class VoiceTriggerRuntimeHarness {
     private var persistedPersistentKeyStorage: VoiceTriggerKey
     private var plannedResults: [Bool]
     private let applyDelay: TimeInterval
+    private let rawHIDReady: Bool
+    private let eventSuppressorReady: Bool
+    private let triggerEventRecorder = TriggerEventRecorder()
     private var mappingCallsStorage: [HIDMappingCall] = []
     private var mappingObservationsStorage: [HIDMappingObservation] = []
     private var persistenceWritesStorage: [VoiceTriggerKey] = []
@@ -535,14 +848,20 @@ private final class VoiceTriggerRuntimeHarness {
         persistedKey: VoiceTriggerKey,
         persistedPersistentKey: VoiceTriggerKey = .leftOption,
         applyResults: [Bool] = [],
-        applyDelay: TimeInterval = 0
+        applyDelay: TimeInterval = 0,
+        rawHIDReady: Bool = true,
+        eventSuppressorReady: Bool = true
     ) {
         mappingEnabledStorage = mappingEnabled
         persistedKeyStorage = persistedKey
         persistedPersistentKeyStorage = persistedPersistentKey
         plannedResults = applyResults
         self.applyDelay = applyDelay
-        trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in })
+        self.rawHIDReady = rawHIDReady
+        self.eventSuppressorReady = eventSuppressorReady
+        trigger = VoiceOptionTrigger(keyedEventSink: { [triggerEventRecorder] key, isDown in
+            triggerEventRecorder.append(TriggerEdge(key: key, isDown: isDown))
+        })
         filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
         controller = nil
         controller = AppController(
@@ -575,6 +894,8 @@ private final class VoiceTriggerRuntimeHarness {
                 lock.unlock()
                 return succeeded
             },
+            rawHIDReadiness: { rawHIDReady },
+            eventSuppressorReadiness: { eventSuppressorReady },
             readPersistedVoiceTriggerKey: { [self] in
                 lock.lock()
                 defer { lock.unlock() }
@@ -604,6 +925,10 @@ private final class VoiceTriggerRuntimeHarness {
         lock.lock()
         defer { lock.unlock() }
         return mappingEnabledStorage
+    }
+
+    var triggerEvents: [TriggerEdge] {
+        triggerEventRecorder.events
     }
 
     var persistedKey: VoiceTriggerKey {
@@ -636,5 +961,27 @@ private final class VoiceTriggerRuntimeHarness {
         lock.lock()
         defer { lock.unlock() }
         return persistentPersistenceWritesStorage.count
+    }
+}
+
+private struct TriggerEdge: Equatable {
+    let key: VoiceTriggerKey
+    let isDown: Bool
+}
+
+private final class TriggerEventRecorder {
+    private let lock = NSLock()
+    private var storage: [TriggerEdge] = []
+
+    func append(_ edge: TriggerEdge) {
+        lock.lock()
+        storage.append(edge)
+        lock.unlock()
+    }
+
+    var events: [TriggerEdge] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
     }
 }
