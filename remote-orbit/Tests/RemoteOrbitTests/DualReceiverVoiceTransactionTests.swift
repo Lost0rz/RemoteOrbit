@@ -116,6 +116,43 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
         XCTAssertTrue(harness.triggerEdges.isEmpty)
     }
 
+    func testSecondaryReadyBLongUsesHardwareGateAndNeverSyntheticTrigger() {
+        let harness = makeHarness()
+
+        harness.edge(isDown: true, at: 1_300.0)
+        harness.edge(isDown: false, at: 1_300.050)
+        awaitSecondaryReady(harness)
+        XCTAssertEqual(harness.controller.filter.voiceTriggerKey, .rightOption)
+        let gestureID = harness.recognizer.currentGestureID!
+        let secondDownAt = 1_300.200
+        harness.edge(isDown: true, at: secondDownAt)
+
+        XCTAssertEqual(harness.hardwareGateBeginCount, 2)
+        XCTAssertTrue(harness.hardwareGateIsActive)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+
+        harness.scheduler.advance(to: secondDownAt + 0.350)
+        XCTAssertEqual(harness.recognizer.stateForTesting, .activeB)
+        XCTAssertEqual(harness.activationCount, 1)
+        XCTAssertEqual(harness.hardwareGateLongReadyCount, 0)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+
+        harness.voicePress.setRemoteStreaming(true)
+        XCTAssertEqual(harness.hardwareGateLongReadyCount, 0)
+        harness.voicePress.setRemoteAudioAvailable()
+        XCTAssertEqual(harness.hardwareGateLongReadyCount, 1)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+
+        let sessionID = harness.voicePress.currentGestureIDForDiagnostics!
+        harness.edge(isDown: false, at: secondDownAt + 0.400)
+        XCTAssertEqual(harness.hardwareGatePhysicalUpCount, 1)
+        harness.voicePress.setRemoteStreaming(false)
+        harness.completeOutputDrain(for: sessionID)
+        XCTAssertEqual(harness.hardwareGateOutputDrainedCount, 1)
+        XCTAssertEqual(gestureID, sessionID)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+    }
+
     func testSecondQuickReleaseCancelsPrewarmWithoutActivationOrRoute() {
         let harness = makeHarness()
 
@@ -221,13 +258,15 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
         XCTAssertTrue(harness.triggerEdges.isEmpty)
     }
 
-    func testClassifiedBAndAudioStartWaitForFirstPCMBeforeRightOptionDown() {
+    func testClassifiedBAndAudioStartWaitForFirstPCMThroughHardwareGate() {
         let harness = makeHarness()
 
         harness.edge(isDown: true, at: 700.0)
         harness.edge(isDown: false, at: 700.050)
         awaitSecondaryReady(harness)
         harness.edge(isDown: true, at: 700.200)
+        XCTAssertEqual(harness.hardwareGateBeginCount, 2)
+        XCTAssertTrue(harness.hardwareGateIsActive)
         harness.scheduler.advance(to: 700.551)
 
         XCTAssertEqual(harness.recognizer.stateForTesting, .activeB)
@@ -238,10 +277,11 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
         XCTAssertTrue(harness.triggerEdges.isEmpty)
 
         harness.voicePress.setRemoteAudioAvailable()
-        XCTAssertEqual(harness.triggerEdges, ["right_option:down"])
+        XCTAssertEqual(harness.hardwareGateLongReadyCount, 1)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
 
         harness.voicePress.stop()
-        XCTAssertEqual(harness.triggerEdges, ["right_option:down", "right_option:up"])
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
     }
 
     func testClassifiedHoldReleasedWithoutFirstPCMEmitsNoReceiverEdges() {
@@ -283,31 +323,17 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
             let sessionID = try XCTUnwrap(
                 harness.voicePress.currentGestureIDForDiagnostics
             )
-            let selectedKey: VoiceTriggerKey = receiver == .a ? .leftOption : .rightOption
-            if receiver == .a {
-                XCTAssertEqual(harness.hardwareGateLongReadyCount, 1)
-                XCTAssertTrue(harness.triggerEdges.isEmpty)
-            } else {
-                XCTAssertEqual(harness.triggerEdges, ["\(selectedKey.rawValue):down"])
-            }
+            XCTAssertEqual(harness.hardwareGateLongReadyCount, 1)
+            XCTAssertTrue(harness.triggerEdges.isEmpty)
 
             harness.edge(isDown: false, at: downAt + 0.700)
             harness.voicePress.setRemoteStreaming(false)
-            if receiver == .b {
-                XCTAssertEqual(harness.triggerEdges, ["\(selectedKey.rawValue):down"])
-            }
+            XCTAssertEqual(harness.hardwareGatePhysicalUpCount, 1)
+            XCTAssertTrue(harness.triggerEdges.isEmpty)
 
             harness.completeOutputDrain(for: sessionID)
-            if receiver == .a {
-                XCTAssertEqual(harness.hardwareGatePhysicalUpCount, 1)
-                XCTAssertEqual(harness.hardwareGateOutputDrainedCount, 1)
-                XCTAssertTrue(harness.triggerEdges.isEmpty)
-            } else {
-                XCTAssertEqual(harness.triggerEdges, [
-                    "\(selectedKey.rawValue):down",
-                    "\(selectedKey.rawValue):up",
-                ])
-            }
+            XCTAssertEqual(harness.hardwareGateOutputDrainedCount, 1)
+            XCTAssertTrue(harness.triggerEdges.isEmpty)
             XCTAssertEqual(harness.voicePress.currentStateForTesting, .idle)
         }
     }

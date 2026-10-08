@@ -51,6 +51,52 @@ final class VoicePressCoordinatorTests: XCTestCase {
         press.stop()
     }
 
+    func testClassifiedHardwareHoldCanOwnReceiverBWithoutSyntheticEdges() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        let sessionID = UUID()
+        var gateBegins: [UUID] = []
+        var longReady: [UUID] = []
+        var physicalUps: [UUID] = []
+        var outputDrained: [UUID] = []
+        var completeDrain: (() -> Void)?
+        press.onHardwareOptionGateBegin = { gateBegins.append($0) }
+        press.onHardwareOptionGateLongReady = { longReady.append($0) }
+        press.onHardwareOptionGatePhysicalUp = { physicalUps.append($0) }
+        press.onHardwareOptionGateOutputDrained = { outputDrained.append($0) }
+        press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
+
+        XCTAssertTrue(press.beginClassifiedHardwareGate(sessionID: sessionID))
+        XCTAssertTrue(
+            press.beginClassifiedHardwareHold(
+                sessionID: sessionID,
+                physicalDownAt: 20,
+                triggerKey: .rightOption
+            )
+        )
+        XCTAssertEqual(gateBegins, [sessionID])
+        XCTAssertTrue(events.isEmpty)
+
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(events.isEmpty)
+        press.setRemoteAudioAvailable()
+        XCTAssertEqual(longReady, [sessionID])
+        XCTAssertTrue(events.isEmpty)
+
+        XCTAssertTrue(press.keyUp())
+        XCTAssertEqual(physicalUps, [sessionID])
+        press.setRemoteStreaming(false)
+        XCTAssertNotNil(completeDrain)
+        XCTAssertTrue(outputDrained.isEmpty)
+        completeDrain?()
+        XCTAssertEqual(outputDrained, [sessionID])
+        XCTAssertTrue(events.isEmpty)
+        press.stop()
+    }
+
     func testClassifiedHoldCapturesReceiverAndSendsDownOnlyOnFirstPCM() {
         for key in [VoiceTriggerKey.leftOption, .rightOption] {
             var events: [(key: VoiceTriggerKey, isDown: Bool)] = []

@@ -3621,10 +3621,30 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let gestureID = dualReceiverVoiceGestureRecognizer.handleDown(at: timestamp)
             guard let gestureID else { return }
             dualReceiverPhysicalDownAt = timestamp
-            if dualReceiverMappedTriggerState.phase == .primaryReady,
+            let mappingPhase = dualReceiverMappedTriggerState.phase
+            let shouldPrearmHardwareGate: Bool
+            switch mappingPhase {
+            case .primaryReady:
+                shouldPrearmHardwareGate = true
+            case let .secondaryReady(readyGestureID):
+                shouldPrearmHardwareGate = readyGestureID == gestureID
+            case .armingSecondary, .secondaryActive, .restoringPrimary,
+                 .blockedUntilRelease, .unavailable:
+                shouldPrearmHardwareGate = false
+            }
+            if shouldPrearmHardwareGate,
                !voicePress.beginClassifiedHardwareGate(sessionID: gestureID) {
                 dualReceiverVoiceGestureRecognizer.cancel()
                 dualReceiverPhysicalDownAt = nil
+                if case .secondaryReady = mappingPhase {
+                    if dualReceiverPrewarmGestureID == gestureID {
+                        cancelPendingDualReceiverPrewarm()
+                    }
+                    restorePrimaryMappingAfterSecondary(
+                        gestureID: gestureID,
+                        reason: "secondary-hardware-gate-begin-failed"
+                    )
+                }
                 return
             }
             if dualReceiverPrewarmGestureID != gestureID {
@@ -3724,20 +3744,42 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let triggerKey = receiver == .a ? receiverA : receiverB
             dualReceiverPrewarmGestureID = nil
             dualReceiverPhysicalDownAt = nil
-            let beganVoicePress = receiver == .a
-                ? voicePress.beginClassifiedHardwareHold(
+            if receiver == .b {
+                guard dualReceiverMappedTriggerState.admitSecondaryPress(
+                    gestureID: gestureID
+                ) else {
+                    _ = voicePress.cancelClassifiedHardwareGate(sessionID: gestureID)
+                    cancelVoiceTransportPreparation()
+                    dualReceiverVoiceGestureRecognizer.cancel()
+                    restorePrimaryMappingAfterSecondary(
+                        gestureID: gestureID,
+                        reason: "secondary-admission-generation-stale",
+                        keepDualModeLocked: true
+                    )
+                    return
+                }
+                guard voicePress.beginClassifiedHardwareHold(
                     sessionID: gestureID,
                     physicalDownAt: physicalDownAt,
                     triggerKey: triggerKey
-                )
-                : {
+                ) else {
                     _ = voicePress.cancelClassifiedHardwareGate(sessionID: gestureID)
-                    return voicePress.beginClassifiedHold(
-                        sessionID: gestureID,
-                        physicalDownAt: physicalDownAt,
-                        triggerKey: triggerKey
+                    cancelVoiceTransportPreparation()
+                    dualReceiverVoiceGestureRecognizer.cancel()
+                    restorePrimaryMappingAfterSecondary(
+                        gestureID: gestureID,
+                        reason: "secondary-hardware-hold-begin-failed"
                     )
-                }()
+                    return
+                }
+                activeDualReceiverGestureID = gestureID
+                return
+            }
+            let beganVoicePress = voicePress.beginClassifiedHardwareHold(
+                sessionID: gestureID,
+                physicalDownAt: physicalDownAt,
+                triggerKey: triggerKey
+            )
             guard beganVoicePress else {
                 _ = voicePress.cancelClassifiedHardwareGate(sessionID: gestureID)
                 cancelVoiceTransportPreparation()
