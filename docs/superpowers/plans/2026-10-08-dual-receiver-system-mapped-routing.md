@@ -508,11 +508,11 @@ Do not redesign disconnect/BLE subsystems; only ensure mapping/gate ownership co
 **Interfaces:**
 - Retains accepted 019 Receiver A/Receiver B configuration.
 
-- [ ] **Step 1: Verify no new UI is required**
+- [x] **Step 1: Verify no new UI is required**
 
 A and B preferences already exist. Do not add provider/backend controls.
 
-- [ ] **Step 2: Add/adjust regression assertions**
+- [x] **Step 2: Add/adjust regression assertions**
 
 ```text
 secondary Off -> legacy single-receiver mapping
@@ -522,14 +522,14 @@ settings change busy during arming/active/restoring
 Persistent trigger preference remains independent
 ```
 
-- [ ] **Step 3: Run GREEN**
+- [x] **Step 3: Run GREEN**
 
 ```sh
 swift test --package-path remote-orbit --filter DualReceiverVoiceSettingsTests
 swift test --package-path remote-orbit --filter VoicePersistentSessionTests
 ```
 
-- [ ] **Step 4: Commit only if files/tests changed**
+- [x] **Step 4: Commit only if files/tests changed**
 
 ---
 

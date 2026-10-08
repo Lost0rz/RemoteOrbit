@@ -140,12 +140,13 @@ Follow the implementation plan task-by-task with TDD, subject to this task and l
 
 - Authoritative parent control HEAD: `bf5579fc43f2efbe627dec03f4d0b52182a2848f`.
 - Implementation branch/worktree: `codex/dual-receiver-system-mapped-routing-v2` at `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`.
-- Tasks 2–10 are implemented, tested, committed and pushed; product checkpoint `fa6e08e96bcc16ab5079415973619b91810c8167` matches the remote branch.
+- Tasks 2–11 are implemented and tested; product checkpoint `fa6e08e96bcc16ab5079415973619b91810c8167` and control-sync branch HEAD `f4b7fe9338088b96f38bec04928834e6efe54ca2` are pushed and match the remote branch. Task 11 required no additional source/test files.
 - Task 8 TDD evidence: the pre-change integration test observed no second hardware-gate begin and synthetic B output at first PCM; after implementation `DualReceiverVoiceTransactionTests` passed 13/13, `VoicePressCoordinatorTests` 38/38, `VoiceTriggerRuntimeTests` 48/48; `git diff --check` passed.
 - A ready B DOWN now arms the same hardware gate as A; 350 ms classification enters the hardware hold and first PCM releases through the gate. The normal B path emits no synthetic trigger edge.
 - Task 9 verifies timeout and B quick-release restoration, rejects new DOWN while B owns the mapping, and restores A only after output drain closes the held mapped-UP owner. Focused VoiceTriggerRuntimeTests and DualReceiverVoiceTransactionTests passed 64/64; `git diff --check` passed; product checkpoint `f1ce1c0bdeddaf516923ba80153482786183fad2` is pushed.
 - Task 10 adds fail-closed HID-removal invalidation, serializes device mapping operations, waits for physical release before restoring A after momentary BLE loss, blocks setting changes throughout mapping ownership, and ignores stale A-restore completions/readbacks. Focused VoiceTriggerRuntimeTests and DualReceiverVoiceTransactionTests passed 72/72; `git diff --check` passed; product checkpoint `fa6e08e96bcc16ab5079415973619b91810c8167` is pushed.
-- Next: Task 11, settings and legacy regression.
+- Task 11 confirmed existing A/B settings require no new UI or provider controls. `DualReceiverVoiceSettingsTests` passed 4/4 and `VoicePersistentSessionTests` passed 16/16. Existing/new assertions cover secondary Off, equal A/B, non-disabled SHORT, settings exclusion while B is armed/active/restoring, and Persistent Session trigger independence. No Task 11-only commit was needed.
+- Next: Task 12, full focused suites, full test suite, self-tests, release/package build, scope audit, then exact candidate install and RemoteOrbit-only restart.
 - No candidate build/install or task-scoped app restart has occurred. No remote gesture, BLE or audio test has occurred.
 - The canonical dirty `HIDMonitor.swift` and `codex/v0211-nonseize-hid-audit` remain untouched.
 

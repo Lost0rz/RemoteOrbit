@@ -18,8 +18,8 @@ This file is the authority for mutable current project state. Historical detail 
 - Preserved product HEAD: `ef29186e25c64cd4d1d7209cb2a41f95c51d4a11`.
 - Authorized v2 branch: `codex/dual-receiver-system-mapped-routing-v2`.
 - Authorized v2 worktree: `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`.
-- Current implementation checkpoint: `fa6e08e96bcc16ab5079415973619b91810c8167` (Tasks 2–10 complete; product/test checkpoint pushed and remote branch matches).
-- Next implementation task: Task 11, settings and legacy regression.
+- Current v2 branch HEAD: `f4b7fe9338088b96f38bec04928834e6efe54ca2` (Task 11 control sync); product checkpoint `fa6e08e96bcc16ab5079415973619b91810c8167` (Tasks 2–11 complete; Task 11 required no additional source/test files; remote branch matches).
+- Next implementation task: Task 12, full automated validation, scope audit, and exact candidate build/install.
 - Candidate has not been built or installed; RemoteOrbit has not been restarted for this task.
 - Merge remains forbidden.
 
