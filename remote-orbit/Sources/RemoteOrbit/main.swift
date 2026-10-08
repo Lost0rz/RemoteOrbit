@@ -409,6 +409,7 @@ final class VoicePressCoordinator {
     private var longInputStarted = false
     private var classifiedDualReceiverHold = false
     private var classifiedDualReceiverTriggerKey: VoiceTriggerKey?
+    private var prearmedDualReceiverHardwareGateSessionID: UUID?
     private var releaseBounceDebounceUntil = Date.distantPast
     private var lastPhysicalUpAt: Date?
     private(set) var lastRepressDecisionForTesting: String?
@@ -717,10 +718,70 @@ final class VoicePressCoordinator {
         )
     }
 
-    private func startClassifiedHold(
+    /// Arms the existing physical Option gate at the raw-HID boundary for an
+    /// A-mapped dual-receiver press. Classification still happens in the
+    /// dual-receiver recognizer; this method does not start voice routing.
+    @discardableResult
+    func beginClassifiedHardwareGate(sessionID: UUID) -> Bool {
+        guard pendingPersistentToggle == nil,
+              mode == .idle,
+              !awaitingPhysicalVoiceKeyUp,
+              !remoteRouted,
+              !longInputStarted,
+              tailWorkItem == nil,
+              gestureID == nil,
+              remoteOutputDrainRequestedSessionID == nil,
+              pendingRepress == nil,
+              !deferredRepressAwaitingActivation,
+              prearmedDualReceiverHardwareGateSessionID == nil else {
+            return false
+        }
+        prearmedDualReceiverHardwareGateSessionID = sessionID
+        onHardwareOptionGateBegin?(sessionID)
+        return true
+    }
+
+    /// Enters the existing route lifecycle after dual-receiver classification
+    /// while retaining the hardware-mapped A edge owner armed at raw DOWN.
+    /// It deliberately skips the legacy short/long classifier and never emits
+    /// a synthetic receiver trigger edge.
+    @discardableResult
+    func beginClassifiedHardwareHold(
         sessionID: UUID,
         physicalDownAt: TimeInterval,
         triggerKey: VoiceTriggerKey
+    ) -> Bool {
+        guard prearmedDualReceiverHardwareGateSessionID == sessionID else {
+            return false
+        }
+        let started = startClassifiedHold(
+            sessionID: sessionID,
+            physicalDownAt: physicalDownAt,
+            triggerKey: triggerKey,
+            usesHardwareOption: true
+        )
+        if started {
+            prearmedDualReceiverHardwareGateSessionID = nil
+        }
+        return started
+    }
+
+    @discardableResult
+    func cancelClassifiedHardwareGate(sessionID: UUID) -> Bool {
+        guard prearmedDualReceiverHardwareGateSessionID == sessionID else {
+            return false
+        }
+        prearmedDualReceiverHardwareGateSessionID = nil
+        onHardwareOptionGateCancel?(sessionID)
+        _ = syntheticOptionTrigger.abort(sessionID: sessionID)
+        return true
+    }
+
+    private func startClassifiedHold(
+        sessionID: UUID,
+        physicalDownAt: TimeInterval,
+        triggerKey: VoiceTriggerKey,
+        usesHardwareOption: Bool = false
     ) -> Bool {
         guard pendingPersistentToggle == nil,
               mode == .idle,
@@ -744,14 +805,14 @@ final class VoicePressCoordinator {
         remoteSegmentTriggerPolicy = .momentaryTrigger
         audioOnlyHardwareTriggerSuppressed = false
         resetAudioOnlyHardwareTriggerOnDrain = false
-        usesHardwareOptionPath = false
+        usesHardwareOptionPath = usesHardwareOption
         remoteOutputDrainRequestedSessionID = nil
         remoteOutputDrainedSessionID = nil
         physicalUpSessionID = nil
         awaitingPhysicalVoiceKeyUp = false
         pendingVoiceUIHidden = false
-        classifiedDualReceiverHold = true
-        classifiedDualReceiverTriggerKey = triggerKey
+        classifiedDualReceiverHold = !usesHardwareOption
+        classifiedDualReceiverTriggerKey = usesHardwareOption ? nil : triggerKey
         gestureID = sessionID
         gesturePhysicalDownUptime = physicalDownAt
         remoteAudioAvailable = false
@@ -766,6 +827,7 @@ final class VoicePressCoordinator {
                 "momentary_configured_key": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
                 "policy": "momentary_trigger",
                 "classifier": "dual_receiver",
+                "trigger_source": usesHardwareOption ? "hardware" : "synthetic",
             ]
         )
         logGestureClassification(
@@ -3456,6 +3518,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let gestureID = dualReceiverVoiceGestureRecognizer.handleDown(at: timestamp)
             guard let gestureID else { return }
             dualReceiverPhysicalDownAt = timestamp
+            if dualReceiverMappedTriggerState.phase == .primaryReady,
+               !voicePress.beginClassifiedHardwareGate(sessionID: gestureID) {
+                dualReceiverVoiceGestureRecognizer.cancel()
+                dualReceiverPhysicalDownAt = nil
+                return
+            }
             if dualReceiverPrewarmGestureID != gestureID {
                 dualReceiverPrewarmGestureID = gestureID
                 prepareVoiceTransport()
@@ -3484,9 +3552,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ event: DualReceiverVoiceGestureRecognizer.Event
     ) {
         switch event {
-        case .awaitingSecondPress:
-            break
+        case let .awaitingSecondPress(gestureID, _):
+            _ = voicePress.cancelClassifiedHardwareGate(sessionID: gestureID)
         case let .noAction(gestureID):
+            _ = voicePress.cancelClassifiedHardwareGate(sessionID: gestureID)
             guard dualReceiverPrewarmGestureID == gestureID else { return }
             cancelPendingDualReceiverPrewarm()
             dualReceiverPhysicalDownAt = nil
@@ -3502,11 +3571,22 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let triggerKey = receiver == .a ? receiverA : receiverB
             dualReceiverPrewarmGestureID = nil
             dualReceiverPhysicalDownAt = nil
-            guard voicePress.beginClassifiedHold(
-                sessionID: gestureID,
-                physicalDownAt: physicalDownAt,
-                triggerKey: triggerKey
-            ) else {
+            let beganVoicePress = receiver == .a
+                ? voicePress.beginClassifiedHardwareHold(
+                    sessionID: gestureID,
+                    physicalDownAt: physicalDownAt,
+                    triggerKey: triggerKey
+                )
+                : {
+                    _ = voicePress.cancelClassifiedHardwareGate(sessionID: gestureID)
+                    return voicePress.beginClassifiedHold(
+                        sessionID: gestureID,
+                        physicalDownAt: physicalDownAt,
+                        triggerKey: triggerKey
+                    )
+                }()
+            guard beganVoicePress else {
+                _ = voicePress.cancelClassifiedHardwareGate(sessionID: gestureID)
                 cancelVoiceTransportPreparation()
                 dualReceiverVoiceGestureRecognizer.cancel()
                 return
@@ -3565,6 +3645,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func cancelDualReceiverGestureStateForHIDRemoval() {
+        if let pendingGestureID = dualReceiverPrewarmGestureID {
+            _ = voicePress.cancelClassifiedHardwareGate(sessionID: pendingGestureID)
+        }
         dualReceiverVoiceGestureRecognizer.cancel()
         cancelPendingDualReceiverPrewarm()
         dualReceiverPhysicalDownAt = nil

@@ -2,6 +2,24 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceOptionTriggerTests: XCTestCase {
+    func testHardwareGateOwnerCorrelationDoesNotEmitSyntheticReceiverEdges() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let gate = HardwareOptionGate()
+        let session = UUID()
+
+        XCTAssertTrue(gate.begin(sessionID: session))
+        XCTAssertTrue(trigger.begin(sessionID: session))
+        XCTAssertTrue(gate.capture(.down, copied: true))
+        XCTAssertEqual(gate.resolve(sessionID: session), .hardwareReplay)
+        XCTAssertFalse(trigger.abort(sessionID: session))
+
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertNil(trigger.activeSessionID)
+    }
+
     func testHardwareLongUsesOnlyTheCapturedPhysicalDown() {
         let gate = HardwareOptionGate()
         let session = UUID()
