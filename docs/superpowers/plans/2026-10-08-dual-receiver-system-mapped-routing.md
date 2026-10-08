@@ -439,29 +439,29 @@ Reuse the same already-classified hardware-hold entry as A; selected key is diag
 - Consumes: B mapping phases and HardwareOptionGate safe-close lifecycle.
 - Produces: verified runtime return to primary A before next gesture.
 
-- [ ] **Step 1: RED — no second press timeout**
+- [x] **Step 1: RED — no second press timeout**
 
 After <=300 ms window expires, restore B->A and cancel prewarm. New first press is admitted only after A restore succeeds.
 
-- [ ] **Step 2: RED — second quick release**
+- [x] **Step 2: RED — second quick release**
 
 Discard captured B down/up, expose neither receiver, then restore A.
 
-- [ ] **Step 3: RED — completed B long transaction**
+- [x] **Step 3: RED — completed B long transaction**
 
 Do not start B->A remap merely at physical UP or output-drain start. Restore only after held mapped B UP ownership is safely closed.
 
-- [ ] **Step 4: RED — restore failure**
+- [x] **Step 4: RED — restore failure**
 
 A restore failure -> `.unavailable` / runtime lock; later gesture, prewarm and receiver edges all remain zero.
 
-- [ ] **Step 5: Implement safe-close callback and serialized restore**
+- [x] **Step 5: Implement safe-close callback and serialized restore**
 
 Use generation tokens so stale restore/arm completions cannot overwrite a newer state.
 
-- [ ] **Step 6: GREEN**
+- [x] **Step 6: GREEN**
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ---
 

@@ -140,10 +140,11 @@ Follow the implementation plan task-by-task with TDD, subject to this task and l
 
 - Authoritative parent control HEAD: `bf5579fc43f2efbe627dec03f4d0b52182a2848f`.
 - Implementation branch/worktree: `codex/dual-receiver-system-mapped-routing-v2` at `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`.
-- Tasks 2–8 are implemented, tested, committed and pushed; checkpoint `a4a56b1c2d87c0d947c9a822e796a2b479bbfea1` matches the remote branch.
+- Tasks 2–9 are implemented, tested, committed and pushed; product checkpoint `f1ce1c0bdeddaf516923ba80153482786183fad2` matches the remote branch.
 - Task 8 TDD evidence: the pre-change integration test observed no second hardware-gate begin and synthetic B output at first PCM; after implementation `DualReceiverVoiceTransactionTests` passed 13/13, `VoicePressCoordinatorTests` 38/38, `VoiceTriggerRuntimeTests` 48/48; `git diff --check` passed.
 - A ready B DOWN now arms the same hardware gate as A; 350 ms classification enters the hardware hold and first PCM releases through the gate. The normal B path emits no synthetic trigger edge.
-- Next: Task 9, restore A after timeout, B quick release, and safely closed completed B transactions.
+- Task 9 verifies timeout and B quick-release restoration, rejects new DOWN while B owns the mapping, and restores A only after output drain closes the held mapped-UP owner. Focused VoiceTriggerRuntimeTests and DualReceiverVoiceTransactionTests passed 64/64; `git diff --check` passed; product checkpoint `f1ce1c0bdeddaf516923ba80153482786183fad2` is pushed.
+- Next: Task 10, disconnect, transport loss, runtime reconfiguration, and asynchronous readback safety.
 - No candidate build/install or task-scoped app restart has occurred. No remote gesture, BLE or audio test has occurred.
 - The canonical dirty `HIDMonitor.swift` and `codex/v0211-nonseize-hid-audit` remain untouched.
 
