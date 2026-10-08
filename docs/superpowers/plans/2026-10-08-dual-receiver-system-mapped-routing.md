@@ -397,7 +397,7 @@ Never buffer a second DOWN across a mapping switch because remapping an already-
 - Consumes: `secondaryReady`, filter target B, physical second F5 mapped to B.
 - Produces: B hardware gate capture, 350 ms B classification, first-PCM replay of B DOWN.
 
-- [ ] **Step 1: Write RED tests**
+- [x] **Step 1: Write RED tests**
 
 Assert:
 
@@ -410,20 +410,20 @@ A replay = 0
 synthetic = 0
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```sh
 swift test --package-path remote-orbit --filter DualReceiverVoiceTransactionTests
 swift test --package-path remote-orbit --filter VoicePressCoordinatorTests
 ```
 
-- [ ] **Step 3: Implement classified B hardware hold**
+- [x] **Step 3: Implement classified B hardware hold**
 
 Reuse the same already-classified hardware-hold entry as A; selected key is diagnostic/ownership metadata, not a synthetic trigger instruction.
 
-- [ ] **Step 4: GREEN**
+- [x] **Step 4: GREEN**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ---
 

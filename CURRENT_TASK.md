@@ -140,10 +140,10 @@ Follow the implementation plan task-by-task with TDD, subject to this task and l
 
 - Authoritative parent control HEAD: `bf5579fc43f2efbe627dec03f4d0b52182a2848f`.
 - Implementation branch/worktree: `codex/dual-receiver-system-mapped-routing-v2` at `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`.
-- Tasks 2–7 are implemented, tested, committed and pushed; checkpoint `f5e6099ea0c4dbc1207145704b98f0dd5d472446` matches the remote branch.
-- Task 7 TDD evidence: both delayed-mapping tests failed before implementation with second DOWN left active/arming and voice activation observed; after implementation `VoiceTriggerRuntimeTests` passed 48/48 and `DualReceiverVoiceTransactionTests` passed 12/12; `git diff --check` passed.
-- Early second DOWN invalidates B arm completion, remains suppressed until physical UP, then restores A; new downs during A restoration are rejected. Runtime log records `SECOND_DOWN_READY_BEFORE_EDGE`.
-- Next: Task 8, route a `SECONDARY_READY` B hold through the existing hardware gate.
+- Tasks 2–8 are implemented, tested, committed and pushed; checkpoint `a4a56b1c2d87c0d947c9a822e796a2b479bbfea1` matches the remote branch.
+- Task 8 TDD evidence: the pre-change integration test observed no second hardware-gate begin and synthetic B output at first PCM; after implementation `DualReceiverVoiceTransactionTests` passed 13/13, `VoicePressCoordinatorTests` 38/38, `VoiceTriggerRuntimeTests` 48/48; `git diff --check` passed.
+- A ready B DOWN now arms the same hardware gate as A; 350 ms classification enters the hardware hold and first PCM releases through the gate. The normal B path emits no synthetic trigger edge.
+- Next: Task 9, restore A after timeout, B quick release, and safely closed completed B transactions.
 - No candidate build/install or task-scoped app restart has occurred. No remote gesture, BLE or audio test has occurred.
 - The canonical dirty `HIDMonitor.swift` and `codex/v0211-nonseize-hid-audit` remain untouched.
 
