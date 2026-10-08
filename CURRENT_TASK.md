@@ -1,245 +1,249 @@
 # RemoteOrbit Current Task
 
-## Current task — SYSTEM-MAPPED DUAL-RECEIVER MAPPING LATENCY GATE
+## Current task — SYSTEM-MAPPED DUAL-RECEIVER V2 IMPLEMENTATION
 
-- **Status:** ACTIVE / EVIDENCE COLLECTION ONLY
-- **Task ID:** `RO-DUAL-RECEIVER-MAPPING-LATENCY-GATE-022`
-- **Previous task:** `RO-DUAL-RECEIVER-SYSTEM-MAPPED-ROUTING-021` — PLAN APPROVED SUBJECT TO LATENCY GATE
+- **Status:** ACTIVE / PRODUCT CONSTRUCTION AUTHORIZED THROUGH CANDIDATE INSTALL AND SET-A HANDOFF
+- **Task ID:** `RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023`
+- **Previous task:** `RO-DUAL-RECEIVER-MAPPING-LATENCY-GATE-022` — PASS
 - **Final design:** `docs/superpowers/specs/2026-10-08-dual-receiver-system-mapped-trigger-design-final.md`
 - **Implementation plan:** `docs/superpowers/plans/2026-10-08-dual-receiver-system-mapped-routing.md`
-- **Gate procedure:** `docs/superpowers/plans/2026-10-08-dual-receiver-mapping-latency-gate.md`
-- **Preserved implementation branch:** `codex/dual-receiver-momentary-routing-v1`
-- **Preserved branch HEAD:** `c90edbf73ad9b0642fa344734571c0e806c0eb73`
+- **Latency addendum:** `docs/superpowers/plans/2026-10-08-dual-receiver-system-mapped-routing-latency-addendum.md`
+- **Preserved implementation base:** `codex/dual-receiver-momentary-routing-v1` at `c90edbf73ad9b0642fa344734571c0e806c0eb73`
 - **Preserved product HEAD:** `ef29186e25c64cd4d1d7209cb2a41f95c51d4a11`
-- **Product/test source mutation:** FORBIDDEN
-- **Build/install/restart:** FORBIDDEN
-- **Receiver shortcut changes:** FORBIDDEN
-- **Remote hardware gestures:** FORBIDDEN
-- **Provider/system-extension install:** FORBIDDEN / NOT NEEDED
+- **Authorized v2 branch:** `codex/dual-receiver-system-mapped-routing-v2`
+- **Authorized worktree:** `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`
 - **Merge:** FORBIDDEN
 
-## Purpose
+## Latency prerequisite — PASSED
 
-Before v2 product construction, measure the only unresolved timing prerequisite of the corrected design:
-
-`How long does the existing device-scoped hidutil mapping take to switch A <-> B on this machine?`
-
-Observed natural first-UP -> second-DOWN gaps from the closed gesture study were approximately:
+Measured real process-level mapping latency:
 
 ```text
-74.476 ms .. 239.547 ms
+A->B: 50/50 success
+median 5.428063 ms
+p95    6.137273 ms
+max    6.698084 ms
+
+B->A: 50/50 success
+median 5.326646 ms
+p95    6.389208 ms
+max    6.703750 ms
 ```
 
-The local executor collects evidence only. Web decides PASS/MARGINAL/FAIL after reviewing the distribution.
+Prior natural first-UP -> second-DOWN minimum: `74.476 ms`.
 
-## Frozen mapping targets
+Worst measured A->B process margin: `67.777916 ms`.
 
-Use the same supported Xiaomi remote device match and destinations already present in `RemoteVoiceKeyMapping`:
+`MAPPING_LATENCY_GATE_PASS`
+
+This authorizes construction. Production must additionally log total `FIRST_UP_TO_SECONDARY_READY_MS`; the second physical DOWN is still admitted only if `SECONDARY_READY` is already true.
+
+## Authoritative architecture
+
+### A / primary ready
 
 ```text
-matching:
-{"VendorID":0x2717,"ProductID":0x32B8}
-
-source:
-0x70000003E
-
-A / Left Option destination:
-0x7000000E2
-
-B / Right Option destination:
-0x7000000E6
+F5 mapping = A
+filter target = A
 ```
 
-Do not substitute another device, target or remapper.
+Direct LONG uses the original hardware/system-mapped path:
 
-## Gate 0 — freshness and current-state capture
+```text
+physical F5
+-> mapped A edge captured
+-> 350 ms classify A
+-> activate remote audio
+-> first PCM
+-> release captured A DOWN
+-> release/drain
+-> captured A UP
+```
+
+### First quick release
+
+```text
+discard captured A pair
+-> begin guarded A->B reconfiguration
+-> hidutil --set F5->B
+-> configure filter B
+-> end suppression guard
+-> SECONDARY_READY
+```
+
+### Second DOWN admission
+
+Only `SECONDARY_READY` may admit the second physical DOWN.
+
+If second DOWN arrives earlier:
+
+```text
+A exposed = 0
+B exposed = 0
+synthetic = 0
+BLE activation for that attempt = 0
+no buffering/replay after readiness
+```
+
+### Second LONG B
+
+```text
+mapped B edge captured
+-> 350 ms classify B
+-> remote audio
+-> first PCM
+-> release captured B DOWN
+-> release/drain
+-> captured B UP
+-> only then restore B->A
+```
+
+Timeout or second quick release opens neither receiver and restores A.
+
+## Mandatory invariants
+
+```text
+RAW_HID_OWNER = HIDMonitor only
+MAPPED_EDGE_OWNER = VoiceKeyFilter / HardwareOptionGate only
+MAPPING_AUTHORITY = RemoteVoiceKeyMapping only
+NORMAL_DUAL_SYNTHETIC_TRIGGER = NO
+VIRTUAL_HID_PROVIDER = NO
+PERSISTENT_SESSION_RECEIVER_AUTHORITY = NO
+GENERIC_BUTTON_GESTURE_TIMING_CHANGE = NO
+BLE_CODEC_CHANGE = NO
+TAIL_DRAIN_RETUNE = NO
+```
+
+Mapping failures are fail-closed. B->A restore failure blocks all later gestures until reconciliation.
+
+Do not put synchronous `hidutil --get` in the double-tap critical path. Asynchronous readback remains diagnostic.
+
+## Required production timing evidence
+
+For every A->B / B->A runtime transition log monotonic:
+
+```text
+A_TO_B_APPLY_MS
+B_TO_A_APPLY_MS
+FIRST_UP_TO_SECONDARY_READY_MS
+```
+
+For second-DOWN admission also log whether readiness pre-existed the DOWN.
+
+A stale completion/readback from an older mapping generation must not mutate current ownership.
+
+## Construction procedure
+
+Follow the implementation plan task-by-task with TDD, subject to this task and latency addendum.
+
+### Gate 0 — authority and v2 baseline
 
 1. `git fetch origin --prune`.
-2. Read `AGENTS.md`, `CURRENT_STATUS.md`, `CURRENT_TASK.md`.
-3. Verify authoritative `origin/main` matches the task authority or is a control/docs-only compatible successor with the same Task ID and gate contract.
-4. Do not create a product implementation worktree for this gate.
-5. Record the currently running RemoteOrbit identity read-only if present.
-6. Record the exact pre-test device-scoped `UserKeyMapping` readback for the Xiaomi remote.
-7. Save that raw readback to the evidence directory before changing anything.
+2. Read `AGENTS.md`, `CURRENT_STATUS.md`, `CURRENT_TASK.md`, final design, implementation plan, latency addendum, README and SETUP_NOTES.
+3. Verify authoritative main and preserved base.
+4. Create/reconcile only `codex/dual-receiver-system-mapped-routing-v2` from preserved branch `c90edbf...`.
+5. Use only `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`.
+6. Sync only authoritative control/spec/plan/addendum files from current `origin/main`; do not merge main product history into v2.
+7. Prove product baseline remains the accepted 019 product tree before new edits.
+8. Run the accepted focused baseline suites.
 
-If mapping state cannot be read safely, STOP.
+### Existing local state protection
 
-## Gate 1 — bounded temporary measurement environment
+The reported local-only branch `codex/v0211-nonseize-hid-audit` is not authority for this task. Inspect only if needed for attribution; do not use, merge, delete or rewrite it.
 
-Create only a temporary evidence directory under `/private/tmp`, for example:
+The pre-existing dirty canonical `remote-orbit/Sources/RemoteOrbit/KeyMapping/HIDMonitor.swift` must remain untouched. No clean/stash/reset/restore/copy.
 
-```text
-/private/tmp/remoteorbit-mapping-latency-gate-022-<timestamp>/
-```
+### Product implementation
 
-A temporary script in that evidence directory is allowed. Do not add it to the repository.
+Execute implementation-plan Tasks 2 through 12. Required outcomes include:
 
-The script must use a monotonic clock and invoke the same external process boundary as production:
+- dual mode keeps A mapping active rather than clearing mapping;
+- first-short classifier event arms B;
+- explicit mapping ownership state;
+- direct A returns to existing hardware-gate first-PCM replay;
+- A->B guarded mapping switch;
+- second DOWN before B-ready fails closed;
+- ready B uses existing hardware-gate path, never normal synthetic trigger;
+- timeout/quick B/B completion restore A safely;
+- disconnect/loss/stale completion/readback failure safety;
+- Settings/legacy behavior retained;
+- full focused/full tests, self-tests, release build and `git diff --check` pass.
 
-```text
-/usr/bin/hidutil
-property
---matching {"VendorID":0x2717,"ProductID":0x32B8}
---set <mapping JSON>
-```
+## Scope audit before install
 
-Measure from immediately before process launch through process exit.
-
-Do not use a mocked mapping API for the latency result.
-
-## Gate 2 — warm-up
-
-With no remote hardware operation:
-
-1. apply A;
-2. apply B;
-3. repeat for 5 A->B / B->A warm-up pairs;
-4. require exit status 0 for every warm-up operation.
-
-Warm-up samples are recorded separately and excluded from the primary statistics.
-
-Any nonzero exit status -> STOP, restore pre-test mapping and report.
-
-## Gate 3 — measured samples
-
-Collect exactly:
+Must explicitly return NO for:
 
 ```text
-A->B: 50 measured transitions
-B->A: 50 measured transitions
+SECOND_RAW_HID_OWNER_ADDED
+SECOND_MAPPING_AUTHORITY_ADDED
+NORMAL_DUAL_SYNTHETIC_TRIGGER_USED
+VIRTUAL_HID_PROVIDER_ADDED
+GENERIC_BUTTON_THRESHOLD_CHANGED
+BLE_CODEC_CHANGED
+TAIL_DRAIN_RETUNED
+PERSISTENT_SESSION_AUTHORITY_CHANGED
+CANONICAL_DIRTY_FILE_TOUCHED
 ```
 
-Alternate sequentially so each A->B begins from A and each B->A begins from B.
+## Candidate install boundary
 
-For every operation record:
+Only after all automated validation passes, the executor may build/package/install the exact v2 candidate and restart only RemoteOrbit using the existing project procedure.
 
-```text
-index
-direction
-start_monotonic_ns
-end_monotonic_ns
-duration_ms
-exit_status
-```
+Do not change the receiver shortcuts, driver, CoreAudio, TCC or system remappers.
 
-Do not sleep between A->B and its paired B->A unless required for process cleanup. A small fixed pause between pairs is acceptable only if recorded.
+Record exact installed source HEAD, branch HEAD, executable SHA-256, version/build, Bundle ID and PID.
 
-Do not press the remote during measurement.
+Then STOP at:
 
-## Gate 4 — statistics
+`READY_FOR_USER_SYSTEM_MAPPED_SET_A`
 
-For A->B and B->A separately compute:
-
-```text
-sample_count
-success_count
-failure_count
-min_ms
-median_ms
-p90_ms
-p95_ms
-p99_ms
-max_ms
-```
-
-Preserve the raw ordered sample arrays as evidence.
-
-Also report:
-
-```text
-A_TO_B_MARGIN_VS_OBSERVED_MIN_MS = 74.476 - A_TO_B_MAX_MS
-A_TO_B_P95_MARGIN_VS_OBSERVED_MIN_MS = 74.476 - A_TO_B_P95_MS
-```
-
-These margins are descriptive evidence only. The executor must not use them to self-authorize implementation.
-
-## Gate 5 — exact restoration
-
-In a `finally`/cleanup path, restore the exact pre-test mapping state captured in Gate 0.
-
-After restoration:
-
-1. run a fresh `hidutil --get UserKeyMapping` for the same matching device;
-2. compare the normalized observed mapping with the pre-test mapping;
-3. require exact semantic restoration.
-
-If restoration fails:
-
-```text
-FINAL_STATE: STOP_MAPPING_RESTORATION_FAILED
-```
-
-Do not continue or attempt product fixes.
-
-## Strict prohibitions
-
-```text
-NO repository source/test edits
-NO branch/worktree creation for product construction
-NO build
-NO app reinstall
-NO app restart
-NO receiver shortcut changes
-NO remote button presses
-NO BLE/audio test
-NO TCC changes
-NO audio driver/CoreAudio changes
-NO Karabiner/CoreHID/provider work
-NO merge
-```
+Do not perform remote hardware gestures. Do not continue to Set B/C. Do not merge.
 
 ## Required handoff
 
-Return:
-
 ```text
-TASK_ID: RO-DUAL-RECEIVER-MAPPING-LATENCY-GATE-022
+TASK_ID: RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023
 CONTROL_HEAD:
-REMOTEORBIT_RUNNING_PID:
-PRE_TEST_MAPPING_RAW:
-PRE_TEST_MAPPING_NORMALIZED:
+IMPLEMENTATION_BASE:
+IMPLEMENTATION_BRANCH:
+IMPLEMENTATION_WORKTREE:
+FINAL_HEAD:
+REMOTE_HEAD:
+LOCAL_REMOTE_MATCH:
 
-WARMUP_A_TO_B_COUNT:
-WARMUP_B_TO_A_COUNT:
-WARMUP_FAILURES:
+LATENCY_GATE_ACCEPTED: YES
+TASK_2_PRIMARY_MAPPING:
+TASK_3_FIRST_SHORT_EVENT:
+TASK_4_MAPPING_STATE:
+TASK_5_DIRECT_A_HARDWARE_PATH:
+TASK_6_A_TO_B_ARM:
+TASK_7_EARLY_SECOND_FAIL_CLOSED:
+TASK_8_B_HARDWARE_PATH:
+TASK_9_RESTORE_A:
+TASK_10_FAILURE_SAFETY:
+TASK_11_SETTINGS_LEGACY:
+TASK_12_FULL_VALIDATION:
 
-MEASURED_A_TO_B_COUNT:
-A_TO_B_SUCCESS_COUNT:
-A_TO_B_FAILURE_COUNT:
-A_TO_B_MIN_MS:
-A_TO_B_MEDIAN_MS:
-A_TO_B_P90_MS:
-A_TO_B_P95_MS:
-A_TO_B_P99_MS:
-A_TO_B_MAX_MS:
-A_TO_B_RAW_MS: [...]
+FOCUSED_TESTS:
+FULL_SWIFT_TEST:
+SELF_TESTS:
+RELEASE_BUILD:
+DIFF_CHECK:
+SCOPE_AUDIT:
 
-MEASURED_B_TO_A_COUNT:
-B_TO_A_SUCCESS_COUNT:
-B_TO_A_FAILURE_COUNT:
-B_TO_A_MIN_MS:
-B_TO_A_MEDIAN_MS:
-B_TO_A_P90_MS:
-B_TO_A_P95_MS:
-B_TO_A_P99_MS:
-B_TO_A_MAX_MS:
-B_TO_A_RAW_MS: [...]
+A_TO_B_TEST_LATENCY_MS:
+B_TO_A_TEST_LATENCY_MS:
+END_TO_END_READINESS_TESTS:
 
-A_TO_B_MARGIN_VS_OBSERVED_MIN_MS:
-A_TO_B_P95_MARGIN_VS_OBSERVED_MIN_MS:
+APP_PATH:
+INSTALLED_SOURCE_HEAD:
+EXECUTABLE_SHA256:
+APP_VERSION_BUILD:
+BUNDLE_ID:
+RUNNING_PID:
 
-POST_TEST_MAPPING_RAW:
-POST_TEST_MAPPING_NORMALIZED:
-RESTORATION_MATCH: YES/NO
-
-PRODUCT_SOURCE_CHANGED: NO
-TEST_SOURCE_CHANGED: NO
-APP_RESTARTED: NO
-REMOTE_GESTURES_PERFORMED: NO
+CANONICAL_PREEXISTING_DIRT_PRESERVED:
+UNAUTHORIZED_LOCAL_BRANCH_LEFT_UNTOUCHED:
 MERGED: NO
-
-EVIDENCE_DIR:
-FINAL_STATE: MAPPING_LATENCY_EVIDENCE_READY_FOR_WEB_AUDIT
+FINAL_STATE: READY_FOR_USER_SYSTEM_MAPPED_SET_A
 ```
-
-Do not begin v2 implementation after collecting the numbers.
