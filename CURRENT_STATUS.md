@@ -1,165 +1,112 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-08
-State: DUAL-RECEIVER GESTURE RECOGNITION STABILITY TEST ACTIVE
+State: DUAL-RECEIVER GESTURE RECOGNITION ACCEPTED / ROUTING DESIGN READY
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
 
 ## Control-plane integrity
 
-- Previous control HEAD: `98198d4e4aac6f4e233cbb1b1367ce2984c79d3d`.
+- Recognition task control HEAD was `97382fba47da784fc85040af205cfbafe42de39b`.
 - Candidate branch remains `codex/disabled-short-classifier-regression-fix` at exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
-- Installed candidate remains the current hardware-test baseline unless a later task records otherwise.
+- Installed hardware-test baseline during recognition: PID `79232`, source HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`, executable SHA-256 `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`.
 - Candidate remains unmerged.
-- No product source mutation is authorized by the current recognition-only task.
 
 ## Closed single-input-method finding
 
-The prior fast-click Doubao anomaly is explained by receiver shortcut collision: Doubao's click/toggle mode and hold-to-talk mode were both bound to Left Option. Separating those receiver semantics removes that specific unwanted fast-click Session activation.
+The prior fast-click Doubao anomaly was caused by shortcut collision: Doubao click/toggle mode and hold-to-talk mode were both bound to Left Option. Separating those two receiver semantics removes that specific unwanted fast-click Session activation.
 
-The independent PR #14 Disabled-SHORT classifier regression remains real; the candidate still correctly restores normal short/long classification.
+The independent PR #14 Disabled-SHORT classifier regression remains real; the candidate correctly restores normal short/long classification.
 
-## Selected dual-receiver product interaction
-
-The user selected the one-button dual-hold interaction contract:
+## Accepted dual-receiver interaction
 
 ```text
 Direct LONG                  -> Receiver A
 Double-tap, hold second down -> Receiver B
 ```
 
-Intended eventual receiver mapping:
+Intended eventual receiver triggers:
 
 ```text
 Receiver A -> Left Option
 Receiver B -> Right Option
 ```
 
-Both receivers are intended to use independent momentary voice transactions. No external persistent Session should be required for the dual-receiver workflow.
+Both receivers should use independent momentary voice transactions. Dual-receiver mode must not depend on a long-lived external Persistent Session.
 
-## Why recognition stability is tested before implementation
+## Gesture recognition result — ACCEPTED
 
-The Xiaomi remote microphone provides useful audio only while the physical microphone button is held. The two receiver gestures therefore both need a hold phase.
+Task `RO-DUAL-RECEIVER-GESTURE-RECOGNITION-017` completed with `GESTURE_RECOGNITION_STABLE`.
 
-Before redesigning trigger ownership, first determine whether the physical gesture vocabulary itself is reliably distinguishable with the user's natural operation. This test must use existing HID diagnostics and must not yet route Left/Right Option into either real receiver.
-
-## Existing gesture infrastructure fact
-
-The repository already contains a generic `ButtonGestureRecognizer` supporting:
+Natural physical samples:
 
 ```text
-singleTap
-doubleTap
-longPress
-repeatStep
+A_DIRECT_LONG:       10 / 10
+B_DOUBLE_HOLD:       10 / 10
+NO_ACTION_SINGLE_TAP: 5 / 5
 ```
 
-A second tap that is held long is representable as a long event with `clickCount = 2`.
-
-Current generic constants are:
+Observed ranges:
 
 ```text
-longPressThreshold = 0.35 s
-doubleTapWindow    = 0.25 s
+A direct hold:            1813.421 .. 2221.483 ms
+B first tap:               145.551 .. 180.196 ms
+B first-up -> second-down:  74.476 .. 239.547 ms
+B second hold:            1440.032 .. 2175.514 ms
+C single tap:              180.995 .. 239.765 ms
 ```
 
-The microphone voice path does not currently use this generic recognizer when remote-microphone LONG is enabled. It is routed directly into `VoicePressCoordinator`, whose current hold threshold is 0.30 s.
+No unexplained extra HID edges altered classification. The B capture recorded debounce-suppressed edges, but the raw state records matched them and the accepted 10 B gestures remained unambiguous.
 
-Therefore the existing constants are comparison points only. The recognition test should collect real physical timing distributions first instead of assuming either threshold set is optimal.
+Temporary neutral trigger Left Control was validated, used only for timing isolation, and restored to the original Left Option. No product source, receiver shortcut, build, install, restart, or merge occurred.
 
-## Recognition-only test model
+## Threshold audit
 
-Collect natural physical microphone-button samples using existing raw HID diagnostics only.
+Offline replay showed:
 
-Classes:
+- 200 ms double window is too narrow: only 8/10 B gestures classify correctly; two would fall through as A.
+- 250 ms double window classifies all samples but has only `10.453 ms` minimum inter-press margin and is too fragile.
+- 300 ms double window classifies all samples with `60.453 ms` minimum inter-press margin.
+- 350 ms double window gives more margin but adds another 50 ms to single-tap no-action resolution.
+- LONG thresholds 300/350/400 ms all classify every captured sample correctly.
+
+Recommended first implementation constants:
 
 ```text
-A_DIRECT_LONG
-- one physical down
-- held long
-- one physical up
-- no qualifying first tap prefix
-
-B_DOUBLE_HOLD
-- first physical down/up is a short tap
-- second physical down begins within a candidate double-tap window
-- second press is held long
-- second physical up ends the gesture
-
-NO_ACTION_SINGLE_TAP
-- one short down/up
-- no second down inside the double-tap window
+LONG_THRESHOLD_MS = 350
+DOUBLE_WINDOW_MS   = 300
 ```
 
-Initial sample target:
+Rationale: preserves substantial margin while avoiding the unnecessary latency of 400/350. It also aligns the long threshold with the repository's existing generic `ButtonGestureRecognizer` 350 ms contract.
+
+## Architecture constraint for implementation
+
+The microphone button currently bypasses generic advanced gesture routing and enters `VoicePressCoordinator` directly. Existing device-scoped HID mapping also has only one active trigger target at a time.
+
+Therefore implementation is not a settings-only change. It must establish a per-utterance owner before releasing a receiver trigger:
 
 ```text
-10 x A_DIRECT_LONG
-10 x B_DOUBLE_HOLD
-5  x NO_ACTION_SINGLE_TAP
-```
-
-For every sample derive from raw HID edges:
-
-```text
-first_press_duration_ms
-first_up_to_second_down_ms (B only)
-second_press_duration_ms (B only)
-total_gesture_duration_ms
-raw report/edge sequence continuity
-unexpected extra edges / debounce suppression
-```
-
-Then replay the captured timings offline against a small threshold matrix rather than changing live behavior:
-
-```text
-candidate long threshold:   250 / 300 / 350 / 400 ms
-candidate double window:    200 / 250 / 300 / 350 ms
-```
-
-The goal is not merely 100% classification on 25 samples. Prefer a threshold pair with visible timing margin from the user's natural distributions, especially for B's first-up -> second-down gap.
-
-## Safety / isolation for this test
-
-Do not allow the recognition test to exercise actual Receiver A/B shortcuts.
-
-Preferred test configuration:
-
-```text
-SHORT action: Disabled
-momentary mapping: a verified neutral trigger such as Left Control
-persistent behavior: not used
-Receiver A/B visible Sessions: closed
-```
-
-Before using a neutral key, verify that a physical press of that key does not open/switch either receiver. If no verified neutral trigger is available, STOP rather than run the timing test against Left/Right Option receiver shortcuts.
-
-Temporary normal-UI trigger reconfiguration is allowed only for test isolation and must be restored after capture. No source edits, rebuild, reinstall, restart, new probes, driver changes, input-method shortcut changes, or merge are authorized.
-
-## Acceptance criteria for the gesture vocabulary
-
-`GESTURE_RECOGNITION_STABLE` requires all of:
-
-1. all intended A samples can be classified as A without needing knowledge of external receiver state;
-2. all intended B samples contain exactly one short first tap followed by one long second press;
-3. all intentional single taps resolve to no-action and do not alias A or B;
-4. raw HID edges are complete and no repeated/debounced phantom edges alter the intended class;
-5. at least one practical threshold pair has non-trivial margin from the observed timing distributions rather than classifying only at a knife-edge boundary.
-
-If samples classify only by using a very narrow double window or several natural B samples cross the window boundary, return `DOUBLE_HOLD_GESTURE_MARGIN_INSUFFICIENT` and adjust UX/threshold design before touching voice trigger ownership.
-
-## Architectural work after recognition passes
-
-Only after the gesture vocabulary is accepted should implementation design proceed for:
-
-```text
-recognized receiver owner
--> selected trigger key
+physical gesture
+-> classify A_DIRECT_LONG or B_DOUBLE_HOLD
+-> select exactly one receiver / trigger key
 -> first-PCM authorization
--> one balanced momentary trigger transaction
--> release/output drain
--> transaction complete
+-> emit/hold only the selected receiver trigger
+-> release + output drain
+-> balanced transaction complete
 ```
 
-The unselected receiver must receive no trigger edge. `persistentOpen` must not be the ownership authority for this dual-receiver mode.
+The unselected receiver must receive no trigger edge.
+
+## Historical Persistent issues
+
+The old Persistent model remains unsuitable as authority for dual-receiver mode because:
+
+- RemoteOrbit cannot authoritatively observe external IME Session state;
+- a Persistent LONG is currently modeled as audio-only continuation into the existing owner;
+- repeated audio-only segments reuse one external Session without explicit per-hold receiver transaction boundaries;
+- these properties are plausible contributors to historical visible Session drift and repeated text, although exact external text-commit causality was not proven.
+
+## Next step
+
+Proceed to a bounded architecture/implementation plan for dual-momentary routing using the accepted gesture contract and the recommended `350 ms / 300 ms` timing baseline. Do not merge or replace the installed runtime until implementation has independent code review and hardware acceptance.
