@@ -1,144 +1,175 @@
 # RemoteOrbit Current Task
 
-## Current task — DUAL-RECEIVER MICROPHONE DEBOUNCE CORRECTIVE
+## Current task — SET B CORRECTIVE RELEASE INCIDENT CAPTURE
 
-- **Status:** ACTIVE / MINIMAL PRODUCT CORRECTIVE AUTHORIZED THROUGH CANDIDATE INSTALL
-- **Task ID:** `RO-DUAL-RECEIVER-MIC-DEBOUNCE-CORRECTIVE-024`
-- **Previous task:** `RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023` — SET B INCIDENT / INTERNAL ROOT CAUSE PROVEN
-- **Failed v2 HEAD:** `e1e6fe0bf76e245c4237978600b117b5b8e2a83e`
-- **Installed failed source:** `50a20174632dc105fb670a9b83e3f6feaa8e9f9b`
-- **Authorized branch:** `codex/dual-receiver-mic-debounce-corrective`
-- **Authorized worktree:** `/private/tmp/remoteorbit-dual-receiver-mic-debounce-corrective`
+- **Status:** INCIDENT / READ-ONLY EVIDENCE ONLY
+- **Task ID:** `RO-DUAL-RECEIVER-SET-B-RELEASE-INCIDENT-025`
+- **Previous corrective:** `RO-DUAL-RECEIVER-MIC-DEBOUNCE-CORRECTIVE-024`
+- **Corrective branch HEAD:** `458e28d91b5ff748613bb88f5b89212d660279c7`
+- **Installed product source:** `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8`
+- **Installed app PID:** reported `5331`
 - **Merge:** FORBIDDEN
 
-## Root cause
-
-The first natural Set-B attempt had:
-
-```text
-first UP -> SECONDARY_READY: 22.737 ms
-first UP -> second physical DOWN: 109.810 ms
-```
-
-`ButtonEdgeDebouncer.defaultInterval` is `0.18` seconds. The live second F5 DOWN at 109.810 ms was recorded as:
+## User-observed fresh incident
+After 024 installation, the user performed exactly one natural Set-B retry:
 
 ```text
-HID_MIC_EDGE_SUPPRESSED reason=debounce
+quick first tap
+-> immediate second LONG
+-> Receiver B opened normally
+-> physical release did not close/end B normally
 ```
 
-Source policy currently computes advanced gesture ownership as:
+Do not perform another gesture before capture.
+
+## What 024 already established
+The previous incident's second physical DOWN had been discarded by legacy 180 ms debounce. 024 changed only the active-dual microphone input policy and added HID-boundary coverage. Automated RED/GREEN showed the 109.810 ms second DOWN reaching the recognizer and classifying B.
+
+The fresh hardware retry opening B is consistent with that upstream defect being corrected. The remaining release failure is a separate incident and its root cause is UNKNOWN.
+
+## Authorized work
+Read-only evidence collection only. Locate the single fresh corrective Set-B attempt and return exact event ordering/timing for:
+
+1. first raw F5 DOWN/UP;
+2. A->B apply and `FIRST_UP_TO_SECONDARY_READY_MS`;
+3. second raw F5 DOWN and proof it was emitted, not debounce-suppressed;
+4. mapped Right Option DOWN capture/defer;
+5. B HardwareOptionGate begin / long-ready;
+6. B classification, AUDIO_START, first PCM, B DOWN replay;
+7. second raw F5 UP and whether it was emitted;
+8. mapped Right Option UP observation/capture/defer;
+9. VoicePress release begin, AUDIO_STOP, tail/drain ownership, output-drain completion;
+10. mapped B UP output-drained release / gate close;
+11. `MOMENTARY_COMPLETE`;
+12. B->A restore request/apply/filter/readback and `B_TO_A_APPLY_MS`;
+13. final live F5 mapping, filter target, mapping phase, transaction, hardware gate, BLE state, runtime lock/reconfiguration state.
+
+Also separate `SYNTHETIC_OWNER_*` state events from actual `SYNTHETIC_TRIGGER_DOWN/UP` key edges.
+
+## Classification questions
+Return explicit YES/NO/UNKNOWN for:
 
 ```text
-button != .microphone && profile.usesAdvancedGestures
+SECOND_RAW_DOWN_EMITTED
+SECOND_RAW_DOWN_DEBOUNCE_SUPPRESSED
+B_HARDWARE_GATE_BEGIN
+B_CLASSIFIED
+B_DOWN_REPLAYED
+SECOND_PHYSICAL_UP_OBSERVED
+SECOND_RAW_UP_EMITTED
+MAPPED_B_UP_OBSERVED
+B_HARDWARE_GATE_PHYSICAL_UP
+OUTPUT_DRAIN_COMPLETED
+B_UP_RELEASED_AFTER_DRAIN
+MOMENTARY_COMPLETE
+B_TO_A_RESTORE_SUCCEEDED
+FINAL_MAPPING_IS_A
+FINAL_PHASE_PRIMARY_READY
+FINAL_TRANSACTION_NONE
+RUNTIME_LOCKED_OR_UNAVAILABLE
+INTERNAL_RELEASE_COMPLETE
+EXTERNAL_B_STILL_OPEN
+EXTERNAL_INTERNAL_DIVERGENCE
 ```
 
-so the microphone remains on the legacy debounce path even while active dual-receiver recognition needs the intentional second press inside the 300 ms window.
-
-The mapped Right Option event then passed with `gate_state=none`; no B HardwareOptionGate begin or B classification occurred. Follow-on attempts reproduced the same input-layer suppression. This proves the internal root cause for the B transaction failure.
-
-## Test gap
-
-`DualReceiverVoiceTransactionTests` calls `controller.handleDualReceiverMicrophoneEdge(...)` directly through its harness and bypasses `HIDMonitor` / `ButtonEdgeDebouncer`. Existing transaction tests therefore do not cover the failing boundary.
-
-## Authorized corrective
-
-Use TDD. Before product mutation, add a failing test that exercises the HID input-policy/debouncer boundary with the observed timing:
+Identify:
 
 ```text
-first accepted microphone DOWN
-first accepted microphone UP
-109.810 ms later second microphone DOWN
+LAST_KNOWN_GOOD_EVENT
+FIRST_MISSING_OR_DIVERGENT_EVENT
 ```
 
-Expected in active dual mode: second DOWN is emitted to the dual-receiver recognizer, not suppressed by legacy debounce.
+Do not label root cause proven unless the ordering directly proves the failed boundary.
 
-Also prove:
+## Strict prohibitions
 
 ```text
-legacy microphone mode keeps existing debounce behavior
-non-microphone single-shot behavior is unchanged
-repeatable/advanced generic buttons are unchanged
+NO further remote gestures
+NO Set C
+NO settings changes
+NO mapping changes
+NO app restart
+NO build/install
+NO source/test edits
+NO release/drain fix
+NO receiver shortcut changes
+NO driver/CoreAudio/TCC changes
+NO merge
 ```
-
-Implement the smallest policy correction so only active dual-receiver microphone input bypasses the conflicting legacy `ButtonEdgeDebouncer` layer. Prefer explicit dual-mode ownership semantics rather than changing the global debounce interval.
-
-## Strict non-goals
-
-```text
-NO global ButtonEdgeDebouncer interval change
-NO generic ButtonGestureRecognizer timing/behavior change
-NO dual 350/300 timing change
-NO mapping architecture change
-NO HardwareOptionGate redesign
-NO B release/drain retune
-NO BLE codec/tail change
-NO Persistent Session change
-NO synthetic normal trigger
-NO HIDMonitor ownership duplication
-NO driver/CoreAudio/TCC change
-NO unrelated cleanup/refactor
-```
-
-The external receiver remaining open in the failed sample is not yet a separately proven defect after the input-layer failure; do not add a second speculative fix.
-
-## Validation
-
-Required focused RED->GREEN coverage must include the HID policy/debouncer boundary and existing dual-receiver transaction suites. Then run:
-
-```sh
-swift test --package-path remote-orbit
-./remote-orbit/run-self-tests.sh
-swift build --package-path remote-orbit -c release
-git diff --check
-```
-
-Scope audit must confirm only the intended input-policy/test correction plus task control files changed.
-
-Only after all automated validation passes may the executor build/package/install the exact corrective candidate and restart RemoteOrbit only.
-
-Do not perform remote gestures. Stop at:
-
-`READY_FOR_USER_SET_B_CORRECTIVE_RETRY`
 
 ## Required handoff
 
 ```text
-TASK_ID: RO-DUAL-RECEIVER-MIC-DEBOUNCE-CORRECTIVE-024
+TASK_ID: RO-DUAL-RECEIVER-SET-B-RELEASE-INCIDENT-025
 CONTROL_HEAD:
-BASE_HEAD: e1e6fe0bf76e245c4237978600b117b5b8e2a83e
-BRANCH:
-WORKTREE:
-FINAL_HEAD:
-REMOTE_HEAD:
-LOCAL_REMOTE_MATCH:
-
-ROOT_CAUSE_PROVEN: YES
-RED_HID_BOUNDARY_TEST:
-GREEN_HID_BOUNDARY_TEST:
-LEGACY_MIC_DEBOUNCE_REGRESSION:
-NON_MIC_REGRESSION:
-DUAL_TRANSACTION_REGRESSION:
-FULL_SWIFT_TEST:
-SELF_TESTS:
-RELEASE_BUILD:
-DIFF_CHECK:
-SCOPE_AUDIT:
-
-GLOBAL_DEBOUNCE_INTERVAL_CHANGED: NO
-GENERIC_GESTURE_CHANGED: NO
-DUAL_350_300_CHANGED: NO
-MAPPING_ARCHITECTURE_CHANGED: NO
-RELEASE_DRAIN_CHANGED: NO
-CANONICAL_DIRTY_HIDMONITOR_TOUCHED: NO
-
-APP_PATH:
-INSTALLED_SOURCE_HEAD:
-EXECUTABLE_SHA256:
-APP_VERSION_BUILD:
-BUNDLE_ID:
+CORRECTIVE_BRANCH_HEAD: 458e28d91b5ff748613bb88f5b89212d660279c7
+INSTALLED_SOURCE_HEAD: 406f1242e7c3bc17b1fa0da43b069a0b2c6874c8
 RUNNING_PID:
 
-REMOTE_GESTURES_PERFORMED: NO
+USER_REPORT:
+EVIDENCE_WINDOW:
+GESTURE_ID:
+
+FIRST_UP_TO_SECONDARY_READY_MS:
+A_TO_B_APPLY_MS:
+SECOND_DOWN_GAP_MS:
+SECOND_RAW_DOWN_EMITTED:
+SECOND_RAW_DOWN_DEBOUNCE_SUPPRESSED:
+SECOND_DOWN_READY_BEFORE_EDGE:
+
+MAPPED_B_DOWN_OBSERVED:
+B_HARDWARE_GATE_BEGIN:
+B_HARDWARE_GATE_LONG_READY:
+B_CLASSIFIED:
+FIRST_PCM_BEFORE_REPLAY:
+B_DOWN_REPLAYED:
+
+SECOND_PHYSICAL_UP_OBSERVED:
+SECOND_RAW_UP_EMITTED:
+MAPPED_B_UP_OBSERVED:
+B_HARDWARE_GATE_PHYSICAL_UP:
+
+VOICE_PRESS_RELEASE_BEGIN:
+AUDIO_STOP:
+OUTPUT_DRAIN_BEGIN:
+OUTPUT_DRAIN_COMPLETED:
+B_UP_RELEASED_AFTER_DRAIN:
+B_HARDWARE_GATE_CLOSED:
+MOMENTARY_COMPLETE:
+
+B_TO_A_RESTORE_REQUESTED:
+B_TO_A_APPLY_MS:
+B_TO_A_RESTORE_SUCCEEDED:
+
+FINAL_F5_MAPPING:
+FINAL_FILTER_TARGET:
+FINAL_MAPPING_PHASE:
+FINAL_TRANSACTION:
+FINAL_HARDWARE_GATE:
+FINAL_BLE_STATE:
+VOICE_TRIGGER_RUNTIME_LOCKED:
+VOICE_TRIGGER_RECONFIGURATION_IN_PROGRESS:
+RUNTIME_LOCKED_OR_UNAVAILABLE:
+
+SYNTHETIC_OWNER_STATE_EVENTS:
+SYNTHETIC_TRIGGER_DOWN_COUNT:
+SYNTHETIC_TRIGGER_UP_COUNT:
+
+INTERNAL_RELEASE_COMPLETE:
+EXTERNAL_B_STILL_OPEN: USER_REPORTED_YES
+EXTERNAL_INTERNAL_DIVERGENCE:
+
+LAST_KNOWN_GOOD_EVENT:
+FIRST_MISSING_OR_DIVERGENT_EVENT:
+ROOT_CAUSE: UNKNOWN unless directly proven by this fresh ordering evidence
+
+PRODUCT_SOURCE_CHANGED: NO
+TEST_SOURCE_CHANGED: NO
+APP_RESTARTED: NO
+REMOTE_GESTURES_PERFORMED_BY_EXECUTOR: NO
 MERGED: NO
-FINAL_STATE: READY_FOR_USER_SET_B_CORRECTIVE_RETRY
+
+FINAL_STATE: SET_B_CORRECTIVE_RELEASE_EVIDENCE_READY_FOR_WEB_AUDIT
 ```
+
+Stop after capture. Do not repair.

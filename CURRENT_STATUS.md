@@ -1,60 +1,49 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-08
-State: SET B INCIDENT ROOT CAUSE PROVEN / MIC DEBOUNCE CORRECTIVE AUTHORIZED
+State: SET B CORRECTIVE RETRY / B OPENS / RELEASE DOES NOT CLOSE / INCIDENT READ-ONLY
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Authority
-- Audited incident control HEAD: `43bb1c15e1bb07ca2827a340ae7db43603fcfd86`.
-- Failed candidate branch: `codex/dual-receiver-system-mapped-routing-v2` at `e1e6fe0bf76e245c4237978600b117b5b8e2a83e`.
-- Installed failed candidate source: `50a20174632dc105fb670a9b83e3f6feaa8e9f9b`.
-- Corrective task: `RO-DUAL-RECEIVER-MIC-DEBOUNCE-CORRECTIVE-024`.
-- Planned corrective branch: `codex/dual-receiver-mic-debounce-corrective` from `e1e6fe0bf76e245c4237978600b117b5b8e2a83e`.
-- Planned worktree: `/private/tmp/remoteorbit-dual-receiver-mic-debounce-corrective`.
+- Previous control HEAD: `3fd2271e7dbb80c8407f7a963b3615a8116c8382`.
+- Debounce corrective task `RO-DUAL-RECEIVER-MIC-DEBOUNCE-CORRECTIVE-024` produced product source `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8` and branch closeout `458e28d91b5ff748613bb88f5b89212d660279c7`.
+- Installed corrective candidate: `/Applications/RemoteOrbit.app`, source `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8`, version 0.2.13 build 42, PID reported as 5331.
+- Corrective branch: `codex/dual-receiver-mic-debounce-corrective`.
 - Merge remains forbidden.
 
-## Accepted Set A
-Set A remains accepted: 5/5 Direct LONG used system-mapped Left Option through HardwareOptionGate; first PCM preceded replay; B trigger and normal synthetic edge counts were zero; all samples completed release/drain and returned to primaryReady.
+## Proven 024 result
+The earlier input-layer failure is resolved by the corrective candidate at the user-observable boundary: the natural quick-tap + second-LONG gesture again opens Receiver B. This is consistent with the 024 RED/GREEN evidence that the legitimate second microphone DOWN is no longer discarded by the legacy 180 ms debounce.
 
-## Set B incident — proven internal root cause
-First Set-B attempt evidence:
-
-```text
-first quick UP -> SECONDARY_READY = 22.737 ms
-second physical DOWN gap = 109.810 ms
-ButtonEdgeDebouncer.defaultInterval = 180 ms
-second raw F5 DOWN = HID_MIC_EDGE_SUPPRESSED(reason=debounce)
-mapped Right Option DOWN = pass, gate_state=none
-B hardware gate begin = absent
-B classification = absent
-physical UP edge = also debounce-suppressed
-B->A restore later succeeded after second-press-window-expired
-```
-
-Source audit proves the microphone still uses the legacy HID edge debounce in dual mode:
+Do not infer that the entire Set-B transaction is accepted. User report for the first corrective hardware retry:
 
 ```text
-advanced = button != .microphone && profile.usesAdvancedGestures
-shouldDebounce = !shouldRepeat && !advanced
+B opened normally.
+Physical release did not close/end B normally.
 ```
 
-Therefore a legitimate second microphone press inside the 300 ms dual-receiver window can be discarded by the legacy 180 ms single-shot debounce. This is the proven cause of RemoteOrbit failing to create the B hardware-gate/transaction path in the incident.
+## New incident boundary
+The remaining defect is now isolated to the accepted B transaction's release/close path or to divergence between RemoteOrbit's internal close path and the external receiver's handling of Right Option UP.
 
-The user-visible fact that external B remained open is consistent with an unowned system-mapped Right Option edge passing while RemoteOrbit had no B gate, but the exact external receiver interpretation remains unproven and is not a separate fix target yet.
+Root cause of this remaining release failure is UNKNOWN until fresh runtime ordering is captured.
 
-## Proven test gap
-`DualReceiverVoiceTransactionTests` injects `harness.edge(...)` directly into `AppController.handleDualReceiverMicrophoneEdge(...)`. It bypasses `HIDMonitor` and `ButtonEdgeDebouncer`, so the existing transaction suite cannot detect this input-layer conflict.
+Required evidence must determine, for this exact corrective sample:
 
-## Corrective boundary
-Authorize one minimal corrective only:
+```text
+second raw F5 DOWN emitted (not debounce-suppressed)
+B HardwareOptionGate begin
+B classification
+first PCM and mapped B DOWN replay
+second raw F5 UP
+mapped Right Option UP capture/defer/replay
+VoicePress release/tail/output-drain completion
+MOMENTARY_COMPLETE
+B->A restore request/result
+final mapping/filter/phase/transaction/runtime state
+external B still open vs internal completion
+```
 
-1. In active dual-receiver mode, microphone raw edges must not use the legacy `ButtonEdgeDebouncer` policy that can suppress the intentional second press.
-2. Legacy microphone mode and all non-microphone buttons retain their existing debounce behavior.
-3. Do not change `ButtonEdgeDebouncer.defaultInterval` globally.
-4. Do not change generic `ButtonGestureRecognizer` thresholds or behavior.
-5. Do not change dual-receiver 350 ms LONG / 300 ms double window.
-6. Do not change mapping architecture, HardwareOptionGate, BLE, tail/drain, Persistent Session, driver, TCC, or synthetic-trigger policy.
-7. Add a RED regression at the HID input-policy/debouncer boundary using the observed 109.810 ms second-press gap, plus legacy-regression coverage.
-8. Existing controller-level dual transaction tests remain but are not sufficient alone.
+## Freeze
+No further remote gestures, Set C, settings/mapping changes, app restart, build/install, source/test edits, release/drain fix, receiver shortcut changes, driver/CoreAudio/TCC changes, or merge before this fresh corrective incident is audited.
 
-After focused/full validation, build/install the exact corrective candidate and stop before user gestures at `READY_FOR_USER_SET_B_CORRECTIVE_RETRY`.
+## Next action
+Read-only capture of the single corrective Set-B retry. Stop after evidence collection. Do not repair yet.
