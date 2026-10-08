@@ -124,6 +124,63 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
         XCTAssertTrue(harness.triggerEdges.isEmpty)
     }
 
+    func testClassifiedAAndAudioStartWaitForFirstPCMBeforeLeftOptionDown() {
+        let harness = makeHarness()
+
+        harness.edge(isDown: true, at: 600.0)
+        harness.scheduler.advance(to: 600.350)
+
+        XCTAssertEqual(harness.recognizer.stateForTesting, .activeA)
+        XCTAssertEqual(harness.activationCount, 1)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+
+        harness.voicePress.setRemoteStreaming(true)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+
+        harness.voicePress.setRemoteAudioAvailable()
+        XCTAssertEqual(harness.triggerEdges, ["left_option:down"])
+
+        harness.voicePress.stop()
+        XCTAssertEqual(harness.triggerEdges, ["left_option:down", "left_option:up"])
+    }
+
+    func testClassifiedBAndAudioStartWaitForFirstPCMBeforeRightOptionDown() {
+        let harness = makeHarness()
+
+        harness.edge(isDown: true, at: 700.0)
+        harness.edge(isDown: false, at: 700.050)
+        harness.edge(isDown: true, at: 700.200)
+        harness.scheduler.advance(to: 700.551)
+
+        XCTAssertEqual(harness.recognizer.stateForTesting, .activeB)
+        XCTAssertEqual(harness.activationCount, 1)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+
+        harness.voicePress.setRemoteStreaming(true)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+
+        harness.voicePress.setRemoteAudioAvailable()
+        XCTAssertEqual(harness.triggerEdges, ["right_option:down"])
+
+        harness.voicePress.stop()
+        XCTAssertEqual(harness.triggerEdges, ["right_option:down", "right_option:up"])
+    }
+
+    func testClassifiedHoldReleasedWithoutFirstPCMEmitsNoReceiverEdges() {
+        let harness = makeHarness()
+
+        harness.edge(isDown: true, at: 800.0)
+        harness.scheduler.advance(to: 800.350)
+        harness.voicePress.setRemoteStreaming(true)
+
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+        harness.edge(isDown: false, at: 800.400)
+
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+        XCTAssertEqual(harness.voicePress.currentStateForTesting, .idle)
+        XCTAssertEqual(harness.remoteRouted, false)
+    }
+
     private func makeHarness() -> DualReceiverVoiceTransactionHarness {
         DualReceiverVoiceTransactionHarness()
     }

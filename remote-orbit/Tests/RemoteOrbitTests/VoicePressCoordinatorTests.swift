@@ -2,6 +2,60 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoicePressCoordinatorTests: XCTestCase {
+    func testClassifiedHoldCapturesReceiverAndSendsDownOnlyOnFirstPCM() {
+        for key in [VoiceTriggerKey.leftOption, .rightOption] {
+            var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+            let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+                events.append((key, isDown))
+            })
+            let press = VoicePressCoordinator(optionTrigger: trigger)
+            let sessionID = UUID()
+
+            XCTAssertTrue(
+                press.beginClassifiedHold(
+                    sessionID: sessionID,
+                    physicalDownAt: 10,
+                    triggerKey: key
+                )
+            )
+            XCTAssertTrue(events.isEmpty)
+
+            press.setRemoteStreaming(true) // AUDIO_START is informational.
+            XCTAssertTrue(events.isEmpty)
+
+            press.setRemoteAudioAvailable() // The first decoded PCM authorizes DOWN.
+            XCTAssertEqual(events.map(\.key), [key])
+            XCTAssertEqual(events.map(\.isDown), [true])
+
+            press.stop()
+            XCTAssertEqual(events.map(\.key), [key, key])
+            XCTAssertEqual(events.map(\.isDown), [true, false])
+        }
+    }
+
+    func testClassifiedHoldReleaseWithoutPCMEmitsNoReceiverEdges() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+
+        XCTAssertTrue(
+            press.beginClassifiedHold(
+                sessionID: UUID(),
+                physicalDownAt: 20,
+                triggerKey: .rightOption
+            )
+        )
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertTrue(press.keyUp())
+
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        press.stop()
+    }
+
     func testDisabledShortStartsTransportPreparationWithoutSkippingClassifier() {
         var events: [String] = []
         let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
