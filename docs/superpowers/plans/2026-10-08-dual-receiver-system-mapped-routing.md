@@ -128,7 +128,7 @@ No product mutation yet.
 - Consumes: existing `applyVoiceHIDMapping(Bool, VoiceTriggerKey) -> Bool` injected seam.
 - Produces: active dual mode with A mapping enabled and filter target A; no mapping-clear normal state.
 
-- [ ] **Step 1: Write RED tests**
+- [x] **Step 1: Write RED tests**
 
 Add tests asserting:
 
@@ -145,7 +145,7 @@ secondary Off
 -> legacy behavior unchanged
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```sh
 swift test --package-path remote-orbit --filter DualReceiverVoiceModeTests
@@ -154,15 +154,15 @@ swift test --package-path remote-orbit --filter VoiceTriggerRuntimeTests
 
 Expected: failures because 019 still clears mapping for dual mode.
 
-- [ ] **Step 3: Minimal implementation**
+- [x] **Step 3: Minimal implementation**
 
 Replace `mappingClearSucceeded` semantics with `primaryMappingReady`. Remove dual activation's normal `setEnabled(false, A)` path. On eligible dual activation/connect, ensure `setEnabled(true, A)` succeeds and filter is configured to A before mode becomes active.
 
-- [ ] **Step 4: GREEN + legacy regression**
+- [x] **Step 4: GREEN + legacy regression**
 
 Run the two focused suites plus `VoicePersistentSessionTests`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit only dual eligibility/mapping-baseline changes.
 
@@ -177,25 +177,25 @@ Commit only dual eligibility/mapping-baseline changes.
 **Interfaces:**
 - Produces: `Event.awaitingSecondPress(gestureID:firstUpAt:)` in addition to existing `.classified` and `.noAction`.
 
-- [ ] **Step 1: Write RED tests**
+- [x] **Step 1: Write RED tests**
 
 Assert that a first press released below 350 ms emits exactly one awaiting-second event immediately at first UP, while direct LONG emits no awaiting-second event.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```sh
 swift test --package-path remote-orbit --filter DualReceiverVoiceGestureRecognizerTests
 ```
 
-- [ ] **Step 3: Add the event without changing timing semantics**
+- [x] **Step 3: Add the event without changing timing semantics**
 
 The event reports state transition only; classifier remains pure and does not execute mapping or transport actions.
 
-- [ ] **Step 4: GREEN**
+- [x] **Step 4: GREEN**
 
 Confirm all existing 350/300 boundary, stale timer, cancel and disconnect tests still pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ---
 
@@ -219,23 +219,23 @@ blockedUntilRelease(gestureID:)
 unavailable(reason:)
 ```
 
-- [ ] **Step 1: Write RED runtime-state tests**
+- [x] **Step 1: Write RED runtime-state tests**
 
 Cover idle A-ready, A->B arming, B-ready, blocked-second-press, restore-A, stale generation ignored, and unavailable restore failure.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```sh
 swift test --package-path remote-orbit --filter VoiceTriggerRuntimeTests
 ```
 
-- [ ] **Step 3: Implement only state ownership**
+- [x] **Step 3: Implement only state ownership**
 
 Do not move `hidutil` execution out of `RemoteVoiceKeyMapping`; this state object/controller layer only records which mapping owns the next press.
 
-- [ ] **Step 4: GREEN**
+- [x] **Step 4: GREEN**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ---
 
@@ -251,7 +251,7 @@ Do not move `hidutil` execution out of `RemoteVoiceKeyMapping`; this state objec
 - Consumes: A mapping already active; `VoiceKeyFilter.beginOptionDeferral`; existing first-PCM `onHardwareOptionGateLongReady` replay path.
 - Produces: classified direct A hold with `usesHardwareOptionPath=true`; no synthetic A edge.
 
-- [ ] **Step 1: Write RED tests**
+- [x] **Step 1: Write RED tests**
 
 Assert:
 
@@ -266,7 +266,7 @@ VoiceOptionTrigger keyed synthetic edges = 0
 release + drain -> matching hardware A UP
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```sh
 swift test --package-path remote-orbit --filter DualReceiverVoiceTransactionTests
@@ -274,15 +274,15 @@ swift test --package-path remote-orbit --filter VoicePressCoordinatorTests
 swift test --package-path remote-orbit --filter VoiceOptionTriggerTests
 ```
 
-- [ ] **Step 3: Replace 019 classified-synthetic normal path for A**
+- [x] **Step 3: Replace 019 classified-synthetic normal path for A**
 
 Use an explicit already-classified hardware-hold entry; do not re-enter the legacy 300 ms classifier.
 
-- [ ] **Step 4: GREEN**
+- [x] **Step 4: GREEN**
 
 Required invariant: no second long wait and no normal synthetic trigger.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ---
 
@@ -297,7 +297,7 @@ Required invariant: no second long wait and no normal synthetic trigger.
 - Consumes: `.awaitingSecondPress`, `VoiceKeyFilter.beginVoiceTriggerReconfiguration(from:to:)`, `applyVoiceHIDMapping(true,B)` on the existing serial mapping queue.
 - Produces: `secondaryReady` only after B apply success and filter target B are both committed.
 
-- [ ] **Step 1: Write RED tests for successful A->B arm**
+- [x] **Step 1: Write RED tests for successful A->B arm**
 
 Expected order:
 
@@ -313,18 +313,18 @@ first quick UP
 
 Assert no A/B receiver replay and no synthetic edge during the transition.
 
-- [ ] **Step 2: Write RED failure tests**
+- [x] **Step 2: Write RED failure tests**
 
 Cover mapping apply failure, filter configure failure, stale completion after timeout/cancel, and concurrent configuration change.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```sh
 swift test --package-path remote-orbit --filter VoiceTriggerRuntimeTests
 swift test --package-path remote-orbit --filter EventSuppressorTests
 ```
 
-- [ ] **Step 4: Implement A->B arm on the existing mapping queue**
+- [x] **Step 4: Implement A->B arm on the existing mapping queue**
 
 `B_MAPPING_READY` means:
 
@@ -336,13 +336,13 @@ AND reconfiguration suppression safely ended
 
 Do NOT wait for asynchronous diagnostic readback before admitting the second press. Record `A_TO_B_APPLY_MS` using monotonic time. Existing readback remains asynchronous evidence.
 
-- [ ] **Step 5: Handle asynchronous readback mismatch**
+- [x] **Step 5: Handle asynchronous readback mismatch**
 
 If later readback for the active generation reports mismatch/unparseable in a way that disproves requested B mapping, lock dual mode, suppress new gestures and converge to A. A stale readback from an older generation must not override the current state.
 
-- [ ] **Step 6: GREEN**
+- [x] **Step 6: GREEN**
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ---
 

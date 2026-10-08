@@ -136,6 +136,16 @@ A stale completion/readback from an older mapping generation must not mutate cur
 
 Follow the implementation plan task-by-task with TDD, subject to this task and latency addendum.
 
+## Current execution checkpoint
+
+- Authoritative parent control HEAD: `bf5579fc43f2efbe627dec03f4d0b52182a2848f`.
+- Implementation branch/worktree: `codex/dual-receiver-system-mapped-routing-v2` at `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`.
+- Tasks 2–6 are implemented, tested, committed and pushed; checkpoint `c4c77779cc7bf68eb07aafedc4b59083e11641ab` matches the remote branch.
+- Task 6 focused evidence: `VoiceTriggerRuntimeTests` 47/47, `EventSuppressorTests` 9/9, `DualReceiverVoiceTransactionTests` 11/11; `git diff --check` passed.
+- Next: Task 7, prove and implement fail-closed handling when second DOWN precedes `SECONDARY_READY`.
+- No candidate build/install or task-scoped app restart has occurred. No remote gesture, BLE or audio test has occurred.
+- The canonical dirty `HIDMonitor.swift` and `codex/v0211-nonseize-hid-audit` remain untouched.
+
 ### Gate 0 — authority and v2 baseline
 
 1. `git fetch origin --prune`.

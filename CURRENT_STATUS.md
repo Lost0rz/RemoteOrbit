@@ -8,7 +8,7 @@ This file is the authority for mutable current project state. Historical detail 
 
 ## Control-plane authority
 
-- Audited parent control HEAD: `19cffebe7334da05aa1e982721efc1a130589b35`.
+- Audited authoritative parent control HEAD: `bf5579fc43f2efbe627dec03f4d0b52182a2848f`.
 - Latency task `RO-DUAL-RECEIVER-MAPPING-LATENCY-GATE-022` is complete and Web-audited.
 - Next active task: `RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023`.
 - Final design: `docs/superpowers/specs/2026-10-08-dual-receiver-system-mapped-trigger-design-final.md`.
@@ -18,6 +18,9 @@ This file is the authority for mutable current project state. Historical detail 
 - Preserved product HEAD: `ef29186e25c64cd4d1d7209cb2a41f95c51d4a11`.
 - Authorized v2 branch: `codex/dual-receiver-system-mapped-routing-v2`.
 - Authorized v2 worktree: `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`.
+- Current implementation checkpoint: `c4c77779cc7bf68eb07aafedc4b59083e11641ab` (Tasks 2–6 complete; remote branch matches).
+- Next implementation task: Task 7, fail closed when second DOWN arrives before B is ready.
+- Candidate has not been built or installed; RemoteOrbit has not been restarted for this task.
 - Merge remains forbidden.
 
 ## Mapping latency gate result — PASS
