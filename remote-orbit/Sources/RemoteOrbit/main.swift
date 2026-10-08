@@ -3394,7 +3394,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// infer success from the cached RemoteVoiceKeyMapping.isEnabled value.
     @discardableResult
     func applyPrimaryRemoteVoiceHIDMappingForDualMode() -> Bool {
-        applyVoiceHIDMapping(true, currentMomentaryVoiceTriggerKey)
+        let primaryKey = currentMomentaryVoiceTriggerKey
+        return voiceHIDMappingQueue.sync {
+            applyVoiceHIDMapping(true, primaryKey)
+        }
     }
 
     /// Selects the dual-receiver authority only after the raw HID owner, its
@@ -3445,14 +3448,32 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             dualReceiverMappedTriggerState.markUnavailable(reason: .dualModeUnavailable)
             return .unavailable(reason)
         case .active:
+            let filterKey = filter.voiceTriggerKey
+            guard filter.beginVoiceTriggerReconfiguration(
+                from: filterKey,
+                to: currentMomentaryVoiceTriggerKey
+            ) else {
+                dualReceiverVoiceMode = .unavailable(.primaryMappingFailed)
+                dualReceiverMappedTriggerState.markUnavailable(
+                    reason: .filterConfigurationFailed
+                )
+                return .unavailable(.primaryMappingFailed)
+            }
+            dualReceiverReconfigurationGateActive = true
+            voiceTriggerReconfigurationInProgress = true
             let primaryMappingSucceeded = applyPrimaryRemoteVoiceHIDMappingForDualMode()
+            let filterConfigured = primaryMappingSucceeded
+                && filter.configureVoiceTriggerKey(currentMomentaryVoiceTriggerKey)
+            filter.endVoiceTriggerReconfiguration()
+            dualReceiverReconfigurationGateActive = false
+            voiceTriggerReconfigurationInProgress = false
             let resolved = DualReceiverVoiceMode.evaluate(
                 shortIsDisabled: shortBinding.isDisabled,
                 receiverA: currentMomentaryVoiceTriggerKey,
                 receiverB: receiverB,
                 rawHIDReady: rawHIDReady,
                 eventSuppressorReady: suppressorReady,
-                primaryMappingSucceeded: primaryMappingSucceeded
+                primaryMappingSucceeded: primaryMappingSucceeded && filterConfigured
             )
             dualReceiverVoiceMode = resolved
             if case let .unavailable(reason) = resolved {
@@ -3703,11 +3724,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func finishActiveDualReceiverGestureRelease() {
-        guard activeDualReceiverGestureID != nil else { return }
+        let releasedGestureID = activeDualReceiverGestureID
+        guard releasedGestureID != nil else { return }
         activeDualReceiverGestureID = nil
         dualReceiverPhysicalDownAt = nil
         finishVoicePressRelease(source: .hidMonitor) { [weak self] in
             self?.stopVoiceInput()
+        }
+        if let releasedGestureID {
+            handleDualReceiverHardwareOutputDrainClosed(
+                gestureID: releasedGestureID,
+                outputDrainCompleted: false
+            )
         }
     }
 
@@ -3999,6 +4027,21 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let durationMilliseconds = Double(mappingEndedAt - mappingStartedAt) / 1_000_000
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                guard self.dualReceiverMappedTriggerState.phase
+                    == .restoringPrimary(generation: generation) else {
+                    self.diagnosticLogger.log(
+                        category: "configuration",
+                        event: "B_TO_A_RESTORE_STALE_COMPLETION",
+                        gestureID: gestureID,
+                        key: primaryKey,
+                        fields: [
+                            "generation": generation,
+                            "current_generation": self.dualReceiverMappedTriggerState.generation,
+                            "mapping_success": succeeded,
+                        ]
+                    )
+                    return
+                }
                 let filterRestored = succeeded
                     && self.filter.configureVoiceTriggerKey(primaryKey)
                 let restored = succeeded && filterRestored
@@ -4052,15 +4095,27 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// discarded its release edge. The main-queue hop lets the output-drain
     /// callback finish closing VoiceKeyFilter ownership before the state is
     /// inspected and the device mapping changes.
-    func handleDualReceiverHardwareOutputDrainClosed(gestureID: UUID) {
+    func handleDualReceiverHardwareOutputDrainClosed(
+        gestureID: UUID,
+        outputDrainCompleted: Bool = true
+    ) {
         DispatchQueue.main.async { [weak self] in
             guard let self,
                   self.dualReceiverMappedTriggerState.phase
                     == .secondaryActive(gestureID: gestureID) else {
                 return
             }
+            let coordinatorOwnershipActive = self.voicePress
+                .hasReleaseOrTailOwnershipForReconfiguration
+            let filterOwnershipActive = self.filter.hasActiveHardwareTriggerOwnership
+                || self.filter.hasSyntheticTriggerOwnership
+            guard outputDrainCompleted
+                    || (!coordinatorOwnershipActive && !filterOwnershipActive) else {
+                return
+            }
             guard !self.filter.hasActiveHardwareTriggerOwnership,
-                  !self.filter.hasSyntheticTriggerOwnership else {
+                  !self.filter.hasSyntheticTriggerOwnership,
+                  !self.voicePress.hasReleaseOrTailOwnershipForReconfiguration else {
                 self.voiceTriggerRuntimeLocked = true
                 self.voiceTriggerReconfigurationInProgress = true
                 self.dualReceiverVoiceMode = .unavailable(.primaryMappingFailed)
@@ -4178,6 +4233,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func cancelDualReceiverGestureStateForHIDRemoval() {
+        hidConnected = false
         if let pendingGestureID = dualReceiverPrewarmGestureID {
             _ = voicePress.cancelClassifiedHardwareGate(sessionID: pendingGestureID)
         }
@@ -4185,6 +4241,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         cancelPendingDualReceiverPrewarm()
         dualReceiverPhysicalDownAt = nil
         activeDualReceiverGestureID = nil
+        if dualReceiverVoiceMode != .legacy {
+            dualReceiverMappedTriggerState.markUnavailable(reason: .dualModeUnavailable)
+            dualReceiverVoiceMode = .unavailable(.rawHIDUnavailable)
+            pendingVoiceHIDMappingRefresh = false
+            if dualReceiverReconfigurationGateActive {
+                filter.endVoiceTriggerReconfiguration()
+                dualReceiverReconfigurationGateActive = false
+                voiceTriggerReconfigurationInProgress = false
+            }
+        }
     }
 
     func applyPersistentSessionTriggerKey(
@@ -4387,6 +4453,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func voiceConfigurationBusyResult() -> VoiceTriggerApplyResult? {
+        switch dualReceiverMappedTriggerState.phase {
+        case .armingSecondary, .secondaryReady:
+            return .busy
+        case .secondaryActive:
+            return .busyActiveHold
+        case .restoringPrimary, .blockedUntilRelease:
+            return .busyReleaseDrain
+        case .primaryReady, .unavailable:
+            break
+        }
         if dualReceiverVoiceGestureRecognizer.isBusy {
             return .busyActiveHold
         }
@@ -4405,6 +4481,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var dualReceiverVoiceOwnership: DualReceiverVoiceOwnership {
         if voiceTriggerReconfigurationInProgress || voiceTriggerRuntimeLocked {
             return .runtimeReconfiguration
+        }
+        switch dualReceiverMappedTriggerState.phase {
+        case .armingSecondary, .secondaryReady:
+            return .waitingSecondTap
+        case .secondaryActive:
+            return .activeTransaction
+        case .restoringPrimary, .blockedUntilRelease:
+            return .runtimeReconfiguration
+        case .primaryReady, .unavailable:
+            break
         }
         switch dualReceiverVoiceGestureRecognizer.stateForTesting {
         case .idle:
@@ -5154,6 +5240,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.filter.skipVoiceKey = active
             self.hidConnected = active
+            if !active {
+                self.cancelDualReceiverGestureStateForHIDRemoval()
+            }
             var dualModeHandledMapping = false
             if active, let receiverB = self.currentSecondaryMomentaryVoiceTriggerKey {
                 let shortBinding = self.currentDualReceiverShortBinding
@@ -5175,7 +5264,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             self.updateStatus()
             if !active {
-                self.cancelDualReceiverGestureStateForHIDRemoval()
                 self.reconnectHeldButtons = Set(
                     RemoteButton.allCases.filter {
                         self.hidMonitor.isButtonDown($0)
@@ -5527,9 +5615,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func applyVoiceHIDMappingForConnection(_ active: Bool) {
         if dualReceiverVoiceMode != .legacy {
-            let succeeded = active
-                ? applyPrimaryRemoteVoiceHIDMappingForDualMode()
-                : applyVoiceHIDMapping(false, currentMomentaryVoiceTriggerKey)
+            let succeeded: Bool
+            if active {
+                succeeded = applyPrimaryRemoteVoiceHIDMappingForDualMode()
+            } else {
+                let primaryKey = currentMomentaryVoiceTriggerKey
+                succeeded = voiceHIDMappingQueue.sync {
+                    applyVoiceHIDMapping(false, primaryKey)
+                }
+            }
             if !succeeded {
                 dualReceiverVoiceMode = .unavailable(.primaryMappingFailed)
                 print("[HID-MAP] dual mode unavailable; primary mapping operation failed")
@@ -5537,7 +5631,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         let shouldEnable = active && !voiceTriggerRuntimeLocked
-        let succeeded = applyVoiceHIDMapping(shouldEnable, currentMomentaryVoiceTriggerKey)
+        let primaryKey = currentMomentaryVoiceTriggerKey
+        let succeeded = voiceHIDMappingQueue.sync {
+            applyVoiceHIDMapping(shouldEnable, primaryKey)
+        }
         if shouldEnable && !succeeded {
             print("[HID-MAP] connect mapping failed; synthetic fallback remains available")
         }

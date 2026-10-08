@@ -116,6 +116,134 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
         XCTAssertTrue(harness.triggerEdges.isEmpty)
     }
 
+    func testHIDDisconnectWhileSecondaryArmIsPendingInvalidatesLateCompletion() {
+        let harness = makeHarness(mappingApplyDelay: 0.25)
+        harness.edge(isDown: true, at: 1_275.0)
+        harness.edge(isDown: false, at: 1_275.050)
+        let gestureID = harness.recognizer.currentGestureID!
+        XCTAssertEqual(
+            harness.controller.dualReceiverMappedTriggerState.phase,
+            .armingSecondary(
+                gestureID: gestureID,
+                generation: harness.controller.dualReceiverMappedTriggerState.generation
+            )
+        )
+
+        harness.controller.cancelDualReceiverGestureStateForHIDRemoval()
+        harness.voicePress.handleTransportLoss(deviceRemoved: true)
+
+        XCTAssertEqual(
+            harness.controller.dualReceiverMappedTriggerState.phase,
+            .unavailable(reason: .dualModeUnavailable)
+        )
+        XCTAssertEqual(harness.activationCount, 0)
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            harness.mappingApplyKeys.count == 2
+        })
+        XCTAssertEqual(
+            harness.controller.dualReceiverMappedTriggerState.phase,
+            .unavailable(reason: .dualModeUnavailable)
+        )
+        XCTAssertEqual(harness.controller.dualReceiverVoiceMode, .unavailable(.rawHIDUnavailable))
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+    }
+
+    func testHIDDisconnectWhileSecondaryReadyInvalidatesMappingAuthority() {
+        let harness = makeHarness()
+        harness.edge(isDown: true, at: 1_280.0)
+        harness.edge(isDown: false, at: 1_280.050)
+        awaitSecondaryReady(harness)
+
+        harness.controller.cancelDualReceiverGestureStateForHIDRemoval()
+        harness.voicePress.handleTransportLoss(deviceRemoved: true)
+        harness.edge(isDown: true, at: 1_280.200)
+        harness.scheduler.advance(to: 1_280.600)
+
+        XCTAssertEqual(
+            harness.controller.dualReceiverMappedTriggerState.phase,
+            .unavailable(reason: .dualModeUnavailable)
+        )
+        XCTAssertEqual(harness.controller.dualReceiverVoiceMode, .unavailable(.rawHIDUnavailable))
+        XCTAssertEqual(harness.activationCount, 0)
+        XCTAssertEqual(harness.prewarmCount, 1)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+    }
+
+    func testBLELossBeforeFirstPCMOnBRestoresAAfterPhysicalRelease() {
+        let harness = makeHarness()
+        harness.edge(isDown: true, at: 1_290.0)
+        harness.edge(isDown: false, at: 1_290.050)
+        awaitSecondaryReady(harness)
+        harness.edge(isDown: true, at: 1_290.200)
+        harness.scheduler.advance(to: 1_290.550)
+        XCTAssertEqual(harness.recognizer.stateForTesting, .activeB)
+        XCTAssertEqual(harness.controller.filter.voiceTriggerKey, .rightOption)
+        harness.voicePress.setRemoteStreaming(true)
+        harness.voicePress.handleTransportLoss()
+        XCTAssertFalse(harness.hardwareGateIsActive)
+        XCTAssertEqual(harness.mappingApplyKeys, [.leftOption, .rightOption])
+
+        harness.edge(isDown: false, at: 1_290.600)
+
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            harness.controller.dualReceiverMappedTriggerState.phase == .primaryReady
+                && harness.mappingApplyKeys.count == 3
+        })
+        XCTAssertEqual(harness.mappingApplyKeys, [.leftOption, .rightOption, .leftOption])
+        XCTAssertEqual(harness.controller.filter.voiceTriggerKey, .leftOption)
+        XCTAssertEqual(harness.activationCount, 1)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+    }
+
+    func testBLELossBeforeFirstPCMOnARetainsPrimaryMappingAndClosesRoute() {
+        let harness = makeHarness()
+        harness.edge(isDown: true, at: 1_295.0)
+        harness.scheduler.advance(to: 1_295.351)
+        XCTAssertEqual(harness.recognizer.stateForTesting, .activeA)
+        XCTAssertEqual(harness.controller.dualReceiverMappedTriggerState.phase, .primaryReady)
+        harness.voicePress.setRemoteStreaming(true)
+        harness.voicePress.handleTransportLoss()
+        XCTAssertFalse(harness.hardwareGateIsActive)
+        XCTAssertEqual(harness.mappingApplyKeys, [.leftOption])
+        XCTAssertEqual(harness.remoteRouted, false)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+
+        harness.edge(isDown: false, at: 1_295.600)
+
+        XCTAssertEqual(harness.controller.dualReceiverMappedTriggerState.phase, .primaryReady)
+        XCTAssertEqual(harness.mappingApplyKeys, [.leftOption])
+        XCTAssertEqual(harness.controller.filter.voiceTriggerKey, .leftOption)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+    }
+
+    func testBLELossAfterBReplayWaitsForPhysicalReleaseBeforeRestoringA() {
+        let harness = makeHarness()
+        harness.edge(isDown: true, at: 1_300.0)
+        harness.edge(isDown: false, at: 1_300.050)
+        awaitSecondaryReady(harness)
+        harness.edge(isDown: true, at: 1_300.200)
+        XCTAssertTrue(harness.captureMappedOptionEdge(.down))
+        harness.scheduler.advance(to: 1_300.550)
+        harness.voicePress.setRemoteAudioAvailable()
+        XCTAssertTrue(harness.hardwareGateIsActive)
+        XCTAssertEqual(harness.controller.filter.voiceTriggerKey, .rightOption)
+
+        harness.voicePress.handleTransportLoss()
+        XCTAssertFalse(harness.hardwareGateIsActive)
+        XCTAssertEqual(harness.mappingApplyKeys, [.leftOption, .rightOption])
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+
+        harness.edge(isDown: false, at: 1_300.600)
+
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            harness.controller.dualReceiverMappedTriggerState.phase == .primaryReady
+                && harness.mappingApplyKeys.count == 3
+        })
+        XCTAssertEqual(harness.mappingApplyKeys, [.leftOption, .rightOption, .leftOption])
+        XCTAssertEqual(harness.controller.filter.voiceTriggerKey, .leftOption)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+    }
+
     func testSecondaryReadyBLongUsesHardwareGateAndNeverSyntheticTrigger() {
         let harness = makeHarness()
 
