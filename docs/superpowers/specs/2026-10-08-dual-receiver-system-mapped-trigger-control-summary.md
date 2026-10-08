@@ -1,0 +1,1 @@
+Control summary: the prior virtual-HID-provider spike direction is superseded. Current design authority is the system-mapped dual-receiver trigger design. No provider installation or virtual-HID spike is authorized. Product implementation remains on hold pending user review of the system-mapped design.
