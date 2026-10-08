@@ -3388,8 +3388,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     static func bypassesShortClassification(for binding: ButtonBinding) -> Bool {
-        // A disabled short action has no short branch to classify.
-        binding.isDisabled
+        false
     }
 
     func beginVoicePress(
