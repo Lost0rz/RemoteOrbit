@@ -12,6 +12,7 @@ final class DualReceiverVoiceGestureRecognizer {
     enum Event: Equatable {
         case classified(gestureID: UUID, receiver: Receiver)
         case noAction(gestureID: UUID)
+        case awaitingSecondPress(gestureID: UUID, firstUpAt: TimeInterval)
     }
 
     enum StateForTesting: Equatable {
@@ -152,6 +153,10 @@ final class DualReceiverVoiceGestureRecognizer {
                     cancelTimer: nil
                 )
                 state = .awaitingSecondPress(waiting)
+                onEvent?(.awaitingSecondPress(
+                    gestureID: press.gestureID,
+                    firstUpAt: timestamp
+                ))
                 scheduleSecondPressTimeout(for: waiting)
             }
             return press.gestureID

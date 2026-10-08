@@ -16,6 +16,10 @@ final class DualReceiverVoiceGestureRecognizerTests: XCTestCase {
             fixture.events,
             [.classified(gestureID: gestureID, receiver: .a)]
         )
+        XCTAssertFalse(fixture.events.contains(where: {
+            if case .awaitingSecondPress = $0 { return true }
+            return false
+        }))
         XCTAssertEqual(fixture.recognizer.stateForTesting, .activeA)
 
         fixture.scheduler.advance(to: 10.700)
@@ -24,29 +28,68 @@ final class DualReceiverVoiceGestureRecognizerTests: XCTestCase {
         XCTAssertEqual(fixture.recognizer.stateForTesting, .idle)
     }
 
-    func test349MillisecondFirstReleaseDoesNotClassifyAndExpiresAsNoAction() {
+    func test349MillisecondFirstReleaseEmitsAwaitingEventAndExpiresAsNoAction() {
         let fixture = makeFixture()
         let gestureID = requiredGestureID(fixture.recognizer.handleDown(at: 20.0))
 
         fixture.scheduler.advance(to: 20.349)
         XCTAssertEqual(fixture.recognizer.handleUp(at: 20.349), gestureID)
-        XCTAssertTrue(fixture.events.isEmpty)
+        XCTAssertEqual(
+            fixture.events,
+            [.awaitingSecondPress(gestureID: gestureID, firstUpAt: 20.349)]
+        )
         XCTAssertEqual(fixture.recognizer.stateForTesting, .awaitingSecondPress)
 
         fixture.scheduler.advance(to: 20.650)
 
-        XCTAssertEqual(fixture.events, [.noAction(gestureID: gestureID)])
+        XCTAssertEqual(
+            fixture.events,
+            [
+                .awaitingSecondPress(gestureID: gestureID, firstUpAt: 20.349),
+                .noAction(gestureID: gestureID),
+            ]
+        )
         XCTAssertEqual(fixture.recognizer.stateForTesting, .idle)
+    }
+
+    func testFirstQuickReleaseEmitsAwaitingSecondPressImmediatelyExactlyOnce() {
+        let fixture = makeFixture()
+        let gestureID = requiredGestureID(fixture.recognizer.handleDown(at: 25.0))
+        let firstUpAt = 25.050
+
+        XCTAssertEqual(fixture.recognizer.handleUp(at: firstUpAt), gestureID)
+        XCTAssertEqual(
+            fixture.events,
+            [.awaitingSecondPress(gestureID: gestureID, firstUpAt: firstUpAt)]
+        )
+
+        fixture.scheduler.advance(to: firstUpAt + 0.200)
+
+        XCTAssertEqual(
+            fixture.events,
+            [.awaitingSecondPress(gestureID: gestureID, firstUpAt: firstUpAt)]
+        )
+        XCTAssertEqual(fixture.recognizer.stateForTesting, .awaitingSecondPress)
     }
 
     func testSingleQuickTapResolvesToNoActionAfterDoubleWindow() {
         let fixture = makeFixture()
         let gestureID = requiredGestureID(fixture.recognizer.handleDown(at: 30.0))
         XCTAssertEqual(fixture.recognizer.handleUp(at: 30.050), gestureID)
+        XCTAssertEqual(
+            fixture.events,
+            [.awaitingSecondPress(gestureID: gestureID, firstUpAt: 30.050)]
+        )
 
         fixture.scheduler.advance(to: 30.351)
 
-        XCTAssertEqual(fixture.events, [.noAction(gestureID: gestureID)])
+        XCTAssertEqual(
+            fixture.events,
+            [
+                .awaitingSecondPress(gestureID: gestureID, firstUpAt: 30.050),
+                .noAction(gestureID: gestureID),
+            ]
+        )
         XCTAssertEqual(fixture.recognizer.stateForTesting, .idle)
     }
 
@@ -61,7 +104,13 @@ final class DualReceiverVoiceGestureRecognizerTests: XCTestCase {
         XCTAssertEqual(fixture.recognizer.stateForTesting, .secondPressPending)
         XCTAssertEqual(fixture.recognizer.handleUp(at: 40.250), firstGestureID)
 
-        XCTAssertEqual(fixture.events, [.noAction(gestureID: firstGestureID)])
+        XCTAssertEqual(
+            fixture.events,
+            [
+                .awaitingSecondPress(gestureID: firstGestureID, firstUpAt: 40.050),
+                .noAction(gestureID: firstGestureID),
+            ]
+        )
         XCTAssertEqual(fixture.recognizer.stateForTesting, .idle)
     }
 
@@ -79,9 +128,19 @@ final class DualReceiverVoiceGestureRecognizerTests: XCTestCase {
             fixture.recognizer.handleDown(at: 50.0)
         )
         XCTAssertEqual(fixture.recognizer.handleUp(at: 50.050), firstGestureID)
+        XCTAssertEqual(
+            fixture.events,
+            [.awaitingSecondPress(gestureID: firstGestureID, firstUpAt: 50.050)]
+        )
 
         fixture.scheduler.advance(to: 50.351)
-        XCTAssertEqual(fixture.events, [.noAction(gestureID: firstGestureID)])
+        XCTAssertEqual(
+            fixture.events,
+            [
+                .awaitingSecondPress(gestureID: firstGestureID, firstUpAt: 50.050),
+                .noAction(gestureID: firstGestureID),
+            ]
+        )
 
         let nextGestureID = requiredGestureID(
             fixture.recognizer.handleDown(at: 50.351)
@@ -92,6 +151,7 @@ final class DualReceiverVoiceGestureRecognizerTests: XCTestCase {
         XCTAssertEqual(
             fixture.events,
             [
+                .awaitingSecondPress(gestureID: firstGestureID, firstUpAt: 50.050),
                 .noAction(gestureID: firstGestureID),
                 .classified(gestureID: nextGestureID, receiver: .a),
             ]
@@ -110,7 +170,13 @@ final class DualReceiverVoiceGestureRecognizerTests: XCTestCase {
         fixture.scheduler.advance(to: 60.499)
         XCTAssertEqual(fixture.recognizer.handleUp(at: 60.499), gestureID)
 
-        XCTAssertEqual(fixture.events, [.noAction(gestureID: gestureID)])
+        XCTAssertEqual(
+            fixture.events,
+            [
+                .awaitingSecondPress(gestureID: gestureID, firstUpAt: 60.050),
+                .noAction(gestureID: gestureID),
+            ]
+        )
         XCTAssertEqual(fixture.recognizer.stateForTesting, .idle)
     }
 
@@ -124,11 +190,15 @@ final class DualReceiverVoiceGestureRecognizerTests: XCTestCase {
 
         XCTAssertEqual(
             fixture.events,
-            [.classified(gestureID: gestureID, receiver: .b)]
+            [
+                .awaitingSecondPress(gestureID: gestureID, firstUpAt: 70.050),
+                .classified(gestureID: gestureID, receiver: .b),
+            ]
         )
         XCTAssertEqual(fixture.recognizer.stateForTesting, .activeB)
+        let classifiedEventCount = fixture.events.count
         XCTAssertEqual(fixture.recognizer.handleUp(at: 70.560), gestureID)
-        XCTAssertEqual(fixture.events.count, 1)
+        XCTAssertEqual(fixture.events.count, classifiedEventCount)
     }
 
     func testCancelledStaleTimerCannotClassifyANewerGesture() {
@@ -154,11 +224,18 @@ final class DualReceiverVoiceGestureRecognizerTests: XCTestCase {
         let fixture = makeFixture()
         let gestureID = requiredGestureID(fixture.recognizer.handleDown(at: 90.0))
         XCTAssertEqual(fixture.recognizer.handleUp(at: 90.050), gestureID)
+        XCTAssertEqual(
+            fixture.events,
+            [.awaitingSecondPress(gestureID: gestureID, firstUpAt: 90.050)]
+        )
 
         fixture.recognizer.cancel()
         fixture.scheduler.advance(to: 91.0)
 
-        XCTAssertEqual(fixture.events, [])
+        XCTAssertEqual(
+            fixture.events,
+            [.awaitingSecondPress(gestureID: gestureID, firstUpAt: 90.050)]
+        )
         XCTAssertEqual(fixture.recognizer.stateForTesting, .idle)
     }
 
@@ -181,7 +258,10 @@ final class DualReceiverVoiceGestureRecognizerTests: XCTestCase {
 
         XCTAssertEqual(
             fixture.events,
-            [.classified(gestureID: gestureID, receiver: expectedReceiver)]
+            [
+                .awaitingSecondPress(gestureID: gestureID, firstUpAt: firstUp),
+                .classified(gestureID: gestureID, receiver: expectedReceiver),
+            ]
         )
     }
 

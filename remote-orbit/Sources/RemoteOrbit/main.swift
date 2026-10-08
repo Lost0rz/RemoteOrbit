@@ -3476,6 +3476,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ event: DualReceiverVoiceGestureRecognizer.Event
     ) {
         switch event {
+        case .awaitingSecondPress:
+            break
         case let .noAction(gestureID):
             guard dualReceiverPrewarmGestureID == gestureID else { return }
             cancelPendingDualReceiverPrewarm()
