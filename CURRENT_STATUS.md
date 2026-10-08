@@ -1,43 +1,26 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-08
-State: SYSTEM-MAPPED DUAL-RECEIVER IMPLEMENTATION PLAN READY FOR USER REVIEW
+State: SYSTEM-MAPPED DUAL-RECEIVER PLAN APPROVED / MAPPING LATENCY GATE ACTIVE
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
 
 ## Control-plane authority
 
-- Synthetic dual-receiver candidate remains unmerged.
-- Preserved implementation branch: `codex/dual-receiver-momentary-routing-v1`.
-- Preserved branch/control HEAD: `c90edbf73ad9b0642fa344734571c0e806c0eb73`.
+- Previous authoritative main: `b9f7c03325441e5dc3efad894689cdcebca3d81a`.
+- Corrected system-mapped design is approved in principle.
+- Final design: `docs/superpowers/specs/2026-10-08-dual-receiver-system-mapped-trigger-design-final.md`.
+- Implementation plan: `docs/superpowers/plans/2026-10-08-dual-receiver-system-mapped-routing.md`.
+- Preserved implementation branch: `codex/dual-receiver-momentary-routing-v1` at `c90edbf73ad9b0642fa344734571c0e806c0eb73`.
 - Preserved product HEAD: `ef29186e25c64cd4d1d7209cb2a41f95c51d4a11`.
-- New corrected design: `docs/superpowers/specs/2026-10-08-dual-receiver-system-mapped-trigger-design-final.md`.
-- New implementation plan: `docs/superpowers/plans/2026-10-08-dual-receiver-system-mapped-routing.md`.
-- Product mutation remains forbidden until the user reviews/approves the plan.
+- Planned v2 branch remains `codex/dual-receiver-system-mapped-routing-v2`.
+- Product/test source mutation remains forbidden until the mapping-latency gate is Web-audited.
 - Merge remains forbidden.
 
-## Accepted failure evidence
+## Accepted architecture facts
 
-019 early hardware gate:
-
-```text
-5 x direct LONG
-gesture classified A: 5/5
-remote audio lifecycle: 5/5
-synthetic Left Option DOWN/UP: 5/5
-Receiver A externally opened: 0/5
-```
-
-Classification:
-
-`SYNTHETIC_RECEIVER_TRIGGER_NOT_ACCEPTED`
-
-This rejects CGEvent synthetic modifier as the normal dual-receiver trigger backend only. Gesture recognition, BLE activation, first-PCM timing, transaction identity and release/drain remain reusable.
-
-## Historical trigger architecture — accepted fact
-
-Merged PR #13 established the working normal path as:
+The original working voice-trigger path is:
 
 ```text
 remote microphone F5
@@ -49,130 +32,103 @@ remote microphone F5
 -> physical release + drain releases mapped UP
 ```
 
-Left Option is the default target, not a hard-coded mapping mechanism. Current `VoiceTriggerKey` / `RemoteVoiceKeyMapping` already support Left/Right Option, Control and Command.
+Left Option is only the default target. `RemoteVoiceKeyMapping` already supports Left/Right Option, Left/Right Control and Left/Right Command.
 
-The prior virtual-HID/Karabiner direction is superseded and is not part of the current plan.
+The 019 CGEvent synthetic normal trigger backend is rejected by real Receiver-A hardware evidence: 5/5 direct LONG gestures classified and completed their audio lifecycle, but Receiver A opened 0/5.
 
-## Re-audit findings
-
-### Existing capabilities that make the corrected design feasible
-
-1. `RemoteVoiceKeyMapping.mappingJSON(for:)` already parameterizes F5 -> any supported `VoiceTriggerKey`.
-2. `RemoteVoiceKeyMapping.setEnabled(_:target:)` synchronously waits for `/usr/bin/hidutil --set` to exit and exposes an injected mapping seam in `AppController` tests.
-3. `VoiceKeyFilter.beginVoiceTriggerReconfiguration(from:to:)` already suppresses raw F5 plus old/new mapped key codes during a runtime target transition.
-4. `VoiceKeyFilter.configureVoiceTriggerKey(_:)` rejects target changes while mapped/synthetic ownership is active.
-5. Existing hardware long-hold path already releases a captured mapped DOWN at first PCM through `onHardwareOptionGateLongReady`.
-6. Existing hardware release/drain path already owns the mapped UP until safe release.
-7. The accepted 019 branch already contains the 350/300 pure classifier, Receiver-B preference/UI, transport prewarm, no-double-wait classified hold entry and broad test harnesses.
-
-### Corrected architecture
-
-Idle dual mode keeps the device mapping on Receiver A:
+The corrected dual-receiver design therefore reuses the proven system-mapped trigger path and changes only mapping ownership:
 
 ```text
-F5 -> A (initially Left Option)
+idle: F5 -> A
+first quick release: discard A pair, arm F5 -> B
+second LONG while B ready: system-mapped B path
+B completion / timeout / second quick release: restore F5 -> A
 ```
 
-Direct LONG:
+No Karabiner/CoreHID/virtual-HID provider is part of the design.
+
+## Product contract
 
 ```text
-physical F5
--> mapped A edge captured
--> 350 ms A classification
--> remote audio
--> first PCM
--> replay captured A DOWN
--> release/drain
--> replay captured A UP
+Direct LONG                   -> Receiver A
+Quick first tap + second LONG -> Receiver B
+Quick single tap              -> no action
+
+A initial key = Left Option
+B initial key = Right Option
+LONG = 350 ms
+DOUBLE WINDOW = 300 ms
 ```
 
-First quick tap:
+## Why a latency gate is required before construction
+
+Closed gesture evidence measured natural first-UP -> second-DOWN gaps of approximately:
 
 ```text
-discard captured A pair
--> begin guarded A -> B mapping transition
--> hidutil --set F5 -> B
--> configure filter target B
--> B_MAPPING_READY
+74.476 ms .. 239.547 ms
 ```
 
-Second LONG is admitted only if `B_MAPPING_READY` existed before second physical DOWN:
+The corrected architecture requires the existing device-scoped mapping to change from A to B between those two physical presses. The repository proves the mechanism exists, but does not yet prove its real process/apply latency on this machine.
+
+Therefore the only remaining architecture prerequisite is a bounded measurement of the existing `/usr/bin/hidutil property --matching ... --set ...` operation using the same Xiaomi remote match and the existing A/B destinations.
+
+This is not a receiver-compatibility test and does not require product changes.
+
+## Mapping-latency gate contract
+
+Current task: `RO-DUAL-RECEIVER-MAPPING-LATENCY-GATE-022`.
+
+The local executor may, without pressing the remote:
+
+1. record the exact pre-test device mapping;
+2. perform warm-up A <-> B mapping changes;
+3. measure repeated A->B and B->A `hidutil --set` process durations using a monotonic clock;
+4. record termination status and distribution metrics;
+5. restore the exact pre-test mapping and verify restoration.
+
+No product/test source edits, build, install, restart, receiver shortcut change, TCC change, audio-driver/CoreAudio change or hardware gesture is authorized.
+
+The executor does not decide whether latency is acceptable. It returns evidence to Web.
+
+Required metrics for A->B and B->A separately:
 
 ```text
-second physical F5
--> mapped B edge captured
--> 350 ms B classification
--> first PCM
--> replay captured B DOWN
--> release/drain
--> replay captured B UP
--> restore B -> A after B mapped-UP ownership closes
+sample_count
+success_count / failure_count
+min
+median
+p90
+p95
+p99
+max
+raw sample list
 ```
 
-No second press or second quick release restores A without opening either receiver.
+The measurement must include full process launch + `hidutil --set` completion, matching the current `RemoteVoiceKeyMapping.setEnabled` synchronization boundary.
 
-## B mapping readiness rule
+## Mapping readiness rule retained
 
-Natural measured first-UP -> second-DOWN gaps were approximately `74.476–239.547 ms`.
-
-Do not add a second synchronous `hidutil --get` to the critical double-tap interval.
-
-`B_MAPPING_READY` means:
+If v2 construction is later authorized:
 
 ```text
-hidutil --set B returned exit 0
-AND filter runtime target == B
-AND reconfiguration suppression ended safely
+B_MAPPING_READY =
+hidutil --set B exit 0
++ filter target B
++ reconfiguration suppression safely ended
 ```
 
-Existing asynchronous HID readback remains diagnostic evidence. A later readback mismatch locks dual mode and converges to A before another gesture. Mapping apply latency is measured and logged for every A->B/B->A transition.
+Do not add a second synchronous `hidutil --get` to the double-tap critical path. Existing asynchronous readback remains diagnostic evidence.
 
-If the second physical DOWN arrives before B-ready, that B attempt fails closed. It is never buffered/replayed after mapping becomes ready, and it never falls back to synthetic B.
-
-## Safety invariants
-
-- one raw HID owner: `HIDMonitor`;
-- one mapped-edge owner: `VoiceKeyFilter` / `HardwareOptionGate`;
-- one mapping authority: `RemoteVoiceKeyMapping`;
-- no normal A/B CGEvent synthetic trigger;
-- no virtual-HID provider/system extension;
-- no Persistent Session receiver authority;
-- no generic button gesture timing change;
-- no BLE codec/tail/drain redesign;
-- mapping transition failure = fail closed;
-- B->A restore failure blocks new gestures until reconciliation.
-
-## Construction baseline
-
-The next implementation should preserve the already-tested 019 product work rather than rebuild it from `main`.
-
-Authorized code base after plan approval:
-
-```text
-codex/dual-receiver-momentary-routing-v1
-c90edbf73ad9b0642fa344734571c0e806c0eb73
-```
-
-Create a new isolated v2 branch/worktree from that preserved code base, then sync only current authoritative control/spec/plan files from `origin/main` before product mutation.
-
-Planned branch/worktree:
-
-```text
-codex/dual-receiver-system-mapped-routing-v2
-/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2
-```
-
-The pre-existing canonical `HIDMonitor.swift` local modification remains protected and must not be cleaned/stashed/reset/copied into this work.
-
-## Hardware acceptance after implementation
-
-1. Set A: 5 direct LONGs -> A 5/5, B 0/5, system-mapped hardware path, zero normal synthetic edges.
-2. Set B: 5 natural tap-then-LONGs -> first tap opens neither; accepted second presses open B only; record A->B mapping latency/readiness.
-3. Set C: 5 isolated quick taps -> neither opens; mapping returns to A.
-4. Web independently audits these results before any broader alternating soak or merge.
+A second physical DOWN that arrives before B ready must fail closed and must never be buffered or replayed.
 
 ## Next transition
 
-Current task: `RO-DUAL-RECEIVER-SYSTEM-MAPPED-ROUTING-021`.
+After the latency evidence returns, Web will compare the measured A->B distribution against the observed 74.476–239.547 ms user inter-press distribution and decide one of:
 
-Implementation plan is complete and awaits user review. No product code mutation, rebuild/reinstall, hardware gesture or merge is authorized yet.
+```text
+MAPPING_LATENCY_GATE_PASS -> authorize v2 product construction
+MAPPING_LATENCY_GATE_MARGINAL -> timing/UX review before construction
+MAPPING_LATENCY_GATE_FAIL -> reject dynamic hidutil A/B design
+```
+
+No product construction starts before that decision.
