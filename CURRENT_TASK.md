@@ -1,79 +1,140 @@
 # RemoteOrbit Current Task
 
-## Current task — SYSTEM-MAPPED DUAL-RECEIVER USER SET B ACCEPTANCE
+## Current task — SET B RELEASE INCIDENT CAPTURE
 
-- **Status:** SET A PASS / USER SET B AUTHORIZED
+- **Status:** INCIDENT / READ-ONLY EVIDENCE ONLY
 - **Task ID:** `RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023`
-- **Control parent:** `bf5579fc43f2efbe627dec03f4d0b52182a2848f`
+- **Previous phase:** Set A PASS / Set B authorized
+- **Incident:** first Set-B attempt opened B, release did not close B, later attempts failed
 - **v2 branch:** `codex/dual-receiver-system-mapped-routing-v2`
 - **v2 HEAD:** `e1e6fe0bf76e245c4237978600b117b5b8e2a83e`
 - **Installed source:** `50a20174632dc105fb670a9b83e3f6feaa8e9f9b`
+- **Incident note:** `docs/incidents/2026-10-08-set-b-first-open-no-release.md`
 - **Merge:** FORBIDDEN
 
-## Accepted Set A
-Five Direct-LONG samples passed user and runtime acceptance:
+## User-observed incident
 
 ```text
-A hardware path = 5/5
-B trigger = 0/5
-normal synthetic trigger edges = 0
-first PCM before A replay = 5/5
-release/drain complete = 5/5
-final target = left_option
-final phase = primaryReady
-final transaction = none
+Attempt 1:
+quick first tap + second LONG
+-> Receiver B opened
+-> physical release did not close/end B
+
+Afterward:
+subsequent attempts could not open normally
 ```
 
-## Set B procedure
-The user performs exactly five natural attempts:
+Do not infer root cause from the user-visible behavior alone.
+
+## Authorized work
+Read-only capture only. No further user/executor gestures are required before capture.
+
+Locate the first Set-B attempt and any already-recorded immediate follow-on attempts. Return exact event ordering and timestamps for:
+
+1. first raw F5 DOWN/UP;
+2. A->B mapping apply start/end, `A_TO_B_APPLY_MS`, `FIRST_UP_TO_SECONDARY_READY_MS`;
+3. second physical F5 DOWN/UP and `SECOND_DOWN_READY_BEFORE_EDGE`;
+4. mapped Right Option DOWN/UP capture/defer/replay/discard;
+5. HardwareOptionGate begin / long-ready / release / close;
+6. B classification and first PCM;
+7. AUDIO_START / AUDIO_STOP;
+8. VoicePressCoordinator release/tail/output-drain ownership transitions;
+9. `MOMENTARY_COMPLETE` or its absence;
+10. B->A restore request/apply/filter update/readback, including `B_TO_A_APPLY_MS`;
+11. runtime lock / reconfiguration / unavailable transitions;
+12. final F5 mapping, filter target, mapping phase, active transaction, hardware gate and BLE state.
+
+Also record any `SYNTHETIC_OWNER_*` state events separately from actual `SYNTHETIC_TRIGGER_DOWN/UP` edges.
+
+## Classification questions
+The capture must distinguish, without fixing:
 
 ```text
-quick first tap
-immediately second press and hold
-speak briefly
-release normally
+SECOND_PHYSICAL_UP_OBSERVED: YES/NO
+MAPPED_B_UP_OBSERVED: YES/NO
+B_HARDWARE_GATE_RELEASED: YES/NO
+OUTPUT_DRAIN_COMPLETED: YES/NO
+MOMENTARY_COMPLETE: YES/NO
+B_TO_A_RESTORE_REQUESTED: YES/NO
+B_TO_A_RESTORE_SUCCEEDED: YES/NO
+FINAL_MAPPING_IS_A: YES/NO
+FINAL_PHASE_PRIMARY_READY: YES/NO
+RUNTIME_LOCKED_OR_UNAVAILABLE: YES/NO
+EXTERNAL_B_STILL_OPEN_WHILE_INTERNAL_IDLE: YES/NO/UNKNOWN
 ```
 
-For each attempt observe:
+## Strict prohibitions
 
 ```text
-first tap opens A? expected NO
-first tap opens B? expected NO
-second long opens B? expected YES
-A opens during second long? expected NO
-release closes B normally? expected YES
-duplicate/stuck state? expected NO
+NO further remote gestures
+NO Set C
+NO settings changes
+NO mapping changes
+NO app restart
+NO build/install
+NO source/test edits
+NO behavior fix
+NO driver/CoreAudio/TCC changes
+NO merge
 ```
 
-Do not slow the gesture artificially to wait for mapping readiness. Use a natural quick tap then second long.
-
-If an attempt does not open B, record the exact attempt number and symptom. Do not replace it with a retry for acceptance counting.
-
-## Read-only evidence after user attempts
-After the five attempts, the local executor may inspect diagnostics only. It must return per-attempt:
+## Required handoff
 
 ```text
-gesture_id
-first_up_to_secondary_ready_ms
-A_to_B_apply_ms
-second_down_ready_before_edge
-second_down_gap_ms
-mapped_trigger_key
-hardware_gate_begin
-classification
-first_pcm_before_replay
-normal_synthetic_trigger_edge_count
-release_drain_completed
-B_to_A_apply_ms
-final_mapping_target
-final_mapping_phase
-final_transaction
+TASK_ID: RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023
+INCIDENT: SET_B_OPEN_NO_RELEASE
+CONTROL_HEAD:
+BRANCH_HEAD:
+INSTALLED_SOURCE_HEAD:
+RUNNING_PID:
+
+USER_REPORT:
+EVIDENCE_WINDOW:
+GESTURE_ID:
+
+FIRST_UP_TO_SECONDARY_READY_MS:
+A_TO_B_APPLY_MS:
+SECOND_DOWN_GAP_MS:
+SECOND_DOWN_READY_BEFORE_EDGE:
+
+SECOND_PHYSICAL_UP_OBSERVED:
+MAPPED_B_DOWN_OBSERVED:
+MAPPED_B_UP_OBSERVED:
+B_HARDWARE_GATE_BEGIN:
+B_HARDWARE_GATE_LONG_READY:
+FIRST_PCM_BEFORE_REPLAY:
+B_HARDWARE_GATE_RELEASED:
+
+AUDIO_START:
+AUDIO_STOP:
+OUTPUT_DRAIN_COMPLETED:
+MOMENTARY_COMPLETE:
+
+B_TO_A_RESTORE_REQUESTED:
+B_TO_A_APPLY_MS:
+B_TO_A_RESTORE_SUCCEEDED:
+
+FINAL_F5_MAPPING:
+FINAL_FILTER_TARGET:
+FINAL_MAPPING_PHASE:
+FINAL_TRANSACTION:
+FINAL_HARDWARE_GATE:
+FINAL_BLE_STATE:
+RUNTIME_LOCKED_OR_UNAVAILABLE:
+
+SYNTHETIC_TRIGGER_DOWN_COUNT:
+SYNTHETIC_TRIGGER_UP_COUNT:
+
+FOLLOW_ON_FAILED_ATTEMPTS_PRESENT:
+FOLLOW_ON_FAILURE_MECHANISM:
+
+ROOT_CAUSE: UNKNOWN unless directly proven by ordering evidence
+PRODUCT_SOURCE_CHANGED: NO
+TEST_SOURCE_CHANGED: NO
+APP_RESTARTED: NO
+MERGED: NO
+
+FINAL_STATE: SET_B_RELEASE_INCIDENT_EVIDENCE_READY_FOR_WEB_AUDIT
 ```
 
-Also classify any failed attempt explicitly as one of the observed mechanisms, including `B_MAPPING_NOT_READY_FAIL_CLOSED` if the second DOWN beat readiness.
-
-## Prohibitions
-No product/test edits, settings changes, build/install/restart, receiver shortcut changes, executor-generated remote gestures, Set C, or merge.
-
-## Stop
-After five Set-B attempts and read-only evidence collection, return to Web and stop. Do not proceed to Set C automatically.
+Stop after capture. Do not repair.
