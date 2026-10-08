@@ -475,7 +475,7 @@ Use generation tokens so stale restore/arm completions cannot overwrite a newer 
 **Interfaces:**
 - Produces: deterministic convergence to A or unavailable state on exceptional paths.
 
-- [ ] **Step 1: Add RED tests**
+- [x] **Step 1: Add RED tests**
 
 Cover:
 
@@ -489,13 +489,13 @@ stale mapping completion
 stale async readback mismatch
 ```
 
-- [ ] **Step 2: Implement minimum cleanup**
+- [x] **Step 2: Implement minimum cleanup**
 
 Do not redesign disconnect/BLE subsystems; only ensure mapping/gate ownership converges safely.
 
-- [ ] **Step 3: GREEN**
+- [x] **Step 3: GREEN**
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ---
 
