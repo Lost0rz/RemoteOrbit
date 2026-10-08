@@ -5564,9 +5564,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     shouldRepeat = false
                 }
             }
-            return HIDButtonDownPolicy(
-                shouldDebounce: !shouldRepeat && !advanced,
-                shouldRepeat: shouldRepeat
+            return HIDButtonDownPolicy.resolve(
+                button: button,
+                shouldRepeat: shouldRepeat,
+                usesAdvancedGestures: profile.usesAdvancedGestures,
+                dualReceiverVoiceMode: self.dualReceiverVoiceMode
             )
         }
         hidMonitor.onButtonRepeat = { [weak self] button in
