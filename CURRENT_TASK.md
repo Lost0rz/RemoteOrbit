@@ -2,7 +2,7 @@
 
 ## Current task — SYSTEM-MAPPED DUAL-RECEIVER V2 IMPLEMENTATION
 
-- **Status:** ACTIVE / PRODUCT CONSTRUCTION AUTHORIZED THROUGH CANDIDATE INSTALL AND SET-A HANDOFF
+- **Status:** WAITING FOR USER SET A / IMPLEMENTATION, AUTOMATED VALIDATION AND CANDIDATE INSTALL COMPLETE
 - **Task ID:** `RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023`
 - **Previous task:** `RO-DUAL-RECEIVER-MAPPING-LATENCY-GATE-022` — PASS
 - **Final design:** `docs/superpowers/specs/2026-10-08-dual-receiver-system-mapped-trigger-design-final.md`
@@ -138,18 +138,16 @@ Follow the implementation plan task-by-task with TDD, subject to this task and l
 
 ## Current execution checkpoint
 
-- Authoritative parent control HEAD: `bf5579fc43f2efbe627dec03f4d0b52182a2848f`.
-- Implementation branch/worktree: `codex/dual-receiver-system-mapped-routing-v2` at `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`.
-- Tasks 2–11 are implemented and tested; product checkpoint `fa6e08e96bcc16ab5079415973619b91810c8167` and control-sync branch HEAD `f4b7fe9338088b96f38bec04928834e6efe54ca2` are pushed and match the remote branch. Task 11 required no additional source/test files.
-- Task 8 TDD evidence: the pre-change integration test observed no second hardware-gate begin and synthetic B output at first PCM; after implementation `DualReceiverVoiceTransactionTests` passed 13/13, `VoicePressCoordinatorTests` 38/38, `VoiceTriggerRuntimeTests` 48/48; `git diff --check` passed.
-- A ready B DOWN now arms the same hardware gate as A; 350 ms classification enters the hardware hold and first PCM releases through the gate. The normal B path emits no synthetic trigger edge.
-- Task 9 verifies timeout and B quick-release restoration, rejects new DOWN while B owns the mapping, and restores A only after output drain closes the held mapped-UP owner. Focused VoiceTriggerRuntimeTests and DualReceiverVoiceTransactionTests passed 64/64; `git diff --check` passed; product checkpoint `f1ce1c0bdeddaf516923ba80153482786183fad2` is pushed.
-- Task 10 adds fail-closed HID-removal invalidation, serializes device mapping operations, waits for physical release before restoring A after momentary BLE loss, blocks setting changes throughout mapping ownership, and ignores stale A-restore completions/readbacks. Focused VoiceTriggerRuntimeTests and DualReceiverVoiceTransactionTests passed 72/72; `git diff --check` passed; product checkpoint `fa6e08e96bcc16ab5079415973619b91810c8167` is pushed.
-- Task 11 confirmed existing A/B settings require no new UI or provider controls. `DualReceiverVoiceSettingsTests` passed 4/4 and `VoicePersistentSessionTests` passed 16/16. Existing/new assertions cover secondary Off, equal A/B, non-disabled SHORT, settings exclusion while B is armed/active/restoring, and Persistent Session trigger independence. No Task 11-only commit was needed.
-- Next: Task 12, full focused suites, full test suite, self-tests, release/package build, scope audit, then exact candidate install and RemoteOrbit-only restart.
-- No candidate build/install or task-scoped app restart has occurred. No remote gesture, BLE or audio test has occurred.
-- The canonical dirty `HIDMonitor.swift` and `codex/v0211-nonseize-hid-audit` remain untouched.
-
+- Authoritative parent control HEAD: bf5579fc43f2efbe627dec03f4d0b52182a2848f.
+- Implementation branch/worktree: codex/dual-receiver-system-mapped-routing-v2 at /private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2.
+- Tasks 2–11 completed; validated product/candidate source HEAD: 50a20174632dc105fb670a9b83e3f6feaa8e9f9b.
+- Task 12 passed: focused suites 201/201 across 12 suites; full Swift suite 384/384; self-tests 3/3; universal release package/signature; git diff --check; scope audit.
+- Normal B path uses the existing hardware Option gate. Early second DOWN fails closed without buffering/replay; A restoration waits until B mapped-UP ownership is closed; mapping failures lock the runtime.
+- Scope audit: no second raw HID owner/mapping authority, no normal dual synthetic trigger or virtual HID, no generic gesture timing, BLE codec, tail/drain, or Persistent Session authority/semantics change. Idle target is A; B is limited to its ready window/transaction.
+- Installed candidate: /Applications/RemoteOrbit.app, source HEAD 50a20174632dc105fb670a9b83e3f6feaa8e9f9b, version/build 0.2.13 (42), Bundle ID com.lost0rz.RemoteOrbit, executable SHA-256 7bf64aaea9e988f4857d49509ac897e952bd6b67dd405585a486d6a1f1c4a219. Signature verified.
+- RemoteOrbit was restarted as PID 93962; Core Audio driver PID 615 was left untouched.
+- No remote gestures, BLE/audio test, Set B/C, or merge occurred. The canonical dirty HIDMonitor.swift and codex/v0211-nonseize-hid-audit remain untouched.
+- Stop at READY_FOR_USER_SYSTEM_MAPPED_SET_A for user hardware acceptance.
 ### Gate 0 — authority and v2 baseline
 
 1. `git fetch origin --prune`.
@@ -217,47 +215,63 @@ Do not perform remote hardware gestures. Do not continue to Set B/C. Do not merg
 
 ```text
 TASK_ID: RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023
-CONTROL_HEAD:
-IMPLEMENTATION_BASE:
-IMPLEMENTATION_BRANCH:
-IMPLEMENTATION_WORKTREE:
-FINAL_HEAD:
-REMOTE_HEAD:
-LOCAL_REMOTE_MATCH:
+CONTROL_HEAD: bf5579fc43f2efbe627dec03f4d0b52182a2848f
+IMPLEMENTATION_BASE: c90edbf73ad9b0642fa344734571c0e806c0eb73; accepted product baseline ef29186e25c64cd4d1d7209cb2a41f95c51d4a11
+IMPLEMENTATION_BRANCH: codex/dual-receiver-system-mapped-routing-v2
+IMPLEMENTATION_WORKTREE: /private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2
+FINAL_HEAD: this closeout control-sync commit; validated candidate source HEAD 50a20174632dc105fb670a9b83e3f6feaa8e9f9b
+REMOTE_HEAD: matches FINAL_HEAD; verified after push
+LOCAL_REMOTE_MATCH: YES
 
-LATENCY_GATE_ACCEPTED: YES
-TASK_2_PRIMARY_MAPPING:
-TASK_3_FIRST_SHORT_EVENT:
-TASK_4_MAPPING_STATE:
-TASK_5_DIRECT_A_HARDWARE_PATH:
-TASK_6_A_TO_B_ARM:
-TASK_7_EARLY_SECOND_FAIL_CLOSED:
-TASK_8_B_HARDWARE_PATH:
-TASK_9_RESTORE_A:
-TASK_10_FAILURE_SAFETY:
-TASK_11_SETTINGS_LEGACY:
-TASK_12_FULL_VALIDATION:
+LATENCY_GATE_ACCEPTED: YES; Task 022 prerequisite accepted, not rerun
+TASK_2_PRIMARY_MAPPING: YES; idle remains mapped to A
+TASK_3_FIRST_SHORT_EVENT: YES; recognized first short release arms B transition
+TASK_4_MAPPING_STATE: YES; explicit generation-bound mapping ownership state
+TASK_5_DIRECT_A_HARDWARE_PATH: YES; existing mapped A hardware gate
+TASK_6_A_TO_B_ARM: YES; guarded mapping switch and readiness transition
+TASK_7_EARLY_SECOND_FAIL_CLOSED: YES; no exposure, synthetic edge, activation, buffer, or replay
+TASK_8_B_HARDWARE_PATH: YES; existing mapped B hardware gate
+TASK_9_RESTORE_A: YES; after B mapped-UP ownership closes; timeout and quick release covered
+TASK_10_FAILURE_SAFETY: YES; removal/loss/stale completion/readback failures fail closed
+TASK_11_SETTINGS_LEGACY: YES; existing settings and legacy behavior preserved
+TASK_12_FULL_VALIDATION: PASS
 
-FOCUSED_TESTS:
-FULL_SWIFT_TEST:
-SELF_TESTS:
-RELEASE_BUILD:
-DIFF_CHECK:
-SCOPE_AUDIT:
+FOCUSED_TESTS: PASS; 12 suites, 201/201
+FULL_SWIFT_TEST: PASS; 384/384
+SELF_TESTS: PASS; 3/3
+RELEASE_BUILD: PASS; arm64+x86_64 package, signature verified
+DIFF_CHECK: PASS
+SCOPE_AUDIT: PASS
 
-A_TO_B_TEST_LATENCY_MS:
-B_TO_A_TEST_LATENCY_MS:
-END_TO_END_READINESS_TESTS:
+SECOND_RAW_HID_OWNER_ADDED: NO
+SECOND_HID_OWNER_ADDED: NO
+SECOND_MAPPING_AUTHORITY_ADDED: NO
+NORMAL_DUAL_SYNTHETIC_TRIGGER_USED: NO
+VIRTUAL_HID_PROVIDER_ADDED: NO
+GENERIC_BUTTON_THRESHOLD_CHANGED: NO
+GENERIC_GESTURE_TIMING_CHANGED: NO
+BLE_CODEC_CHANGED: NO
+TAIL_DRAIN_RETUNED: NO
+TAIL_DRAIN_CHANGED: NO
+PERSISTENT_SESSION_AUTHORITY_CHANGED: NO
+PERSISTENT_SESSION_SEMANTICS_CHANGED: NO
+IDLE_DUAL_MAPPING_TARGET: A
+B_MAPPING_ONLY_DURING_B_WINDOW_OR_TRANSACTION: YES
+SECOND_PRESS_BEFORE_B_READY_FAILS_CLOSED: YES
 
-APP_PATH:
-INSTALLED_SOURCE_HEAD:
-EXECUTABLE_SHA256:
-APP_VERSION_BUILD:
-BUNDLE_ID:
-RUNNING_PID:
+A_TO_B_TEST_LATENCY_MS: NOT REPEATED; Task 022 accepted prerequisite
+B_TO_A_TEST_LATENCY_MS: NOT REPEATED; Task 022 accepted prerequisite
+END_TO_END_READINESS_TESTS: automated transaction/state tests; no live latency benchmark
 
-CANONICAL_PREEXISTING_DIRT_PRESERVED:
-UNAUTHORIZED_LOCAL_BRANCH_LEFT_UNTOUCHED:
+APP_PATH: /Applications/RemoteOrbit.app
+INSTALLED_SOURCE_HEAD: 50a20174632dc105fb670a9b83e3f6feaa8e9f9b
+EXECUTABLE_SHA256: 7bf64aaea9e988f4857d49509ac897e952bd6b67dd405585a486d6a1f1c4a219
+APP_VERSION_BUILD: 0.2.13 (42)
+BUNDLE_ID: com.lost0rz.RemoteOrbit
+RUNNING_PID: 93962
+
+CANONICAL_PREEXISTING_DIRT_PRESERVED: YES
+UNAUTHORIZED_LOCAL_BRANCH_LEFT_UNTOUCHED: YES
 MERGED: NO
 FINAL_STATE: READY_FOR_USER_SYSTEM_MAPPED_SET_A
 ```

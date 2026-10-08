@@ -537,7 +537,7 @@ swift test --package-path remote-orbit --filter VoicePersistentSessionTests
 
 **Files:** no new design work.
 
-- [ ] **Step 1: Focused suites**
+- [x] **Step 1: Focused suites**
 
 Run:
 
@@ -556,7 +556,7 @@ swift test --package-path remote-orbit --filter VoicePersistentSessionTests
 swift test --package-path remote-orbit --filter BLEBridgeTests
 ```
 
-- [ ] **Step 2: Full suite/self-tests/build**
+- [x] **Step 2: Full suite/self-tests/build**
 
 ```sh
 swift test --package-path remote-orbit
@@ -565,7 +565,7 @@ swift test --package-path remote-orbit
 git diff --check
 ```
 
-- [ ] **Step 3: Scope audit**
+- [x] **Step 3: Scope audit**
 
 Must report:
 
@@ -582,7 +582,7 @@ B_MAPPING_ONLY_DURING_B_WINDOW_OR_TRANSACTION = YES
 SECOND_PRESS_BEFORE_B_READY_FAILS_CLOSED = YES
 ```
 
-- [ ] **Step 4: Commit/push exact candidate and verify clean local/remote match**
+- [x] **Step 4: Commit/push exact candidate and verify clean local/remote match**
 
 No merge.
 

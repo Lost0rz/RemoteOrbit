@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-08
-State: SYSTEM-MAPPED DUAL-RECEIVER IMPLEMENTATION AUTHORIZED / MAPPING LATENCY GATE PASSED
+State: TASK 023 IMPLEMENTATION AND CANDIDATE INSTALL COMPLETE / WAITING FOR USER SET A
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
@@ -18,9 +18,12 @@ This file is the authority for mutable current project state. Historical detail 
 - Preserved product HEAD: `ef29186e25c64cd4d1d7209cb2a41f95c51d4a11`.
 - Authorized v2 branch: `codex/dual-receiver-system-mapped-routing-v2`.
 - Authorized v2 worktree: `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`.
-- Current v2 branch HEAD: `f4b7fe9338088b96f38bec04928834e6efe54ca2` (Task 11 control sync); product checkpoint `fa6e08e96bcc16ab5079415973619b91810c8167` (Tasks 2–11 complete; Task 11 required no additional source/test files; remote branch matches).
-- Next implementation task: Task 12, full automated validation, scope audit, and exact candidate build/install.
-- Candidate has not been built or installed; RemoteOrbit has not been restarted for this task.
+- Validated and installed candidate source HEAD: `50a20174632dc105fb670a9b83e3f6feaa8e9f9b`; candidate was built from this exact commit.
+- Current v2 branch tip is this closeout control-sync commit on the authorized branch; local and remote branch heads were verified equal after push.
+- Task 12 full focused/full validation, self-tests, release package, diff check and scope audit completed.
+- Installed app: `/Applications/RemoteOrbit.app`, version `0.2.13` build `42`, Bundle ID `com.lost0rz.RemoteOrbit`, executable SHA-256 `7bf64aaea9e988f4857d49509ac897e952bd6b67dd405585a486d6a1f1c4a219`; running RemoteOrbit PID `93962`.
+- Only RemoteOrbit was restarted. No remote gesture, BLE/audio test, Set B/C, or merge was performed. Core Audio driver PID `615` was left running and untouched.
+- Current stop boundary: `READY_FOR_USER_SYSTEM_MAPPED_SET_A`.
 - Merge remains forbidden.
 
 ## Mapping latency gate result — PASS
