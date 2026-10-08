@@ -62,7 +62,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         XCTAssertTrue(harness.mappingCalls.isEmpty)
     }
 
-    func testDualModeMappingClearFailureFailsClosedDespiteCachedDisabledState() {
+    func testDualModePrimaryMappingFailureFailsClosedDespiteCachedState() {
         let harness = VoiceTriggerRuntimeHarness(
             persistedKey: .leftOption,
             applyResults: [false],
@@ -79,10 +79,14 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
                 shortBinding: .preset(.disabled),
                 receiverB: .rightOption
             ),
-            .unavailable(.mappingClearFailed)
+            .unavailable(.primaryMappingFailed)
         )
         XCTAssertFalse(harness.mappingEnabled)
-        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [false])
+        XCTAssertEqual(
+            harness.mappingCalls,
+            [HIDMappingCall(enabled: true, key: .leftOption)],
+            "dual mode must establish Receiver A's mapping before becoming active"
+        )
         harness.controller.beginVoicePress(
             shortBinding: .voiceKeyDefault,
             source: .voiceKeyFilterFallback
@@ -138,7 +142,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             .applied(.legacy)
         )
 
-        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [false, true])
+        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [true, true])
         XCTAssertTrue(harness.mappingEnabled)
         XCTAssertEqual(harness.controller.dualReceiverVoiceMode, .legacy)
     }
@@ -171,10 +175,10 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
 
         XCTAssertEqual(harness.controller.dualReceiverVoiceMode, .unavailable(.legacyMappingRestoreFailed))
         XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .idle)
-        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [false, true])
+        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [true, true])
     }
 
-    func testSuccessfulDualModeClearsMappingBeforeBecomingActive() {
+    func testSuccessfulDualModeKeepsPrimaryMappingBeforeBecomingActive() {
         let harness = VoiceTriggerRuntimeHarness(
             connected: true,
             mappingEnabled: true,
@@ -191,8 +195,11 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             ),
             .applied(.active(receiverA: .leftOption, receiverB: .rightOption))
         )
-        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [false])
-        XCTAssertFalse(harness.mappingEnabled)
+        XCTAssertEqual(
+            harness.mappingCalls,
+            [HIDMappingCall(enabled: true, key: .leftOption)]
+        )
+        XCTAssertTrue(harness.mappingEnabled)
     }
 
     func testDualModeChangeRejectsFirstTapAndSecondTapOwnership() {
@@ -317,7 +324,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         wait(for: [expectation], timeout: 5)
     }
 
-    func testDualRawInputMappingClearRequestsEmptyMappingBeforeTriggerEdges() {
+    func testDualRawInputMappingAppliesPrimaryKeyBeforeTriggerEdges() {
         let harness = VoiceTriggerRuntimeHarness(
             connected: true,
             mappingEnabled: true,
@@ -325,11 +332,11 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             applyResults: [true]
         )
 
-        XCTAssertTrue(harness.controller.clearRemoteVoiceHIDMappingForDualMode())
+        XCTAssertTrue(harness.controller.applyPrimaryRemoteVoiceHIDMappingForDualMode())
 
         XCTAssertEqual(
             harness.mappingCalls,
-            [HIDMappingCall(enabled: false, key: .leftOption)]
+            [HIDMappingCall(enabled: true, key: .leftOption)]
         )
         XCTAssertFalse(harness.trigger.isOptionDown)
         XCTAssertNil(harness.trigger.activeSessionID)
@@ -350,7 +357,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         XCTAssertEqual(harness.persistenceWriteCount, 0)
     }
 
-    func testReceiverAChangeKeepsDeviceMappingParkedWhileDualModeIsActive() {
+    func testReceiverAChangeKeepsDeviceMappingOnPrimaryWhileDualModeIsActive() {
         let harness = VoiceTriggerRuntimeHarness(
             connected: true,
             mappingEnabled: true,
@@ -373,15 +380,15 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
 
         XCTAssertEqual(
             harness.mappingCalls.map(\.enabled),
-            [false, false],
-            "dual mode must keep the F5 mapping parked while Receiver A changes"
+            [true, true],
+            "dual mode must keep the F5 mapping enabled for the current Receiver A key"
         )
         XCTAssertEqual(
             harness.controller.dualReceiverVoiceMode,
             .active(receiverA: .leftControl, receiverB: .rightOption)
         )
         XCTAssertEqual(harness.controller.currentMomentaryVoiceTriggerKey, .leftControl)
-        XCTAssertFalse(harness.mappingEnabled)
+        XCTAssertTrue(harness.mappingEnabled)
     }
 
     func testReceiverAChangingToReceiverBDisablesDualModeAndRestoresLegacyMapping() {
@@ -406,7 +413,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             .legacy,
             "equal A/B keys must not retain dual-mode authority"
         )
-        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [false, true])
+        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [true, true])
         XCTAssertTrue(harness.mappingEnabled)
     }
 

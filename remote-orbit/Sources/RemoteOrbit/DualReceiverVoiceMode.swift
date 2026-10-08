@@ -7,7 +7,7 @@ enum DualReceiverVoiceMode: Equatable {
     enum UnavailabilityReason: Equatable {
         case rawHIDUnavailable
         case eventSuppressorUnavailable
-        case mappingClearFailed
+        case primaryMappingFailed
         case legacyMappingRestoreFailed
     }
 
@@ -21,7 +21,7 @@ enum DualReceiverVoiceMode: Equatable {
         receiverB: VoiceTriggerKey?,
         rawHIDReady: Bool,
         eventSuppressorReady: Bool,
-        mappingClearSucceeded: Bool
+        primaryMappingSucceeded: Bool
     ) -> DualReceiverVoiceMode {
         guard shortIsDisabled,
               let receiverB,
@@ -32,8 +32,8 @@ enum DualReceiverVoiceMode: Equatable {
         guard eventSuppressorReady else {
             return .unavailable(.eventSuppressorUnavailable)
         }
-        guard mappingClearSucceeded else {
-            return .unavailable(.mappingClearFailed)
+        guard primaryMappingSucceeded else {
+            return .unavailable(.primaryMappingFailed)
         }
         return .active(receiverA: receiverA, receiverB: receiverB)
     }

@@ -10,7 +10,7 @@ final class DualReceiverVoiceModeTests: XCTestCase {
                 receiverB: .rightOption,
                 rawHIDReady: true,
                 eventSuppressorReady: true,
-                mappingClearSucceeded: true
+                primaryMappingSucceeded: true
             ),
             .active(receiverA: .leftOption, receiverB: .rightOption)
         )
@@ -24,7 +24,7 @@ final class DualReceiverVoiceModeTests: XCTestCase {
                 receiverB: nil,
                 rawHIDReady: false,
                 eventSuppressorReady: false,
-                mappingClearSucceeded: false
+                primaryMappingSucceeded: false
             ),
             .legacy
         )
@@ -45,7 +45,7 @@ final class DualReceiverVoiceModeTests: XCTestCase {
                     receiverB: receiverB,
                     rawHIDReady: true,
                     eventSuppressorReady: true,
-                    mappingClearSucceeded: true
+                    primaryMappingSucceeded: true
                 ),
                 .legacy
             )
@@ -60,7 +60,7 @@ final class DualReceiverVoiceModeTests: XCTestCase {
                 receiverB: .rightOption,
                 rawHIDReady: false,
                 eventSuppressorReady: true,
-                mappingClearSucceeded: true
+                primaryMappingSucceeded: true
             ),
             .unavailable(.rawHIDUnavailable)
         )
@@ -74,13 +74,13 @@ final class DualReceiverVoiceModeTests: XCTestCase {
                 receiverB: .rightOption,
                 rawHIDReady: true,
                 eventSuppressorReady: false,
-                mappingClearSucceeded: true
+                primaryMappingSucceeded: true
             ),
             .unavailable(.eventSuppressorUnavailable)
         )
     }
 
-    func testFailedMappingClearFailsClosedRegardlessOfCachedMappingState() {
+    func testFailedPrimaryMappingFailsClosed() {
         XCTAssertEqual(
             DualReceiverVoiceMode.evaluate(
                 shortIsDisabled: true,
@@ -88,9 +88,9 @@ final class DualReceiverVoiceModeTests: XCTestCase {
                 receiverB: .rightOption,
                 rawHIDReady: true,
                 eventSuppressorReady: true,
-                mappingClearSucceeded: false
+                primaryMappingSucceeded: false
             ),
-            .unavailable(.mappingClearFailed)
+            .unavailable(.primaryMappingFailed)
         )
     }
 

@@ -67,7 +67,7 @@ final class DualReceiverVoiceSettingsTests: XCTestCase {
                 receiverB: .rightOption,
                 rawHIDReady: true,
                 eventSuppressorReady: true,
-                mappingClearSucceeded: true
+                primaryMappingSucceeded: true
             ),
             .legacy
         )
@@ -78,7 +78,7 @@ final class DualReceiverVoiceSettingsTests: XCTestCase {
                 receiverB: .leftOption,
                 rawHIDReady: true,
                 eventSuppressorReady: true,
-                mappingClearSucceeded: true
+                primaryMappingSucceeded: true
             ),
             .legacy
         )

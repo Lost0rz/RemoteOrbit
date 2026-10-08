@@ -3265,18 +3265,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return true
     }
 
-    /// Clears the device-scoped receiver mapping before raw-F5 dual mode can
+    /// Establishes Receiver A's device-scoped mapping before raw-F5 dual mode can
     /// accept gestures. The process result is authoritative; callers must not
     /// infer success from the cached RemoteVoiceKeyMapping.isEnabled value.
     @discardableResult
-    func clearRemoteVoiceHIDMappingForDualMode() -> Bool {
-        applyVoiceHIDMapping(false, currentMomentaryVoiceTriggerKey)
+    func applyPrimaryRemoteVoiceHIDMappingForDualMode() -> Bool {
+        applyVoiceHIDMapping(true, currentMomentaryVoiceTriggerKey)
     }
 
     /// Selects the dual-receiver authority only after the raw HID owner, its
-    /// existing EventSuppressor, and the runtime mapping-clear operation are
-    /// all ready. A valid but unsafe request remains unavailable so it cannot
-    /// fall through to the legacy VoiceKeyFilter path.
+    /// existing EventSuppressor, and the primary mapping operation are
+    /// all ready and Receiver A's mapping has been applied. A valid but unsafe
+    /// request remains unavailable so it cannot fall through to the legacy path.
     func configureDualReceiverVoiceMode(
         shortBinding: ButtonBinding,
         receiverB: VoiceTriggerKey?
@@ -3296,7 +3296,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             receiverB: receiverB,
             rawHIDReady: rawHIDReady,
             eventSuppressorReady: suppressorReady,
-            mappingClearSucceeded: true
+            primaryMappingSucceeded: true
         )
 
         switch eligibility {
@@ -3316,14 +3316,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             dualReceiverVoiceMode = eligibility
             return .unavailable(reason)
         case .active:
-            let mappingClearSucceeded = clearRemoteVoiceHIDMappingForDualMode()
+            let primaryMappingSucceeded = applyPrimaryRemoteVoiceHIDMappingForDualMode()
             let resolved = DualReceiverVoiceMode.evaluate(
                 shortIsDisabled: shortBinding.isDisabled,
                 receiverA: currentMomentaryVoiceTriggerKey,
                 receiverB: receiverB,
                 rawHIDReady: rawHIDReady,
                 eventSuppressorReady: suppressorReady,
-                mappingClearSucceeded: mappingClearSucceeded
+                primaryMappingSucceeded: primaryMappingSucceeded
             )
             dualReceiverVoiceMode = resolved
             if case let .unavailable(reason) = resolved {
@@ -3686,9 +3686,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             rawHIDReady: rawHIDReadiness?() ?? hidMonitor.isRunning,
             eventSuppressorReady: eventSuppressorReadiness?()
                 ?? hidMonitor.eventSuppressor.isRunning,
-            mappingClearSucceeded: true
+            primaryMappingSucceeded: true
         )
-        let keepDualReceiverMappingParked = requestedDualMode != .legacy
         let hadHardwareMapping = isVoiceHIDMappingEnabled()
         guard filter.beginVoiceTriggerReconfiguration(from: oldKey, to: newKey) else {
             logReconfigurationBusy(reason: "reconfiguration_busy", event: "MOMENTARY_RECONFIG_REJECTED")
@@ -3724,7 +3723,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             currentMomentaryVoiceTriggerKey = newKey
             persistVoiceTriggerKey(newKey)
             // A disconnected receiver cannot begin a raw-HID dual transaction.
-            // Re-evaluate and clear its mapping when the device announces itself.
+            // Establish the primary mapping when the device announces itself.
             dualReceiverVoiceMode = .legacy
             completeVoiceTriggerReconfiguration(.applied, completion: completion)
             return
@@ -3732,18 +3731,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         voiceHIDMappingQueue.async { [weak self] in
             guard let self else { return }
-            let succeeded = self.applyVoiceHIDMapping(
-                !keepDualReceiverMappingParked,
-                newKey
-            )
+            let succeeded = self.applyVoiceHIDMapping(true, newKey)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 guard succeeded else {
-                    if keepDualReceiverMappingParked {
-                        self.dualReceiverVoiceMode = .unavailable(.mappingClearFailed)
+                    if requestedDualMode != .legacy {
+                        self.dualReceiverVoiceMode = .unavailable(.primaryMappingFailed)
                         self.rollbackVoiceTriggerApply(
                             oldKey: oldKey,
-                            hadHardwareMapping: false,
+                            hadHardwareMapping: hadHardwareMapping,
                             completion: completion
                         )
                         return
@@ -3892,10 +3888,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 rawHIDReady: rawHIDReadiness?() ?? hidMonitor.isRunning,
                 eventSuppressorReady: eventSuppressorReadiness?()
                     ?? hidMonitor.eventSuppressor.isRunning,
-                mappingClearSucceeded: true
+                primaryMappingSucceeded: true
             )
             : .legacy
-        let shouldEnable = hidConnected && refreshedDualMode == .legacy
+        let shouldEnable = hidConnected
         let target = currentMomentaryVoiceTriggerKey
         voiceHIDMappingQueue.async { [weak self] in
             guard let self else { return }
@@ -3903,14 +3899,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 if shouldEnable && !succeeded {
-                    print("[HID-MAP] reconnect mapping failed; synthetic fallback remains available")
-                }
-                if !shouldEnable && !succeeded && self.dualReceiverVoiceMode != .legacy {
-                    self.dualReceiverVoiceMode = .unavailable(.mappingClearFailed)
-                } else if !shouldEnable && succeeded {
+                    if refreshedDualMode != .legacy {
+                        self.dualReceiverVoiceMode = .unavailable(.primaryMappingFailed)
+                    } else {
+                        print("[HID-MAP] reconnect mapping failed; synthetic fallback remains available")
+                    }
+                } else if succeeded {
                     self.dualReceiverVoiceMode = refreshedDualMode
-                } else if shouldEnable && succeeded {
-                    self.dualReceiverVoiceMode = .legacy
                 }
                 if self.pendingVoiceHIDMappingRefresh {
                     self.completeVoiceTriggerReconfiguration(result, completion: completion)
@@ -4541,7 +4536,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 )
                 if case .applied(.active(receiverA: _, receiverB: _)) = result {
                     dualModeHandledMapping = true
-                } else if result == .unavailable(.mappingClearFailed) {
+                } else if result == .unavailable(.primaryMappingFailed) {
                     dualModeHandledMapping = true
                 }
             }
@@ -4904,10 +4899,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func applyVoiceHIDMappingForConnection(_ active: Bool) {
         if dualReceiverVoiceMode != .legacy {
-            let succeeded = clearRemoteVoiceHIDMappingForDualMode()
+            let succeeded = active
+                ? applyPrimaryRemoteVoiceHIDMappingForDualMode()
+                : applyVoiceHIDMapping(false, currentMomentaryVoiceTriggerKey)
             if !succeeded {
-                dualReceiverVoiceMode = .unavailable(.mappingClearFailed)
-                print("[HID-MAP] dual mode unavailable; raw receiver mapping clear failed")
+                dualReceiverVoiceMode = .unavailable(.primaryMappingFailed)
+                print("[HID-MAP] dual mode unavailable; primary mapping operation failed")
             }
             return
         }
