@@ -567,16 +567,29 @@ final class VoiceOptionTrigger {
 
     @discardableResult
     func sendDown(sessionID: UUID, purpose: String = "momentary_hold") -> Bool {
+        sendDown(
+            sessionID: sessionID,
+            key: momentaryVoiceTriggerKey,
+            purpose: purpose
+        )
+    }
+
+    @discardableResult
+    func sendDown(
+        sessionID: UUID,
+        key: VoiceTriggerKey,
+        purpose: String = "momentary_hold"
+    ) -> Bool {
         guard activeSessionID == sessionID, !isOptionDown else { return false }
         isOptionDown = true
-        activeTriggerKey = momentaryVoiceTriggerKey
+        activeTriggerKey = key
         activePurpose = purpose
-        eventSink(momentaryVoiceTriggerKey, true)
+        eventSink(key, true)
         logSyntheticEdge(
             "SYNTHETIC_TRIGGER_DOWN",
             sessionID: sessionID,
             purpose: purpose,
-            key: momentaryVoiceTriggerKey
+            key: key
         )
         return true
     }

@@ -163,6 +163,54 @@ final class VoiceOptionTriggerTests: XCTestCase {
         XCTAssertEqual(events.map(\.isDown), expectedEdges)
     }
 
+    func testExplicitDownAndUpUseOnlyTheSelectedReceiverKey() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+
+        for key in [VoiceTriggerKey.leftOption, .rightOption] {
+            let sessionID = UUID()
+            XCTAssertTrue(trigger.begin(sessionID: sessionID))
+            XCTAssertTrue(
+                trigger.sendDown(
+                    sessionID: sessionID,
+                    key: key,
+                    purpose: "dual_receiver_\(key.rawValue)"
+                )
+            )
+            XCTAssertTrue(trigger.sendUp(sessionID: sessionID))
+        }
+
+        XCTAssertEqual(events.map(\.key), [
+            .leftOption, .leftOption, .rightOption, .rightOption,
+        ])
+        XCTAssertEqual(events.map(\.isDown), [true, false, true, false])
+    }
+
+    func testExplicitDownCapturesItsKeyAgainstLaterConfigurationChanges() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let sessionID = UUID()
+
+        XCTAssertTrue(trigger.begin(sessionID: sessionID))
+        XCTAssertTrue(
+            trigger.sendDown(
+                sessionID: sessionID,
+                key: .rightOption,
+                purpose: "receiver_b"
+            )
+        )
+        XCTAssertFalse(trigger.configureVoiceTriggerKey(.leftControl))
+        XCTAssertEqual(trigger.momentaryVoiceTriggerKey, .leftOption)
+        XCTAssertTrue(trigger.sendUp(sessionID: sessionID))
+
+        XCTAssertEqual(events.map(\.key), [.rightOption, .rightOption])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+    }
+
     func testConfigurationIsRejectedWhileTriggerIsDown() {
         var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
         let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
