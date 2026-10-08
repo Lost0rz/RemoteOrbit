@@ -406,6 +406,7 @@ final class VoicePressCoordinator {
     private var remoteAudioAvailable = false
     private var remoteRouted = false
     private var longInputStarted = false
+    private var classifiedDualReceiverHold = false
     private var releaseBounceDebounceUntil = Date.distantPast
     private var lastPhysicalUpAt: Date?
     private(set) var lastRepressDecisionForTesting: String?
@@ -665,6 +666,67 @@ final class VoicePressCoordinator {
         )
     }
 
+    /// Enters the existing route/hold lifecycle after the voice-specific
+    /// classifier has already selected a long gesture. It intentionally does
+    /// not start a second short/long timer or emit a receiver trigger edge;
+    /// Task 7 supplies the selected receiver at the first-PCM boundary.
+    @discardableResult
+    func beginClassifiedHold(
+        sessionID: UUID,
+        physicalDownAt: TimeInterval
+    ) -> Bool {
+        guard pendingPersistentToggle == nil,
+              mode == .idle,
+              !awaitingPhysicalVoiceKeyUp,
+              !remoteRouted,
+              !longInputStarted,
+              tailWorkItem == nil,
+              gestureID == nil else {
+            return false
+        }
+        guard syntheticOptionTrigger.begin(sessionID: sessionID) else { return false }
+
+        pendingShortPreparationID = nil
+        AudioPipe.shared.setLocalMicrophoneCaptureEnabled(false)
+        shortTapAction = nil
+        shortInputUsesLocalMicrophone = false
+        shortInputTogglesPersistentVoiceSession = false
+        remoteSegmentTriggerPolicy = .momentaryTrigger
+        audioOnlyHardwareTriggerSuppressed = false
+        resetAudioOnlyHardwareTriggerOnDrain = false
+        usesHardwareOptionPath = false
+        remoteOutputDrainRequestedSessionID = nil
+        remoteOutputDrainedSessionID = nil
+        physicalUpSessionID = nil
+        awaitingPhysicalVoiceKeyUp = false
+        pendingVoiceUIHidden = false
+        classifiedDualReceiverHold = true
+        gestureID = sessionID
+        gesturePhysicalDownUptime = physicalDownAt
+        remoteAudioAvailable = false
+        longInputStarted = false
+        VoiceTimingLogger.begin(sessionID: sessionID)
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "GESTURE_BEGIN",
+            gestureID: sessionID,
+            fields: [
+                "session_mode": voiceSessionMode == .persistentOpen ? "persistent_open" : "idle",
+                "momentary_configured_key": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
+                "policy": "momentary_trigger",
+                "classifier": "dual_receiver",
+            ]
+        )
+        logGestureClassification(
+            result: "hold",
+            sessionID: sessionID,
+            policy: .momentaryTrigger
+        )
+        AudioPipe.shared.beginRemoteCandidate()
+        enterHoldingState()
+        return true
+    }
+
     private func startAcceptedVoicePress(
         sessionID: UUID,
         physicalDownAt: TimeInterval,
@@ -677,6 +739,7 @@ final class VoicePressCoordinator {
     ) -> Bool {
         // Local capture is only used by explicit Codex short actions.
         pendingShortPreparationID = nil
+        classifiedDualReceiverHold = false
         AudioPipe.shared.setLocalMicrophoneCaptureEnabled(false)
         shortTapAction = onShortTap
         shortInputTogglesPersistentVoiceSession = togglesPersistentVoiceSession
@@ -1329,6 +1392,7 @@ final class VoicePressCoordinator {
         remoteSegmentTriggerPolicy = .momentaryTrigger
         audioOnlyHardwareTriggerSuppressed = false
         resetAudioOnlyHardwareTriggerOnDrain = false
+        classifiedDualReceiverHold = false
         let stoppedSessionID = gestureID
         if let currentGestureID = gestureID {
             if shouldResetSuppressedHardwareTrigger {
@@ -1427,6 +1491,8 @@ final class VoicePressCoordinator {
                 ]
             )
             print("[PRESS] persistent IME segment audio ready; no trigger edge")
+        } else if classifiedDualReceiverHold {
+            print("[PRESS] dual receiver first PCM accepted; selected trigger awaits receiver transaction")
         } else if usesHardwareOptionPath {
             print("[PRESS] LONG audio ready → Option DOWN; source=remote")
             print("[PRESS] LONG uses hardware-held \(syntheticOptionTrigger.momentaryVoiceTriggerKey.displayName)")
@@ -1626,6 +1692,8 @@ final class VoicePressCoordinator {
                     "session_remains_open": voiceSessionMode == .persistentOpen,
                 ]
             )
+        } else if classifiedDualReceiverHold {
+            _ = syntheticOptionTrigger.abort(sessionID: sessionID)
         } else if usesHardwareOptionPath {
             onHardwareOptionGateOutputDrained?(sessionID)
             print("[PRESS] LONG end → Option UP after output drain")
@@ -1657,6 +1725,7 @@ final class VoicePressCoordinator {
         remoteSegmentTriggerPolicy = .momentaryTrigger
         audioOnlyHardwareTriggerSuppressed = false
         resetAudioOnlyHardwareTriggerOnDrain = false
+        classifiedDualReceiverHold = false
         if mode != .idle {
             setMode(.idle)
         }
@@ -1706,6 +1775,7 @@ final class VoicePressCoordinator {
         remoteSegmentTriggerPolicy = .momentaryTrigger
         audioOnlyHardwareTriggerSuppressed = false
         resetAudioOnlyHardwareTriggerOnDrain = false
+        classifiedDualReceiverHold = false
         VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
         VoiceTimingLogger.end(sessionID: sessionID)
         scheduleDeferredRepressActivation()
@@ -2950,10 +3020,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private(set) var voiceTriggerReconfigurationInProgress = false
     private(set) var voiceTriggerRuntimeLocked = false
     private var pendingVoiceHIDMappingRefresh = false
+    private var dualReceiverPrewarmGestureID: UUID?
+    private var dualReceiverPhysicalDownAt: TimeInterval?
+    private var activeDualReceiverGestureID: UUID?
     private let isVoiceHIDMappingEnabled: () -> Bool
     private let applyVoiceHIDMapping: (Bool, VoiceTriggerKey) -> Bool
     private let rawHIDReadiness: (() -> Bool)?
     private let eventSuppressorReadiness: (() -> Bool)?
+    private let prepareVoiceTransportAction: (() -> Void)?
+    private let activateVoiceInputAction: (() -> Void)?
+    private let cancelVoiceTransportPreparationAction: (() -> Void)?
+    private let stopVoiceInputAction: (() -> Void)?
     private let readPersistedVoiceTriggerKey: () -> VoiceTriggerKey
     private let persistVoiceTriggerKey: (VoiceTriggerKey) -> Void
     private let readPersistedPersistentSessionTriggerKey: () -> VoiceTriggerKey
@@ -2978,6 +3055,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         },
         rawHIDReadiness: (() -> Bool)? = nil,
         eventSuppressorReadiness: (() -> Bool)? = nil,
+        prepareVoiceTransport: (() -> Void)? = nil,
+        activateVoiceInput: (() -> Void)? = nil,
+        cancelVoiceTransportPreparation: (() -> Void)? = nil,
+        stopVoiceInput: (() -> Void)? = nil,
         readPersistedVoiceTriggerKey: @escaping () -> VoiceTriggerKey = {
             AppStorage.momentaryVoiceTriggerKey
         },
@@ -3004,12 +3085,27 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.applyVoiceHIDMapping = applyVoiceHIDMapping
         self.rawHIDReadiness = rawHIDReadiness
         self.eventSuppressorReadiness = eventSuppressorReadiness
+        self.prepareVoiceTransportAction = prepareVoiceTransport
+        self.activateVoiceInputAction = activateVoiceInput
+        self.cancelVoiceTransportPreparationAction = cancelVoiceTransportPreparation
+        self.stopVoiceInputAction = stopVoiceInput
         self.readPersistedVoiceTriggerKey = readPersistedVoiceTriggerKey
         self.persistVoiceTriggerKey = persistVoiceTriggerKey
         self.readPersistedPersistentSessionTriggerKey = readPersistedPersistentSessionTriggerKey
         self.persistPersistentSessionTriggerKey = persistPersistentSessionTriggerKey
         self.diagnosticUptimeProvider = uptimeProvider
         super.init()
+        dualReceiverVoiceGestureRecognizer.onEvent = { [weak self] event in
+            self?.handleDualReceiverGestureEvent(event)
+        }
+        voicePress.onStateChanged = { [weak self] state in
+            if state == .holding {
+                self?.activateVoiceInput()
+            }
+        }
+        voicePress.onRemoteTransportPreparation = { [weak self] in
+            self?.prepareVoiceTransport()
+        }
     }
 
     @discardableResult
@@ -3133,6 +3229,147 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return .unavailable(reason)
             }
             return .applied(resolved)
+        }
+    }
+
+    /// Routes one raw HID microphone edge through the voice-specific classifier.
+    /// Physical timestamps are passed through unchanged; wall-clock/UI timing
+    /// is never used to classify the gesture.
+    func handleDualReceiverMicrophoneEdge(
+        isDown: Bool,
+        at timestamp: TimeInterval
+    ) {
+        if !isDown, activeDualReceiverGestureID != nil {
+            _ = dualReceiverVoiceGestureRecognizer.handleUp(at: timestamp)
+            finishActiveDualReceiverGestureRelease()
+            return
+        }
+
+        if isDown,
+           case .active = dualReceiverVoiceMode,
+           let reason = dualReceiverReadinessFailure() {
+            dualReceiverVoiceMode = .unavailable(reason)
+            dualReceiverVoiceGestureRecognizer.cancel()
+            cancelPendingDualReceiverPrewarm()
+            dualReceiverPhysicalDownAt = nil
+            return
+        }
+
+        guard case .active = dualReceiverVoiceMode else {
+            if !isDown {
+                dualReceiverVoiceGestureRecognizer.cancel()
+                cancelPendingDualReceiverPrewarm()
+                dualReceiverPhysicalDownAt = nil
+            }
+            return
+        }
+
+        if isDown {
+            guard activeDualReceiverGestureID == nil else { return }
+            let gestureID = dualReceiverVoiceGestureRecognizer.handleDown(at: timestamp)
+            guard let gestureID else { return }
+            dualReceiverPhysicalDownAt = timestamp
+            if dualReceiverPrewarmGestureID != gestureID {
+                dualReceiverPrewarmGestureID = gestureID
+                prepareVoiceTransport()
+            }
+            return
+        }
+
+        _ = dualReceiverVoiceGestureRecognizer.handleUp(at: timestamp)
+        // A delayed main-queue classifier timer can be first observed on the
+        // physical release edge. If that edge crosses the hold threshold, the
+        // classification callback starts the voice transaction synchronously;
+        // consume this same physical release instead of leaving the route held.
+        finishActiveDualReceiverGestureRelease()
+    }
+
+    private func finishActiveDualReceiverGestureRelease() {
+        guard activeDualReceiverGestureID != nil else { return }
+        activeDualReceiverGestureID = nil
+        dualReceiverPhysicalDownAt = nil
+        finishVoicePressRelease(source: .hidMonitor) { [weak self] in
+            self?.stopVoiceInput()
+        }
+    }
+
+    private func handleDualReceiverGestureEvent(
+        _ event: DualReceiverVoiceGestureRecognizer.Event
+    ) {
+        switch event {
+        case let .noAction(gestureID):
+            guard dualReceiverPrewarmGestureID == gestureID else { return }
+            cancelPendingDualReceiverPrewarm()
+            dualReceiverPhysicalDownAt = nil
+        case let .classified(gestureID, _):
+            guard case .active = dualReceiverVoiceMode,
+                  dualReceiverPrewarmGestureID == gestureID,
+                  let physicalDownAt = dualReceiverPhysicalDownAt else {
+                cancelPendingDualReceiverPrewarm()
+                dualReceiverPhysicalDownAt = nil
+                dualReceiverVoiceGestureRecognizer.cancel()
+                return
+            }
+            dualReceiverPrewarmGestureID = nil
+            dualReceiverPhysicalDownAt = nil
+            guard voicePress.beginClassifiedHold(
+                sessionID: gestureID,
+                physicalDownAt: physicalDownAt
+            ) else {
+                cancelVoiceTransportPreparation()
+                dualReceiverVoiceGestureRecognizer.cancel()
+                return
+            }
+            activeDualReceiverGestureID = gestureID
+        }
+    }
+
+    private func cancelPendingDualReceiverPrewarm() {
+        guard dualReceiverPrewarmGestureID != nil else { return }
+        dualReceiverPrewarmGestureID = nil
+        cancelVoiceTransportPreparation()
+    }
+
+    private func dualReceiverReadinessFailure()
+        -> DualReceiverVoiceMode.UnavailabilityReason? {
+        guard rawHIDReadiness?() ?? hidMonitor.isRunning else {
+            return .rawHIDUnavailable
+        }
+        guard eventSuppressorReadiness?() ?? hidMonitor.eventSuppressor.isRunning else {
+            return .eventSuppressorUnavailable
+        }
+        return nil
+    }
+
+    private func prepareVoiceTransport() {
+        if let prepareVoiceTransportAction {
+            prepareVoiceTransportAction()
+        } else {
+            ble.prepareVoiceTransport()
+        }
+    }
+
+    private func activateVoiceInput() {
+        if let activateVoiceInputAction {
+            activateVoiceInputAction()
+        } else {
+            ble.activateVoiceInput()
+        }
+    }
+
+    private func cancelVoiceTransportPreparation() {
+        if let cancelVoiceTransportPreparationAction {
+            cancelVoiceTransportPreparationAction()
+        } else {
+            ble.cancelVoiceTransportPreparation()
+        }
+    }
+
+    private func stopVoiceInput() {
+        if let stopVoiceInputAction {
+            stopVoiceInputAction()
+        } else {
+            ble.stopVoiceInput()
         }
     }
 
@@ -3920,7 +4157,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // Enabled short actions reach this state after the normal hold threshold;
                 // a disabled short action enters it immediately because there is no short
                 // branch to classify.
-                self?.ble.activateVoiceInput()
+                self?.activateVoiceInput()
             }
             self?.updateVoiceHUD(for: state)
         }
@@ -3997,7 +4234,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             )
         }
         voicePress.onRemoteTransportPreparation = { [weak self] in
-            self?.ble.prepareVoiceTransport()
+            self?.prepareVoiceTransport()
         }
         voicePress.onRemoteOutputDrain = { _, completion in
             AudioPipe.shared.waitForOutputDrain(completion: completion)
@@ -4065,6 +4302,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             self.updateStatus()
             if !active {
+                self.dualReceiverVoiceGestureRecognizer.cancel()
+                self.cancelPendingDualReceiverPrewarm()
+                self.dualReceiverPhysicalDownAt = nil
+                self.activeDualReceiverGestureID = nil
                 self.reconnectHeldButtons = Set(
                     RemoteButton.allCases.filter {
                         self.hidMonitor.isButtonDown($0)
@@ -4220,6 +4461,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             // 语音键：单击走电脑/外部麦克风动作，长按走遥控器麦克风。
             if button == .microphone {
+                if self.dualReceiverVoiceMode != .legacy {
+                    self.handleDualReceiverMicrophoneEdge(
+                        isDown: isDown,
+                        at: timestamp
+                    )
+                    return
+                }
                 let profile = self.mappingStore.activePressGestureProfile(for: button)
                 let usesRemoteMicrophone = profile.longPressEnabled
                     && profile.longPress == .voiceKeyDefault
