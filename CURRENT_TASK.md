@@ -1,19 +1,37 @@
 # RemoteOrbit Current Task
 
-## Current task — DUAL-RECEIVER MOMENTARY ROUTING IMPLEMENTATION THROUGH EARLY HARDWARE GATE
+## Current task — REAL HID KEYBOARD TRIGGER BACKEND ARCHITECTURE REVIEW
 
-- **Status:** ACTIVE / PRODUCT CONSTRUCTION AUTHORIZED THROUGH EARLY HARDWARE GATE
-- **Task ID:** `RO-DUAL-RECEIVER-MOMENTARY-ROUTING-019`
-- **Previous task:** `RO-DUAL-RECEIVER-MOMENTARY-ROUTING-018` — IMPLEMENTATION PLAN AUDITED
-- **Design spec:** `docs/superpowers/specs/2026-10-08-dual-receiver-momentary-voice-routing-design.md`
-- **Implementation plan:** `docs/superpowers/plans/2026-10-08-dual-receiver-momentary-routing.md`
-- **Audited plan HEAD:** `6415c6baccae75b220391568d77b546c5cbbefe8`
-- **Classifier corrective source:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
-- **Authorized branch:** `codex/dual-receiver-momentary-routing-v1`
-- **Authorized worktree:** `/private/tmp/remoteorbit-dual-receiver-momentary-routing-v1`
+- **Status:** HOLD / USER ARCHITECTURE APPROVAL REQUIRED
+- **Task ID:** `RO-REAL-HID-TRIGGER-BACKEND-020`
+- **Previous task:** `RO-DUAL-RECEIVER-MOMENTARY-ROUTING-019` — STOPPED / `SYNTHETIC_RECEIVER_TRIGGER_NOT_ACCEPTED`
+- **Preserved implementation branch:** `codex/dual-receiver-momentary-routing-v1`
+- **Preserved branch HEAD:** `c90edbf73ad9b0642fa344734571c0e806c0eb73`
+- **Preserved product HEAD:** `ef29186e25c64cd4d1d7209cb2a41f95c51d4a11`
+- **Product source mutation:** FORBIDDEN until architecture path is approved
+- **Runtime/provider installation:** FORBIDDEN until architecture path is approved
+- **Receiver shortcut changes:** FORBIDDEN
 - **Merge:** FORBIDDEN
 
-## Product contract
+## Accepted failure evidence
+
+Receiver A hardware gate result:
+
+```text
+5 x direct LONG
+gesture classified A: 5/5
+remote audio lifecycle: 5/5
+synthetic Left Option DOWN/UP: 5/5
+Receiver A externally opened: 0/5
+```
+
+Final classification:
+
+`SYNTHETIC_RECEIVER_TRIGGER_NOT_ACCEPTED`
+
+Do not test Receiver B on this synthetic-trigger candidate.
+
+## Product contract retained
 
 ```text
 Direct LONG                   -> Receiver A
@@ -26,233 +44,90 @@ LONG = 350 ms
 DOUBLE WINDOW = 300 ms
 ```
 
-Dual mode uses independent momentary transactions only. Persistent Session is not receiver authority.
+Both A and B remain independent momentary transactions. Persistent Session is not receiver authority.
 
-## Mandatory Web audit amendments to the plan
+## Architecture correction
 
-These requirements override any ambiguous implementation reading of the audited plan.
+The normal trigger backend must present the selected modifier as a **keyboard HID event/report equivalent to a real keyboard key**, not as a CGEvent synthetic modifier.
 
-### Amendment A — no second long-press classifier
-
-The new voice-specific classifier is the sole semantic classifier in dual mode.
-
-When it resolves A or B, enter the existing voice transaction lifecycle via an explicit already-classified hold API/seam. Do not feed the classified press back through the legacy 300 ms `VoicePressCoordinator.keyDown` classifier.
-
-Required regression:
+Rejected:
 
 ```text
-classification at ~350 ms
--> transaction activation begins immediately from classified-hold entry
--> no additional ~300 ms wait
+classified A/B
+-> CGEvent synthetic Left/Right Option
 ```
 
-Legacy single-receiver behavior remains unchanged.
-
-### Amendment B — mapping clear must succeed before dual activation
-
-Entering dual mode requires the device-scoped F5 receiver mapping clear operation to succeed through the runtime mapping seam.
-
-A clear failure must produce:
+Required semantic boundary:
 
 ```text
-DUAL_MODE_UNAVAILABLE
-BLE_ACTIVATION = 0
-A_TRIGGER = 0
-B_TRIGGER = 0
-RAW_F5_FALLBACK = 0
+raw remote F5
+-> park raw F5
+-> classify A/B
+-> activate remote audio
+-> first decoded PCM
+-> real virtual-keyboard HID modifier DOWN for selected key
+-> stream
+-> release + existing output drain
+-> matching HID modifier UP
 ```
 
-Do not rely solely on cached/in-memory `RemoteVoiceKeyMapping.isEnabled` after a failed command. Do not restore pre-classification receiver mapping as fallback.
+## Architecture candidates
 
-## Gate 0 — freshness, isolated workspace, preserve existing local dirt
+### Option A — Native CoreHID `HIDVirtualDevice`
 
-1. `git fetch origin --prune`.
-2. Read latest `AGENTS.md`, `CURRENT_STATUS.md`, this task, design spec, and implementation plan from authoritative `origin/main`.
-3. Verify canonical remote identity.
-4. Verify the current `origin/main` is the implementation authority supplied by Web. A docs/control-only successor is acceptable only if task ID, contract, plan and authorization are unchanged; otherwise STOP and reconcile.
-5. Inspect `git worktree list` and the reported existing canonical checkout read-only.
-6. If the canonical checkout still has a pre-existing dirty `HIDMonitor.swift`, record path/status/hash/diff metadata read-only. Do NOT clean, stash, reset, checkout, copy from, or overwrite it.
-7. The only implementation workspace is `/private/tmp/remoteorbit-dual-receiver-momentary-routing-v1`. Recreate/rebind it from current authoritative `origin/main` only if necessary and only without touching unrelated worktrees.
-8. Worktree must be clean before product mutation.
+Target long-term architecture.
 
-## Gate 1 — adopt only the accepted classifier corrective
+Required capability:
 
-Follow implementation-plan Task 1 exactly, with one stricter rule: do not replace whole current-main files blindly.
+`com.apple.developer.hid.virtual.device`
 
-Use candidate HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db` only as the source of the accepted Disabled-SHORT behavior/test hunks.
+Current ad-hoc packaging cannot be assumed to create the device. Do not implement this path until entitlement/provisioning feasibility is established.
 
-Required RED then GREEN:
+### Option B — Existing Karabiner DriverKit VirtualHID provider
 
-```sh
-swift test --package-path remote-orbit --filter DisabledShortClassifierTests
-swift test --package-path remote-orbit --filter VoicePressCoordinatorTests
-```
+Recommended first feasibility spike.
 
-After GREEN, prove the baseline corrective diff is limited to the accepted classifier behavior/test and commit it separately.
+Purpose is not to adopt Karabiner as the final product automatically. It answers one bounded question cheaply:
 
-STOP on unrelated candidate overwrite or broader behavior change.
+`Does a macOS virtual HID keyboard Left Option open Receiver A reliably?`
 
-## Gates 2-9 — execute audited plan with TDD
+The provider has a real DriverKit virtual keyboard and client/daemon path. Using it may require system-extension installation/approval and privileged daemon execution. Those are explicit side effects and require user approval before execution.
 
-Execute plan Tasks 2 through 9 in order. Use RED -> smallest GREEN -> focused regressions -> coherent commit for each task.
+### Option C — Physical keyboard bridge
 
-Required boundaries remain:
+Fallback only if supported software virtual-HID routes are unavailable.
 
-- pure `DualReceiverVoiceGestureRecognizer`, fake scheduler/monotonic timing, no sleeps;
-- generic `ButtonGestureRecognizer` unchanged;
-- single `VoiceOptionTrigger` owner with explicit transaction key;
-- no receiver hidutil mapping before dual classification;
-- existing `HIDMonitor` + one existing `EventSuppressor` only;
-- mapping-clear failure fail-closed per Amendment B;
-- first DOWN/pre-second-window may only prewarm transport;
-- classified A/B must use the already-classified hold entry per Amendment A;
-- `activateVoiceInput()` only after classification;
-- selected trigger DOWN only on first decoded PCM;
-- no PCM -> zero receiver edges;
-- release/drain/loss/disconnect balance only the captured selected key;
-- secondary trigger stored independently from Persistent trigger;
-- secondary Off preserves legacy path;
-- SHORT must be Disabled and A != B for dual mode.
+## Recommended next step — SPIKE ONLY
 
-Do not redesign BLE codec, driver, tail timing, Persistent Session semantics, diagnostic authority, packaging, TCC, or non-microphone generic gestures.
+After user approval, authorize a **bounded feasibility spike** that does not modify RemoteOrbit product code.
 
-## Gate 9.5 — automated candidate validation before runtime mutation
+Spike question:
 
-Before build/install, all changed focused suites must pass. At minimum run:
+`Can an existing real virtual-HID keyboard provider emit Left Option such that Receiver A opens reliably, unlike CGEvent synthetic Option?`
 
-```sh
-swift test --package-path remote-orbit --filter DisabledShortClassifierTests
-swift test --package-path remote-orbit --filter DualReceiverVoiceGestureRecognizerTests
-swift test --package-path remote-orbit --filter DualReceiverVoiceModeTests
-swift test --package-path remote-orbit --filter DualReceiverVoiceSettingsTests
-swift test --package-path remote-orbit --filter DualReceiverVoiceTransactionTests
-swift test --package-path remote-orbit --filter VoicePressCoordinatorTests
-swift test --package-path remote-orbit --filter VoiceOptionTriggerTests
-swift test --package-path remote-orbit --filter EventSuppressorTests
-swift test --package-path remote-orbit --filter RemoteVoiceKeyMappingTests
-swift test --package-path remote-orbit --filter BLEBridgeTests
-swift test --package-path remote-orbit --filter VoiceTriggerRuntimeTests
-swift test --package-path remote-orbit --filter VoicePersistentSessionTests
-swift test --package-path remote-orbit
-./remote-orbit/run-self-tests.sh
-swift build --package-path remote-orbit -c release
-git diff --check
-```
+Preferred probe sequence:
 
-Also audit exact changed paths against the plan and confirm:
+1. read-only inspect whether a compatible Karabiner VirtualHID provider/driver/daemon is already installed;
+2. if absent, STOP before installation and report the exact dependency/approval needed;
+3. if already available and healthy, use its smallest isolated example/client path to emit one Left Option DOWN/UP under explicit user-controlled receiver observation;
+4. only after one successful proof, run 5 repeated Left Option momentary trials;
+5. do not modify RemoteOrbit source, A/B classifier, BLE code, settings, receiver shortcuts, TCC, audio driver, or CoreAudio;
+6. do not leave a modifier held; every probe must be balanced DOWN/UP with cleanup.
+
+Expected spike result labels:
 
 ```text
-GENERIC_BUTTON_GESTURE_THRESHOLD_CHANGED = NO
-PERSISTENT_SESSION_SEMANTICS_CHANGED = NO
-SECOND_HID_OWNER_ADDED = NO
-SECOND_DIAGNOSTIC_AUTHORITY_ADDED = NO
-PRECLASSIFICATION_A_OR_B_MAPPING = NO
-DUAL_CLASSIFIER_DOUBLE_WAIT = NO
-MAPPING_CLEAR_FAILURE_FALLBACK = NO
+REAL_HID_PROVIDER_UNAVAILABLE
+REAL_HID_LEFT_OPTION_REJECTED
+REAL_HID_LEFT_OPTION_ACCEPTED_5_OF_5
 ```
 
-Commit/push exact implementation HEAD and verify local/remote match before runtime replacement.
+If accepted 5/5, return to Web to write the production trigger-backend design spec. Do not wire the provider into RemoteOrbit during the spike.
 
-## Gate 10 — authorized early test runtime preparation
+## Approval gate
 
-Only after Gate 9.5 PASS:
+Until the user approves the recommended real-HID feasibility spike, local AI must not install a provider, activate a system extension, run a privileged virtual-HID daemon, emit virtual keyboard events, or modify product source.
 
-Allowed:
-- build/package the exact implementation candidate using existing repository scripts;
-- replace `/Applications/RemoteOrbit.app` with that exact candidate;
-- restart only RemoteOrbit as required to run it;
-- verify installed/running identity.
+Return if asked to proceed without approval:
 
-Forbidden:
-- driver replacement/restart;
-- CoreAudio restart;
-- TCC/Accessibility/Input Monitoring changes;
-- receiver shortcut changes;
-- generic system remapping outside RemoteOrbit's runtime transition;
-- user hardware gestures performed by executor;
-- merge.
-
-Record:
-
-```text
-SOURCE_HEAD
-REMOTE_BRANCH_HEAD
-LOCAL_REMOTE_MATCH
-APP_PATH
-EXECUTABLE_SHA256
-CFBundleShortVersionString
-CFBundleVersion
-BUNDLE_ID
-CODE_IDENTITY
-RUNNING_PID
-CURRENT_A_TRIGGER
-CURRENT_B_TRIGGER
-DUAL_MODE_ELIGIBILITY
-REMOTE_F5_MAPPING_STATE
-```
-
-Then STOP and return exactly:
-
-`READY_FOR_USER_EARLY_HARDWARE_ACCEPTANCE`
-
-The user will perform:
-
-```text
-5 x direct LONG
-5 x quick-first-tap + second LONG
-5 x quick single tap
-```
-
-No source correction is authorized during that acceptance stop.
-
-## Hardware decision boundary
-
-If the user's hardware result later shows classified synthetic Left/Right Option is not reliably accepted by either real receiver, return:
-
-`SYNTHETIC_RECEIVER_TRIGGER_NOT_ACCEPTED`
-
-and stop construction. Do not restore pre-classification hidutil mapping.
-
-If the early hardware gate passes, Web will authorize the remaining Task 11 polish/full validation and Task 12 final acceptance in a separate transition.
-
-## Required implementation handoff before user hardware test
-
-Return:
-
-```text
-TASK_ID: RO-DUAL-RECEIVER-MOMENTARY-ROUTING-019
-CONTROL_HEAD:
-IMPLEMENTATION_BASE:
-IMPLEMENTATION_BRANCH: codex/dual-receiver-momentary-routing-v1
-IMPLEMENTATION_WORKTREE: /private/tmp/remoteorbit-dual-receiver-momentary-routing-v1
-FINAL_HEAD:
-REMOTE_HEAD:
-LOCAL_REMOTE_MATCH:
-CLASSIFIER_CORRECTIVE_ADOPTED:
-TASK_2_CLASSIFIER: PASS/STOP
-TASK_3_TRIGGER_OWNER: PASS/STOP
-TASK_4_F5_PARKING: PASS/STOP
-TASK_5_DUAL_AUTHORITY: PASS/STOP
-TASK_6_PREWARM_INTEGRATION: PASS/STOP
-TASK_7_FIRST_PCM_OWNER: PASS/STOP
-TASK_8_RELEASE_OWNERSHIP: PASS/STOP
-TASK_9_SETTINGS: PASS/STOP
-WEB_AMENDMENT_A_NO_DOUBLE_WAIT: PASS/STOP
-WEB_AMENDMENT_B_MAPPING_CLEAR_FAIL_CLOSED: PASS/STOP
-FOCUSED_TESTS:
-FULL_SWIFT_TEST:
-SELF_TESTS:
-RELEASE_BUILD:
-DIFF_CHECK:
-SCOPE_AUDIT:
-APP_PATH:
-EXECUTABLE_SHA256:
-APP_VERSION_BUILD:
-BUNDLE_ID:
-RUNNING_PID:
-CANONICAL_PREEXISTING_DIRT_PRESERVED:
-MERGED: NO
-FINAL_STATE: READY_FOR_USER_EARLY_HARDWARE_ACCEPTANCE
-```
-
-Do not proceed to plan Task 11 or Task 12 in this execution.
+`HOLD_FOR_REAL_HID_BACKEND_ARCHITECTURE_APPROVAL`
