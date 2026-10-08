@@ -1,130 +1,120 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-08
-State: DUAL-RECEIVER ROUTING DESIGN SPEC FROZEN / USER REVIEW BEFORE IMPLEMENTATION PLAN
+State: DUAL-RECEIVER IMPLEMENTATION AUTHORIZED THROUGH EARLY HARDWARE GATE
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
 
-## Control-plane integrity
+## Independent Web plan audit
 
-- Last audited `main` before this transition: `feff02f7a5d6b1519abd077bc6b5331533eb44e9`.
-- Candidate branch remains `codex/disabled-short-classifier-regression-fix` at exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
-- Installed hardware-test baseline last reported: PID `79232`, source HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`, executable SHA-256 `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`.
-- Candidate remains unmerged.
-- The candidate and current `main` are diverged: candidate is 2 commits ahead of merge base and 36 commits behind current `main`. The candidate commits also contain stale control-plane document edits, so the candidate branch must not be merged/cherry-picked wholesale.
+- Audited planning base: `ab43ce0e8ac7cb3c3fcd1ccfd078e65f75e8d903`.
+- Audited plan branch: `codex/dual-receiver-momentary-routing-v1-plan`.
+- Audited plan HEAD: `6415c6baccae75b220391568d77b546c5cbbefe8`.
+- Audited plan path: `docs/superpowers/plans/2026-10-08-dual-receiver-momentary-routing.md`.
+- Plan branch is docs/control only relative to its base; no product or test source changed.
+- Independent audit result: PASS WITH TWO MANDATORY IMPLEMENTATION CLARIFICATIONS recorded below.
 
-## Accepted preceding results
-
-### Single-input-method collision
-
-Closed. Doubao click/toggle mode and hold-to-talk mode had both been bound to Left Option. Separating those external receiver shortcuts removed that specific fast-click Session activation.
-
-### Disabled-SHORT classifier corrective
-
-Still required. Candidate behavior restores:
-
-```text
-bypassesShortClassification = false
-```
-
-and has the accepted hardware-path quick-release regression coverage.
-
-### Dual-receiver gesture recognition
-
-Task `RO-DUAL-RECEIVER-GESTURE-RECOGNITION-017` is CLOSED / `GESTURE_RECOGNITION_STABLE`.
-
-Accepted product interaction:
+## Frozen product contract
 
 ```text
 Direct LONG                   -> Receiver A
 Quick first tap + second LONG -> Receiver B
 Quick single tap              -> no action
-```
 
-Accepted first implementation timing:
-
-```text
+Receiver A -> Left Option initially
+Receiver B -> Right Option initially
 LONG_THRESHOLD_MS = 350
 DOUBLE_WINDOW_MS   = 300
 ```
 
-Natural test samples classified A 10/10, B 10/10, single-tap no-action 5/5. A 200 ms double window failed 2/10 B samples; 250 ms passed but had only 10.453 ms minimum inter-press margin; 300 ms retained 60.453 ms minimum margin.
+Both receivers are independent momentary transactions. Dual mode does not use external Persistent Session state as receiver authority.
 
-## Implementation source audit — FACT
-
-1. `HIDMonitor` already owns a single `EventSuppressor` and arms it from raw HID state before semantic button-edge dispatch. The suppressor runs at a head-insert `cghidEventTap` and can suppress the remote microphone's native F5/keyCode 96 path.
-2. Current device-scoped `RemoteVoiceKeyMapping` maps remote F5 to only one `VoiceTriggerKey` at a time. That mapping is incompatible with a gesture whose receiver is not known until after classification.
-3. `BLEBridge` already separates transport-only `prepareVoiceTransport()` from `activateVoiceInput()` / `micOpen`, so pending first-tap and double-window states can prewarm without starting external voice input.
-4. `VoiceOptionTrigger` already captures `activeTriggerKey` and balances UP against that captured key. It needs only a minimal explicit per-transaction DOWN-key entry point for dual mode.
-5. The generic `ButtonGestureRecognizer` demonstrates second-tap-long semantics, but the microphone path deliberately bypasses generic action injection. Dual voice routing should keep audio/trigger ownership with the voice subsystem.
-6. Existing Settings already expose the direct-long momentary key and a separate Persistent key. The Persistent preference must not be repurposed as Receiver B.
-
-## Frozen design decision
-
-Design spec:
-
-`docs/superpowers/specs/2026-10-08-dual-receiver-momentary-voice-routing-design.md`
-
-Selected architecture:
+## Frozen architecture
 
 ```text
-raw F5
--> no receiver hidutil mapping while dual mode is active
--> EventSuppressor parks native F5
+raw microphone F5
+-> dual mode keeps receiver hidutil mapping empty
+-> existing HIDMonitor + EventSuppressor parks native F5
 -> voice-specific 350/300 classifier
--> choose A or B
+-> exactly one receiver selected
 -> activate ATVV
--> first PCM
--> synthetic DOWN for the selected VoiceTriggerKey only
--> physical release + existing drain
+-> first decoded PCM
+-> synthetic DOWN for the selected key only
+-> physical release + existing output drain
 -> matching UP for the captured selected key
 ```
 
-Dual mode activation contract:
+Receiver A remains the existing momentary trigger. Receiver B uses a new optional secondary/double-hold trigger. Secondary Off preserves legacy single-receiver behavior. Dual mode requires microphone SHORT Disabled and distinct A/B keys.
+
+## Mandatory Web audit clarifications
+
+### 1. One classifier only in dual mode
+
+After `DualReceiverVoiceGestureRecognizer` classifies A or B at the 350 ms boundary, the dual path must enter `VoicePressCoordinator` through an explicit already-classified hold/transaction entry point.
+
+It must NOT call the legacy `VoicePressCoordinator.keyDown(...)` path in a way that waits another 300 ms SHORT/LONG threshold. There is exactly one semantic long-press classifier in dual mode. Tests must prove receiver/voice activation is not delayed by an additional legacy threshold.
+
+Legacy single-receiver mode keeps its existing classifier unchanged.
+
+### 2. Mapping-clear failure is fail-closed
+
+Dual mode must not become active merely because in-memory mapping state says disabled. The runtime transition that clears the device-scoped F5 -> receiver mapping must observe a successful `RemoteVoiceKeyMapping.setEnabled(false, ...)` result through the injected/testable mapping seam.
+
+If clearing the receiver mapping fails, dual mode is unavailable for that gesture/runtime transition:
 
 ```text
-microphone SHORT == Disabled
-AND secondary/double-hold trigger is enabled
-AND A trigger != B trigger
+no BLE voice activation
+no A trigger
+no B trigger
+no raw-F5 fallback
 ```
 
-When secondary trigger is Off, legacy single-receiver behavior remains unchanged.
+Do not restore pre-classification receiver mapping as a workaround.
 
-Receiver A reuses the existing momentary trigger setting. Receiver B gets a new optional secondary/double-hold trigger setting. Persistent Session state is not authority for dual-receiver mode.
+## Classifier corrective baseline rule
 
-## Rejected implementation directions
+The old classifier candidate remains `172427957fd18a2b5827edd1cb1c4bddb6a5b7db` and must not be merged/cherry-picked wholesale.
 
-- Dynamic `hidutil` remapping after classification: rejected for the held-key boundary and latency/race risk.
-- Keep F5 mapped to A and suppress A only if B later wins: rejected because B's first tap must expose no A edge.
-- Persistent A + temporary B handoff: rejected as dual-receiver authority because external IME Session state is not observable reliably.
-- seize/virtual-HID/DriverKit: deferred unless real receiver hardware rejects classified synthetic triggers.
-
-## Construction baseline rule
-
-Implementation must start from the latest authoritative `origin/main`, not from the stale candidate branch.
-
-Then adopt only the exact final candidate versions of:
+Implementation starts from the authoritative main containing this transition and adopts only the accepted final corrective behavior/test from:
 
 ```text
 remote-orbit/Sources/RemoteOrbit/main.swift
 remote-orbit/Tests/RemoteOrbitTests/DisabledShortClassifierTests.swift
 ```
 
-from `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`, and verify that the resulting baseline diff is only the already-accepted classifier corrective before feature work.
+The candidate control files are stale and must never be transplanted.
 
-Do not import the candidate's old `CURRENT_STATUS.md` or `CURRENT_TASK.md`.
+## Implementation authority
 
-## Primary remaining uncertainty
+Authorized implementation branch:
 
-The gesture vocabulary is proven stable. The main remaining product risk is whether both real receivers reliably accept a **classified synthetic Left/Right Option transaction** as the normal trigger owner.
+`codex/dual-receiver-momentary-routing-v1`
 
-This must be tested at an early construction gate after the minimal core path is built, before broad UI polish or merge work.
+Authorized isolated worktree:
 
-If real receiver acceptance fails, STOP and return to architecture. Do not restore a pre-classification receiver `hidutil` mapping as a workaround.
+`/private/tmp/remoteorbit-dual-receiver-momentary-routing-v1`
 
-## Next transition
+The implementation may execute plan Tasks 1 through 9 with TDD, focused regressions, commits, and push. It may then run the required automated pre-hardware validation, create a release test candidate, replace/restart only the RemoteOrbit app runtime for the explicitly authorized early hardware gate, verify exact runtime identity, and STOP for user-operated hardware acceptance.
 
-The architecture spec is now frozen for user review. Product-source mutation is still forbidden.
+No merge is authorized.
 
-After the user approves the written spec, the next authorized action is a docs-only implementation-plan task using the repository's planning/TDD workflow. The implementation plan must be independently Web-audited before code construction is authorized.
+## Existing canonical checkout local state
+
+The local handoff reports that an existing canonical checkout contains a pre-existing uncommitted `HIDMonitor.swift` modification. This is local-only state and has not been verified by Web.
+
+The implementation executor must inspect that state read-only, must not clean/stash/reset/copy/overwrite it, and must not use the dirty canonical checkout for implementation. A fresh isolated worktree from authoritative `origin/main` is the only implementation workspace. The pre-existing dirty canonical file does not block isolated construction if the new worktree is clean and authority matches.
+
+## Early hardware stop boundary
+
+After Tasks 1-9 and automated validation, the executor may build/install/restart the exact implementation candidate, record source HEAD, executable SHA-256, app version/build, Bundle ID and running PID, then stop at:
+
+`READY_FOR_USER_EARLY_HARDWARE_ACCEPTANCE`
+
+The user performs the physical A/B/single-tap acceptance. Receiver shortcut changes are not delegated to the executor.
+
+If hardware later reports unreliable classified synthetic Left/Right Option acceptance, construction stops with:
+
+`SYNTHETIC_RECEIVER_TRIGGER_NOT_ACCEPTED`
+
+and returns to architecture.
