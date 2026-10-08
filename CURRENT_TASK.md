@@ -1,112 +1,194 @@
 # RemoteOrbit Current Task
 
-## Current task — DUAL-RECEIVER MOMENTARY ROUTING DESIGN
+## Current task — DUAL-RECEIVER MOMENTARY ROUTING DESIGN SPEC REVIEW
 
-- **Status:** READY FOR ARCHITECTURE / IMPLEMENTATION PLAN
+- **Status:** DESIGN SPEC WRITTEN / WAITING FOR USER APPROVAL BEFORE IMPLEMENTATION PLAN
 - **Task ID:** `RO-DUAL-RECEIVER-MOMENTARY-ROUTING-018`
 - **Previous task:** `RO-DUAL-RECEIVER-GESTURE-RECOGNITION-017` — CLOSED / `GESTURE_RECOGNITION_STABLE`
-- **Candidate branch:** `codex/disabled-short-classifier-regression-fix`
-- **Candidate HEAD:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
-- **Product source mutation:** NOT YET AUTHORIZED
-- **Rebuild/reinstall/restart:** NOT YET AUTHORIZED
+- **Design spec:** `docs/superpowers/specs/2026-10-08-dual-receiver-momentary-voice-routing-design.md`
+- **Candidate corrective HEAD:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
+- **Product source mutation:** FORBIDDEN until implementation plan is written, Web-audited, and explicitly authorized
+- **Runtime install/restart:** FORBIDDEN
 - **Merge:** FORBIDDEN
 
 ## Accepted product contract
 
 ```text
-Direct LONG                  -> Receiver A -> Left Option
-Double-tap, hold second down -> Receiver B -> Right Option
-Quick single tap             -> no action
+Direct LONG                   -> Receiver A
+Quick first tap + second LONG -> Receiver B
+Quick single tap              -> no action
 ```
 
-Both A and B are independent momentary voice transactions. Dual-receiver mode must not depend on external Persistent Session state.
+Initial receiver trigger contract:
 
-## Accepted timing baseline
+```text
+Receiver A -> Left Option
+Receiver B -> Right Option
+```
 
-Recognition hardware evidence supports:
+Both are independent momentary voice transactions. Dual-receiver mode must not use external Persistent Session state as ownership authority.
+
+## Accepted timing
 
 ```text
 LONG_THRESHOLD_MS = 350
 DOUBLE_WINDOW_MS   = 300
 ```
 
-These are the recommended first implementation values, not immutable product constants.
+These values are supported by the closed 017 hardware timing evidence.
 
-Why:
-- 200 ms double window failed 2/10 B samples.
-- 250 ms passed but had only 10.453 ms minimum inter-press margin.
-- 300 ms passed all samples with 60.453 ms minimum inter-press margin.
-- 350 ms LONG has large margin for both direct and second holds and matches the generic recognizer's existing long threshold.
-- 400/350 adds avoidable latency without changing recognition correctness on the captured sample.
+## Frozen architecture
 
-## Required architecture properties
+### Trigger parking before classification
 
-1. One physical microphone gesture creates exactly one `VoiceTransaction`.
-2. Transaction owner is either Receiver A or Receiver B, never both.
-3. The unselected receiver receives no mapped or synthetic trigger edge.
-4. Receiver ownership must resolve before trigger release to the external input method.
-5. Remote audio remains hold-bound and first-PCM-gated where practical.
-6. Physical release + output drain must balance only the selected receiver trigger.
-7. A quick single tap must expire to no action after the double window.
-8. No Persistent Session state is used as dual-receiver authority.
-9. Existing PR #14 classifier corrective remains independent and must not be regressed.
+While dual mode is active:
 
-## Source facts to account for
+- disable/clear the device-scoped F5 -> receiver `hidutil` mapping;
+- retain one raw HID owner (`HIDMonitor`);
+- use the existing `EventSuppressor` to swallow the remote's native F5 path;
+- no Left/Right Option edge may exist before receiver classification.
 
-- The generic `ButtonGestureRecognizer` already supports long and second-tap long (`clickCount = 2`) but the microphone path bypasses it when remote microphone LONG is active.
-- `VoicePressCoordinator` currently owns microphone SHORT/LONG, BLE route, first PCM, trigger gate, release, and output drain.
-- Device-scoped `hidutil` mapping currently points the remote microphone F5 usage at one active trigger key at a time.
-- Therefore dual-receiver routing cannot be implemented by settings alone. Pre-classification trigger leakage must be prevented.
+### Gesture ownership
 
-## Design work required before construction
+Add a small microphone-specific, pure/testable classifier adjacent to the voice coordinator. Do not hand BLE/trigger lifecycle to the generic button action injector.
 
-Produce a bounded implementation design that compares at least:
-
-### Design A — microphone-specific gesture classifier inside / adjacent to VoicePressCoordinator
-
-Keep voice-specific ownership, BLE and drain semantics together. Add a first-tap pending state and second-hold path that selects receiver B while direct hold selects A.
-
-### Design B — adapt/reuse generic ButtonGestureRecognizer classification for microphone, then hand the classified hold into a voice transaction owner
-
-Reuse existing gesture timing semantics but do not let generic action injection own voice trigger/audio lifetime.
-
-For each design, audit:
-- trigger leakage risk with current hidutil mapping;
-- first-PCM authorization ordering;
-- how Left Option vs Right Option is emitted after classification;
-- release/up balancing;
-- rapid repress and tail-drain interaction;
-- BLE reconnect/loss handling;
-- required changes to Settings/schema;
-- migration of existing single-receiver behavior;
-- testability and regression surface.
-
-## Implementation boundary
-
-Do not start product-source edits until the design chooses one trigger-ownership mechanism that guarantees the unselected receiver sees no pre-classification edge.
-
-The preferred design should minimize new state and preserve existing proven BLE/audio drain behavior.
-
-## Verification plan required in the implementation design
-
-At minimum specify RED/GREEN tests for:
+Expected states/semantics:
 
 ```text
-single tap -> no trigger
-A direct hold -> Left Option only
-B double-hold -> Right Option only
-A never emits Right Option
-B never emits Left Option
-first tap of B emits neither receiver trigger
-first PCM gates selected trigger
-release/drain emits exactly one balanced up for selected receiver
-no trigger under failed/no-audio path
-rapid re-press does not cross receiver ownership
-transport loss cannot leave either trigger stuck
+first DOWN -> transport-only prewarm
+first hold >= 350ms -> classify A
+first UP < 350ms -> wait <= 300ms for second DOWN
+no second DOWN -> no action / cancel prewarm
+second DOWN in window + hold >= 350ms -> classify B
+second quick UP -> no action / cancel prewarm
 ```
 
-Hardware acceptance after build must separately verify A and B against two real receiver shortcuts.
+### Voice transaction
 
-## Executor instruction
+After A/B classification:
 
-Until a concrete implementation card replaces this task, local AI should perform read-only design/audit only and must not edit product source.
+```text
+activateVoiceInput
+-> first PCM
+-> selected trigger DOWN
+-> stream
+-> physical release
+-> existing tail/output drain
+-> matching selected trigger UP
+```
+
+`VoiceOptionTrigger` remains the trigger-balance owner and must capture the transaction's exact key.
+
+### Settings
+
+- Existing momentary trigger = Receiver A.
+- Add optional secondary/double-hold trigger = Receiver B.
+- Secondary Off = legacy single-receiver behavior unchanged.
+- Dual mode requires SHORT Disabled and A != B.
+- Do not repurpose the Persistent trigger preference.
+
+### Fail-closed rule
+
+If the raw HID/EventSuppressor path is unavailable in dual mode, do not silently fall back to OS F5 or guess A/B. Stop dual routing safely.
+
+## Construction baseline reconciliation
+
+Current `main` and classifier candidate are diverged. The candidate is 2 commits ahead of its old base and 36 commits behind current `main`; candidate commits contain stale control-document edits.
+
+Implementation must therefore:
+
+1. branch from the latest authoritative `origin/main`;
+2. transplant only the exact candidate versions of:
+   - `remote-orbit/Sources/RemoteOrbit/main.swift`
+   - `remote-orbit/Tests/RemoteOrbitTests/DisabledShortClassifierTests.swift`
+   from HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`;
+3. verify that this initial adopted diff is only the already-accepted Disabled-SHORT classifier corrective;
+4. never import candidate `CURRENT_STATUS.md` / `CURRENT_TASK.md`.
+
+## User-review gate
+
+The written design spec must be reviewed by the user before detailed implementation-plan construction.
+
+If the user sends the planning execution card supplied by Web after reviewing this spec, treat that as approval to create the implementation plan only.
+
+That approval does **not** authorize product-code mutation.
+
+## Next authorized task after user approval — PLAN ONLY
+
+Create a docs-only implementation plan using the repository planning/TDD workflow.
+
+Recommended planning branch/worktree:
+
+```text
+BRANCH: codex/dual-receiver-momentary-routing-v1-plan
+WORKTREE: /private/tmp/remoteorbit-dual-receiver-momentary-routing-v1-plan
+```
+
+Base the planning worktree on the exact current authoritative `origin/main` after freshness verification.
+
+The plan file must be:
+
+`docs/superpowers/plans/2026-10-08-dual-receiver-momentary-routing.md`
+
+The plan must specify exact files, tests and commands for at least these construction stages:
+
+1. authoritative baseline + exact classifier-corrective adoption;
+2. pure dual-receiver voice gesture classifier TDD;
+3. explicit per-transaction trigger-key ownership TDD;
+4. raw F5/EventSuppressor microphone regression coverage;
+5. dual-mode runtime mapping/fail-closed behavior;
+6. BLE prewarm/classification/first-PCM integration;
+7. release/drain/transport-loss/rapid-repress ownership;
+8. secondary trigger persistence + settings UI;
+9. early real-receiver synthetic-trigger hardware gate;
+10. full regression/build/diff audit;
+11. final two-receiver hardware acceptance;
+12. independent Web audit before merge.
+
+The plan must place the early hardware trigger-acceptance gate before nonessential UI polish. If synthetic Left/Right Option is unreliable against real receivers, construction must STOP and return to architecture instead of restoring pre-classification hidutil mapping.
+
+## Plan-task allowed side effects
+
+After explicit user approval of the design spec:
+
+Allowed:
+- `git fetch origin --prune`;
+- read-only repository/source/history audit;
+- create the single planning worktree/branch above;
+- create/edit only the implementation plan document and plan-specific control handoff if required by the repository protocol;
+- run read-only commands needed to make the plan exact;
+- commit/push the docs-only plan branch.
+
+Forbidden during plan task:
+- product source edits;
+- test source edits;
+- runtime setting changes;
+- build/install/restart;
+- receiver shortcut changes;
+- hardware experiment;
+- merge.
+
+## Required plan handoff
+
+Return:
+
+```text
+TASK_ID: RO-DUAL-RECEIVER-MOMENTARY-ROUTING-018
+CONTROL_HEAD:
+PLAN_BRANCH:
+PLAN_WORKTREE:
+PLAN_HEAD:
+REMOTE_PLAN_HEAD:
+PLAN_PATH:
+BASE_MAIN:
+CANDIDATE_CORRECTIVE_AUDITED:
+PRODUCT_SOURCE_CHANGED: NO
+TEST_SOURCE_CHANGED: NO
+RUNTIME_CHANGED: NO
+MERGED: NO
+FINAL_STATE: PLAN_READY_FOR_INDEPENDENT_WEB_AUDIT
+```
+
+Until user approval is expressed by sending the authorized planning card, local AI must return:
+
+`HOLD_FOR_DUAL_RECEIVER_DESIGN_SPEC_APPROVAL`

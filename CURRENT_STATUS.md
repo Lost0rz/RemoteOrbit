@@ -1,112 +1,130 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-08
-State: DUAL-RECEIVER GESTURE RECOGNITION ACCEPTED / ROUTING DESIGN READY
+State: DUAL-RECEIVER ROUTING DESIGN SPEC FROZEN / USER REVIEW BEFORE IMPLEMENTATION PLAN
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
 
 ## Control-plane integrity
 
-- Recognition task control HEAD was `97382fba47da784fc85040af205cfbafe42de39b`.
+- Last audited `main` before this transition: `feff02f7a5d6b1519abd077bc6b5331533eb44e9`.
 - Candidate branch remains `codex/disabled-short-classifier-regression-fix` at exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
-- Installed hardware-test baseline during recognition: PID `79232`, source HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`, executable SHA-256 `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`.
+- Installed hardware-test baseline last reported: PID `79232`, source HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`, executable SHA-256 `a033e86a92b02175a498bba3232c5ae8b72719caef781cb74c3187e8e64ed017`.
 - Candidate remains unmerged.
+- The candidate and current `main` are diverged: candidate is 2 commits ahead of merge base and 36 commits behind current `main`. The candidate commits also contain stale control-plane document edits, so the candidate branch must not be merged/cherry-picked wholesale.
 
-## Closed single-input-method finding
+## Accepted preceding results
 
-The prior fast-click Doubao anomaly was caused by shortcut collision: Doubao click/toggle mode and hold-to-talk mode were both bound to Left Option. Separating those two receiver semantics removes that specific unwanted fast-click Session activation.
+### Single-input-method collision
 
-The independent PR #14 Disabled-SHORT classifier regression remains real; the candidate correctly restores normal short/long classification.
+Closed. Doubao click/toggle mode and hold-to-talk mode had both been bound to Left Option. Separating those external receiver shortcuts removed that specific fast-click Session activation.
 
-## Accepted dual-receiver interaction
+### Disabled-SHORT classifier corrective
 
-```text
-Direct LONG                  -> Receiver A
-Double-tap, hold second down -> Receiver B
-```
-
-Intended eventual receiver triggers:
+Still required. Candidate behavior restores:
 
 ```text
-Receiver A -> Left Option
-Receiver B -> Right Option
+bypassesShortClassification = false
 ```
 
-Both receivers should use independent momentary voice transactions. Dual-receiver mode must not depend on a long-lived external Persistent Session.
+and has the accepted hardware-path quick-release regression coverage.
 
-## Gesture recognition result — ACCEPTED
+### Dual-receiver gesture recognition
 
-Task `RO-DUAL-RECEIVER-GESTURE-RECOGNITION-017` completed with `GESTURE_RECOGNITION_STABLE`.
+Task `RO-DUAL-RECEIVER-GESTURE-RECOGNITION-017` is CLOSED / `GESTURE_RECOGNITION_STABLE`.
 
-Natural physical samples:
+Accepted product interaction:
 
 ```text
-A_DIRECT_LONG:       10 / 10
-B_DOUBLE_HOLD:       10 / 10
-NO_ACTION_SINGLE_TAP: 5 / 5
+Direct LONG                   -> Receiver A
+Quick first tap + second LONG -> Receiver B
+Quick single tap              -> no action
 ```
 
-Observed ranges:
-
-```text
-A direct hold:            1813.421 .. 2221.483 ms
-B first tap:               145.551 .. 180.196 ms
-B first-up -> second-down:  74.476 .. 239.547 ms
-B second hold:            1440.032 .. 2175.514 ms
-C single tap:              180.995 .. 239.765 ms
-```
-
-No unexplained extra HID edges altered classification. The B capture recorded debounce-suppressed edges, but the raw state records matched them and the accepted 10 B gestures remained unambiguous.
-
-Temporary neutral trigger Left Control was validated, used only for timing isolation, and restored to the original Left Option. No product source, receiver shortcut, build, install, restart, or merge occurred.
-
-## Threshold audit
-
-Offline replay showed:
-
-- 200 ms double window is too narrow: only 8/10 B gestures classify correctly; two would fall through as A.
-- 250 ms double window classifies all samples but has only `10.453 ms` minimum inter-press margin and is too fragile.
-- 300 ms double window classifies all samples with `60.453 ms` minimum inter-press margin.
-- 350 ms double window gives more margin but adds another 50 ms to single-tap no-action resolution.
-- LONG thresholds 300/350/400 ms all classify every captured sample correctly.
-
-Recommended first implementation constants:
+Accepted first implementation timing:
 
 ```text
 LONG_THRESHOLD_MS = 350
 DOUBLE_WINDOW_MS   = 300
 ```
 
-Rationale: preserves substantial margin while avoiding the unnecessary latency of 400/350. It also aligns the long threshold with the repository's existing generic `ButtonGestureRecognizer` 350 ms contract.
+Natural test samples classified A 10/10, B 10/10, single-tap no-action 5/5. A 200 ms double window failed 2/10 B samples; 250 ms passed but had only 10.453 ms minimum inter-press margin; 300 ms retained 60.453 ms minimum margin.
 
-## Architecture constraint for implementation
+## Implementation source audit — FACT
 
-The microphone button currently bypasses generic advanced gesture routing and enters `VoicePressCoordinator` directly. Existing device-scoped HID mapping also has only one active trigger target at a time.
+1. `HIDMonitor` already owns a single `EventSuppressor` and arms it from raw HID state before semantic button-edge dispatch. The suppressor runs at a head-insert `cghidEventTap` and can suppress the remote microphone's native F5/keyCode 96 path.
+2. Current device-scoped `RemoteVoiceKeyMapping` maps remote F5 to only one `VoiceTriggerKey` at a time. That mapping is incompatible with a gesture whose receiver is not known until after classification.
+3. `BLEBridge` already separates transport-only `prepareVoiceTransport()` from `activateVoiceInput()` / `micOpen`, so pending first-tap and double-window states can prewarm without starting external voice input.
+4. `VoiceOptionTrigger` already captures `activeTriggerKey` and balances UP against that captured key. It needs only a minimal explicit per-transaction DOWN-key entry point for dual mode.
+5. The generic `ButtonGestureRecognizer` demonstrates second-tap-long semantics, but the microphone path deliberately bypasses generic action injection. Dual voice routing should keep audio/trigger ownership with the voice subsystem.
+6. Existing Settings already expose the direct-long momentary key and a separate Persistent key. The Persistent preference must not be repurposed as Receiver B.
 
-Therefore implementation is not a settings-only change. It must establish a per-utterance owner before releasing a receiver trigger:
+## Frozen design decision
+
+Design spec:
+
+`docs/superpowers/specs/2026-10-08-dual-receiver-momentary-voice-routing-design.md`
+
+Selected architecture:
 
 ```text
-physical gesture
--> classify A_DIRECT_LONG or B_DOUBLE_HOLD
--> select exactly one receiver / trigger key
--> first-PCM authorization
--> emit/hold only the selected receiver trigger
--> release + output drain
--> balanced transaction complete
+raw F5
+-> no receiver hidutil mapping while dual mode is active
+-> EventSuppressor parks native F5
+-> voice-specific 350/300 classifier
+-> choose A or B
+-> activate ATVV
+-> first PCM
+-> synthetic DOWN for the selected VoiceTriggerKey only
+-> physical release + existing drain
+-> matching UP for the captured selected key
 ```
 
-The unselected receiver must receive no trigger edge.
+Dual mode activation contract:
 
-## Historical Persistent issues
+```text
+microphone SHORT == Disabled
+AND secondary/double-hold trigger is enabled
+AND A trigger != B trigger
+```
 
-The old Persistent model remains unsuitable as authority for dual-receiver mode because:
+When secondary trigger is Off, legacy single-receiver behavior remains unchanged.
 
-- RemoteOrbit cannot authoritatively observe external IME Session state;
-- a Persistent LONG is currently modeled as audio-only continuation into the existing owner;
-- repeated audio-only segments reuse one external Session without explicit per-hold receiver transaction boundaries;
-- these properties are plausible contributors to historical visible Session drift and repeated text, although exact external text-commit causality was not proven.
+Receiver A reuses the existing momentary trigger setting. Receiver B gets a new optional secondary/double-hold trigger setting. Persistent Session state is not authority for dual-receiver mode.
 
-## Next step
+## Rejected implementation directions
 
-Proceed to a bounded architecture/implementation plan for dual-momentary routing using the accepted gesture contract and the recommended `350 ms / 300 ms` timing baseline. Do not merge or replace the installed runtime until implementation has independent code review and hardware acceptance.
+- Dynamic `hidutil` remapping after classification: rejected for the held-key boundary and latency/race risk.
+- Keep F5 mapped to A and suppress A only if B later wins: rejected because B's first tap must expose no A edge.
+- Persistent A + temporary B handoff: rejected as dual-receiver authority because external IME Session state is not observable reliably.
+- seize/virtual-HID/DriverKit: deferred unless real receiver hardware rejects classified synthetic triggers.
+
+## Construction baseline rule
+
+Implementation must start from the latest authoritative `origin/main`, not from the stale candidate branch.
+
+Then adopt only the exact final candidate versions of:
+
+```text
+remote-orbit/Sources/RemoteOrbit/main.swift
+remote-orbit/Tests/RemoteOrbitTests/DisabledShortClassifierTests.swift
+```
+
+from `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`, and verify that the resulting baseline diff is only the already-accepted classifier corrective before feature work.
+
+Do not import the candidate's old `CURRENT_STATUS.md` or `CURRENT_TASK.md`.
+
+## Primary remaining uncertainty
+
+The gesture vocabulary is proven stable. The main remaining product risk is whether both real receivers reliably accept a **classified synthetic Left/Right Option transaction** as the normal trigger owner.
+
+This must be tested at an early construction gate after the minimal core path is built, before broad UI polish or merge work.
+
+If real receiver acceptance fails, STOP and return to architecture. Do not restore a pre-classification receiver `hidutil` mapping as a workaround.
+
+## Next transition
+
+The architecture spec is now frozen for user review. Product-source mutation is still forbidden.
+
+After the user approves the written spec, the next authorized action is a docs-only implementation-plan task using the repository's planning/TDD workflow. The implementation plan must be independently Web-audited before code construction is authorized.
