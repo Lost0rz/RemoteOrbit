@@ -1,140 +1,162 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-08
-State: ARCHITECTURE REDESIGN HOLD — REAL HID KEYBOARD TRIGGER BACKEND
+State: SYSTEM-MAPPED DUAL-RECEIVER DESIGN REVIEW
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
 
 ## Control-plane authority
 
-- Authoritative `main` before this transition: `edcb4817f9ff9ae3400882f22ec61ec689f7fbaa`.
-- Dual-receiver implementation branch: `codex/dual-receiver-momentary-routing-v1`.
-- Branch/control HEAD reported at early hardware gate: `c90edbf73ad9b0642fa344734571c0e806c0eb73`.
-- Product implementation HEAD installed for the gate: `ef29186e25c64cd4d1d7209cb2a41f95c51d4a11`.
-- Installed candidate identity reported for the gate: `/Applications/RemoteOrbit.app`, version `0.2.13` build `42`, Bundle ID `com.lost0rz.RemoteOrbit`, executable SHA-256 `328e66f7d60fbf7c5a5f8330d32ecb133bf34c00e3ae1fb065e70633835734bb`, PID `46412`.
+- Previous architecture review HEAD: `12cad4fb129e80f14b606c642893a7ad4a7fa6f5`.
+- Preserved dual-receiver implementation branch: `codex/dual-receiver-momentary-routing-v1`.
+- Preserved branch/control HEAD: `c90edbf73ad9b0642fa344734571c0e806c0eb73`.
+- Preserved product HEAD: `ef29186e25c64cd4d1d7209cb2a41f95c51d4a11`.
 - No merge is authorized.
 
-## Early hardware gate result — FACT
+## Accepted early-hardware result — FACT
 
-Task `RO-DUAL-RECEIVER-MOMENTARY-ROUTING-019` stopped at the first Receiver-A real-hardware gate with:
+The 019 synthetic-trigger candidate failed Receiver A acceptance:
+
+```text
+5 x direct LONG
+gesture classified A: 5/5
+remote audio lifecycle: 5/5
+synthetic Left Option DOWN/UP: 5/5
+Receiver A externally opened: 0/5
+```
+
+Classification remains:
 
 `SYNTHETIC_RECEIVER_TRIGGER_NOT_ACCEPTED`
 
-User performed five direct-LONG A attempts. All five gestures:
+This rejects CGEvent synthetic modifier as the normal A/B receiver trigger backend. It does not invalidate the accepted gesture classifier, BLE path, first-PCM gate, transaction ownership, or release/drain behavior.
 
-- classified as direct hold at approximately 362–368 ms;
-- started remote audio;
-- recorded synthetic Left Option DOWN and matching UP;
-- completed AUDIO_STOP, output drain, and momentary transaction cleanup;
-- reported `remote_routed=true`;
-- did **not** open Receiver A externally: 0/5 accepted.
+## Historical architecture correction — FACT
 
-Therefore the new gesture classifier, BLE/audio activation, first-PCM transaction path, release/drain balance, and selected-key ownership were exercised, but the external receiver did not accept the CGEvent synthetic modifier path as its trigger.
+Merged PR #13 (`7f6f703fadd5e89c087059d3167c0c4c5253fd6b`) established the working normal voice-trigger path as:
 
-Do not run Receiver-B hardware acceptance on this candidate. Do not proceed to plan Tasks 11/12.
+```text
+remote microphone F5
+-> device-scoped hidutil mapping
+-> configured modifier key
+-> system-mapped hardware-style modifier event
+-> HardwareOptionGate / filter ownership
+-> synthetic only as fallback
+```
 
-## Historical architecture reconciliation — FACT
+The previous 020 virtual-HID/provider direction is superseded. The product already has a proven system-mapped trigger path; the dual-receiver task only needs to distinguish which mapping owns the next physical press.
 
-Merged PR #13 (`7f6f703fadd5e89c087059d3167c0c4c5253fd6b`) established the accepted configurable voice-trigger architecture as:
-
-- parameterized device-scoped HID mapping;
-- parameterized filter/runtime authority;
-- synthetic trigger as fallback.
-
-The previously accepted normal path was therefore a hardware/system-mapped HID modifier, not CGEvent synthetic modifier as the primary receiver owner.
-
-The 019 design incorrectly promoted the synthetic fallback class into the normal post-classification dual-receiver trigger backend. The 5/5 Receiver-A rejection confirms that this backend is unsuitable for the tested receiver.
-
-## Preserved implementation from 019
-
-Do not discard the 019 branch wholesale. The following architecture remains useful and should be retained for the next design unless contradicted by new evidence:
+## Retained product contract
 
 ```text
 Direct LONG                   -> Receiver A
 Quick first tap + second LONG -> Receiver B
 Quick single tap              -> no action
-LONG_THRESHOLD_MS             = 350
-DOUBLE_WINDOW_MS              = 300
+
+A initial key = Left Option
+B initial key = Right Option
+LONG_THRESHOLD_MS = 350
+DOUBLE_WINDOW_MS   = 300
 ```
 
-Also retain conceptually:
+Both A and B remain independent momentary transactions. Persistent Session is not receiver authority.
 
-- pure microphone-specific A/B classifier;
-- one semantic classifier only in dual mode;
-- F5 parking before receiver selection;
-- transport-only prewarm during pending classification;
-- explicit per-transaction receiver key ownership;
-- first decoded PCM as trigger-DOWN authorization boundary;
-- existing release/tail/output-drain ownership;
-- independent Receiver-B preference;
-- fail-closed behavior when safe trigger ownership cannot be established.
+## Corrected selected architecture
 
-Only the **receiver trigger backend** is now rejected:
+Design spec:
+
+`docs/superpowers/specs/2026-10-08-dual-receiver-system-mapped-trigger-design.md`
+
+### Idle / direct A
 
 ```text
-CGEvent synthetic modifier as normal A/B trigger owner = REJECTED
+F5 mapping = A (Left Option)
+physical F5 down
+-> system-mapped A edge
+-> HardwareOptionGate captures/defer
+-> direct hold >= 350 ms
+-> remote audio activation
+-> first PCM
+-> release captured A DOWN
+-> stream
+-> physical release / drain
+-> matching A UP
 ```
 
-## Current platform feasibility — verified externally
+This reuses the original accepted trigger path. No new trigger backend is needed for A.
 
-Apple CoreHID provides `HIDVirtualDevice`, which can emulate a keyboard and dispatch HID input reports to the system. This matches the desired semantic boundary: after A/B classification and first PCM, RemoteOrbit can emit a keyboard HID modifier DOWN and later the matching UP.
+### First quick tap arms B
 
-However, CoreHID virtual-device creation requires the restricted entitlement:
+If the first press releases before 350 ms:
 
-`com.apple.developer.hid.virtual.device`
+```text
+discard captured A edge(s)
+-> Receiver A sees nothing
+-> immediately switch device-scoped F5 mapping A -> B
+-> verify B mapping apply/readback
+-> WAITING_SECOND_PRESS <= 300 ms
+```
 
-RemoteOrbit's current local candidate is ad-hoc signed and does not have an Apple-issued provisioning profile containing that entitlement. Direct CoreHID/IOHIDUserDevice virtual-device construction therefore cannot be assumed testable in the current packaging/signing model.
+If no second press arrives, restore B -> A and cancel pending prewarm.
 
-A mature existing alternative is `pqrs-org/Karabiner-DriverKit-VirtualHIDDevice`, which provides a macOS virtual keyboard recognized like physical hardware through a DriverKit system extension and a daemon/client protocol. It supports macOS 13–26, but requires installation/activation of the system extension and a privileged daemon/client integration. Treat this as an external-provider option, not an invisible library substitution.
+### Second press owns B
 
-## Architecture options now under review
+If the second physical F5 down arrives while B mapping is verified armed:
 
-### A — Native CoreHID `HIDVirtualDevice`
+```text
+physical F5 down
+-> system-mapped B (Right Option) edge
+-> HardwareOptionGate captures/defer
+-> second hold >= 350 ms
+-> classify B
+-> activate remote audio
+-> first PCM
+-> release captured B DOWN
+-> stream
+-> physical release / drain
+-> matching B UP
+-> restore mapping B -> A after B release ownership completes
+```
 
-Preferred long-term product architecture if the required entitlement can be obtained and incorporated into the signing/provisioning model.
+If second press releases before 350 ms, discard B edge(s), restore A, and open neither receiver.
 
-Pros:
-- first-party Apple API;
-- direct keyboard HID report ownership inside RemoteOrbit;
-- no third-party runtime dependency;
-- clean A/B transaction boundary after classification.
+## Authority / safety invariants
 
-Blocker:
-- restricted entitlement/provisioning; current ad-hoc package cannot validate it as-is.
+- `HIDMonitor` remains the sole raw HID owner.
+- Existing `HardwareOptionGate` / filter remains the sole mapped-edge owner.
+- `RemoteVoiceKeyMapping` remains the sole device-scoped mapping authority.
+- Normal A/B transactions do not use CGEvent synthetic trigger fallback.
+- A -> B and B -> A mapping transitions must be verified through the existing mapping seam.
+- If A -> B arm fails, B is unavailable and the gesture fails closed; do not leak A and do not synthesize B.
+- If B -> A restore fails, do not accept a new gesture until mapping authority is reconciled.
+- Generic `ButtonGestureRecognizer`, BLE codec, tail/drain timing, Persistent Session semantics, and diagnostic authority remain unchanged.
 
-### B — Karabiner DriverKit VirtualHID provider
+## Reuse from 019
 
-Preferred immediate feasibility path if the goal is to validate that a real virtual-HID keyboard modifier is accepted by the receiver before investing in entitlement/distribution work.
+Retain selectively:
 
-Pros:
-- known real virtual keyboard device recognized by macOS;
-- currently supports macOS 13–26;
-- can validate Left Option acceptance independently of CGEvent.
+- Disabled-SHORT classifier corrective;
+- `DualReceiverVoiceGestureRecognizer` 350/300 timing/state model;
+- independent Receiver-B preference/settings;
+- one semantic classifier only / already-classified hold entry;
+- transport-only prewarm;
+- first-PCM authorization boundary;
+- release/drain/loss/disconnect ownership;
+- fail-closed dual-mode runtime gating.
 
-Costs:
-- system extension installation/approval;
-- privileged daemon/client boundary;
-- third-party dependency and protocol-version management;
-- not automatically the final product architecture.
+Replace only the normal A/B trigger backend that currently routes selected keys through synthetic `VoiceOptionTrigger` CGEvent.
 
-### C — External physical USB/BLE keyboard bridge
+## Only genuinely new uncertainty
 
-Strongest hardware equivalence but highest operational/product cost. Keep only as fallback if supported virtual-HID routes are unavailable.
+Receiver acceptance of system-mapped Left Option is already historically established and does not need a new provider spike.
 
-## Current recommendation
+The new timing dependency is only whether A -> B mapping apply/readback completes before the user's second physical press. Closed gesture evidence observed first-UP -> second-DOWN gaps of approximately `74.476–239.547 ms`.
 
-Use a **two-stage strategy**:
-
-1. First run a bounded real-HID feasibility spike using an existing virtual-HID provider (prefer Karabiner DriverKit VirtualHID if available/acceptable) to answer only: `virtual HID Left Option -> does Receiver A open 5/5?`.
-2. If that passes, freeze the receiver requirement as `real HID keyboard report required` and decide production backend:
-   - native CoreHID after entitlement/provisioning is available; or
-   - an explicitly managed DriverKit/provider architecture if native entitlement is not practical.
-
-Do not rework the A/B classifier or BLE transaction path until this trigger-backend feasibility question is answered.
+Implementation must measure mapping transition latency and gate B on a verified `B_MAPPING_READY` state. If the second press arrives before readiness, fail that B attempt closed rather than leak A or synthesize B.
 
 ## Next transition
 
-New task: `RO-REAL-HID-TRIGGER-BACKEND-020`.
+Current task: `RO-DUAL-RECEIVER-SYSTEM-MAPPED-TRIGGER-020`.
 
-Product source mutation remains forbidden until the user approves the trigger-backend architecture path. No additional receiver hardware test is authorized on the synthetic candidate.
+Product source mutation remains forbidden until the user reviews/approves the corrected written design. No Karabiner/CoreHID provider installation or virtual-HID feasibility spike is authorized.
