@@ -2,6 +2,106 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceTriggerRuntimeTests: XCTestCase {
+    func testDualReceiverMappedTriggerStateTracksPrimarySecondaryAndRestoreOwnership() {
+        var state = DualReceiverMappedTriggerState(initialPhase: .primaryReady)
+        let gestureID = UUID()
+
+        XCTAssertEqual(state.phase, .primaryReady)
+
+        let armGeneration = state.beginSecondaryArming(gestureID: gestureID)
+        XCTAssertNotNil(armGeneration)
+        XCTAssertEqual(
+            state.phase,
+            .armingSecondary(gestureID: gestureID, generation: armGeneration!)
+        )
+        XCTAssertFalse(
+            state.completeSecondaryArming(
+                gestureID: gestureID,
+                generation: armGeneration! &- 1
+            )
+        )
+        XCTAssertTrue(
+            state.completeSecondaryArming(
+                gestureID: gestureID,
+                generation: armGeneration!
+            )
+        )
+        XCTAssertEqual(state.phase, .secondaryReady(gestureID: gestureID))
+        XCTAssertTrue(state.admitSecondaryPress(gestureID: gestureID))
+        XCTAssertEqual(state.phase, .secondaryActive(gestureID: gestureID))
+
+        let restoreGeneration = state.beginPrimaryRestore()
+        XCTAssertEqual(state.phase, .restoringPrimary(generation: restoreGeneration))
+        XCTAssertFalse(
+            state.completePrimaryRestore(
+                generation: restoreGeneration &- 1,
+                succeeded: true
+            )
+        )
+        XCTAssertEqual(state.phase, .restoringPrimary(generation: restoreGeneration))
+        XCTAssertTrue(
+            state.completePrimaryRestore(
+                generation: restoreGeneration,
+                succeeded: true
+            )
+        )
+        XCTAssertEqual(state.phase, .primaryReady)
+    }
+
+    func testEarlySecondPressBlocksLateSecondaryArmCompletion() {
+        var state = DualReceiverMappedTriggerState(initialPhase: .primaryReady)
+        let gestureID = UUID()
+        let armGeneration = state.beginSecondaryArming(gestureID: gestureID)!
+
+        XCTAssertTrue(state.blockPressUntilRelease(gestureID: gestureID))
+        XCTAssertEqual(state.phase, .blockedUntilRelease(gestureID: gestureID))
+        XCTAssertFalse(
+            state.completeSecondaryArming(
+                gestureID: gestureID,
+                generation: armGeneration
+            )
+        )
+        XCTAssertEqual(state.phase, .blockedUntilRelease(gestureID: gestureID))
+    }
+
+    func testFailedPrimaryRestoreLeavesMappedTriggerStateUnavailable() {
+        var state = DualReceiverMappedTriggerState(initialPhase: .secondaryReady(gestureID: UUID()))
+        let restoreGeneration = state.beginPrimaryRestore()
+
+        XCTAssertTrue(
+            state.completePrimaryRestore(
+                generation: restoreGeneration,
+                succeeded: false
+            )
+        )
+        XCTAssertEqual(
+            state.phase,
+            .unavailable(reason: .primaryRestoreFailed)
+        )
+    }
+
+    func testControllerTracksPrimaryMappingOwnershipOnlyWhenDualModeIsActive() {
+        let harness = VoiceTriggerRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            applyResults: [true]
+        )
+
+        XCTAssertEqual(
+            harness.controller.dualReceiverMappedTriggerState.phase,
+            .unavailable(reason: .dualModeInactive)
+        )
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .applied(.active(receiverA: .leftOption, receiverB: .rightOption))
+        )
+        XCTAssertEqual(harness.controller.dualReceiverMappedTriggerState.phase, .primaryReady)
+    }
+
     func testDualModeUnavailableWithoutRawHIDDoesNotUseVoiceKeyFallback() {
         let harness = VoiceTriggerRuntimeHarness(
             persistedKey: .leftOption,

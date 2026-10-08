@@ -3100,6 +3100,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private(set) var currentPersistentSessionTriggerKey: VoiceTriggerKey = .leftOption
     private(set) var currentSecondaryMomentaryVoiceTriggerKey: VoiceTriggerKey?
     private var currentDualReceiverShortBinding: ButtonBinding?
+    private(set) var dualReceiverMappedTriggerState = DualReceiverMappedTriggerState()
     /// Compatibility alias: historical callers meant the mapped momentary
     /// remote-microphone trigger.
     var currentVoiceTriggerKey: VoiceTriggerKey { currentMomentaryVoiceTriggerKey }
@@ -3306,14 +3307,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     let reason = DualReceiverVoiceMode.UnavailabilityReason
                         .legacyMappingRestoreFailed
                     dualReceiverVoiceMode = .unavailable(reason)
+                    dualReceiverMappedTriggerState.markUnavailable(
+                        reason: .primaryRestoreFailed
+                    )
                     return .unavailable(reason)
                 }
             }
             currentDualReceiverShortBinding = shortBinding
             dualReceiverVoiceMode = .legacy
+            dualReceiverMappedTriggerState.markUnavailable(reason: .dualModeInactive)
             return .applied(.legacy)
         case let .unavailable(reason):
             dualReceiverVoiceMode = eligibility
+            dualReceiverMappedTriggerState.markUnavailable(reason: .dualModeUnavailable)
             return .unavailable(reason)
         case .active:
             let primaryMappingSucceeded = applyPrimaryRemoteVoiceHIDMappingForDualMode()
@@ -3327,9 +3333,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             )
             dualReceiverVoiceMode = resolved
             if case let .unavailable(reason) = resolved {
+                dualReceiverMappedTriggerState.markUnavailable(reason: .mappingApplyFailed)
                 return .unavailable(reason)
             }
             currentDualReceiverShortBinding = shortBinding
+            dualReceiverMappedTriggerState.establishPrimaryReady()
             return .applied(resolved)
         }
     }
