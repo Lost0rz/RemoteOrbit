@@ -2,7 +2,7 @@
 
 ## Current task — DUAL-RECEIVER MOMENTARY ROUTING IMPLEMENTATION THROUGH EARLY HARDWARE GATE
 
-- **Status:** ACTIVE / PRODUCT CONSTRUCTION AUTHORIZED THROUGH EARLY HARDWARE GATE
+- **Status:** WAITING FOR USER EARLY HARDWARE ACCEPTANCE
 - **Task ID:** `RO-DUAL-RECEIVER-MOMENTARY-ROUTING-019`
 - **Previous task:** `RO-DUAL-RECEIVER-MOMENTARY-ROUTING-018` — IMPLEMENTATION PLAN AUDITED
 - **Design spec:** `docs/superpowers/specs/2026-10-08-dual-receiver-momentary-voice-routing-design.md`
@@ -12,6 +12,24 @@
 - **Authorized branch:** `codex/dual-receiver-momentary-routing-v1`
 - **Authorized worktree:** `/private/tmp/remoteorbit-dual-receiver-momentary-routing-v1`
 - **Merge:** FORBIDDEN
+
+## Gate 10 completed — stop for user acceptance
+
+Implementation source HEAD `ef29186e25c64cd4d1d7209cb2a41f95c51d4a11` passed the required focused suites, full Swift suite (355 tests), project self-tests, release build, and diff check. Its pushed remote branch matched before runtime replacement.
+
+The exact candidate is installed at `/Applications/RemoteOrbit.app` and running as PID `46412`:
+
+```text
+Source marker: ef29186e25c64cd4d1d7209cb2a41f95c51d4a11
+Executable SHA-256: 328e66f7d60fbf7c5a5f8330d32ecb133bf34c00e3ae1fb065e70633835734bb
+Version/build: 0.2.13 / 42
+Bundle ID: com.lost0rz.RemoteOrbit
+Code identity: Ad Hoc; designated requirement identifier com.lost0rz.RemoteOrbit
+```
+
+Current settings: Receiver A=`left_option`; Receiver B=`Off` because its independent preference is absent; Persistent=`left_option`; effective global and Codex microphone SHORT binding=`Disabled`. With B Off, the app remains in legacy single-receiver mode and the device F5-to-Left-Option mapping remains present. The executor made no receiver-shortcut changes. The user must choose a distinct Receiver B key in RemoteOrbit settings before exercising B routing.
+
+The existing app was gracefully quit before replacement; no driver, CoreAudio, LaunchAgent, TCC, Accessibility, or Input Monitoring change was made. `open -a` returned Launch Services `kLSNoExecutableErr`; the verified installed bundle executable was launched directly and its process identity was verified. Stop here for user-operated early hardware acceptance. Do not execute Tasks 11 or 12.
 
 ## Product contract
 

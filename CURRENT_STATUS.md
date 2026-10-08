@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-08
-State: DUAL-RECEIVER IMPLEMENTATION AUTHORIZED THROUGH EARLY HARDWARE GATE
+State: WAITING FOR USER EARLY HARDWARE ACCEPTANCE
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
@@ -95,7 +95,23 @@ Authorized isolated worktree:
 
 `/private/tmp/remoteorbit-dual-receiver-momentary-routing-v1`
 
-The implementation may execute plan Tasks 1 through 9 with TDD, focused regressions, commits, and push. It may then run the required automated pre-hardware validation, create a release test candidate, replace/restart only the RemoteOrbit app runtime for the explicitly authorized early hardware gate, verify exact runtime identity, and STOP for user-operated hardware acceptance.
+Plan Tasks 1 through 9 and Gate 9.5 are complete. Implementation source HEAD `ef29186e25c64cd4d1d7209cb2a41f95c51d4a11` was pushed and live-verified before runtime replacement. Gate 10 installed and started that exact candidate; no merge is authorized.
+
+Installed early-test runtime:
+
+```text
+APP_PATH=/Applications/RemoteOrbit.app
+SOURCE_HEAD=ef29186e25c64cd4d1d7209cb2a41f95c51d4a11
+EXECUTABLE_SHA256=328e66f7d60fbf7c5a5f8330d32ecb133bf34c00e3ae1fb065e70633835734bb
+VERSION_BUILD=0.2.13 / 42
+BUNDLE_ID=com.lost0rz.RemoteOrbit
+CODE_IDENTITY=Ad Hoc; designated requirement identifier com.lost0rz.RemoteOrbit
+RUNNING_PID=46412
+```
+
+The app was gracefully quit before replacement. Launch Services returned `kLSNoExecutableErr` for `open -a`; the verified bundle executable was then launched directly as the same user and is running at the recorded PID.
+
+Current receiver configuration is A=`left_option`, B=`Off` (secondary preference absent), Persistent=`left_option`. The effective global and Codex microphone SHORT bindings are Disabled. Because B is Off, runtime eligibility is legacy rather than dual; the current device F5 mapping readback is F5 (`0x70000003E`) to Left Option (`0x7000000E2`). The executor did not change receiver shortcuts. The user must select a distinct Receiver B key in RemoteOrbit settings before testing B routing.
 
 No merge is authorized.
 
@@ -107,7 +123,7 @@ The implementation executor must inspect that state read-only, must not clean/st
 
 ## Early hardware stop boundary
 
-After Tasks 1-9 and automated validation, the executor may build/install/restart the exact implementation candidate, record source HEAD, executable SHA-256, app version/build, Bundle ID and running PID, then stop at:
+After Tasks 1-9 and automated validation, the executor may build/install/restart the exact implementation candidate, record its identity and current receiver configuration, then stop at:
 
 `READY_FOR_USER_EARLY_HARDWARE_ACCEPTANCE`
 
