@@ -61,11 +61,67 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
         XCTAssertTrue(harness.triggerEdges.isEmpty)
     }
 
+    func testSecondDownDuringDelayedSecondaryArmIsDiscardedAndRestoredAfterUp() {
+        let harness = makeHarness(mappingApplyDelay: 0.25)
+
+        harness.edge(isDown: true, at: 1_250.0)
+        harness.edge(isDown: false, at: 1_250.050)
+        let gestureID = harness.recognizer.currentGestureID!
+        XCTAssertEqual(
+            harness.controller.dualReceiverMappedTriggerState.phase,
+            .armingSecondary(
+                gestureID: gestureID,
+                generation: harness.controller.dualReceiverMappedTriggerState.generation
+            )
+        )
+
+        harness.edge(isDown: true, at: 1_250.200)
+
+        XCTAssertEqual(
+            harness.controller.dualReceiverMappedTriggerState.phase,
+            .blockedUntilRelease(gestureID: gestureID)
+        )
+        XCTAssertEqual(harness.activationCount, 0)
+        XCTAssertEqual(harness.cancelCount, 1)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+
+        harness.scheduler.advance(to: 1_250.551)
+        harness.voicePress.setRemoteAudioAvailable()
+        XCTAssertEqual(harness.activationCount, 0)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+        XCTAssertEqual(
+            harness.controller.dualReceiverMappedTriggerState.phase,
+            .blockedUntilRelease(gestureID: gestureID)
+        )
+
+        harness.edge(isDown: false, at: 1_250.600)
+        guard case .restoringPrimary = harness.controller.dualReceiverMappedTriggerState.phase else {
+            XCTFail("blocked second UP must begin restoring A")
+            return
+        }
+        harness.edge(isDown: true, at: 1_250.700)
+        XCTAssertEqual(harness.prewarmCount, 1)
+        XCTAssertEqual(harness.activationCount, 0)
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            harness.controller.dualReceiverMappedTriggerState.phase == .primaryReady
+                && !harness.controller.voiceTriggerReconfigurationInProgress
+                && harness.mappingApplyKeys.count == 3
+        })
+        XCTAssertEqual(
+            harness.mappingApplyKeys,
+            [.leftOption, .rightOption, .leftOption]
+        )
+        XCTAssertTrue(harness.triggerEdges.isEmpty)
+    }
+
     func testSecondQuickReleaseCancelsPrewarmWithoutActivationOrRoute() {
         let harness = makeHarness()
 
         harness.edge(isDown: true, at: 300.0)
         harness.edge(isDown: false, at: 300.050)
+        awaitSecondaryReady(harness)
         harness.edge(isDown: true, at: 300.200)
         harness.edge(isDown: false, at: 300.250)
 
@@ -82,6 +138,7 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
 
         harness.edge(isDown: true, at: 400.0)
         harness.edge(isDown: false, at: 400.050)
+        awaitSecondaryReady(harness)
         harness.edge(isDown: true, at: 400.200)
 
         XCTAssertEqual(harness.prewarmCount, 1)
@@ -169,6 +226,7 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
 
         harness.edge(isDown: true, at: 700.0)
         harness.edge(isDown: false, at: 700.050)
+        awaitSecondaryReady(harness)
         harness.edge(isDown: true, at: 700.200)
         harness.scheduler.advance(to: 700.551)
 
@@ -211,6 +269,7 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
             } else {
                 harness.edge(isDown: true, at: downAt)
                 harness.edge(isDown: false, at: downAt + 0.050)
+                awaitSecondaryReady(harness)
                 harness.edge(isDown: true, at: downAt + 0.200)
                 harness.scheduler.advance(to: downAt + 0.551)
             }
@@ -291,12 +350,39 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
         XCTAssertTrue(harness.triggerEdges.isEmpty)
     }
 
-    private func makeHarness() -> DualReceiverVoiceTransactionHarness {
-        DualReceiverVoiceTransactionHarness()
+    private func makeHarness(
+        mappingApplyDelay: TimeInterval = 0
+    ) -> DualReceiverVoiceTransactionHarness {
+        DualReceiverVoiceTransactionHarness(mappingApplyDelay: mappingApplyDelay)
+    }
+
+    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
+
+    private func awaitSecondaryReady(
+        _ harness: DualReceiverVoiceTransactionHarness,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            if case .secondaryReady = harness.controller.dualReceiverMappedTriggerState.phase {
+                return true
+            }
+            return false
+        }, file: file, line: line)
     }
 }
 
 private final class DualReceiverVoiceTransactionHarness {
+    private let mappingLock = NSLock()
+    private var mappingApplyKeysStorage: [VoiceTriggerKey] = []
+    private let mappingApplyDelay: TimeInterval
     let scheduler = TransactionTestScheduler()
     let voicePress: VoicePressCoordinator
     let recognizer: DualReceiverVoiceGestureRecognizer
@@ -315,12 +401,18 @@ private final class DualReceiverVoiceTransactionHarness {
     private var filter: VoiceKeyFilter!
 
     var triggerEdges: [String] { triggerRecorder.events }
+    var mappingApplyKeys: [VoiceTriggerKey] {
+        mappingLock.lock()
+        defer { mappingLock.unlock() }
+        return mappingApplyKeysStorage
+    }
     var hardwareGateIsActive: Bool { filter.hasActiveHardwareTriggerOwnership }
     var remoteRouted: Bool {
         voicePress.diagnosticStateFields["remote_routed"] as? Bool ?? false
     }
 
-    init() {
+    init(mappingApplyDelay: TimeInterval = 0) {
+        self.mappingApplyDelay = mappingApplyDelay
         let trigger = VoiceOptionTrigger(keyedEventSink: { [triggerRecorder] key, isDown in
             triggerRecorder.append("\(key.rawValue):\(isDown ? "down" : "up")")
         })
@@ -331,13 +423,22 @@ private final class DualReceiverVoiceTransactionHarness {
         )
         filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
         controller = nil
+        let applyMapping: (Bool, VoiceTriggerKey) -> Bool = { [unowned self] _, key in
+            if self.mappingApplyDelay > 0 {
+                Thread.sleep(forTimeInterval: self.mappingApplyDelay)
+            }
+            self.mappingLock.lock()
+            self.mappingApplyKeysStorage.append(key)
+            self.mappingLock.unlock()
+            return true
+        }
         controller = AppController(
             filter: filter,
             voicePress: voicePress,
             dualReceiverVoiceGestureRecognizer: recognizer,
             initiallyHIDConnected: true,
             isVoiceHIDMappingEnabled: { false },
-            applyVoiceHIDMapping: { _, _ in true },
+            applyVoiceHIDMapping: applyMapping,
             rawHIDReadiness: { true },
             eventSuppressorReadiness: { true },
             prepareVoiceTransport: { [unowned self] in prewarmCount += 1 },

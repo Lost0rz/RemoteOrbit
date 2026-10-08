@@ -140,6 +140,94 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         XCTAssertTrue(harness.triggerEvents.isEmpty)
     }
 
+    func testSecondDownBeforeSecondaryReadyIsDiscardedAndRestoresPrimaryAfterUp() {
+        let harness = VoiceTriggerRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            persistedSecondaryKey: .rightOption,
+            applyResults: [true, true, true],
+            applyDelay: 0.16
+        )
+        XCTAssertTrue(harness.controller.restoreVoiceTriggerRuntime())
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .applied(.active(receiverA: .leftOption, receiverB: .rightOption))
+        )
+
+        let firstDownAt = ProcessInfo.processInfo.systemUptime
+        harness.controller.handleDualReceiverMicrophoneEdge(isDown: true, at: firstDownAt)
+        harness.controller.handleDualReceiverMicrophoneEdge(
+            isDown: false,
+            at: firstDownAt + 0.05
+        )
+        let gestureID = harness.controller.dualReceiverVoiceGestureRecognizer.currentGestureID!
+        let secondDownAt = firstDownAt + 0.10
+        harness.controller.handleDualReceiverMicrophoneEdge(
+            isDown: true,
+            at: secondDownAt
+        )
+
+        XCTAssertEqual(
+            harness.controller.dualReceiverMappedTriggerState.phase,
+            .blockedUntilRelease(gestureID: gestureID)
+        )
+        XCTAssertEqual(harness.voicePrewarmCount, 1)
+        XCTAssertEqual(harness.voiceCancelCount, 1)
+        XCTAssertEqual(harness.voiceActivationCount, 0)
+        XCTAssertTrue(harness.triggerEvents.isEmpty)
+
+        XCTAssertTrue(waitUntil(timeout: 2) { harness.mappingCalls.count == 2 })
+        XCTAssertTrue(harness.filter.shouldSuppressDuringVoiceTriggerReconfiguration(
+            keyCode: VK.voiceKey
+        ))
+        XCTAssertTrue(harness.filter.shouldSuppressDuringVoiceTriggerReconfiguration(
+            keyCode: VoiceTriggerKey.leftOption.cgKeyCode
+        ))
+        XCTAssertTrue(harness.filter.shouldSuppressDuringVoiceTriggerReconfiguration(
+            keyCode: VoiceTriggerKey.rightOption.cgKeyCode
+        ))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.40))
+        harness.controller.voicePress.setRemoteAudioAvailable()
+        XCTAssertEqual(harness.voiceActivationCount, 0)
+        XCTAssertTrue(harness.triggerEvents.isEmpty)
+        XCTAssertEqual(
+            harness.controller.dualReceiverMappedTriggerState.phase,
+            .blockedUntilRelease(gestureID: gestureID)
+        )
+
+        harness.controller.handleDualReceiverMicrophoneEdge(
+            isDown: false,
+            at: secondDownAt + 0.41
+        )
+        guard case .restoringPrimary = harness.controller.dualReceiverMappedTriggerState.phase else {
+            XCTFail("blocked second UP must begin restoring A")
+            return
+        }
+        harness.controller.handleDualReceiverMicrophoneEdge(
+            isDown: true,
+            at: secondDownAt + 0.42
+        )
+        XCTAssertEqual(harness.voicePrewarmCount, 1)
+        XCTAssertEqual(harness.voiceActivationCount, 0)
+        XCTAssertTrue(harness.triggerEvents.isEmpty)
+
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            harness.controller.dualReceiverMappedTriggerState.phase == .primaryReady
+                && !harness.controller.voiceTriggerReconfigurationInProgress
+                && harness.mappingCalls.count == 3
+        })
+        XCTAssertEqual(harness.mappingCalls.map(\.key), [.leftOption, .rightOption, .leftOption])
+        XCTAssertEqual(harness.controller.filter.voiceTriggerKey, .leftOption)
+        XCTAssertFalse(harness.filter.shouldSuppressDuringVoiceTriggerReconfiguration(
+            keyCode: VK.voiceKey
+        ))
+        XCTAssertTrue(harness.triggerEvents.isEmpty)
+    }
+
     func testFailedSecondaryMappingRestoresPrimaryWithoutAdmittingB() {
         let harness = VoiceTriggerRuntimeHarness(
             connected: true,
@@ -1415,6 +1503,9 @@ private final class VoiceTriggerRuntimeHarness {
     let trigger: VoiceOptionTrigger
     let filter: VoiceKeyFilter
     private(set) var controller: AppController!
+    private(set) var voicePrewarmCount = 0
+    private(set) var voiceActivationCount = 0
+    private(set) var voiceCancelCount = 0
 
     init(
         connected: Bool = false,
@@ -1489,6 +1580,9 @@ private final class VoiceTriggerRuntimeHarness {
             },
             rawHIDReadiness: { rawHIDReady },
             eventSuppressorReadiness: { eventSuppressorReady },
+            prepareVoiceTransport: { [unowned self] in voicePrewarmCount += 1 },
+            activateVoiceInput: { [unowned self] in voiceActivationCount += 1 },
+            cancelVoiceTransportPreparation: { [unowned self] in voiceCancelCount += 1 },
             readPersistedVoiceTriggerKey: { [self] in
                 lock.lock()
                 defer { lock.unlock() }

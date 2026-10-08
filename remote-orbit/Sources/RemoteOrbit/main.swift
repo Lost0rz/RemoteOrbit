@@ -3521,6 +3521,76 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         isDown: Bool,
         at timestamp: TimeInterval
     ) {
+        if isDown {
+            switch dualReceiverMappedTriggerState.phase {
+            case let .armingSecondary(gestureID, _):
+                guard dualReceiverMappedTriggerState.blockPressUntilRelease(
+                    gestureID: gestureID
+                ) else {
+                    return
+                }
+                dualReceiverVoiceGestureRecognizer.cancel()
+                _ = voicePress.cancelClassifiedHardwareGate(sessionID: gestureID)
+                if dualReceiverPrewarmGestureID == gestureID {
+                    cancelPendingDualReceiverPrewarm()
+                }
+                dualReceiverPhysicalDownAt = timestamp
+                diagnosticLogger.log(
+                    category: "input",
+                    event: "DUAL_RECEIVER_SECOND_DOWN_ADMISSION",
+                    gestureID: gestureID,
+                    fields: [
+                        "SECOND_DOWN_READY_BEFORE_EDGE": false,
+                        "admitted": false,
+                        "mapping_phase": "armingSecondary",
+                    ]
+                )
+                return
+
+            case .restoringPrimary, .blockedUntilRelease:
+                diagnosticLogger.log(
+                    category: "input",
+                    event: "DUAL_RECEIVER_SECOND_DOWN_ADMISSION",
+                    fields: [
+                        "SECOND_DOWN_READY_BEFORE_EDGE": false,
+                        "admitted": false,
+                        "mapping_phase": String(describing: dualReceiverMappedTriggerState.phase),
+                    ]
+                )
+                return
+
+            case let .secondaryReady(gestureID):
+                diagnosticLogger.log(
+                    category: "input",
+                    event: "DUAL_RECEIVER_SECOND_DOWN_ADMISSION",
+                    gestureID: gestureID,
+                    fields: [
+                        "SECOND_DOWN_READY_BEFORE_EDGE": true,
+                        "mapping_phase": "secondaryReady",
+                    ]
+                )
+
+            case .primaryReady, .secondaryActive, .unavailable:
+                break
+            }
+        }
+
+        if !isDown,
+           case let .blockedUntilRelease(gestureID) = dualReceiverMappedTriggerState.phase {
+            dualReceiverVoiceGestureRecognizer.cancel()
+            dualReceiverPhysicalDownAt = nil
+            restorePrimaryMappingAfterSecondary(
+                gestureID: gestureID,
+                reason: "early-second-press-released"
+            )
+            return
+        }
+
+        if !isDown,
+           case .restoringPrimary = dualReceiverMappedTriggerState.phase {
+            return
+        }
+
         if !isDown, activeDualReceiverGestureID != nil {
             _ = dualReceiverVoiceGestureRecognizer.handleUp(at: timestamp)
             finishActiveDualReceiverGestureRelease()
@@ -3615,6 +3685,40 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 cancelPendingDualReceiverPrewarm()
                 dualReceiverPhysicalDownAt = nil
                 dualReceiverVoiceGestureRecognizer.cancel()
+                return
+            }
+            let mappingPhase = dualReceiverMappedTriggerState.phase
+            let receiverIsReady = receiver == .a
+                ? mappingPhase == .primaryReady
+                : mappingPhase == .secondaryReady(gestureID: gestureID)
+            guard receiverIsReady else {
+                if receiver == .b,
+                   case let .armingSecondary(armingGestureID, _) = mappingPhase,
+                   armingGestureID == gestureID {
+                    _ = dualReceiverMappedTriggerState.blockPressUntilRelease(
+                        gestureID: gestureID
+                    )
+                    dualReceiverVoiceGestureRecognizer.cancel()
+                    dualReceiverPhysicalDownAt = physicalDownAt
+                    if dualReceiverPrewarmGestureID == gestureID {
+                        cancelPendingDualReceiverPrewarm()
+                    }
+                } else {
+                    cancelPendingDualReceiverPrewarm()
+                    dualReceiverPhysicalDownAt = nil
+                    dualReceiverVoiceGestureRecognizer.cancel()
+                }
+                diagnosticLogger.log(
+                    category: "input",
+                    event: "DUAL_RECEIVER_CLASSIFICATION_DISCARDED",
+                    gestureID: gestureID,
+                    key: receiver == .a ? receiverA : receiverB,
+                    fields: [
+                        "receiver": receiver == .a ? "A" : "B",
+                        "mapping_phase": String(describing: mappingPhase),
+                        "reason": "mapping-not-ready",
+                    ]
+                )
                 return
             }
             let triggerKey = receiver == .a ? receiverA : receiverB
