@@ -140,9 +140,10 @@ Follow the implementation plan task-by-task with TDD, subject to this task and l
 
 - Authoritative parent control HEAD: `bf5579fc43f2efbe627dec03f4d0b52182a2848f`.
 - Implementation branch/worktree: `codex/dual-receiver-system-mapped-routing-v2` at `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`.
-- Tasks 2–6 are implemented, tested, committed and pushed; checkpoint `c4c77779cc7bf68eb07aafedc4b59083e11641ab` matches the remote branch.
-- Task 6 focused evidence: `VoiceTriggerRuntimeTests` 47/47, `EventSuppressorTests` 9/9, `DualReceiverVoiceTransactionTests` 11/11; `git diff --check` passed.
-- Next: Task 7, prove and implement fail-closed handling when second DOWN precedes `SECONDARY_READY`.
+- Tasks 2–7 are implemented, tested, committed and pushed; checkpoint `f5e6099ea0c4dbc1207145704b98f0dd5d472446` matches the remote branch.
+- Task 7 TDD evidence: both delayed-mapping tests failed before implementation with second DOWN left active/arming and voice activation observed; after implementation `VoiceTriggerRuntimeTests` passed 48/48 and `DualReceiverVoiceTransactionTests` passed 12/12; `git diff --check` passed.
+- Early second DOWN invalidates B arm completion, remains suppressed until physical UP, then restores A; new downs during A restoration are rejected. Runtime log records `SECOND_DOWN_READY_BEFORE_EDGE`.
+- Next: Task 8, route a `SECONDARY_READY` B hold through the existing hardware gate.
 - No candidate build/install or task-scoped app restart has occurred. No remote gesture, BLE or audio test has occurred.
 - The canonical dirty `HIDMonitor.swift` and `codex/v0211-nonseize-hid-audit` remain untouched.
 

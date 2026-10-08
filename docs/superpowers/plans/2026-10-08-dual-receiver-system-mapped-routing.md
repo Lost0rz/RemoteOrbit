@@ -357,7 +357,7 @@ If later readback for the active generation reports mismatch/unparseable in a wa
 - Consumes: `armingSecondary` / `secondaryReady` mapping phase.
 - Produces: second press admitted only in `secondaryReady`.
 
-- [ ] **Step 1: Write RED test with injected mapping delay**
+- [x] **Step 1: Write RED test with injected mapping delay**
 
 Use existing harness mapping delay so second raw DOWN occurs before B apply completion.
 
@@ -372,17 +372,17 @@ attempt enters blockedUntilRelease
 late B apply does not replay/buffer the already-held second press
 ```
 
-- [ ] **Step 2: Write RED cleanup test**
+- [x] **Step 2: Write RED cleanup test**
 
 After blocked second UP, converge to A; new gesture is rejected until A restore succeeds.
 
-- [ ] **Step 3: Implement fail-closed admission**
+- [x] **Step 3: Implement fail-closed admission**
 
 Never buffer a second DOWN across a mapping switch because remapping an already-held F5 cannot guarantee a fresh B DOWN edge.
 
-- [ ] **Step 4: GREEN**
+- [x] **Step 4: GREEN**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ---
 
