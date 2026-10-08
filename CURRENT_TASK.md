@@ -1,276 +1,249 @@
 # RemoteOrbit Current Task
 
-## Current task — DUAL-RECEIVER MOMENTARY ROUTING IMPLEMENTATION THROUGH EARLY HARDWARE GATE
+## Current task — SYSTEM-MAPPED DUAL-RECEIVER V2 IMPLEMENTATION
 
-- **Status:** WAITING FOR USER EARLY HARDWARE ACCEPTANCE
-- **Task ID:** `RO-DUAL-RECEIVER-MOMENTARY-ROUTING-019`
-- **Previous task:** `RO-DUAL-RECEIVER-MOMENTARY-ROUTING-018` — IMPLEMENTATION PLAN AUDITED
-- **Design spec:** `docs/superpowers/specs/2026-10-08-dual-receiver-momentary-voice-routing-design.md`
-- **Implementation plan:** `docs/superpowers/plans/2026-10-08-dual-receiver-momentary-routing.md`
-- **Audited plan HEAD:** `6415c6baccae75b220391568d77b546c5cbbefe8`
-- **Classifier corrective source:** `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`
-- **Authorized branch:** `codex/dual-receiver-momentary-routing-v1`
-- **Authorized worktree:** `/private/tmp/remoteorbit-dual-receiver-momentary-routing-v1`
+- **Status:** ACTIVE / PRODUCT CONSTRUCTION AUTHORIZED THROUGH CANDIDATE INSTALL AND SET-A HANDOFF
+- **Task ID:** `RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023`
+- **Previous task:** `RO-DUAL-RECEIVER-MAPPING-LATENCY-GATE-022` — PASS
+- **Final design:** `docs/superpowers/specs/2026-10-08-dual-receiver-system-mapped-trigger-design-final.md`
+- **Implementation plan:** `docs/superpowers/plans/2026-10-08-dual-receiver-system-mapped-routing.md`
+- **Latency addendum:** `docs/superpowers/plans/2026-10-08-dual-receiver-system-mapped-routing-latency-addendum.md`
+- **Preserved implementation base:** `codex/dual-receiver-momentary-routing-v1` at `c90edbf73ad9b0642fa344734571c0e806c0eb73`
+- **Preserved product HEAD:** `ef29186e25c64cd4d1d7209cb2a41f95c51d4a11`
+- **Authorized v2 branch:** `codex/dual-receiver-system-mapped-routing-v2`
+- **Authorized worktree:** `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`
 - **Merge:** FORBIDDEN
 
-## Gate 10 completed — stop for user acceptance
+## Latency prerequisite — PASSED
 
-Implementation source HEAD `ef29186e25c64cd4d1d7209cb2a41f95c51d4a11` passed the required focused suites, full Swift suite (355 tests), project self-tests, release build, and diff check. Its pushed remote branch matched before runtime replacement.
-
-The exact candidate is installed at `/Applications/RemoteOrbit.app` and running as PID `46412`:
+Measured real process-level mapping latency:
 
 ```text
-Source marker: ef29186e25c64cd4d1d7209cb2a41f95c51d4a11
-Executable SHA-256: 328e66f7d60fbf7c5a5f8330d32ecb133bf34c00e3ae1fb065e70633835734bb
-Version/build: 0.2.13 / 42
-Bundle ID: com.lost0rz.RemoteOrbit
-Code identity: Ad Hoc; designated requirement identifier com.lost0rz.RemoteOrbit
+A->B: 50/50 success
+median 5.428063 ms
+p95    6.137273 ms
+max    6.698084 ms
+
+B->A: 50/50 success
+median 5.326646 ms
+p95    6.389208 ms
+max    6.703750 ms
 ```
 
-Current settings: Receiver A=`left_option`; Receiver B=`Off` because its independent preference is absent; Persistent=`left_option`; effective global and Codex microphone SHORT binding=`Disabled`. With B Off, the app remains in legacy single-receiver mode and the device F5-to-Left-Option mapping remains present. The executor made no receiver-shortcut changes. The user must choose a distinct Receiver B key in RemoteOrbit settings before exercising B routing.
+Prior natural first-UP -> second-DOWN minimum: `74.476 ms`.
 
-The existing app was gracefully quit before replacement; no driver, CoreAudio, LaunchAgent, TCC, Accessibility, or Input Monitoring change was made. `open -a` returned Launch Services `kLSNoExecutableErr`; the verified installed bundle executable was launched directly and its process identity was verified. Stop here for user-operated early hardware acceptance. Do not execute Tasks 11 or 12.
+Worst measured A->B process margin: `67.777916 ms`.
 
-## Product contract
+`MAPPING_LATENCY_GATE_PASS`
+
+This authorizes construction. Production must additionally log total `FIRST_UP_TO_SECONDARY_READY_MS`; the second physical DOWN is still admitted only if `SECONDARY_READY` is already true.
+
+## Authoritative architecture
+
+### A / primary ready
 
 ```text
-Direct LONG                   -> Receiver A
-Quick first tap + second LONG -> Receiver B
-Quick single tap              -> no action
-
-A initial key = Left Option
-B initial key = Right Option
-LONG = 350 ms
-DOUBLE WINDOW = 300 ms
+F5 mapping = A
+filter target = A
 ```
 
-Dual mode uses independent momentary transactions only. Persistent Session is not receiver authority.
-
-## Mandatory Web audit amendments to the plan
-
-These requirements override any ambiguous implementation reading of the audited plan.
-
-### Amendment A — no second long-press classifier
-
-The new voice-specific classifier is the sole semantic classifier in dual mode.
-
-When it resolves A or B, enter the existing voice transaction lifecycle via an explicit already-classified hold API/seam. Do not feed the classified press back through the legacy 300 ms `VoicePressCoordinator.keyDown` classifier.
-
-Required regression:
+Direct LONG uses the original hardware/system-mapped path:
 
 ```text
-classification at ~350 ms
--> transaction activation begins immediately from classified-hold entry
--> no additional ~300 ms wait
+physical F5
+-> mapped A edge captured
+-> 350 ms classify A
+-> activate remote audio
+-> first PCM
+-> release captured A DOWN
+-> release/drain
+-> captured A UP
 ```
 
-Legacy single-receiver behavior remains unchanged.
-
-### Amendment B — mapping clear must succeed before dual activation
-
-Entering dual mode requires the device-scoped F5 receiver mapping clear operation to succeed through the runtime mapping seam.
-
-A clear failure must produce:
+### First quick release
 
 ```text
-DUAL_MODE_UNAVAILABLE
-BLE_ACTIVATION = 0
-A_TRIGGER = 0
-B_TRIGGER = 0
-RAW_F5_FALLBACK = 0
+discard captured A pair
+-> begin guarded A->B reconfiguration
+-> hidutil --set F5->B
+-> configure filter B
+-> end suppression guard
+-> SECONDARY_READY
 ```
 
-Do not rely solely on cached/in-memory `RemoteVoiceKeyMapping.isEnabled` after a failed command. Do not restore pre-classification receiver mapping as fallback.
+### Second DOWN admission
 
-## Gate 0 — freshness, isolated workspace, preserve existing local dirt
+Only `SECONDARY_READY` may admit the second physical DOWN.
+
+If second DOWN arrives earlier:
+
+```text
+A exposed = 0
+B exposed = 0
+synthetic = 0
+BLE activation for that attempt = 0
+no buffering/replay after readiness
+```
+
+### Second LONG B
+
+```text
+mapped B edge captured
+-> 350 ms classify B
+-> remote audio
+-> first PCM
+-> release captured B DOWN
+-> release/drain
+-> captured B UP
+-> only then restore B->A
+```
+
+Timeout or second quick release opens neither receiver and restores A.
+
+## Mandatory invariants
+
+```text
+RAW_HID_OWNER = HIDMonitor only
+MAPPED_EDGE_OWNER = VoiceKeyFilter / HardwareOptionGate only
+MAPPING_AUTHORITY = RemoteVoiceKeyMapping only
+NORMAL_DUAL_SYNTHETIC_TRIGGER = NO
+VIRTUAL_HID_PROVIDER = NO
+PERSISTENT_SESSION_RECEIVER_AUTHORITY = NO
+GENERIC_BUTTON_GESTURE_TIMING_CHANGE = NO
+BLE_CODEC_CHANGE = NO
+TAIL_DRAIN_RETUNE = NO
+```
+
+Mapping failures are fail-closed. B->A restore failure blocks all later gestures until reconciliation.
+
+Do not put synchronous `hidutil --get` in the double-tap critical path. Asynchronous readback remains diagnostic.
+
+## Required production timing evidence
+
+For every A->B / B->A runtime transition log monotonic:
+
+```text
+A_TO_B_APPLY_MS
+B_TO_A_APPLY_MS
+FIRST_UP_TO_SECONDARY_READY_MS
+```
+
+For second-DOWN admission also log whether readiness pre-existed the DOWN.
+
+A stale completion/readback from an older mapping generation must not mutate current ownership.
+
+## Construction procedure
+
+Follow the implementation plan task-by-task with TDD, subject to this task and latency addendum.
+
+### Gate 0 — authority and v2 baseline
 
 1. `git fetch origin --prune`.
-2. Read latest `AGENTS.md`, `CURRENT_STATUS.md`, this task, design spec, and implementation plan from authoritative `origin/main`.
-3. Verify canonical remote identity.
-4. Verify the current `origin/main` is the implementation authority supplied by Web. A docs/control-only successor is acceptable only if task ID, contract, plan and authorization are unchanged; otherwise STOP and reconcile.
-5. Inspect `git worktree list` and the reported existing canonical checkout read-only.
-6. If the canonical checkout still has a pre-existing dirty `HIDMonitor.swift`, record path/status/hash/diff metadata read-only. Do NOT clean, stash, reset, checkout, copy from, or overwrite it.
-7. The only implementation workspace is `/private/tmp/remoteorbit-dual-receiver-momentary-routing-v1`. Recreate/rebind it from current authoritative `origin/main` only if necessary and only without touching unrelated worktrees.
-8. Worktree must be clean before product mutation.
+2. Read `AGENTS.md`, `CURRENT_STATUS.md`, `CURRENT_TASK.md`, final design, implementation plan, latency addendum, README and SETUP_NOTES.
+3. Verify authoritative main and preserved base.
+4. Create/reconcile only `codex/dual-receiver-system-mapped-routing-v2` from preserved branch `c90edbf...`.
+5. Use only `/private/tmp/remoteorbit-dual-receiver-system-mapped-routing-v2`.
+6. Sync only authoritative control/spec/plan/addendum files from current `origin/main`; do not merge main product history into v2.
+7. Prove product baseline remains the accepted 019 product tree before new edits.
+8. Run the accepted focused baseline suites.
 
-## Gate 1 — adopt only the accepted classifier corrective
+### Existing local state protection
 
-Follow implementation-plan Task 1 exactly, with one stricter rule: do not replace whole current-main files blindly.
+The reported local-only branch `codex/v0211-nonseize-hid-audit` is not authority for this task. Inspect only if needed for attribution; do not use, merge, delete or rewrite it.
 
-Use candidate HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db` only as the source of the accepted Disabled-SHORT behavior/test hunks.
+The pre-existing dirty canonical `remote-orbit/Sources/RemoteOrbit/KeyMapping/HIDMonitor.swift` must remain untouched. No clean/stash/reset/restore/copy.
 
-Required RED then GREEN:
+### Product implementation
 
-```sh
-swift test --package-path remote-orbit --filter DisabledShortClassifierTests
-swift test --package-path remote-orbit --filter VoicePressCoordinatorTests
-```
+Execute implementation-plan Tasks 2 through 12. Required outcomes include:
 
-After GREEN, prove the baseline corrective diff is limited to the accepted classifier behavior/test and commit it separately.
+- dual mode keeps A mapping active rather than clearing mapping;
+- first-short classifier event arms B;
+- explicit mapping ownership state;
+- direct A returns to existing hardware-gate first-PCM replay;
+- A->B guarded mapping switch;
+- second DOWN before B-ready fails closed;
+- ready B uses existing hardware-gate path, never normal synthetic trigger;
+- timeout/quick B/B completion restore A safely;
+- disconnect/loss/stale completion/readback failure safety;
+- Settings/legacy behavior retained;
+- full focused/full tests, self-tests, release build and `git diff --check` pass.
 
-STOP on unrelated candidate overwrite or broader behavior change.
+## Scope audit before install
 
-## Gates 2-9 — execute audited plan with TDD
-
-Execute plan Tasks 2 through 9 in order. Use RED -> smallest GREEN -> focused regressions -> coherent commit for each task.
-
-Required boundaries remain:
-
-- pure `DualReceiverVoiceGestureRecognizer`, fake scheduler/monotonic timing, no sleeps;
-- generic `ButtonGestureRecognizer` unchanged;
-- single `VoiceOptionTrigger` owner with explicit transaction key;
-- no receiver hidutil mapping before dual classification;
-- existing `HIDMonitor` + one existing `EventSuppressor` only;
-- mapping-clear failure fail-closed per Amendment B;
-- first DOWN/pre-second-window may only prewarm transport;
-- classified A/B must use the already-classified hold entry per Amendment A;
-- `activateVoiceInput()` only after classification;
-- selected trigger DOWN only on first decoded PCM;
-- no PCM -> zero receiver edges;
-- release/drain/loss/disconnect balance only the captured selected key;
-- secondary trigger stored independently from Persistent trigger;
-- secondary Off preserves legacy path;
-- SHORT must be Disabled and A != B for dual mode.
-
-Do not redesign BLE codec, driver, tail timing, Persistent Session semantics, diagnostic authority, packaging, TCC, or non-microphone generic gestures.
-
-## Gate 9.5 — automated candidate validation before runtime mutation
-
-Before build/install, all changed focused suites must pass. At minimum run:
-
-```sh
-swift test --package-path remote-orbit --filter DisabledShortClassifierTests
-swift test --package-path remote-orbit --filter DualReceiverVoiceGestureRecognizerTests
-swift test --package-path remote-orbit --filter DualReceiverVoiceModeTests
-swift test --package-path remote-orbit --filter DualReceiverVoiceSettingsTests
-swift test --package-path remote-orbit --filter DualReceiverVoiceTransactionTests
-swift test --package-path remote-orbit --filter VoicePressCoordinatorTests
-swift test --package-path remote-orbit --filter VoiceOptionTriggerTests
-swift test --package-path remote-orbit --filter EventSuppressorTests
-swift test --package-path remote-orbit --filter RemoteVoiceKeyMappingTests
-swift test --package-path remote-orbit --filter BLEBridgeTests
-swift test --package-path remote-orbit --filter VoiceTriggerRuntimeTests
-swift test --package-path remote-orbit --filter VoicePersistentSessionTests
-swift test --package-path remote-orbit
-./remote-orbit/run-self-tests.sh
-swift build --package-path remote-orbit -c release
-git diff --check
-```
-
-Also audit exact changed paths against the plan and confirm:
+Must explicitly return NO for:
 
 ```text
-GENERIC_BUTTON_GESTURE_THRESHOLD_CHANGED = NO
-PERSISTENT_SESSION_SEMANTICS_CHANGED = NO
-SECOND_HID_OWNER_ADDED = NO
-SECOND_DIAGNOSTIC_AUTHORITY_ADDED = NO
-PRECLASSIFICATION_A_OR_B_MAPPING = NO
-DUAL_CLASSIFIER_DOUBLE_WAIT = NO
-MAPPING_CLEAR_FAILURE_FALLBACK = NO
+SECOND_RAW_HID_OWNER_ADDED
+SECOND_MAPPING_AUTHORITY_ADDED
+NORMAL_DUAL_SYNTHETIC_TRIGGER_USED
+VIRTUAL_HID_PROVIDER_ADDED
+GENERIC_BUTTON_THRESHOLD_CHANGED
+BLE_CODEC_CHANGED
+TAIL_DRAIN_RETUNED
+PERSISTENT_SESSION_AUTHORITY_CHANGED
+CANONICAL_DIRTY_FILE_TOUCHED
 ```
 
-Commit/push exact implementation HEAD and verify local/remote match before runtime replacement.
+## Candidate install boundary
 
-## Gate 10 — authorized early test runtime preparation
+Only after all automated validation passes, the executor may build/package/install the exact v2 candidate and restart only RemoteOrbit using the existing project procedure.
 
-Only after Gate 9.5 PASS:
+Do not change the receiver shortcuts, driver, CoreAudio, TCC or system remappers.
 
-Allowed:
-- build/package the exact implementation candidate using existing repository scripts;
-- replace `/Applications/RemoteOrbit.app` with that exact candidate;
-- restart only RemoteOrbit as required to run it;
-- verify installed/running identity.
+Record exact installed source HEAD, branch HEAD, executable SHA-256, version/build, Bundle ID and PID.
 
-Forbidden:
-- driver replacement/restart;
-- CoreAudio restart;
-- TCC/Accessibility/Input Monitoring changes;
-- receiver shortcut changes;
-- generic system remapping outside RemoteOrbit's runtime transition;
-- user hardware gestures performed by executor;
-- merge.
+Then STOP at:
 
-Record:
+`READY_FOR_USER_SYSTEM_MAPPED_SET_A`
+
+Do not perform remote hardware gestures. Do not continue to Set B/C. Do not merge.
+
+## Required handoff
 
 ```text
-SOURCE_HEAD
-REMOTE_BRANCH_HEAD
-LOCAL_REMOTE_MATCH
-APP_PATH
-EXECUTABLE_SHA256
-CFBundleShortVersionString
-CFBundleVersion
-BUNDLE_ID
-CODE_IDENTITY
-RUNNING_PID
-CURRENT_A_TRIGGER
-CURRENT_B_TRIGGER
-DUAL_MODE_ELIGIBILITY
-REMOTE_F5_MAPPING_STATE
-```
-
-Then STOP and return exactly:
-
-`READY_FOR_USER_EARLY_HARDWARE_ACCEPTANCE`
-
-The user will perform:
-
-```text
-5 x direct LONG
-5 x quick-first-tap + second LONG
-5 x quick single tap
-```
-
-No source correction is authorized during that acceptance stop.
-
-## Hardware decision boundary
-
-If the user's hardware result later shows classified synthetic Left/Right Option is not reliably accepted by either real receiver, return:
-
-`SYNTHETIC_RECEIVER_TRIGGER_NOT_ACCEPTED`
-
-and stop construction. Do not restore pre-classification hidutil mapping.
-
-If the early hardware gate passes, Web will authorize the remaining Task 11 polish/full validation and Task 12 final acceptance in a separate transition.
-
-## Required implementation handoff before user hardware test
-
-Return:
-
-```text
-TASK_ID: RO-DUAL-RECEIVER-MOMENTARY-ROUTING-019
+TASK_ID: RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023
 CONTROL_HEAD:
 IMPLEMENTATION_BASE:
-IMPLEMENTATION_BRANCH: codex/dual-receiver-momentary-routing-v1
-IMPLEMENTATION_WORKTREE: /private/tmp/remoteorbit-dual-receiver-momentary-routing-v1
+IMPLEMENTATION_BRANCH:
+IMPLEMENTATION_WORKTREE:
 FINAL_HEAD:
 REMOTE_HEAD:
 LOCAL_REMOTE_MATCH:
-CLASSIFIER_CORRECTIVE_ADOPTED:
-TASK_2_CLASSIFIER: PASS/STOP
-TASK_3_TRIGGER_OWNER: PASS/STOP
-TASK_4_F5_PARKING: PASS/STOP
-TASK_5_DUAL_AUTHORITY: PASS/STOP
-TASK_6_PREWARM_INTEGRATION: PASS/STOP
-TASK_7_FIRST_PCM_OWNER: PASS/STOP
-TASK_8_RELEASE_OWNERSHIP: PASS/STOP
-TASK_9_SETTINGS: PASS/STOP
-WEB_AMENDMENT_A_NO_DOUBLE_WAIT: PASS/STOP
-WEB_AMENDMENT_B_MAPPING_CLEAR_FAIL_CLOSED: PASS/STOP
+
+LATENCY_GATE_ACCEPTED: YES
+TASK_2_PRIMARY_MAPPING:
+TASK_3_FIRST_SHORT_EVENT:
+TASK_4_MAPPING_STATE:
+TASK_5_DIRECT_A_HARDWARE_PATH:
+TASK_6_A_TO_B_ARM:
+TASK_7_EARLY_SECOND_FAIL_CLOSED:
+TASK_8_B_HARDWARE_PATH:
+TASK_9_RESTORE_A:
+TASK_10_FAILURE_SAFETY:
+TASK_11_SETTINGS_LEGACY:
+TASK_12_FULL_VALIDATION:
+
 FOCUSED_TESTS:
 FULL_SWIFT_TEST:
 SELF_TESTS:
 RELEASE_BUILD:
 DIFF_CHECK:
 SCOPE_AUDIT:
+
+A_TO_B_TEST_LATENCY_MS:
+B_TO_A_TEST_LATENCY_MS:
+END_TO_END_READINESS_TESTS:
+
 APP_PATH:
+INSTALLED_SOURCE_HEAD:
 EXECUTABLE_SHA256:
 APP_VERSION_BUILD:
 BUNDLE_ID:
 RUNNING_PID:
-CANONICAL_PREEXISTING_DIRT_PRESERVED:
-MERGED: NO
-FINAL_STATE: READY_FOR_USER_EARLY_HARDWARE_ACCEPTANCE
-```
 
-Do not proceed to plan Task 11 or Task 12 in this execution.
+CANONICAL_PREEXISTING_DIRT_PRESERVED:
+UNAUTHORIZED_LOCAL_BRANCH_LEFT_UNTOUCHED:
+MERGED: NO
+FINAL_STATE: READY_FOR_USER_SYSTEM_MAPPED_SET_A
+```
