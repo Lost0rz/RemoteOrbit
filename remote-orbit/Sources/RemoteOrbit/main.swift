@@ -324,6 +324,7 @@ final class VoicePressCoordinator {
         let bypassesShortClassification: Bool
         let usesHardwareOption: Bool
         let preparesRemoteTransport: Bool
+        let classifiedTriggerKey: VoiceTriggerKey?
         var isStillHeld = true
     }
 
@@ -631,7 +632,8 @@ final class VoicePressCoordinator {
                     togglesPersistentVoiceSession: togglesPersistentVoiceSession,
                     bypassesShortClassification: bypassesShortClassification,
                     usesHardwareOption: usesHardwareOption,
-                    preparesRemoteTransport: preparesRemoteTransport
+                    preparesRemoteTransport: preparesRemoteTransport,
+                    classifiedTriggerKey: nil
                 )
                 let shortID = String(sessionID.uuidString.prefix(4))
                 print(
@@ -679,11 +681,57 @@ final class VoicePressCoordinator {
     ) -> Bool {
         guard pendingPersistentToggle == nil,
               mode == .idle,
+              !awaitingPhysicalVoiceKeyUp else {
+            return false
+        }
+
+        if remoteRouted
+            || longInputStarted
+            || tailWorkItem != nil
+            || gestureID != nil
+            || remoteOutputDrainRequestedSessionID != nil
+            || pendingRepress != nil
+            || deferredRepressAwaitingActivation {
+            guard pendingRepress == nil,
+                  !deferredRepressAwaitingActivation else { return false }
+            pendingRepress = PendingRepress(
+                sessionID: sessionID,
+                physicalDownAt: physicalDownAt,
+                onShortTap: nil,
+                usesLocalMicrophone: false,
+                togglesPersistentVoiceSession: false,
+                bypassesShortClassification: true,
+                usesHardwareOption: false,
+                preparesRemoteTransport: false,
+                classifiedTriggerKey: triggerKey
+            )
+            lastRepressDecisionForTesting = "deferred-previous-tail-active"
+            print("[PRESS] classified receiver re-press deferred until previous output closes")
+            return true
+        }
+
+        return startClassifiedHold(
+            sessionID: sessionID,
+            physicalDownAt: physicalDownAt,
+            triggerKey: triggerKey
+        )
+    }
+
+    private func startClassifiedHold(
+        sessionID: UUID,
+        physicalDownAt: TimeInterval,
+        triggerKey: VoiceTriggerKey
+    ) -> Bool {
+        guard pendingPersistentToggle == nil,
+              mode == .idle,
               !awaitingPhysicalVoiceKeyUp,
               !remoteRouted,
               !longInputStarted,
               tailWorkItem == nil,
-              gestureID == nil else {
+              gestureID == nil,
+              remoteOutputDrainRequestedSessionID == nil,
+              pendingRepress == nil,
+              !deferredRepressAwaitingActivation else {
             return false
         }
         guard syntheticOptionTrigger.begin(sessionID: sessionID) else { return false }
@@ -865,6 +913,7 @@ final class VoicePressCoordinator {
                 return true
             }
             guard let pendingRepress else { return false }
+            let wasClassifiedDualReceiver = pendingRepress.classifiedTriggerKey != nil
             self.pendingRepress?.isStillHeld = false
             self.pendingRepress = nil
             deferredRepressAwaitingActivation = false
@@ -874,7 +923,7 @@ final class VoicePressCoordinator {
             print(
                 "[PRESS][\(shortID)] deferred re-press released before activation"
             )
-            return false
+            return wasClassifiedDualReceiver
         case .pending:
             let action = shortTapAction
             shortTapAction = nil
@@ -1307,6 +1356,13 @@ final class VoicePressCoordinator {
     /// session. A transport loss is a segment boundary, never a session tap.
     func handleTransportLoss(deviceRemoved: Bool = false) {
         guard voiceSessionMode == .persistentOpen else {
+            if deviceRemoved,
+               pendingRepress?.classifiedTriggerKey != nil {
+                deferredRepressActivationWorkItem?.cancel()
+                deferredRepressActivationWorkItem = nil
+                deferredRepressAwaitingActivation = false
+                pendingRepress = nil
+            }
             stopCurrentVoiceStatePreservingDeferredRepress()
             return
         }
@@ -1583,6 +1639,14 @@ final class VoicePressCoordinator {
             "[PRESS][\(shortID)] deferred re-press activated held=" +
                 String(format: "%.1fms", heldDuration * 1000)
         )
+        if let triggerKey = pendingRepress.classifiedTriggerKey {
+            _ = startClassifiedHold(
+                sessionID: pendingRepress.sessionID,
+                physicalDownAt: pendingRepress.physicalDownAt,
+                triggerKey: triggerKey
+            )
+            return
+        }
         _ = startAcceptedVoicePress(
             sessionID: pendingRepress.sessionID,
             physicalDownAt: pendingRepress.physicalDownAt,
@@ -3395,6 +3459,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    func cancelDualReceiverGestureStateForHIDRemoval() {
+        dualReceiverVoiceGestureRecognizer.cancel()
+        cancelPendingDualReceiverPrewarm()
+        dualReceiverPhysicalDownAt = nil
+        activeDualReceiverGestureID = nil
+    }
+
     func applyPersistentSessionTriggerKey(
         _ newKey: VoiceTriggerKey,
         completion: @escaping (VoiceTriggerApplyResult) -> Void
@@ -4324,10 +4395,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             self.updateStatus()
             if !active {
-                self.dualReceiverVoiceGestureRecognizer.cancel()
-                self.cancelPendingDualReceiverPrewarm()
-                self.dualReceiverPhysicalDownAt = nil
-                self.activeDualReceiverGestureID = nil
+                self.cancelDualReceiverGestureStateForHIDRemoval()
                 self.reconnectHeldButtons = Set(
                     RemoteButton.allCases.filter {
                         self.hidMonitor.isButtonDown($0)
