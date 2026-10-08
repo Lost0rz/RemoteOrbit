@@ -88,6 +88,39 @@ final class VoicePersistentSessionTests: XCTestCase {
         press.stop()
     }
 
+    func testSecondaryReceiverPreferenceDoesNotChangePersistentSessionTrigger() {
+        let suiteName = "RemoteOrbitTests.PersistentSecondaryIsolation.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        AppStorage.writePersistentSessionTriggerKey(.leftCommand, to: defaults)
+        AppStorage.writeSecondaryMomentaryVoiceTriggerKey(.rightOption, to: defaults)
+
+        XCTAssertEqual(AppStorage.readPersistentSessionTriggerKey(from: defaults), .leftCommand)
+        XCTAssertEqual(
+            AppStorage.readSecondaryMomentaryVoiceTriggerKey(from: defaults),
+            .rightOption
+        )
+
+        var events: [(VoiceTriggerKey, Bool)] = []
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger(keyedEventSink: { key, down in
+                events.append((key, down))
+            })
+        )
+        XCTAssertTrue(
+            press.configurePersistentSessionTriggerKey(
+                AppStorage.readPersistentSessionTriggerKey(from: defaults)
+            )
+        )
+        openPersistentSession(press)
+
+        XCTAssertEqual(events.map(\.0), [.leftCommand, .leftCommand])
+        XCTAssertEqual(events.map(\.1), [true, false])
+        press.stop()
+    }
+
     func testPersistentSessionUsesSharedClassifierAndPreparesOnlyTransportWhilePending() {
         var events: [(VoiceTriggerKey, Bool)] = []
         let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in

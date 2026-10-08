@@ -3098,6 +3098,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
     private(set) var currentMomentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
     private(set) var currentPersistentSessionTriggerKey: VoiceTriggerKey = .leftOption
+    private(set) var currentSecondaryMomentaryVoiceTriggerKey: VoiceTriggerKey?
+    private var currentDualReceiverShortBinding: ButtonBinding?
     /// Compatibility alias: historical callers meant the mapped momentary
     /// remote-microphone trigger.
     var currentVoiceTriggerKey: VoiceTriggerKey { currentMomentaryVoiceTriggerKey }
@@ -3119,6 +3121,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let persistVoiceTriggerKey: (VoiceTriggerKey) -> Void
     private let readPersistedPersistentSessionTriggerKey: () -> VoiceTriggerKey
     private let persistPersistentSessionTriggerKey: (VoiceTriggerKey) -> Void
+    private let readPersistedSecondaryMomentaryVoiceTriggerKey: () -> VoiceTriggerKey?
+    private let persistSecondaryMomentaryVoiceTriggerKey: (VoiceTriggerKey?) -> Void
     private let diagnosticUptimeProvider: () -> TimeInterval
     private let voiceHIDMappingQueue = DispatchQueue(
         label: "com.remoteorbit.voice-trigger-hid-mapping",
@@ -3155,6 +3159,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         persistPersistentSessionTriggerKey: @escaping (VoiceTriggerKey) -> Void = {
             AppStorage.persistentSessionTriggerKey = $0
         },
+        readPersistedSecondaryMomentaryVoiceTriggerKey: @escaping () -> VoiceTriggerKey? = {
+            AppStorage.secondaryMomentaryVoiceTriggerKey
+        },
+        persistSecondaryMomentaryVoiceTriggerKey: @escaping (VoiceTriggerKey?) -> Void = {
+            AppStorage.secondaryMomentaryVoiceTriggerKey = $0
+        },
         diagnosticLogger: VoiceDiagnosticLogger = .shared,
         uptimeProvider: @escaping () -> TimeInterval = {
             ProcessInfo.processInfo.systemUptime
@@ -3177,6 +3187,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.persistVoiceTriggerKey = persistVoiceTriggerKey
         self.readPersistedPersistentSessionTriggerKey = readPersistedPersistentSessionTriggerKey
         self.persistPersistentSessionTriggerKey = persistPersistentSessionTriggerKey
+        self.readPersistedSecondaryMomentaryVoiceTriggerKey =
+            readPersistedSecondaryMomentaryVoiceTriggerKey
+        self.persistSecondaryMomentaryVoiceTriggerKey = persistSecondaryMomentaryVoiceTriggerKey
         self.diagnosticUptimeProvider = uptimeProvider
         super.init()
         dualReceiverVoiceGestureRecognizer.onEvent = { [weak self] event in
@@ -3196,6 +3209,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func restoreVoiceTriggerRuntime() -> Bool {
         let restoredMomentaryKey = readPersistedVoiceTriggerKey()
         let restoredPersistentKey = readPersistedPersistentSessionTriggerKey()
+        let restoredSecondaryMomentaryKey = readPersistedSecondaryMomentaryVoiceTriggerKey()
+        currentDualReceiverShortBinding = mappingStore.binding(for: .microphone)
         diagnosticLogger.log(
             category: "configuration",
             event: "RUNTIME_RESTORE_BEGIN",
@@ -3229,6 +3244,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         currentMomentaryVoiceTriggerKey = restoredMomentaryKey
         currentPersistentSessionTriggerKey = restoredPersistentKey
+        currentSecondaryMomentaryVoiceTriggerKey = restoredSecondaryMomentaryKey
         print(
             "[VOICE-KEY] startup restored momentary=\(restoredMomentaryKey.displayName) "
                 + "persistent=\(restoredPersistentKey.displayName)"
@@ -3293,6 +3309,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     return .unavailable(reason)
                 }
             }
+            currentDualReceiverShortBinding = shortBinding
             dualReceiverVoiceMode = .legacy
             return .applied(.legacy)
         case let .unavailable(reason):
@@ -3312,7 +3329,85 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if case let .unavailable(reason) = resolved {
                 return .unavailable(reason)
             }
+            currentDualReceiverShortBinding = shortBinding
             return .applied(resolved)
+        }
+    }
+
+    /// Applies Receiver B only while the dual-recognizer, transaction, filter,
+    /// and release/drain path are unowned. Receiver A and Persistent Session
+    /// remain separate preferences and runtime authorities.
+    func applySecondaryVoiceTriggerKey(
+        _ newKey: VoiceTriggerKey?,
+        shortBinding: ButtonBinding,
+        completion: @escaping (VoiceTriggerApplyResult) -> Void
+    ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    completion(.locked)
+                    return
+                }
+                self.applySecondaryVoiceTriggerKey(
+                    newKey,
+                    shortBinding: shortBinding,
+                    completion: completion
+                )
+            }
+            return
+        }
+        guard !voiceTriggerRuntimeLocked else {
+            completion(.locked)
+            return
+        }
+        guard !voiceTriggerReconfigurationInProgress else {
+            completion(.busy)
+            return
+        }
+        guard newKey != currentSecondaryMomentaryVoiceTriggerKey else {
+            completion(.unchanged)
+            return
+        }
+        if dualReceiverVoiceGestureRecognizer.isBusy {
+            completion(.busy)
+            return
+        }
+        if voicePress.hasVoiceKeyHeldForReconfiguration || filter.isVoiceKeyHeld {
+            completion(.busyActiveHold)
+            return
+        }
+        if voicePress.hasReleaseOrTailOwnershipForReconfiguration
+            || filter.hasActiveHardwareTriggerOwnership
+            || filter.isSyntheticTriggerDown
+            || filter.hasSyntheticTriggerOwnership {
+            completion(.busyReleaseDrain)
+            return
+        }
+
+        switch configureDualReceiverVoiceMode(
+            shortBinding: shortBinding,
+            receiverB: newKey
+        ) {
+        case .busy:
+            completion(.busy)
+        case .unavailable:
+            completion(.failed)
+        case .applied:
+            currentSecondaryMomentaryVoiceTriggerKey = newKey
+            currentDualReceiverShortBinding = shortBinding
+            persistSecondaryMomentaryVoiceTriggerKey(newKey)
+            diagnosticLogger.log(
+                category: "configuration",
+                event: "SECONDARY_MOMENTARY_RECONFIG_COMMIT",
+                key: newKey,
+                fields: [
+                    "receiver_a": currentMomentaryVoiceTriggerKey.rawValue,
+                    "receiver_b": newKey?.rawValue ?? "off",
+                    "dual_mode": String(describing: dualReceiverVoiceMode),
+                    "short_disabled": String(shortBinding.isDisabled),
+                ]
+            )
+            completion(.applied)
         }
     }
 
@@ -3582,6 +3677,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             completion(busy)
             return
         }
+        let dualShortBinding = currentDualReceiverShortBinding
+            ?? mappingStore.binding(for: .microphone)
+        let requestedDualMode = DualReceiverVoiceMode.evaluate(
+            shortIsDisabled: dualShortBinding.isDisabled,
+            receiverA: newKey,
+            receiverB: currentSecondaryMomentaryVoiceTriggerKey,
+            rawHIDReady: rawHIDReadiness?() ?? hidMonitor.isRunning,
+            eventSuppressorReady: eventSuppressorReadiness?()
+                ?? hidMonitor.eventSuppressor.isRunning,
+            mappingClearSucceeded: true
+        )
+        let keepDualReceiverMappingParked = requestedDualMode != .legacy
         let hadHardwareMapping = isVoiceHIDMappingEnabled()
         guard filter.beginVoiceTriggerReconfiguration(from: oldKey, to: newKey) else {
             logReconfigurationBusy(reason: "reconfiguration_busy", event: "MOMENTARY_RECONFIG_REJECTED")
@@ -3616,16 +3723,31 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard hidConnected else {
             currentMomentaryVoiceTriggerKey = newKey
             persistVoiceTriggerKey(newKey)
+            // A disconnected receiver cannot begin a raw-HID dual transaction.
+            // Re-evaluate and clear its mapping when the device announces itself.
+            dualReceiverVoiceMode = .legacy
             completeVoiceTriggerReconfiguration(.applied, completion: completion)
             return
         }
 
         voiceHIDMappingQueue.async { [weak self] in
             guard let self else { return }
-            let succeeded = self.applyVoiceHIDMapping(true, newKey)
+            let succeeded = self.applyVoiceHIDMapping(
+                !keepDualReceiverMappingParked,
+                newKey
+            )
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 guard succeeded else {
+                    if keepDualReceiverMappingParked {
+                        self.dualReceiverVoiceMode = .unavailable(.mappingClearFailed)
+                        self.rollbackVoiceTriggerApply(
+                            oldKey: oldKey,
+                            hadHardwareMapping: false,
+                            completion: completion
+                        )
+                        return
+                    }
                     self.rollbackVoiceTriggerApply(
                         oldKey: oldKey,
                         hadHardwareMapping: hadHardwareMapping,
@@ -3635,6 +3757,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
                 self.currentMomentaryVoiceTriggerKey = newKey
                 self.persistVoiceTriggerKey(newKey)
+                self.dualReceiverVoiceMode = requestedDualMode
                 print("[VOICE-KEY] runtime target committed=\(newKey.displayName)")
                 self.completeVoiceTriggerReconfiguration(.applied, completion: completion)
             }
@@ -3759,7 +3882,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         pendingVoiceHIDMappingRefresh = false
-        let shouldEnable = hidConnected
+        let shortBinding = currentDualReceiverShortBinding
+            ?? mappingStore.binding(for: .microphone)
+        let refreshedDualMode: DualReceiverVoiceMode = hidConnected
+            ? DualReceiverVoiceMode.evaluate(
+                shortIsDisabled: shortBinding.isDisabled,
+                receiverA: currentMomentaryVoiceTriggerKey,
+                receiverB: currentSecondaryMomentaryVoiceTriggerKey,
+                rawHIDReady: rawHIDReadiness?() ?? hidMonitor.isRunning,
+                eventSuppressorReady: eventSuppressorReadiness?()
+                    ?? hidMonitor.eventSuppressor.isRunning,
+                mappingClearSucceeded: true
+            )
+            : .legacy
+        let shouldEnable = hidConnected && refreshedDualMode == .legacy
         let target = currentMomentaryVoiceTriggerKey
         voiceHIDMappingQueue.async { [weak self] in
             guard let self else { return }
@@ -3768,6 +3904,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 guard let self else { return }
                 if shouldEnable && !succeeded {
                     print("[HID-MAP] reconnect mapping failed; synthetic fallback remains available")
+                }
+                if !shouldEnable && !succeeded && self.dualReceiverVoiceMode != .legacy {
+                    self.dualReceiverVoiceMode = .unavailable(.mappingClearFailed)
+                } else if !shouldEnable && succeeded {
+                    self.dualReceiverVoiceMode = refreshedDualMode
+                } else if shouldEnable && succeeded {
+                    self.dualReceiverVoiceMode = .legacy
                 }
                 if self.pendingVoiceHIDMappingRefresh {
                     self.completeVoiceTriggerReconfiguration(result, completion: completion)
@@ -4388,9 +4531,23 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.filter.skipVoiceKey = active
             self.hidConnected = active
+            var dualModeHandledMapping = false
+            if active, let receiverB = self.currentSecondaryMomentaryVoiceTriggerKey {
+                let shortBinding = self.currentDualReceiverShortBinding
+                    ?? self.mappingStore.binding(for: .microphone)
+                let result = self.configureDualReceiverVoiceMode(
+                    shortBinding: shortBinding,
+                    receiverB: receiverB
+                )
+                if case .applied(.active(receiverA: _, receiverB: _)) = result {
+                    dualModeHandledMapping = true
+                } else if result == .unavailable(.mappingClearFailed) {
+                    dualModeHandledMapping = true
+                }
+            }
             if self.voiceTriggerReconfigurationInProgress {
                 self.pendingVoiceHIDMappingRefresh = true
-            } else {
+            } else if !dualModeHandledMapping {
                 self.applyVoiceHIDMappingForConnection(active)
             }
             self.updateStatus()
@@ -4551,7 +4708,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             // 语音键：单击走电脑/外部麦克风动作，长按走遥控器麦克风。
             if button == .microphone {
-                if self.dualReceiverVoiceMode != .legacy {
+                let shouldUseDualReceiverMode: Bool
+                switch self.dualReceiverVoiceMode {
+                case .legacy:
+                    shouldUseDualReceiverMode = false
+                case .unavailable:
+                    shouldUseDualReceiverMode = true
+                case .active:
+                    // App-scoped SHORT bindings can differ from the one that
+                    // enabled dual mode. Recheck the captured binding at the
+                    // input authority before routing this physical gesture.
+                    shouldUseDualReceiverMode = binding.isDisabled
+                }
+                if shouldUseDualReceiverMode {
                     self.handleDualReceiverMicrophoneEdge(
                         isDown: isDown,
                         at: timestamp
@@ -5093,6 +5262,39 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openKeyMapping() {
+        VoiceSettingsRuntimeBridge.readSecondaryVoiceTriggerKey = { [weak self] in
+            self?.currentSecondaryMomentaryVoiceTriggerKey
+        }
+        VoiceSettingsRuntimeBridge.changeSecondaryVoiceTriggerKey = {
+            [weak self] key, shortBinding, completion in
+            guard let self else {
+                completion(.locked)
+                return
+            }
+            self.applySecondaryVoiceTriggerKey(
+                key,
+                shortBinding: shortBinding,
+                completion: completion
+            )
+        }
+        VoiceSettingsRuntimeBridge.changeMicrophoneShortBinding = { [weak self] binding, completion in
+            guard let self else {
+                completion(.locked)
+                return
+            }
+            switch self.configureDualReceiverVoiceMode(
+                shortBinding: binding,
+                receiverB: self.currentSecondaryMomentaryVoiceTriggerKey
+            ) {
+            case .applied:
+                self.currentDualReceiverShortBinding = binding
+                completion(.applied)
+            case .busy:
+                completion(.busy)
+            case .unavailable:
+                completion(.failed)
+            }
+        }
         SettingsWindow.open(
             store: mappingStore,
             onRecordingChanged: { [weak self] enabled in

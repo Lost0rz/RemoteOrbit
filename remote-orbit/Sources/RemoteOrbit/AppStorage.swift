@@ -8,6 +8,8 @@ enum AppStorage {
     static let voiceTriggerKeyKey = "RemoteOrbit.voiceTriggerKey"
     static let persistentSessionTriggerKeyKey = "RemoteOrbit.persistentSessionTriggerKey"
     static let momentaryVoiceTriggerKeyKey = "RemoteOrbit.momentaryVoiceTriggerKey"
+    static let secondaryMomentaryVoiceTriggerKeyKey =
+        "RemoteOrbit.secondaryMomentaryVoiceTriggerKey"
 
     static let logsDirectory: URL = {
         FileManager.default.homeDirectoryForCurrentUser
@@ -92,6 +94,13 @@ enum AppStorage {
         set { writeMomentaryVoiceTriggerKey(newValue, to: UserDefaults.standard) }
     }
 
+    /// Receiver B is optional. A missing or invalid value keeps the legacy
+    /// single-receiver path active and is never migrated from another key.
+    static var secondaryMomentaryVoiceTriggerKey: VoiceTriggerKey? {
+        get { readSecondaryMomentaryVoiceTriggerKey(from: UserDefaults.standard) }
+        set { writeSecondaryMomentaryVoiceTriggerKey(newValue, to: UserDefaults.standard) }
+    }
+
     static func readVoiceTriggerKey(from defaults: UserDefaults) -> VoiceTriggerKey {
         guard let rawValue = defaults.string(forKey: voiceTriggerKeyKey),
               let key = VoiceTriggerKey(rawValue: rawValue) else {
@@ -132,6 +141,26 @@ enum AppStorage {
     ) {
         defaults.set(key.rawValue, forKey: momentaryVoiceTriggerKeyKey)
         defaults.set(key.rawValue, forKey: voiceTriggerKeyKey)
+    }
+
+    static func readSecondaryMomentaryVoiceTriggerKey(
+        from defaults: UserDefaults
+    ) -> VoiceTriggerKey? {
+        guard let rawValue = defaults.string(forKey: secondaryMomentaryVoiceTriggerKeyKey) else {
+            return nil
+        }
+        return VoiceTriggerKey(rawValue: rawValue)
+    }
+
+    static func writeSecondaryMomentaryVoiceTriggerKey(
+        _ key: VoiceTriggerKey?,
+        to defaults: UserDefaults
+    ) {
+        if let key {
+            defaults.set(key.rawValue, forKey: secondaryMomentaryVoiceTriggerKeyKey)
+        } else {
+            defaults.removeObject(forKey: secondaryMomentaryVoiceTriggerKeyKey)
+        }
     }
 
     static func migrateVoiceTriggerKeys(from defaults: UserDefaults) {
