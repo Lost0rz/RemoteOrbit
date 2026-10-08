@@ -1,140 +1,144 @@
 # RemoteOrbit Current Task
 
-## Current task — SET B RELEASE INCIDENT CAPTURE
+## Current task — DUAL-RECEIVER MICROPHONE DEBOUNCE CORRECTIVE
 
-- **Status:** INCIDENT / READ-ONLY EVIDENCE ONLY
-- **Task ID:** `RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023`
-- **Previous phase:** Set A PASS / Set B authorized
-- **Incident:** first Set-B attempt opened B, release did not close B, later attempts failed
-- **v2 branch:** `codex/dual-receiver-system-mapped-routing-v2`
-- **v2 HEAD:** `e1e6fe0bf76e245c4237978600b117b5b8e2a83e`
-- **Installed source:** `50a20174632dc105fb670a9b83e3f6feaa8e9f9b`
-- **Incident note:** `docs/incidents/2026-10-08-set-b-first-open-no-release.md`
+- **Status:** ACTIVE / MINIMAL PRODUCT CORRECTIVE AUTHORIZED THROUGH CANDIDATE INSTALL
+- **Task ID:** `RO-DUAL-RECEIVER-MIC-DEBOUNCE-CORRECTIVE-024`
+- **Previous task:** `RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023` — SET B INCIDENT / INTERNAL ROOT CAUSE PROVEN
+- **Failed v2 HEAD:** `e1e6fe0bf76e245c4237978600b117b5b8e2a83e`
+- **Installed failed source:** `50a20174632dc105fb670a9b83e3f6feaa8e9f9b`
+- **Authorized branch:** `codex/dual-receiver-mic-debounce-corrective`
+- **Authorized worktree:** `/private/tmp/remoteorbit-dual-receiver-mic-debounce-corrective`
 - **Merge:** FORBIDDEN
 
-## User-observed incident
+## Root cause
+
+The first natural Set-B attempt had:
 
 ```text
-Attempt 1:
-quick first tap + second LONG
--> Receiver B opened
--> physical release did not close/end B
-
-Afterward:
-subsequent attempts could not open normally
+first UP -> SECONDARY_READY: 22.737 ms
+first UP -> second physical DOWN: 109.810 ms
 ```
 
-Do not infer root cause from the user-visible behavior alone.
-
-## Authorized work
-Read-only capture only. No further user/executor gestures are required before capture.
-
-Locate the first Set-B attempt and any already-recorded immediate follow-on attempts. Return exact event ordering and timestamps for:
-
-1. first raw F5 DOWN/UP;
-2. A->B mapping apply start/end, `A_TO_B_APPLY_MS`, `FIRST_UP_TO_SECONDARY_READY_MS`;
-3. second physical F5 DOWN/UP and `SECOND_DOWN_READY_BEFORE_EDGE`;
-4. mapped Right Option DOWN/UP capture/defer/replay/discard;
-5. HardwareOptionGate begin / long-ready / release / close;
-6. B classification and first PCM;
-7. AUDIO_START / AUDIO_STOP;
-8. VoicePressCoordinator release/tail/output-drain ownership transitions;
-9. `MOMENTARY_COMPLETE` or its absence;
-10. B->A restore request/apply/filter update/readback, including `B_TO_A_APPLY_MS`;
-11. runtime lock / reconfiguration / unavailable transitions;
-12. final F5 mapping, filter target, mapping phase, active transaction, hardware gate and BLE state.
-
-Also record any `SYNTHETIC_OWNER_*` state events separately from actual `SYNTHETIC_TRIGGER_DOWN/UP` edges.
-
-## Classification questions
-The capture must distinguish, without fixing:
+`ButtonEdgeDebouncer.defaultInterval` is `0.18` seconds. The live second F5 DOWN at 109.810 ms was recorded as:
 
 ```text
-SECOND_PHYSICAL_UP_OBSERVED: YES/NO
-MAPPED_B_UP_OBSERVED: YES/NO
-B_HARDWARE_GATE_RELEASED: YES/NO
-OUTPUT_DRAIN_COMPLETED: YES/NO
-MOMENTARY_COMPLETE: YES/NO
-B_TO_A_RESTORE_REQUESTED: YES/NO
-B_TO_A_RESTORE_SUCCEEDED: YES/NO
-FINAL_MAPPING_IS_A: YES/NO
-FINAL_PHASE_PRIMARY_READY: YES/NO
-RUNTIME_LOCKED_OR_UNAVAILABLE: YES/NO
-EXTERNAL_B_STILL_OPEN_WHILE_INTERNAL_IDLE: YES/NO/UNKNOWN
+HID_MIC_EDGE_SUPPRESSED reason=debounce
 ```
 
-## Strict prohibitions
+Source policy currently computes advanced gesture ownership as:
 
 ```text
-NO further remote gestures
-NO Set C
-NO settings changes
-NO mapping changes
-NO app restart
-NO build/install
-NO source/test edits
-NO behavior fix
-NO driver/CoreAudio/TCC changes
-NO merge
+button != .microphone && profile.usesAdvancedGestures
 ```
+
+so the microphone remains on the legacy debounce path even while active dual-receiver recognition needs the intentional second press inside the 300 ms window.
+
+The mapped Right Option event then passed with `gate_state=none`; no B HardwareOptionGate begin or B classification occurred. Follow-on attempts reproduced the same input-layer suppression. This proves the internal root cause for the B transaction failure.
+
+## Test gap
+
+`DualReceiverVoiceTransactionTests` calls `controller.handleDualReceiverMicrophoneEdge(...)` directly through its harness and bypasses `HIDMonitor` / `ButtonEdgeDebouncer`. Existing transaction tests therefore do not cover the failing boundary.
+
+## Authorized corrective
+
+Use TDD. Before product mutation, add a failing test that exercises the HID input-policy/debouncer boundary with the observed timing:
+
+```text
+first accepted microphone DOWN
+first accepted microphone UP
+109.810 ms later second microphone DOWN
+```
+
+Expected in active dual mode: second DOWN is emitted to the dual-receiver recognizer, not suppressed by legacy debounce.
+
+Also prove:
+
+```text
+legacy microphone mode keeps existing debounce behavior
+non-microphone single-shot behavior is unchanged
+repeatable/advanced generic buttons are unchanged
+```
+
+Implement the smallest policy correction so only active dual-receiver microphone input bypasses the conflicting legacy `ButtonEdgeDebouncer` layer. Prefer explicit dual-mode ownership semantics rather than changing the global debounce interval.
+
+## Strict non-goals
+
+```text
+NO global ButtonEdgeDebouncer interval change
+NO generic ButtonGestureRecognizer timing/behavior change
+NO dual 350/300 timing change
+NO mapping architecture change
+NO HardwareOptionGate redesign
+NO B release/drain retune
+NO BLE codec/tail change
+NO Persistent Session change
+NO synthetic normal trigger
+NO HIDMonitor ownership duplication
+NO driver/CoreAudio/TCC change
+NO unrelated cleanup/refactor
+```
+
+The external receiver remaining open in the failed sample is not yet a separately proven defect after the input-layer failure; do not add a second speculative fix.
+
+## Validation
+
+Required focused RED->GREEN coverage must include the HID policy/debouncer boundary and existing dual-receiver transaction suites. Then run:
+
+```sh
+swift test --package-path remote-orbit
+./remote-orbit/run-self-tests.sh
+swift build --package-path remote-orbit -c release
+git diff --check
+```
+
+Scope audit must confirm only the intended input-policy/test correction plus task control files changed.
+
+Only after all automated validation passes may the executor build/package/install the exact corrective candidate and restart RemoteOrbit only.
+
+Do not perform remote gestures. Stop at:
+
+`READY_FOR_USER_SET_B_CORRECTIVE_RETRY`
 
 ## Required handoff
 
 ```text
-TASK_ID: RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023
-INCIDENT: SET_B_OPEN_NO_RELEASE
+TASK_ID: RO-DUAL-RECEIVER-MIC-DEBOUNCE-CORRECTIVE-024
 CONTROL_HEAD:
-BRANCH_HEAD:
+BASE_HEAD: e1e6fe0bf76e245c4237978600b117b5b8e2a83e
+BRANCH:
+WORKTREE:
+FINAL_HEAD:
+REMOTE_HEAD:
+LOCAL_REMOTE_MATCH:
+
+ROOT_CAUSE_PROVEN: YES
+RED_HID_BOUNDARY_TEST:
+GREEN_HID_BOUNDARY_TEST:
+LEGACY_MIC_DEBOUNCE_REGRESSION:
+NON_MIC_REGRESSION:
+DUAL_TRANSACTION_REGRESSION:
+FULL_SWIFT_TEST:
+SELF_TESTS:
+RELEASE_BUILD:
+DIFF_CHECK:
+SCOPE_AUDIT:
+
+GLOBAL_DEBOUNCE_INTERVAL_CHANGED: NO
+GENERIC_GESTURE_CHANGED: NO
+DUAL_350_300_CHANGED: NO
+MAPPING_ARCHITECTURE_CHANGED: NO
+RELEASE_DRAIN_CHANGED: NO
+CANONICAL_DIRTY_HIDMONITOR_TOUCHED: NO
+
+APP_PATH:
 INSTALLED_SOURCE_HEAD:
+EXECUTABLE_SHA256:
+APP_VERSION_BUILD:
+BUNDLE_ID:
 RUNNING_PID:
 
-USER_REPORT:
-EVIDENCE_WINDOW:
-GESTURE_ID:
-
-FIRST_UP_TO_SECONDARY_READY_MS:
-A_TO_B_APPLY_MS:
-SECOND_DOWN_GAP_MS:
-SECOND_DOWN_READY_BEFORE_EDGE:
-
-SECOND_PHYSICAL_UP_OBSERVED:
-MAPPED_B_DOWN_OBSERVED:
-MAPPED_B_UP_OBSERVED:
-B_HARDWARE_GATE_BEGIN:
-B_HARDWARE_GATE_LONG_READY:
-FIRST_PCM_BEFORE_REPLAY:
-B_HARDWARE_GATE_RELEASED:
-
-AUDIO_START:
-AUDIO_STOP:
-OUTPUT_DRAIN_COMPLETED:
-MOMENTARY_COMPLETE:
-
-B_TO_A_RESTORE_REQUESTED:
-B_TO_A_APPLY_MS:
-B_TO_A_RESTORE_SUCCEEDED:
-
-FINAL_F5_MAPPING:
-FINAL_FILTER_TARGET:
-FINAL_MAPPING_PHASE:
-FINAL_TRANSACTION:
-FINAL_HARDWARE_GATE:
-FINAL_BLE_STATE:
-RUNTIME_LOCKED_OR_UNAVAILABLE:
-
-SYNTHETIC_TRIGGER_DOWN_COUNT:
-SYNTHETIC_TRIGGER_UP_COUNT:
-
-FOLLOW_ON_FAILED_ATTEMPTS_PRESENT:
-FOLLOW_ON_FAILURE_MECHANISM:
-
-ROOT_CAUSE: UNKNOWN unless directly proven by ordering evidence
-PRODUCT_SOURCE_CHANGED: NO
-TEST_SOURCE_CHANGED: NO
-APP_RESTARTED: NO
+REMOTE_GESTURES_PERFORMED: NO
 MERGED: NO
-
-FINAL_STATE: SET_B_RELEASE_INCIDENT_EVIDENCE_READY_FOR_WEB_AUDIT
+FINAL_STATE: READY_FOR_USER_SET_B_CORRECTIVE_RETRY
 ```
-
-Stop after capture. Do not repair.
