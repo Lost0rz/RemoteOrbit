@@ -3058,6 +3058,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return true
     }
 
+    /// Clears the device-scoped receiver mapping before raw-F5 dual mode can
+    /// accept gestures. The process result is authoritative; callers must not
+    /// infer success from the cached RemoteVoiceKeyMapping.isEnabled value.
+    @discardableResult
+    func clearRemoteVoiceHIDMappingForDualMode() -> Bool {
+        applyVoiceHIDMapping(false, currentMomentaryVoiceTriggerKey)
+    }
+
     func applyPersistentSessionTriggerKey(
         _ newKey: VoiceTriggerKey,
         completion: @escaping (VoiceTriggerApplyResult) -> Void

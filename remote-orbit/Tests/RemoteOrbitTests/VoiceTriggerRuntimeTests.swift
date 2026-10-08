@@ -2,6 +2,24 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceTriggerRuntimeTests: XCTestCase {
+    func testDualRawInputMappingClearRequestsEmptyMappingBeforeTriggerEdges() {
+        let harness = VoiceTriggerRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            applyResults: [true]
+        )
+
+        XCTAssertTrue(harness.controller.clearRemoteVoiceHIDMappingForDualMode())
+
+        XCTAssertEqual(
+            harness.mappingCalls,
+            [HIDMappingCall(enabled: false, key: .leftOption)]
+        )
+        XCTAssertFalse(harness.trigger.isOptionDown)
+        XCTAssertNil(harness.trigger.activeSessionID)
+    }
+
     func testStartupRestoreConfiguresFilterAndSyntheticTarget() {
         let harness = VoiceTriggerRuntimeHarness(persistedKey: .rightCommand)
 
