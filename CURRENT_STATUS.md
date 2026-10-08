@@ -1,18 +1,18 @@
 # CURRENT_STATUS
 
-Last updated: 2026-10-07
-State: ARCHITECTURE DESIGN HOLD — DUAL-RECEIVER VOICE ROUTING
+Last updated: 2026-10-08
+State: DUAL-RECEIVER GESTURE RECOGNITION STABILITY TEST ACTIVE
 Repository: `Lost0rz/RemoteOrbit`
 
 This file is the authority for mutable current project state. Historical detail remains preserved in Git history.
 
 ## Control-plane integrity
 
-- Previous control HEAD: `841f31abbcd42c2300b9f0498cea47a1982a55ac`.
+- Previous control HEAD: `98198d4e4aac6f4e233cbb1b1367ce2984c79d3d`.
 - Candidate branch remains `codex/disabled-short-classifier-regression-fix` at exact HEAD `172427957fd18a2b5827edd1cb1c4bddb6a5b7db`.
 - Installed candidate remains the current hardware-test baseline unless a later task records otherwise.
 - Candidate remains unmerged.
-- No product source mutation is authorized by this design hold.
+- No product source mutation is authorized by the current recognition-only task.
 
 ## Closed single-input-method finding
 
@@ -20,144 +20,146 @@ The prior fast-click Doubao anomaly is explained by receiver shortcut collision:
 
 The independent PR #14 Disabled-SHORT classifier regression remains real; the candidate still correctly restores normal short/long classification.
 
-## Current product requirement
+## Selected dual-receiver product interaction
 
-The Xiaomi remote microphone itself only produces usable remote audio while the physical microphone button is held. Therefore two independent input receivers cannot be cleanly separated by assigning one receiver to a no-hold tap and the other to a hold if both must receive Xiaomi remote audio.
-
-The product now needs two distinct **hold-capable** gestures for two independent receivers.
-
-Candidate UX discussed by the user:
+The user selected the one-button dual-hold interaction contract:
 
 ```text
-Receiver A -> direct LONG
-Receiver B -> double-tap, with the second press held LONG
+Direct LONG                  -> Receiver A
+Double-tap, hold second down -> Receiver B
 ```
 
-An alternative lower-risk UX is a separate receiver-selection gesture/button followed by the same microphone LONG for audio.
-
-## Current source architecture audit
-
-### 1. One persistent owner, not two receivers
-
-`VoicePressCoordinator` models only:
+Intended eventual receiver mapping:
 
 ```text
-VoiceSessionMode = idle | persistentOpen
-RemoteSegmentTriggerPolicy = momentaryTrigger | audioOnly
+Receiver A -> Left Option
+Receiver B -> Right Option
 ```
 
-When a gesture begins while `persistentOpen`, the policy is automatically `audioOnly`. LONG then suppresses the mapped momentary trigger and keeps the persistent receiver as owner. This architecture supports:
+Both receivers are intended to use independent momentary voice transactions. No external persistent Session should be required for the dual-receiver workflow.
+
+## Why recognition stability is tested before implementation
+
+The Xiaomi remote microphone provides useful audio only while the physical microphone button is held. The two receiver gestures therefore both need a hold phase.
+
+Before redesigning trigger ownership, first determine whether the physical gesture vocabulary itself is reliably distinguishable with the user's natural operation. This test must use existing HID diagnostics and must not yet route Left/Right Option into either real receiver.
+
+## Existing gesture infrastructure fact
+
+The repository already contains a generic `ButtonGestureRecognizer` supporting:
 
 ```text
-SHORT opens receiver A persistent Session
-LONG while A is open -> audio-only continuation into A
+singleTap
+doubleTap
+longPress
+repeatStep
 ```
 
-It does not model:
+A second tap that is held long is representable as a long event with `clickCount = 2`.
+
+Current generic constants are:
 
 ```text
-LONG -> receiver A
-alternate LONG gesture -> receiver B
+longPressThreshold = 0.35 s
+doubleTapWindow    = 0.25 s
 ```
 
-or an explicit cross-receiver handoff.
+The microphone voice path does not currently use this generic recognizer when remote-microphone LONG is enabled. It is routed directly into `VoicePressCoordinator`, whose current hold threshold is 0.30 s.
 
-### 2. External Session state is not authoritative
+Therefore the existing constants are comparison points only. The recognition test should collect real physical timing distributions first instead of assuming either threshold set is optimal.
 
-RemoteOrbit's persistent ownership is internal. The merged PR #13 contract explicitly records that RemoteOrbit cannot observe an IME voice UI manually closed outside RemoteOrbit. Therefore `persistentOpen` may remain true internally while the external receiver has already exited or changed state.
+## Recognition-only test model
 
-This makes the current persistent design vulnerable to visible/internal ownership drift and is a plausible architectural contributor to the historical symptom "tap opens Session, later LONG exits/changes it". Exact external cause still requires a concrete sample if that behavior remains relevant after redesign.
+Collect natural physical microphone-button samples using existing raw HID diagnostics only.
 
-### 3. Persistent repeated holds have no external transaction boundary
-
-Current persistent tests intentionally keep one external persistent trigger open across repeated LONG segments. Each LONG is `audioOnly`; no new receiver trigger edge is emitted per segment.
-
-This means RemoteOrbit does not create an explicit ASR transaction boundary between segmented holds. That is a plausible contributor to historical duplicated/repeated committed text, but the current code cannot prove the receiver's text-commit semantics.
-
-The abandoned/unmerged PR #16 attempted a different architecture: each Persistent LONG would own its own transaction and add structured per-segment transaction boundaries. Its existence is supporting design evidence, not an accepted fix.
-
-### 4. Existing diagnostics are internally strong but externally incomplete
-
-Current diagnostics can establish:
+Classes:
 
 ```text
-raw HID down/up
-short/long classification
-internal persistent session mode
-persistent owner key
-momentary configured key
-remoteSegmentTriggerPolicy
-mapped/synthetic trigger edges
-suppression/gate decisions
-AUDIO_START / AUDIO_FIRST / drain / completion
+A_DIRECT_LONG
+- one physical down
+- held long
+- one physical up
+- no qualifying first tap prefix
+
+B_DOUBLE_HOLD
+- first physical down/up is a short tap
+- second physical down begins within a candidate double-tap window
+- second press is held long
+- second physical up ends the gesture
+
+NO_ACTION_SINGLE_TAP
+- one short down/up
+- no second down inside the double-tap window
 ```
 
-They cannot authoritatively establish:
+Initial sample target:
 
 ```text
-which external IME currently owns a voice Session
-whether an IME silently closed/reopened its Session
-what text/composition transaction the IME committed
-whether duplicate visible text came from receiver recomposition vs RemoteOrbit trigger duplication
+10 x A_DIRECT_LONG
+10 x B_DOUBLE_HOLD
+5  x NO_ACTION_SINGLE_TAP
 ```
 
-The preferred architecture should therefore minimize dependence on unobservable external persistent-session state rather than add large diagnostic infrastructure first.
-
-## Gesture infrastructure fact
-
-The repository already has a generic `ButtonGestureRecognizer` supporting `singleTap`, `doubleTap`, `longPress`, and a second-tap LONG represented with `clickCount = 2`.
-
-However the microphone button is explicitly excluded from that generic advanced-gesture path whenever remote microphone LONG is enabled. It is routed directly to `VoicePressCoordinator` instead.
-
-Therefore `double-tap + hold-second` is conceptually supported by existing gesture machinery but is **not implemented for the microphone voice path**.
-
-## Design options
-
-### Option A — dual momentary receivers on one microphone button
+For every sample derive from raw HID edges:
 
 ```text
-direct LONG -> Receiver A momentary transaction
-double-tap + hold second -> Receiver B momentary transaction
+first_press_duration_ms
+first_up_to_second_down_ms (B only)
+second_press_duration_ms (B only)
+total_gesture_duration_ms
+raw report/edge sequence continuity
+unexpected extra edges / debounce suppression
 ```
 
-No receiver remains persistently open between utterances. Each hold has one receiver owner and one balanced trigger transaction.
+Then replay the captured timings offline against a small threshold matrix rather than changing live behavior:
 
-Benefits:
-- aligns with the hardware constraint that useful audio requires a hold;
-- eliminates persistent-session state drift from the dual-receiver workflow;
-- eliminates shared persistent ASR composition across segmented holds;
-- gives each utterance exactly one receiver owner.
+```text
+candidate long threshold:   250 / 300 / 350 / 400 ms
+candidate double window:    200 / 250 / 300 / 350 ms
+```
 
-Cost/risk:
-- microphone voice path needs a new gesture router / extended coordinator;
-- current device-scoped F5 -> one fixed trigger-key mapping is not sufficient by itself because receiver choice is known only after gesture classification;
-- trigger-delivery ownership must be redesigned so the unselected receiver never sees a pre-classification mapped edge.
+The goal is not merely 100% classification on 25 samples. Prefer a threshold pair with visible timing margin from the user's natural distributions, especially for B's first-up -> second-down gap.
 
-### Option B — select receiver first, then use one LONG
+## Safety / isolation for this test
 
-Use another remote button (preferred) or another safe non-voice gesture to choose Receiver A/B while idle. Reconfigure the momentary trigger key while no voice gesture owns the route. Then every microphone LONG uses the currently selected receiver.
+Do not allow the recognition test to exercise actual Receiver A/B shortcuts.
 
-Benefits:
-- lowest implementation risk;
-- preserves the proven physical/system-mapped trigger path;
-- receiver identity is known before microphone down;
-- no persistent external Session required.
+Preferred test configuration:
 
-Cost:
-- one explicit mode-selection action when switching receivers;
-- needs clear HUD/status feedback showing the selected receiver.
+```text
+SHORT action: Disabled
+momentary mapping: a verified neutral trigger such as Left Control
+persistent behavior: not used
+Receiver A/B visible Sessions: closed
+```
 
-### Option C — keep Persistent A and hand off LONG to B
+Before using a neutral key, verify that a physical press of that key does not open/switch either receiver. If no verified neutral trigger is available, STOP rather than run the timing test against Left/Right Option receiver shortcuts.
 
-SHORT opens A; LONG closes/suspends A, runs B, then optionally restores A.
+Temporary normal-UI trigger reconfiguration is allowed only for test isolation and must be restored after capture. No source edits, rebuild, reinstall, restart, new probes, driver changes, input-method shortcut changes, or merge are authorized.
 
-Not recommended as the default architecture because it depends on coordinating two external Session owners whose actual state RemoteOrbit cannot authoritatively observe. It also retains the historical duplicate/composition risk around a long-lived persistent receiver.
+## Acceptance criteria for the gesture vocabulary
 
-## Current recommendation
+`GESTURE_RECOGNITION_STABLE` requires all of:
 
-For reliability, prefer a **dual-momentary transaction model** and remove external Persistent Session ownership from the two-receiver workflow.
+1. all intended A samples can be classified as A without needing knowledge of external receiver state;
+2. all intended B samples contain exactly one short first tap followed by one long second press;
+3. all intentional single taps resolve to no-action and do not alias A or B;
+4. raw HID edges are complete and no repeated/debounced phantom edges alter the intended class;
+5. at least one practical threshold pair has non-trivial margin from the observed timing distributions rather than classifying only at a knife-edge boundary.
 
-- If one-button UX is the priority: Option A (`LONG A`, `double-tap+hold B`).
-- If minimum engineering risk and trigger reliability are the priority: Option B (receiver selector + microphone LONG).
+If samples classify only by using a very narrow double window or several natural B samples cross the window boundary, return `DOUBLE_HOLD_GESTURE_MARGIN_INSUFFICIENT` and adjust UX/threshold design before touching voice trigger ownership.
 
-Do not implement until the user chooses the interaction contract.
+## Architectural work after recognition passes
+
+Only after the gesture vocabulary is accepted should implementation design proceed for:
+
+```text
+recognized receiver owner
+-> selected trigger key
+-> first-PCM authorization
+-> one balanced momentary trigger transaction
+-> release/output drain
+-> transaction complete
+```
+
+The unselected receiver must receive no trigger edge. `persistentOpen` must not be the ownership authority for this dual-receiver mode.
