@@ -2046,6 +2046,7 @@ final class VoiceKeyFilter {
     private let optionGate = HardwareOptionGate()
     private let syntheticOptionTrigger: VoiceOptionTrigger
     private let diagnosticLogger: VoiceDiagnosticLogger?
+    private let emitEmergencyHardwareOptionUp: (VoiceTriggerKey) -> Void
     private(set) var momentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
     /// Compatibility alias for callers that historically meant the mapped
     /// remote-microphone key.
@@ -2101,10 +2102,14 @@ final class VoiceKeyFilter {
 
     init(
         syntheticOptionTrigger: VoiceOptionTrigger = .shared,
-        diagnosticLogger: VoiceDiagnosticLogger? = nil
+        diagnosticLogger: VoiceDiagnosticLogger? = nil,
+        emitEmergencyHardwareOptionUp: @escaping (VoiceTriggerKey) -> Void = {
+            Key.voiceTriggerUp($0)
+        }
     ) {
         self.syntheticOptionTrigger = syntheticOptionTrigger
         self.diagnosticLogger = diagnosticLogger
+        self.emitEmergencyHardwareOptionUp = emitEmergencyHardwareOptionUp
     }
 
     @discardableResult
@@ -2171,9 +2176,32 @@ final class VoiceKeyFilter {
         _ edge: HardwareOptionEdge,
         copiedEvent: CGEvent?
     ) -> Bool {
+        captureDeferredHardwareOptionEdge(
+            edge,
+            copied: copiedEvent != nil,
+            copiedEvent: copiedEvent
+        )
+    }
+
+    /// Models a successfully copied physical event in transaction tests
+    /// without retaining or posting a CGEvent into the user's session.
+    @discardableResult
+    func captureDeferredHardwareOptionEdgeForTesting(
+        _ edge: HardwareOptionEdge,
+        copied: Bool
+    ) -> Bool {
+        captureDeferredHardwareOptionEdge(edge, copied: copied, copiedEvent: nil)
+    }
+
+    @discardableResult
+    private func captureDeferredHardwareOptionEdge(
+        _ edge: HardwareOptionEdge,
+        copied: Bool,
+        copiedEvent: CGEvent?
+    ) -> Bool {
         guard optionGate.activeSessionID != nil else { return false }
         if edge == .up, !deferredOptionDownSeen { return false }
-        guard optionGate.capture(edge, copied: copiedEvent != nil) else {
+        guard optionGate.capture(edge, copied: copied) else {
             return false
         }
 
@@ -2759,7 +2787,7 @@ final class VoiceKeyFilter {
         let events = heldHardwareOptionUpEvents
         clearHeldHardwareOption()
         if events.isEmpty {
-            Key.voiceTriggerUp(momentaryVoiceTriggerKey)
+            emitEmergencyHardwareOptionUp(momentaryVoiceTriggerKey)
             print("[VOICE] hardware Option-up missing; emergency balancing up")
         } else {
             events.forEach { $0.post(tap: .cghidEventTap) }
@@ -2783,7 +2811,7 @@ final class VoiceKeyFilter {
         let events = heldHardwareOptionUpEvents
         clearHeldHardwareOption()
         if events.isEmpty {
-            Key.voiceTriggerUp(momentaryVoiceTriggerKey)
+            emitEmergencyHardwareOptionUp(momentaryVoiceTriggerKey)
         } else {
             events.forEach { $0.post(tap: .cghidEventTap) }
         }
@@ -3570,7 +3598,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     ]
                 )
 
-            case .primaryReady, .secondaryActive, .unavailable:
+            case .secondaryActive:
+                diagnosticLogger.log(
+                    category: "input",
+                    event: "DUAL_RECEIVER_SECOND_DOWN_ADMISSION",
+                    fields: [
+                        "SECOND_DOWN_READY_BEFORE_EDGE": false,
+                        "admitted": false,
+                        "mapping_phase": "secondaryActive",
+                    ]
+                )
+                return
+
+            case .primaryReady, .unavailable:
                 break
             }
         }
@@ -4005,6 +4045,45 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     )
                 }
             }
+        }
+    }
+
+    /// Re-establish A only after the mapped B-up owner has emitted or
+    /// discarded its release edge. The main-queue hop lets the output-drain
+    /// callback finish closing VoiceKeyFilter ownership before the state is
+    /// inspected and the device mapping changes.
+    func handleDualReceiverHardwareOutputDrainClosed(gestureID: UUID) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.dualReceiverMappedTriggerState.phase
+                    == .secondaryActive(gestureID: gestureID) else {
+                return
+            }
+            guard !self.filter.hasActiveHardwareTriggerOwnership,
+                  !self.filter.hasSyntheticTriggerOwnership else {
+                self.voiceTriggerRuntimeLocked = true
+                self.voiceTriggerReconfigurationInProgress = true
+                self.dualReceiverVoiceMode = .unavailable(.primaryMappingFailed)
+                self.dualReceiverMappedTriggerState.markUnavailable(
+                    reason: .primaryRestoreFailed
+                )
+                self.diagnosticLogger.log(
+                    category: "configuration",
+                    event: "B_TO_A_RESTORE_FAILED",
+                    gestureID: gestureID,
+                    key: self.currentMomentaryVoiceTriggerKey,
+                    fields: [
+                        "reason": "secondary-output-ownership-not-closed",
+                        "hardware_owner_active": self.filter.hasActiveHardwareTriggerOwnership,
+                        "synthetic_owner_active": self.filter.hasSyntheticTriggerOwnership,
+                    ]
+                )
+                return
+            }
+            self.restorePrimaryMappingAfterSecondary(
+                gestureID: gestureID,
+                reason: "secondary-output-drained"
+            )
         }
     }
 
@@ -5021,10 +5100,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.filter.armHardwareOptionRelease(gestureID: gestureID)
         }
         voicePress.onHardwareOptionGateOutputDrained = { [weak self] gestureID in
-            self?.filter.releaseHeldHardwareOption(
+            guard let self else { return }
+            self.filter.releaseHeldHardwareOption(
                 gestureID: gestureID,
                 reason: "output-drained"
             )
+            self.handleDualReceiverHardwareOutputDrainClosed(gestureID: gestureID)
         }
 
         // ATVV audio connection.

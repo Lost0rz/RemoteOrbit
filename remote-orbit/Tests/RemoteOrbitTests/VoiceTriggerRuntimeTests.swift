@@ -228,6 +228,125 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         XCTAssertTrue(harness.triggerEvents.isEmpty)
     }
 
+    func testNoSecondPressTimeoutRestoresAAndRejectsNewDownUntilComplete() {
+        let harness = VoiceTriggerRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            persistedSecondaryKey: .rightOption,
+            applyResults: [true, true, true],
+            applyDelay: 0.12
+        )
+        XCTAssertTrue(harness.controller.restoreVoiceTriggerRuntime())
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .applied(.active(receiverA: .leftOption, receiverB: .rightOption))
+        )
+
+        _ = firstQuickRelease(on: harness.controller)
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            if case .secondaryReady = harness.controller.dualReceiverMappedTriggerState.phase {
+                return true
+            }
+            return false
+        })
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            if case .restoringPrimary = harness.controller.dualReceiverMappedTriggerState.phase {
+                return true
+            }
+            return false
+        })
+        XCTAssertEqual(harness.voiceCancelCount, 1)
+
+        let prewarmCount = harness.voicePrewarmCount
+        let rejectedDownAt = ProcessInfo.processInfo.systemUptime
+        harness.controller.handleDualReceiverMicrophoneEdge(
+            isDown: true,
+            at: rejectedDownAt
+        )
+        harness.controller.handleDualReceiverMicrophoneEdge(
+            isDown: false,
+            at: rejectedDownAt + 0.05
+        )
+        XCTAssertEqual(harness.voicePrewarmCount, prewarmCount)
+        XCTAssertEqual(harness.voiceActivationCount, 0)
+        XCTAssertTrue(harness.triggerEvents.isEmpty)
+
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            harness.controller.dualReceiverMappedTriggerState.phase == .primaryReady
+                && !harness.controller.voiceTriggerReconfigurationInProgress
+                && harness.mappingCalls.count == 3
+        })
+        XCTAssertEqual(harness.mappingCalls.map(\.key), [.leftOption, .rightOption, .leftOption])
+        XCTAssertEqual(harness.controller.filter.voiceTriggerKey, .leftOption)
+        XCTAssertTrue(harness.triggerEvents.isEmpty)
+    }
+
+    func testFailedPrimaryRestoreLocksAndRejectsAllLaterGestures() {
+        let harness = VoiceTriggerRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            persistedSecondaryKey: .rightOption,
+            applyResults: [true, true, false]
+        )
+        XCTAssertTrue(harness.controller.restoreVoiceTriggerRuntime())
+        XCTAssertEqual(
+            harness.controller.configureDualReceiverVoiceMode(
+                shortBinding: .preset(.disabled),
+                receiverB: .rightOption
+            ),
+            .applied(.active(receiverA: .leftOption, receiverB: .rightOption))
+        )
+
+        let firstDownAt = ProcessInfo.processInfo.systemUptime
+        harness.controller.handleDualReceiverMicrophoneEdge(isDown: true, at: firstDownAt)
+        harness.controller.handleDualReceiverMicrophoneEdge(
+            isDown: false,
+            at: firstDownAt + 0.05
+        )
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            if case .secondaryReady = harness.controller.dualReceiverMappedTriggerState.phase {
+                return true
+            }
+            return false
+        })
+        let secondDownAt = firstDownAt + 0.15
+        harness.controller.handleDualReceiverMicrophoneEdge(
+            isDown: true,
+            at: secondDownAt
+        )
+        harness.controller.handleDualReceiverMicrophoneEdge(
+            isDown: false,
+            at: secondDownAt + 0.05
+        )
+
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            harness.controller.voiceTriggerRuntimeLocked
+                && harness.controller.dualReceiverVoiceMode
+                    == .unavailable(.primaryMappingFailed)
+                && harness.controller.dualReceiverMappedTriggerState.phase
+                    == .unavailable(reason: .primaryRestoreFailed)
+        })
+        XCTAssertEqual(harness.mappingCalls.map(\.key), [.leftOption, .rightOption, .leftOption])
+        XCTAssertEqual(harness.controller.filter.voiceTriggerKey, .rightOption)
+        XCTAssertTrue(harness.controller.voiceTriggerReconfigurationInProgress)
+
+        let prewarmCount = harness.voicePrewarmCount
+        let mappingCallCount = harness.mappingCalls.count
+        harness.controller.handleDualReceiverMicrophoneEdge(
+            isDown: true,
+            at: ProcessInfo.processInfo.systemUptime
+        )
+        XCTAssertEqual(harness.voicePrewarmCount, prewarmCount)
+        XCTAssertEqual(harness.mappingCalls.count, mappingCallCount)
+        XCTAssertEqual(harness.voiceActivationCount, 0)
+        XCTAssertTrue(harness.triggerEvents.isEmpty)
+    }
+
     func testFailedSecondaryMappingRestoresPrimaryWithoutAdmittingB() {
         let harness = VoiceTriggerRuntimeHarness(
             connected: true,
