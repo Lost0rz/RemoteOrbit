@@ -1,148 +1,129 @@
 # RemoteOrbit Current Task
 
-## Current task — DUAL-RECEIVER MICROPHONE DEBOUNCE CORRECTIVE
+## Current task — RECEIVER-B REPLAY-UP ACKNOWLEDGED RESTORE CORRECTIVE
 
-- **Status:** IMPLEMENTED / CANDIDATE INSTALLED / WAITING FOR USER SET B CORRECTIVE RETRY
-- **Task ID:** `RO-DUAL-RECEIVER-MIC-DEBOUNCE-CORRECTIVE-024`
-- **Previous task:** `RO-DUAL-RECEIVER-SYSTEM-MAPPED-IMPLEMENTATION-023` — SET B INCIDENT / INTERNAL ROOT CAUSE PROVEN
-- **Failed v2 HEAD:** `e1e6fe0bf76e245c4237978600b117b5b8e2a83e`
-- **Installed failed source:** `50a20174632dc105fb670a9b83e3f6feaa8e9f9b`
-- **Authorized branch:** `codex/dual-receiver-mic-debounce-corrective`
-- **Authorized worktree:** `/private/tmp/remoteorbit-dual-receiver-mic-debounce-corrective`
+- **Status:** ACTIVE / PRODUCT CORRECTIVE AUTHORIZED / MERGE FORBIDDEN
+- **Task ID:** `RO-DUAL-RECEIVER-B-UP-REPLAY-ACK-CORRECTIVE-028`
+- **Previous task:** `RO-DUAL-RECEIVER-RIGHT-OPTION-EVENT-SHAPE-AUDIT-027` — CLOSED / ROOT CAUSE PROVEN
+- **Implementation base:** `458e28d91b5ff748613bb88f5b89212d660279c7`
+- **Installed source before corrective:** `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8`
+- **Authorized branch:** `codex/dual-receiver-b-up-replay-ack-fix`
+- **Authorized worktree:** `/private/tmp/remoteorbit-dual-receiver-b-up-replay-ack-fix`
 - **Merge:** FORBIDDEN
 
-## Current result
-
-The active dual-mode HID policy regression failed before the product edit because `shouldDebounce` remained true and the 109.810 ms second DOWN was suppressed; legacy and generic policy checks passed. The policy correction and HID-policy/debouncer regression are committed in product commit `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8`. The release candidate is installed at `/Applications/RemoteOrbit.app` with that source stamp and is running as PID `5331`. Focused HID policy tests passed 3/3, dual-receiver transaction tests passed 19/19, the full Swift suite passed 387/387, self-tests passed 3/3, the release build succeeded, and `git diff --check` passed. Scope audit found only the two intended product files, the regression test, and these task controls. No remote gestures were performed. The remaining action is the user’s Set B corrective retry.
-
-## Root cause
-
-The failed Set-B attempt had:
+## Proven defect
+Task 027 evidence plus source establishes this exact failure:
 
 ```text
-first UP -> SECONDARY_READY: 22.737 ms
-first UP -> second physical DOWN: 109.810 ms
+captured B UP
+-> copied B UP posted at .cghidEventTap
+-> controller starts B->A restore before reposted event is observed passing the filter
+-> beginVoiceTriggerReconfiguration suppresses Right Option
+-> reposted B UP returns with its original Quartz timestamp
+-> event tap records action=reconfiguration_suppress and returns nil
+-> external Receiver B never receives release
 ```
 
-`ButtonEdgeDebouncer.defaultInterval` is `0.18` seconds. The live second F5 DOWN at 109.810 ms was recorded as:
+The replayed DOWN also gains extra raw flag bit `0x20000000` yet successfully opens Receiver B. Do not treat that flag difference as the current root cause and do not rewrite flags in Task 028.
+
+## Required design contract
+The correction must be deterministic and event-driven.
+
+1. Keep using the copied system-mapped hardware UP event. Do not synthesize a replacement normal-path Right Option UP.
+2. Do not add `Key.syntheticMarker` to normal hardware replay.
+3. Do not change `.cghidEventTap` posting location in this task.
+4. Introduce the minimum gesture-scoped ownership needed to distinguish an expected reposted hardware-UP component from unrelated events. Use stable fields already present on the copied event, preferably gesture ownership + keyCode + event type + original Quartz timestamp. Do not depend on mutable wall-clock timing.
+5. While the expected copied B-UP is posted but has not yet re-entered the filter pass path, B release ownership remains open for reconfiguration purposes. B->A restore must not start.
+6. When the expected reposted B-UP re-enters the filter, it must be allowed to pass downstream unmodified. Only after that pass decision is committed may the controller enqueue B->A restore.
+7. Stale, unrelated, duplicated, wrong-key, wrong-type, or wrong-timestamp events must not acknowledge the pending replay.
+8. The acknowledgement/restore transition must be exactly-once and generation/session scoped.
+9. Device removal/stop/supersede must clear or invalidate pending replay ownership safely; no stranded permanent lock.
+10. Direct A behavior, B DOWN replay, first-PCM sequencing, output drain, mapping latency logic, settings, generic gestures, BLE codec/audio, tail drain, and persistent-session behavior remain unchanged.
+
+## TDD gate — mandatory RED first
+Before production edits, add the smallest focused failing test(s) proving the current race. The RED evidence must show that the current implementation can begin B->A reconfiguration before the copied B-UP has been observed on a downstream/pass path, allowing the expected replay to hit `reconfiguration_suppress`.
+
+The test must fail for the intended reason on the exact implementation base. Do not write production code before capturing RED.
+
+Minimum required focused behavior after GREEN:
 
 ```text
-HID_MIC_EDGE_SUPPRESSED reason=debounce
+REPLAY_UP_PENDING_BLOCKS_PRIMARY_RESTORE = PASS
+EXPECTED_REPLAY_UP_REENTERS_AND_PASSES = PASS
+PRIMARY_RESTORE_BEGINS_ONLY_AFTER_REPLAY_UP_PASS = PASS
+EXPECTED_REPLAY_UP_ACK_EXACTLY_ONCE = PASS
+STALE_OR_UNRELATED_EVENT_CANNOT_ACK = PASS
+RECONFIGURATION_CANNOT_SUPPRESS_EXPECTED_REPLAY_UP = PASS
+NORMAL_DUAL_SYNTHETIC_TRIGGER_USED = NO
+REPLAY_EVENT_FLAGS_REWRITTEN_BY_PRODUCT = NO
+A_PATH_UNCHANGED = PASS
 ```
 
-The failed candidate source computed advanced gesture ownership as:
+Prefer extending existing `VoiceKeyFilterTests`, `DualReceiverVoiceTransactionTests`, and/or `VoiceTriggerRuntimeTests`; do not create a broad new subsystem.
+
+## Implementation constraints
+- No arbitrary `asyncAfter`/sleep to make ordering appear stable.
+- A main-queue hop may be used only as an ordering handoff after the expected replayed event has been positively acknowledged at the filter pass seam.
+- Keep `HIDMonitor` as the sole raw HID owner.
+- Keep `RemoteVoiceKeyMapping` as the sole device mapping authority.
+- Keep `VoiceKeyFilter` / `HardwareOptionGate` as the mapped-edge authority.
+- Do not add a second event tap or observer authority.
+- Do not normalize `0x20000000` or any other replay flags in this task.
+- Do not use source PID/state/keyboard-type instrumentation unless the corrective fails the hardware gate.
+
+## Validation before install
+Run at minimum:
 
 ```text
-button != .microphone && profile.usesAdvancedGestures
-```
-
-so the microphone remained on the legacy debounce path even while active dual-receiver recognition needed the intentional second press inside the 300 ms window.
-
-The mapped Right Option event then passed with `gate_state=none`; no B HardwareOptionGate begin or B classification occurred. Follow-on attempts reproduced the same input-layer suppression. This proves the internal root cause for the B transaction failure.
-
-## Test gap
-
-`DualReceiverVoiceTransactionTests` calls `controller.handleDualReceiverMicrophoneEdge(...)` directly through its harness and bypasses `HIDMonitor` / `ButtonEdgeDebouncer`. Existing transaction tests therefore do not cover the failing boundary.
-
-## Corrective scope and acceptance
-
-TDD RED was recorded before product mutation at the HID input-policy/debouncer boundary with the observed timing:
-
-```text
-first accepted microphone DOWN
-first accepted microphone UP
-109.810 ms later second microphone DOWN
-```
-
-Expected in active dual mode: second DOWN is emitted to the dual-receiver recognizer, not suppressed by legacy debounce.
-
-Also prove:
-
-```text
-legacy microphone mode keeps existing debounce behavior
-non-microphone single-shot behavior is unchanged
-repeatable/advanced generic buttons are unchanged
-```
-
-The smallest policy correction makes only active dual-receiver microphone input bypass the conflicting legacy `ButtonEdgeDebouncer` layer, using explicit dual-mode ownership semantics without changing the global debounce interval.
-
-## Strict non-goals
-
-```text
-NO global ButtonEdgeDebouncer interval change
-NO generic ButtonGestureRecognizer timing/behavior change
-NO dual 350/300 timing change
-NO mapping architecture change
-NO HardwareOptionGate redesign
-NO B release/drain retune
-NO BLE codec/tail change
-NO Persistent Session change
-NO synthetic normal trigger
-NO HIDMonitor ownership duplication
-NO driver/CoreAudio/TCC change
-NO unrelated cleanup/refactor
-```
-
-The external receiver remaining open in the failed sample is not yet a separately proven defect after the input-layer failure; do not add a second speculative fix.
-
-## Validation
-
-Required focused RED->GREEN coverage must include the HID policy/debouncer boundary and existing dual-receiver transaction suites. Then run:
-
-```sh
-swift test --package-path remote-orbit
-./remote-orbit/run-self-tests.sh
-swift build --package-path remote-orbit -c release
+focused RED test(s) before product change
+focused GREEN tests after product change
+all VoiceKeyFilterTests
+all DualReceiverVoiceTransactionTests
+all VoiceTriggerRuntimeTests
+all VoicePressCoordinatorTests
+full swift test suite
+self-tests
+release build/package
+signature verification
 git diff --check
+scope audit
 ```
 
-Scope audit must confirm only the intended input-policy/test correction plus task control files changed.
+Return exact test counts and failures if any.
 
-Only after all automated validation passes may the executor build/package/install the exact corrective candidate and restart RemoteOrbit only.
+## Candidate install authorization
+If and only if every required automated gate passes and the branch/worktree is clean and pushed:
+- build/install the corrective candidate to `/Applications/RemoteOrbit.app`;
+- restart RemoteOrbit only;
+- do not restart or modify the Core Audio driver;
+- record source HEAD, executable SHA-256, app version/build, Bundle ID and running PID.
 
-Do not perform remote gestures. Stop at:
+Do not perform any remote gesture as the executor.
 
-`READY_FOR_USER_SET_B_CORRECTIVE_RETRY`
+## User hardware gate after Web audit
+After local implementation evidence is returned, Web will independently audit the branch before authorizing the user hardware gate.
 
-## Required handoff
+Expected first hardware gate:
+- Receiver B only;
+- quick first tap + second LONG;
+- verify B opens during hold and closes on physical release;
+- no Set C;
+- no merge.
 
+## Strict prohibitions
 ```text
-TASK_ID: RO-DUAL-RECEIVER-MIC-DEBOUNCE-CORRECTIVE-024
-CONTROL_HEAD:
-BASE_HEAD: e1e6fe0bf76e245c4237978600b117b5b8e2a83e
-BRANCH:
-WORKTREE:
-FINAL_HEAD:
-REMOTE_HEAD:
-LOCAL_REMOTE_MATCH:
-
-ROOT_CAUSE_PROVEN: YES
-RED_HID_BOUNDARY_TEST:
-GREEN_HID_BOUNDARY_TEST:
-LEGACY_MIC_DEBOUNCE_REGRESSION:
-NON_MIC_REGRESSION:
-DUAL_TRANSACTION_REGRESSION:
-FULL_SWIFT_TEST:
-SELF_TESTS:
-RELEASE_BUILD:
-DIFF_CHECK:
-SCOPE_AUDIT:
-
-GLOBAL_DEBOUNCE_INTERVAL_CHANGED: NO
-GENERIC_GESTURE_CHANGED: NO
-DUAL_350_300_CHANGED: NO
-MAPPING_ARCHITECTURE_CHANGED: NO
-RELEASE_DRAIN_CHANGED: NO
-CANONICAL_DIRTY_HIDMONITOR_TOUCHED: NO
-
-APP_PATH:
-INSTALLED_SOURCE_HEAD:
-EXECUTABLE_SHA256:
-APP_VERSION_BUILD:
-BUNDLE_ID:
-RUNNING_PID:
-
-REMOTE_GESTURES_PERFORMED: NO
-MERGED: NO
-FINAL_STATE: READY_FOR_USER_SET_B_CORRECTIVE_RETRY
+NO merge
+NO Set C
+NO executor remote gestures
+NO fixed timing workaround
+NO flag rewriting
+NO event-tap relocation
+NO synthetic normal B UP
+NO BLE/audio/tail retune
+NO generic gesture changes
+NO driver/CoreAudio/TCC changes
+NO broad diagnostics expansion
 ```
+
+## Stop
+Stop at `READY_FOR_INDEPENDENT_WEB_AUDIT` after a clean pushed implementation and candidate install. If RED cannot reproduce the race, if exact replay acknowledgement cannot be made deterministic, or if any unrelated regression appears, STOP without hardware testing or merge.
