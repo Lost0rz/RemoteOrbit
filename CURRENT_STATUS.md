@@ -6,7 +6,7 @@ Repository: `Lost0rz/RemoteOrbit`
 
 ## Authority
 - Audited control parent before this transition: `2d238cf1d85b0e0aa6ce9475c71dcc8b459e2b6b`.
-- Control publication reconciliation: `1ac9fbf3571357a2cb5b168d84ccf50c7f3b12ae` updated only `CURRENT_STATUS.md`, then `ec0091d7868c8bc1efea76f39862e7e7e874e163` updated only `CURRENT_TASK.md`. This authoritative successor republishes both files together and supersedes those partial control publications. No product/test/runtime code changed in either partial commit.
+- Control publication reconciliation: the intermediate commits `1ac9fbf3571357a2cb5b168d84ccf50c7f3b12ae`, `ec0091d7868c8bc1efea76f39862e7e7e874e163`, and `d08a1cdef85280acac08d7c066537056e1c0b39a` were docs-only partial publications. This commit is the authoritative atomic republication of `CURRENT_STATUS.md` + `CURRENT_TASK.md`; no product/test/runtime code changed in those intermediate commits.
 - Corrective branch: `codex/dual-receiver-b-up-replay-ack-fix`.
 - Product implementation / installed source: `f938b919e288a481f5eacaf9aad9c254dcf0cffe`.
 - Final corrective branch HEAD: `85bb2e12cad41198e5a27d9e610cbdb30b01d357`.

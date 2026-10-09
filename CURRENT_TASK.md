@@ -12,7 +12,7 @@
 - **Merge:** FORBIDDEN
 
 ## Control publication reconciliation
-Commit `1ac9fbf3571357a2cb5b168d84ccf50c7f3b12ae` updated only `CURRENT_STATUS.md` during publication. This authoritative successor republishes `CURRENT_STATUS.md` and `CURRENT_TASK.md` together and supersedes that partial control transition. No product/test/runtime code changed in the partial publication.
+The intermediate commits `1ac9fbf3571357a2cb5b168d84ccf50c7f3b12ae`, `ec0091d7868c8bc1efea76f39862e7e7e874e163`, and `d08a1cdef85280acac08d7c066537056e1c0b39a` were docs-only partial publications. This commit is the authoritative atomic republication of `CURRENT_STATUS.md` + `CURRENT_TASK.md`; no product/test/runtime code changed in those intermediate commits.
 
 ## Accepted defect and correction
 The observed stuck Receiver-B failure was caused by the copied Right Option UP being reposted at `.cghidEventTap`, then swallowed by B->A reconfiguration suppression before downstream delivery.
