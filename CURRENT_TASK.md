@@ -2,7 +2,7 @@
 
 ## Current task — RECEIVER-B REPLAY-UP ACKNOWLEDGED RESTORE CORRECTIVE
 
-- **Status:** ACTIVE / PRODUCT CORRECTIVE AUTHORIZED / MERGE FORBIDDEN
+- **Status:** IMPLEMENTATION COMPLETE / VALIDATION PASSED / CANDIDATE INSTALLED / WAITING_FOR_INDEPENDENT_WEB_AUDIT / MERGE FORBIDDEN
 - **Task ID:** `RO-DUAL-RECEIVER-B-UP-REPLAY-ACK-CORRECTIVE-028`
 - **Previous task:** `RO-DUAL-RECEIVER-RIGHT-OPTION-EVENT-SHAPE-AUDIT-027` — CLOSED / ROOT CAUSE PROVEN
 - **Implementation base:** `458e28d91b5ff748613bb88f5b89212d660279c7`
@@ -109,6 +109,15 @@ Expected first hardware gate:
 - verify B opens during hold and closes on physical release;
 - no Set C;
 - no merge.
+
+## Task 028 implementation result
+- Product commit: `f938b919e288a481f5eacaf9aad9c254dcf0cffe` on `codex/dual-receiver-b-up-replay-ack-fix`.
+- RED was captured before production edits. Focused tests failed to compile because the exact pending replay ownership/pass-ack and held-UP test seams required by the new assertions were absent on the implementation base.
+- GREEN focused suites: VoiceKeyFilter 16/16; DualReceiverVoiceTransaction 20/20; VoiceTriggerRuntime 53/53; VoicePressCoordinator 38/38.
+- Full Swift suite: 394/394. Self-tests: 3/3. Release build/package, signature verification, diff check, and scope audit: PASS.
+- Candidate installed at `/Applications/RemoteOrbit.app`: source `f938b919e288a481f5eacaf9aad9c254dcf0cffe`, executable SHA-256 `104d4bf0cad8f7316ceea8c8e21568737d3ba3eea0f3c44207107a1159eb850e`, version `0.2.13` build `42`, Bundle ID `com.lost0rz.RemoteOrbit`, running PID `39949`.
+- Core Audio PID `590` and RemoteOrbitAudio driver PID `615` stayed unchanged. No remote gestures or physical Option test; no merge.
+- Stop at `READY_FOR_INDEPENDENT_WEB_AUDIT`. The next hardware action remains user-only after independent audit authorization.
 
 ## Strict prohibitions
 ```text

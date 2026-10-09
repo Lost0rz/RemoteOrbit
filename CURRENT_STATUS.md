@@ -1,15 +1,18 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-09
-State: TASK 028 ACTIVE / RECEIVER-B REPLAY-UP SELF-SUPPRESSION ROOT CAUSE PROVEN / MINIMAL CORRECTIVE AUTHORIZED
+State: TASK 028 IMPLEMENTED / AUTOMATED VALIDATION PASSED / CANDIDATE INSTALLED / WAITING FOR INDEPENDENT WEB AUDIT
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Authority
 - Audited control predecessor: `10359be1edf6fab3beb400e28f294cfecb6acfcd`.
 - Corrective product lineage under audit: `codex/dual-receiver-mic-debounce-corrective` at `458e28d91b5ff748613bb88f5b89212d660279c7`.
-- Installed product source remains `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8` by last local evidence.
+- Installed product source before corrective: `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8`.
 - New authorized corrective branch: `codex/dual-receiver-b-up-replay-ack-fix`, based exactly on `458e28d91b5ff748613bb88f5b89212d660279c7`.
 - Authorized worktree: `/private/tmp/remoteorbit-dual-receiver-b-up-replay-ack-fix`.
+- Product implementation commit and installed source: `f938b919e288a481f5eacaf9aad9c254dcf0cffe`.
+- Installed candidate: `/Applications/RemoteOrbit.app`, version `0.2.13` build `42`, Bundle ID `com.lost0rz.RemoteOrbit`, running PID `39949`.
+- Candidate executable SHA-256: `104d4bf0cad8f7316ceea8c8e21568737d3ba3eea0f3c44207107a1159eb850e`.
 - Merge remains forbidden.
 
 ## Accepted prior gates
@@ -54,5 +57,13 @@ Implement the smallest deterministic ordering correction. The B->A mapping/filte
 No fixed sleep/delay is allowed. Do not change BLE/audio/tail timing, hidutil destinations, trigger keys, generic gesture timing, event flags, source fields, event tap location, or normal dual synthetic-trigger policy.
 
 TDD is mandatory: prove RED on the current code before product edits, then GREEN with the minimal change.
+
+## Task 028 implementation result
+- RED was captured before production edits: the new pending-UP and pass-ack tests failed compilation because the required pending ownership, acknowledgement, and replay-poster seams did not exist; the controller test also lacked a held-UP capture seam.
+- GREEN focused suites: `VoiceKeyFilterTests` 16/16, `DualReceiverVoiceTransactionTests` 20/20, `VoiceTriggerRuntimeTests` 53/53, `VoicePressCoordinatorTests` 38/38.
+- Full Swift suite: 394 tests, 0 failures. Self-tests: 3/3 PASS. Release build and package: PASS. Signature verification: PASS. `git diff --check`: PASS.
+- Scope audit: only `main.swift` and the two focused test files changed for the product checkpoint. No HIDMonitor behavior, mapping authority, second event tap, BLE/audio/tail timing, generic gesture timing, flag normalization, event-tap relocation, or normal synthetic B-UP change.
+- Installed candidate provenance matches product commit `f938b919e288a481f5eacaf9aad9c254dcf0cffe`. RemoteOrbit was restarted; Core Audio PID `590` and RemoteOrbitAudio driver PID `615` were unchanged. No remote gesture or physical Option test was performed.
+- Next action: independent Web audit. Do not perform the Receiver-B hardware gate until separately authorized by that audit; do not merge.
 
 Hardware acceptance remains user-only after a validated candidate is installed. No merge until Web audits the implementation and the user completes Receiver-B acceptance.
