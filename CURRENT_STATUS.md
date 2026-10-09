@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-09
-State: TASK 036 ACTIVE — GATE C PRESERVATION AND RETIREMENT
+State: GATE C EXECUTION COMPLETE / WAITING FOR INDEPENDENT WEB CLOSEOUT AUDIT
 Repository: Lost0rz/RemoteOrbit
 
 ## Accepted release baseline
@@ -14,22 +14,15 @@ Repository: Lost0rz/RemoteOrbit
 - Canonical development path: /Volumes/Jack-Dev/Projects/remoteorbit.
 - Canonical branch: main.
 - Verified origin: https://github.com/Lost0rz/remoteorbit.git.
-- Gate C start freshness passed on 2026-10-09: local main, origin/main, and live remote main all equaled 579b35fb5da814fc1f14402807b35fe32dd79828; the canonical worktree was clean.
-- The paired Gate C control transition is a direct child of that Gate B control head. Its resulting SHA and live-ref verification are recorded in the Gate C archive evidence.
-- The accepted Gate C manifest SHA-256 is 4f5e6d8e4aa3496989df7f0a84ce431da1b69d8ba21ff76fb8aca7cad12ff7d9. The exact manifest path is /private/tmp/remoteorbit-lifecycle-closeout-036-gateb-20261009T122025Z/GATE_C_RETIREMENT_MANIFEST.txt.
-- Cleanup authority is limited exactly to the accepted manifest. Preserve, verify, then retire. Any failed preservation proof stops dependent destructive execution.
+- Immediately before the final paired handoff, local main, origin/main, and live remote main all equaled d1bbcbd14dd3de914880a1bf0077856226ef132f.
+- The final paired handoff commit is a direct child of that audited head and is fast-forwarded to live origin/main. Its exact SHA and final local/remote checks are recorded in /Volumes/Jack-Dev/Archives/RemoteOrbit/retirement-20261009/manifests/GATE_C/final-git-verification.txt.
+- Final Gate C acceptance records a clean canonical worktree, only local main, only the live remote main branch, unchanged tags, passing fsck, and a verified all-refs bundle.
+- The accepted Gate C manifest SHA-256 is 4f5e6d8e4aa3496989df7f0a84ce431da1b69d8ba21ff76fb8aca7cad12ff7d9. Its archived path is /Volumes/Jack-Dev/Archives/RemoteOrbit/retirement-20261009/manifests/GATE_B/remoteorbit-lifecycle-closeout-036-gateb-20261009T122025Z/GATE_C_RETIREMENT_MANIFEST.txt.
 
-## Task 036 accepted gates
+## Task 036 result
 - Gate A inventory and independent web audit: PASS.
 - Gate B classification and independent web audit: PASS.
-- Corrected Gate C manifest and independent web audit: PASS.
-- Gate A evidence source: /private/tmp/remoteorbit-lifecycle-closeout-036-gatea-20261009T180031.
-- Gate B evidence source: /private/tmp/remoteorbit-lifecycle-closeout-036-gateb-20261009T122025Z.
-- Gate C run evidence is written directly under /Volumes/Jack-Dev/Archives/RemoteOrbit/retirement-20261009/manifests/GATE_C/.
-
-## Active task boundary
-- Task ID: RO-REPOSITORY-LIFECYCLE-CLOSEOUT-036.
-- Phase: ACTIVE — GATE C PRESERVATION AND RETIREMENT.
-- Preserve all required history, dirty work, and forensic/release evidence before exact manifest-authorized retirement.
-- No product, test, runtime, packaging, or unrelated repository work is authorized.
-- Task 036 remains open after execution and awaits the independent web Gate C closeout audit.
+- Corrected Gate C manifest audit: PASS.
+- Gate C preservation, exact retirement, final Git checks, and reverse filesystem scan: PASS. Evidence is under /Volumes/Jack-Dev/Archives/RemoteOrbit/retirement-20261009/manifests/GATE_C/.
+- P1A5 failed AppleDouble tar remains preserved as failure evidence; its corrected three-member tar and checksum proof are recorded in GATE_C_A5_CORRECTIVE.md.
+- Task 036 remains open and awaits the independent web closeout audit.
