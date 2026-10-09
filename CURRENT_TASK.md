@@ -1,38 +1,74 @@
 # RemoteOrbit Current Task
 
-## Current task — TASK 028 CLOSEOUT
+## Current task — TASK 028 LIFECYCLE CLEANUP
 
-- **Status:** CLOSED / ACCEPTED_MAIN / MERGED
-- **Task ID:** `RO-DUAL-RECEIVER-B-UP-REPLAY-ACK-CORRECTIVE-028`
-- **Accepted corrective branch HEAD:** `85bb2e12cad41198e5a27d9e610cbdb30b01d357`
-- **Accepted product implementation:** `f938b919e288a481f5eacaf9aad9c254dcf0cffe`
-- **Merge commit:** `73dc5af7ef6322b3abb61cad03b855bae72a9c57`
-- **Merge parents:** `d5bd6be627de269c7d8114d307eed4b937c150d2` + `85bb2e12cad41198e5a27d9e610cbdb30b01d357`
+- **Status:** ACTIVE / CLEANUP ONLY
+- **Task ID:** `RO-TASK028-LIFECYCLE-CLEANUP-029`
+- **Accepted main before this transition:** `24bcb623803b2ca867fe142bdc8d84f174afc8cc`
+- **Merged task branch:** `codex/dual-receiver-b-up-replay-ack-fix`
+- **Expected task branch HEAD:** `85bb2e12cad41198e5a27d9e610cbdb30b01d357`
+- **Expected worktree:** `/private/tmp/remoteorbit-dual-receiver-b-up-replay-ack-fix`
+- **Product task 028:** CLOSED / ACCEPTED_MAIN / MERGED
 
-## Final acceptance
-Task 028 is complete.
+## Goal
+Leave a clean single accepted baseline after Task 028 by removing only the merged Task-028 worktree and task branch after proving there is no unique local work.
 
+## Gate 0 — freshness
+Read `AGENTS.md`, `CURRENT_STATUS.md`, and this file. Fetch/prune remote refs. Verify live remote main equals this cleanup control HEAD and live remote task branch, if still present, equals `85bb2e12cad41198e5a27d9e610cbdb30b01d357`.
+
+If control HEAD or branch identity drifted: STOP and report.
+
+## Gate 1 — bounded local inventory
+Before deletion, report:
+- canonical main path / branch / HEAD / clean state;
+- registered worktree list;
+- Task-028 worktree path / branch / HEAD / status including untracked files;
+- local commits on task branch not reachable from accepted main;
+- local commits not pushed to the remote task branch;
+- whether task branch is fully contained in accepted main.
+
+Required PASS conditions:
 ```text
-USER_RECEIVER_B_STABILITY: 5/5 PASS
-INTERNAL_CORRECTED_ORDERING: 5/5 PASS
-TASK028_FIVE_RUN_EVIDENCE: PASS
-TASK028_CAUSAL_CORRECTIVE_CONFIRMED: YES
-MERGED_TO_MAIN: YES
+TASK_WORKTREE_EXISTS: YES
+TASK_WORKTREE_BRANCH: codex/dual-receiver-b-up-replay-ack-fix
+TASK_WORKTREE_HEAD: 85bb2e12cad41198e5a27d9e610cbdb30b01d357
+TASK_WORKTREE_DIRTY_OR_UNTRACKED: NO
+UNIQUE_LOCAL_COMMITS_NOT_IN_MAIN: 0
+UNPUSHED_TASK_COMMITS: 0
+TASK_BRANCH_CONTAINED_IN_MAIN: YES
 ```
 
-The accepted correction ensures the copied Right Option UP remains owned until the exact replay re-enters `VoiceKeyFilter` and reaches the pass path. B->A restore begins only after replay acknowledgement.
+If any PASS condition fails: STOP. Do not force-delete, reset, clean, stash, or move files.
 
-## Post-merge verification
-Remote verification proved:
-1. the merge has the expected two parents;
-2. the merged `remote-orbit/` subtree exactly matches the accepted corrective branch;
-3. the first-parent diff contains only the accepted product/test paths;
-4. current-main-only documentation and current control authority were preserved;
-5. no additional product edit was made during merge.
+## Gate 2 — cleanup
+Only after Gate 1 PASS:
+1. change directory outside the task worktree;
+2. remove the task worktree without `--force`;
+3. run `git worktree prune`;
+4. delete local `codex/dual-receiver-b-up-replay-ack-fix` with `git branch -d` only;
+5. re-fetch remote refs and verify the remote task branch still points exactly to `85bb2e12cad41198e5a27d9e610cbdb30b01d357`;
+6. delete the remote task branch;
+7. update canonical main with `git switch main` + `git pull --ff-only origin main`;
+8. verify canonical main clean.
 
-## Lifecycle state
-Product work for Task 028 is CLOSED.
+## Final evidence
+Return:
+```text
+CONTROL_HEAD
+REMOTE_MAIN
+CANONICAL_MAIN_HEAD
+LOCAL_REMOTE_MAIN_MATCH
+CANONICAL_MAIN_CLEAN
+TASK_WORKTREE_REMOVED
+WORKTREE_REGISTRATION_REMOVED
+LOCAL_TASK_BRANCH_REMOVED
+REMOTE_TASK_BRANCH_REMOVED
+UNIQUE_WORK_LOST: NO
+REMAINING_WORKTREES
+REMAINING_REMOTE_TASK_BRANCHES
+PRODUCT_SOURCE_CHANGED: NO
+RUNTIME_CHANGED: NO
+FINAL_STATE: CLEANUP_READY_FOR_WEB_CLOSEOUT
+```
 
-The task worktree `/private/tmp/remoteorbit-dual-receiver-b-up-replay-ack-fix` and branch `codex/dual-receiver-b-up-replay-ack-fix` are eligible for cleanup only after a fresh bounded lifecycle inventory confirms there is no unique unpushed work. Remote/local branch deletion and worktree removal are cleanup actions, not part of the already-completed merge.
-
-No release, reinstall, Set C, or additional hardware validation is authorized by this closed task.
+No product/test/runtime/settings/mapping/release/driver/TCC/hardware changes are authorized. Stop after evidence; Web performs final closeout classification.
