@@ -1,107 +1,129 @@
 # RemoteOrbit Current Task
 
-## Current task — RIGHT OPTION PHYSICAL-VS-REPLAY EVENT-SHAPE AUDIT
+## Current task — RECEIVER-B REPLAY-UP ACKNOWLEDGED RESTORE CORRECTIVE
 
-- **Status:** ACTIVE / SOURCE AUDIT COMPLETE / READ-ONLY EXISTING-LOG COMPARISON AUTHORIZED
-- **Task ID:** `RO-DUAL-RECEIVER-RIGHT-OPTION-EVENT-SHAPE-AUDIT-027`
-- **Previous task:** `RO-DUAL-RECEIVER-B-EXTERNAL-SEMANTICS-GATE-026` — CLOSED / EXTERNAL SEMANTICS VERIFIED
-- **Corrective branch under audit:** `codex/dual-receiver-mic-debounce-corrective`
-- **Corrective branch HEAD:** `458e28d91b5ff748613bb88f5b89212d660279c7`
-- **Installed source (last local evidence):** `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8`
+- **Status:** ACTIVE / PRODUCT CORRECTIVE AUTHORIZED / MERGE FORBIDDEN
+- **Task ID:** `RO-DUAL-RECEIVER-B-UP-REPLAY-ACK-CORRECTIVE-028`
+- **Previous task:** `RO-DUAL-RECEIVER-RIGHT-OPTION-EVENT-SHAPE-AUDIT-027` — CLOSED / ROOT CAUSE PROVEN
+- **Implementation base:** `458e28d91b5ff748613bb88f5b89212d660279c7`
+- **Installed source before corrective:** `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8`
+- **Authorized branch:** `codex/dual-receiver-b-up-replay-ack-fix`
+- **Authorized worktree:** `/private/tmp/remoteorbit-dual-receiver-b-up-replay-ack-fix`
 - **Merge:** FORBIDDEN
 
-## Accepted problem boundary
+## Proven defect
+Task 027 evidence plus source establishes this exact failure:
 
 ```text
-Physical Right Option hold -> Receiver B opens
-Physical Right Option release -> Receiver B immediately closes
-
-RemoteOrbit true B transaction -> internally completes DOWN/UP/drain/gate-close/MOMENTARY_COMPLETE/B->A restore
-BUT Receiver B remains open
+captured B UP
+-> copied B UP posted at .cghidEventTap
+-> controller starts B->A restore before reposted event is observed passing the filter
+-> beginVoiceTriggerReconfiguration suppresses Right Option
+-> reposted B UP returns with its original Quartz timestamp
+-> event tap records action=reconfiguration_suppress and returns nil
+-> external Receiver B never receives release
 ```
 
-Accepted classification:
+The replayed DOWN also gains extra raw flag bit `0x20000000` yet successfully opens Receiver B. Do not treat that flag difference as the current root cause and do not rewrite flags in Task 028.
 
-`REMOTEORBIT_REPLAY_NOT_EXTERNALLY_EQUIVALENT_TO_PHYSICAL_RIGHT_OPTION`
+## Required design contract
+The correction must be deterministic and event-driven.
 
-## Source-audit conclusions
+1. Keep using the copied system-mapped hardware UP event. Do not synthesize a replacement normal-path Right Option UP.
+2. Do not add `Key.syntheticMarker` to normal hardware replay.
+3. Do not change `.cghidEventTap` posting location in this task.
+4. Introduce the minimum gesture-scoped ownership needed to distinguish an expected reposted hardware-UP component from unrelated events. Use stable fields already present on the copied event, preferably gesture ownership + keyCode + event type + original Quartz timestamp. Do not depend on mutable wall-clock timing.
+5. While the expected copied B-UP is posted but has not yet re-entered the filter pass path, B release ownership remains open for reconfiguration purposes. B->A restore must not start.
+6. When the expected reposted B-UP re-enters the filter, it must be allowed to pass downstream unmodified. Only after that pass decision is committed may the controller enqueue B->A restore.
+7. Stale, unrelated, duplicated, wrong-key, wrong-type, or wrong-timestamp events must not acknowledge the pending replay.
+8. The acknowledgement/restore transition must be exactly-once and generation/session scoped.
+9. Device removal/stop/supersede must clear or invalidate pending replay ownership safely; no stranded permanent lock.
+10. Direct A behavior, B DOWN replay, first-PCM sequencing, output drain, mapping latency logic, settings, generic gestures, BLE codec/audio, tail drain, and persistent-session behavior remain unchanged.
+
+## TDD gate — mandatory RED first
+Before production edits, add the smallest focused failing test(s) proving the current race. The RED evidence must show that the current implementation can begin B->A reconfiguration before the copied B-UP has been observed on a downstream/pass path, allowing the expected replay to hit `reconfiguration_suppress`.
+
+The test must fail for the intended reason on the exact implementation base. Do not write production code before capturing RED.
+
+Minimum required focused behavior after GREEN:
 
 ```text
-IS_REPLAY_THE_ORIGINAL_COPIED_CGEVENT: YES (event.copy(), not same object identity)
-DOWN_UP_REPLAY_SYMMETRIC: PARTIAL
-A_B_REPLAY_CODEPATH_IDENTICAL: YES at source level, parameterized by trigger key
-CAN_MAPPING_RESTORE_RACE_EXTERNAL_B_UP: UNKNOWN
-CURRENT_TESTS_PROVE_EXTERNAL_EVENT_EQUIVALENCE: NO
-ROOT_CAUSE_PROVEN_FROM_CODE_ALONE: NO
+REPLAY_UP_PENDING_BLOCKS_PRIMARY_RESTORE = PASS
+EXPECTED_REPLAY_UP_REENTERS_AND_PASSES = PASS
+PRIMARY_RESTORE_BEGINS_ONLY_AFTER_REPLAY_UP_PASS = PASS
+EXPECTED_REPLAY_UP_ACK_EXACTLY_ONCE = PASS
+STALE_OR_UNRELATED_EVENT_CANNOT_ACK = PASS
+RECONFIGURATION_CANNOT_SUPPRESS_EXPECTED_REPLAY_UP = PASS
+NORMAL_DUAL_SYNTHETIC_TRIGGER_USED = NO
+REPLAY_EVENT_FLAGS_REWRITTEN_BY_PRODUCT = NO
+A_PATH_UNCHANGED = PASS
 ```
 
-Clarification for `DOWN_UP_REPLAY_SYMMETRIC = PARTIAL`:
-- both sides use copied system-mapped events and repost at `.cghidEventTap`;
-- DOWN is captured/suppressed then replayed at first PCM;
-- UP is captured/suppressed later, held through output drain, then replayed;
-- therefore mechanism is shared but lifecycle/timing is intentionally asymmetric.
+Prefer extending existing `VoiceKeyFilterTests`, `DualReceiverVoiceTransactionTests`, and/or `VoiceTriggerRuntimeTests`; do not create a broad new subsystem.
 
-## Authorized next evidence step
-Use only existing evidence. Do not perform a new remote or physical-key gesture unless Web explicitly authorizes one after this comparison.
+## Implementation constraints
+- No arbitrary `asyncAfter`/sleep to make ordering appear stable.
+- A main-queue hop may be used only as an ordering handoff after the expected replayed event has been positively acknowledged at the filter pass seam.
+- Keep `HIDMonitor` as the sole raw HID owner.
+- Keep `RemoteVoiceKeyMapping` as the sole device mapping authority.
+- Keep `VoiceKeyFilter` / `HardwareOptionGate` as the mapped-edge authority.
+- Do not add a second event tap or observer authority.
+- Do not normalize `0x20000000` or any other replay flags in this task.
+- Do not use source PID/state/keyboard-type instrumentation unless the corrective fails the hardware gate.
 
-1. Verify the frozen Task-025 snapshot hashes and extract the true-B mapped Right Option event records.
-2. Snapshot the current diagnostic logs read-only and locate the already-performed Task-026 direct physical Right Option hold/release.
-3. Compare at minimum:
+## Validation before install
+Run at minimum:
 
 ```text
-event_type
-key_code
-flags raw
-generic/device-side flag presence
-synthetic_marker
-eventSourceUserData if available
-cg_event_timestamp_raw
-observer_uptime
-action/gate_state
-component count/order (flagsChanged/keyDown/keyUp)
+focused RED test(s) before product change
+focused GREEN tests after product change
+all VoiceKeyFilterTests
+all DualReceiverVoiceTransactionTests
+all VoiceTriggerRuntimeTests
+all VoicePressCoordinatorTests
+full swift test suite
+self-tests
+release build/package
+signature verification
+git diff --check
+scope audit
 ```
 
-For the Task-025 B sequence, distinguish:
+Return exact test counts and failures if any.
 
-```text
-original mapped DOWN captured: defer_down
-replayed copied DOWN returning through filter: pass
-original mapped UP captured: hold_release
-replayed copied UP returning through filter: pass
-```
+## Candidate install authorization
+If and only if every required automated gate passes and the branch/worktree is clean and pushed:
+- build/install the corrective candidate to `/Applications/RemoteOrbit.app`;
+- restart RemoteOrbit only;
+- do not restart or modify the Core Audio driver;
+- record source HEAD, executable SHA-256, app version/build, Bundle ID and running PID.
 
-Correlate copied replay records by key/type/flags and identical original Quartz timestamp where the existing log permits it. Do not guess if correlation is ambiguous.
+Do not perform any remote gesture as the executor.
 
-For the physical Right Option sequence, identify the direct pass-through component count/order and flags. The Task-026 user result is already accepted: open YES, release-close YES, stuck NO.
+## User hardware gate after Web audit
+After local implementation evidence is returned, Web will independently audit the branch before authorizing the user hardware gate.
 
-## Required evidence conclusion
-Return one of:
-
-```text
-BASIC_EVENT_SHAPE_DIFF_PROVEN
-BASIC_EVENT_SHAPE_MATCHES_BUT_SOURCE_FIELDS_MISSING
-INSUFFICIENT_EXISTING_LOG_EVIDENCE
-```
-
-If basic shape matches but source fields are missing, recommend (do not implement) the smallest one-run passive observer needed to capture `eventSourceUnixProcessID`, `eventSourceStateID`, `eventSourceUserData`, keyboard type, event type/keyCode/flags/timestamp, and observation point.
+Expected first hardware gate:
+- Receiver B only;
+- quick first tap + second LONG;
+- verify B opens during hold and closes on physical release;
+- no Set C;
+- no merge.
 
 ## Strict prohibitions
-
 ```text
-NO product source edits
-NO test edits
-NO diagnostic instrumentation edits
-NO build/install/restart
-NO settings/mapping changes
-NO new remote Set-B retry
-NO new physical Right Option test
-NO Set C
-NO release/drain retune
-NO HardwareOptionGate redesign
-NO BLE/audio changes
-NO driver/CoreAudio/TCC changes
 NO merge
+NO Set C
+NO executor remote gestures
+NO fixed timing workaround
+NO flag rewriting
+NO event-tap relocation
+NO synthetic normal B UP
+NO BLE/audio/tail retune
+NO generic gesture changes
+NO driver/CoreAudio/TCC changes
+NO broad diagnostics expansion
 ```
 
 ## Stop
-Stop after the existing-log comparison and recommendation. Any new instrumentation or corrective product code requires a new explicitly authorized task.
+Stop at `READY_FOR_INDEPENDENT_WEB_AUDIT` after a clean pushed implementation and candidate install. If RED cannot reproduce the race, if exact replay acknowledgement cannot be made deterministic, or if any unrelated regression appears, STOP without hardware testing or merge.
