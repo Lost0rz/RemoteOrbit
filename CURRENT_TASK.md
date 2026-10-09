@@ -1,8 +1,8 @@
 # RemoteOrbit Current Task
 
-## Current task — RIGHT OPTION PHYSICAL-VS-REPLAY EVENT-SHAPE SOURCE AUDIT
+## Current task — RIGHT OPTION PHYSICAL-VS-REPLAY EVENT-SHAPE AUDIT
 
-- **Status:** ACTIVE / READ-ONLY CODE FORENSICS
+- **Status:** ACTIVE / SOURCE AUDIT COMPLETE / READ-ONLY EXISTING-LOG COMPARISON AUTHORIZED
 - **Task ID:** `RO-DUAL-RECEIVER-RIGHT-OPTION-EVENT-SHAPE-AUDIT-027`
 - **Previous task:** `RO-DUAL-RECEIVER-B-EXTERNAL-SEMANTICS-GATE-026` — CLOSED / EXTERNAL SEMANTICS VERIFIED
 - **Corrective branch under audit:** `codex/dual-receiver-mic-debounce-corrective`
@@ -24,42 +24,66 @@ Accepted classification:
 
 `REMOTEORBIT_REPLAY_NOT_EXTERNALLY_EQUIVALENT_TO_PHYSICAL_RIGHT_OPTION`
 
-## Authorized work
-Detailed read-only source/evidence audit only.
-
-Inspect the exact product implementation and tests for:
-
-1. `VoiceKeyFilter` mapped-trigger event tap handling;
-2. `HardwareOptionGate` ownership/resolution;
-3. storage/copying of captured mapped DOWN and UP events;
-4. replay/post implementation for the copied mapped DOWN and UP;
-5. event `type`, key code, modifier flags, source/state/PID-related fields, userData marker, timestamp, and target event tap;
-6. DOWN/UP symmetry;
-7. A (`left_option`) versus B (`right_option`) symmetry;
-8. ordering of physical UP, mapped B-UP capture, output-drain completion, B-UP replay/exposure, gate close, and B->A mapping/filter restoration;
-9. tests that exercise the real event-filter/replay seam versus tests that only assert internal callbacks/state.
-
-Use existing source/history/evidence only. Do not mutate diagnostics to collect more fields in this task.
-
-## Required conclusions
-Return a source-backed matrix that separates:
-
-- **FACT** — directly established by source/history/current evidence;
-- **INFERENCE** — strongly supported but not observed externally;
-- **HYPOTHESIS** — requires a new validation.
-
-Explicitly answer:
+## Source-audit conclusions
 
 ```text
-IS_REPLAY_THE_ORIGINAL_COPIED_CGEVENT: YES/NO/PARTIAL
-DOWN_UP_REPLAY_SYMMETRIC: YES/NO/PARTIAL
-A_B_REPLAY_CODEPATH_IDENTICAL: YES/NO/PARTIAL
-CAN_MAPPING_RESTORE_RACE_EXTERNAL_B_UP: YES/NO/UNKNOWN
-CURRENT_TESTS_PROVE_EXTERNAL_EVENT_EQUIVALENCE: YES/NO
-ROOT_CAUSE_PROVEN_FROM_CODE_ALONE: YES/NO
+IS_REPLAY_THE_ORIGINAL_COPIED_CGEVENT: YES (event.copy(), not same object identity)
+DOWN_UP_REPLAY_SYMMETRIC: PARTIAL
+A_B_REPLAY_CODEPATH_IDENTICAL: YES at source level, parameterized by trigger key
+CAN_MAPPING_RESTORE_RACE_EXTERNAL_B_UP: UNKNOWN
+CURRENT_TESTS_PROVE_EXTERNAL_EVENT_EQUIVALENCE: NO
+ROOT_CAUSE_PROVEN_FROM_CODE_ALONE: NO
 ```
 
-If `ROOT_CAUSE_PROVEN_FROM_CODE_ALONE = NO`, define the smallest next validation. Prefer a one-run, read-only comparison of a physical Right Option sequence against a RemoteOrbit B replay sequence. State exactly which CGEvent fields must be captured and why. Do not implement that validation yet.
+Clarification for `DOWN_UP_REPLAY_SYMMETRIC = PARTIAL`:
+- both sides use copied system-mapped events and repost at `.cghidEventTap`;
+- DOWN is captured/suppressed then replayed at first PCM;
+- UP is captured/suppressed later, held through output drain, then replayed;
+- therefore mechanism is shared but lifecycle/timing is intentionally asymmetric.
+
+## Authorized next evidence step
+Use only existing evidence. Do not perform a new remote or physical-key gesture unless Web explicitly authorizes one after this comparison.
+
+1. Verify the frozen Task-025 snapshot hashes and extract the true-B mapped Right Option event records.
+2. Snapshot the current diagnostic logs read-only and locate the already-performed Task-026 direct physical Right Option hold/release.
+3. Compare at minimum:
+
+```text
+event_type
+key_code
+flags raw
+generic/device-side flag presence
+synthetic_marker
+eventSourceUserData if available
+cg_event_timestamp_raw
+observer_uptime
+action/gate_state
+component count/order (flagsChanged/keyDown/keyUp)
+```
+
+For the Task-025 B sequence, distinguish:
+
+```text
+original mapped DOWN captured: defer_down
+replayed copied DOWN returning through filter: pass
+original mapped UP captured: hold_release
+replayed copied UP returning through filter: pass
+```
+
+Correlate copied replay records by key/type/flags and identical original Quartz timestamp where the existing log permits it. Do not guess if correlation is ambiguous.
+
+For the physical Right Option sequence, identify the direct pass-through component count/order and flags. The Task-026 user result is already accepted: open YES, release-close YES, stuck NO.
+
+## Required evidence conclusion
+Return one of:
+
+```text
+BASIC_EVENT_SHAPE_DIFF_PROVEN
+BASIC_EVENT_SHAPE_MATCHES_BUT_SOURCE_FIELDS_MISSING
+INSUFFICIENT_EXISTING_LOG_EVIDENCE
+```
+
+If basic shape matches but source fields are missing, recommend (do not implement) the smallest one-run passive observer needed to capture `eventSourceUnixProcessID`, `eventSourceStateID`, `eventSourceUserData`, keyboard type, event type/keyCode/flags/timestamp, and observation point.
 
 ## Strict prohibitions
 
@@ -69,7 +93,8 @@ NO test edits
 NO diagnostic instrumentation edits
 NO build/install/restart
 NO settings/mapping changes
-NO remote Set-B retry
+NO new remote Set-B retry
+NO new physical Right Option test
 NO Set C
 NO release/drain retune
 NO HardwareOptionGate redesign
@@ -79,4 +104,4 @@ NO merge
 ```
 
 ## Stop
-Stop after the read-only audit and recommendation. Any diagnostic implementation or corrective code requires a new explicitly authorized task.
+Stop after the existing-log comparison and recommendation. Any new instrumentation or corrective product code requires a new explicitly authorized task.
