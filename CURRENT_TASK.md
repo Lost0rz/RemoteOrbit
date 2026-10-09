@@ -1,80 +1,74 @@
 # RemoteOrbit Current Task
 
-## RO-REPOSITORY-LIFECYCLE-CLOSEOUT-036 — Gate A
+## RO-REPOSITORY-LIFECYCLE-CLOSEOUT-036 — Gate B
 
-- **Status:** WAITING FOR WEB GATE A AUDIT
-- **Repository:** `Lost0rz/RemoteOrbit`
-- **Canonical path:** `/Volumes/Jack-Dev/Projects/remoteorbit`
-- **Canonical branch:** `main`
-- **Gate 0 live remote baseline:** `e754895731f4ab64e9e0307b5b60f4edd728e187`
-- **Control transition:** this paired status/task update must be one commit, a direct child of the Gate 0 baseline, pushed to `main`; record its resulting SHA as `GATE_A_CONTROL_HEAD` in Gate A evidence.
+- Status: ACTIVE — GATE B LIFECYCLE CLASSIFICATION
+- Repository: Lost0rz/RemoteOrbit
+- Canonical path: /Volumes/Jack-Dev/Projects/remoteorbit
+- Canonical branch: main
+- Gate A Web audit: PASS, as stated by the current Gate B task handoff.
+- Gate B expected parent/current head at transition start: 7dbd7b39e6e643d5a317d69776b9e2d81006ef83.
+- The Gate B control transition is a paired status/task commit directly parented by that SHA. Record its resulting SHA as GATE_B_CONTROL_HEAD in the external Gate B evidence.
+- Gate 0 passed: after fetching origin, local HEAD, origin/main, and live remote main all equaled the expected head; branch main; canonical worktree clean.
 
-## Prior task
-Task 035 (`RO-RUNTIME-BASELINE-RELEASE-035`) remains CLOSED / v0.2.14 accepted and published. Its retained publication worktree at `/private/tmp/remoteorbit-v0.2.14-publish` must be inspected, not presumed obsolete.
+## Objective
+Classify every candidate identified in Gate A, resolve unique-history and dirty-work preservation requirements, perform the named read-only special inspections, and produce an exact ordered Gate C preservation/cleanup manifest. Gate B performs no cleanup.
 
-## Goal
-Establish one canonical development repository/worktree, identify all RemoteOrbit-related source copies and artifacts in the specified search areas, and establish whether any unique uncommitted work or local-only commits may be at risk. Gate A must not conclude that unique work is disposable.
+## Authorized actions
+- Read-only Git/ref/history/status/diff inspection and read-only filesystem inspection.
+- Compare candidate commits, files, diffs, and artifact metadata/content where explicitly required below.
+- Classify lifecycle state and design preservation.
+- Write the Gate B report and supporting evidence outside the repository.
+- The paired CURRENT_STATUS.md and CURRENT_TASK.md transition commit and its fast-forward push to origin/main, directly after the verified parent, are authorized.
 
-## Authorized Gate A actions
-- Read repository state and inspect refs, worktrees, status, and history.
-- Fetch `origin` without pruning; inspect live remote refs and GitHub PR metadata if access works.
-- Search the specified filesystem roots without following symlinks recursively; inspect candidate metadata and hash discrete manifests/artifacts where practical.
-- Write inventory evidence outside the repository.
-- Commit and push only `CURRENT_STATUS.md` and `CURRENT_TASK.md` for this authorized control-plane transition.
+## Not authorized in Gate B
+- rm/rmdir, git clean/reset/stash, git worktree remove/prune, branch/tag/remote deletion.
+- Moving or copying files, archiving, creating Git bundles, preservation patches, or preservation copies.
+- Product, test, runtime, packaging, AGENTS.md, or other repository changes.
+- Any Gate C action. Do not execute the Gate C manifest.
 
-## Explicitly prohibited
-- `rm`, `rmdir`, `git clean`, `git reset`, `git stash`, `git worktree remove`, or `git worktree prune`.
-- Local or remote branch deletion; tag deletion or modification.
-- Checking out historical branches; merge/rebase/cherry-pick other than the explicitly permitted clean Gate 0 fast-forward to `origin/main`.
-- Moving or archiving folders.
-- Modifying product, test, runtime, or packaging code.
-- Gate B classification decisions or any cleanup.
-- Creating a worktree for this task.
+## B1 — all 14 Git candidates
+Use only these classes: CANONICAL_RETAIN, SAFE_LOCAL_RETIRE, PRESERVE_THEN_RETIRE, NEEDS_RECONCILIATION. Treat the Gate A suggested classes as hypotheses. For each candidate report path, class, HEAD, branch/detached state, dirty state, unique local commits, remote backing ref, release-tag backing, reason, and preservation requirement. No dirty worktree may be SAFE_LOCAL_RETIRE. Keep unresolved ownership/history as NEEDS_RECONCILIATION.
 
-## Gate A1 — registered Git inventory
-From the canonical repository collect:
-`git worktree list --porcelain`, `git branch -vv`, `git for-each-ref refs/heads`, `git for-each-ref refs/remotes`, local tags, `git remote -v`, `git ls-remote --heads origin`, and `git ls-remote --tags origin`. Do not prune. Explicitly inspect `/private/tmp/remoteorbit-v0.2.14-publish`.
+## B2 — 12 candidate-only commits
+For every unique commit, identify exact local refs that keep it reachable, whether it is on any live remote ref, whether another local branch also represents it, and whether it must be in the pre-cleanup history snapshot. Produce LOCAL_UNIQUE_COMMIT_PRESERVATION_TABLE with COMMIT, SUBJECT, CURRENT_REF, REMOTE_REF_PRESENT, PRESERVE_IN_HISTORY_BUNDLE, WHY. Default to preservation YES unless redundancy is proved. Do not infer an experiment is worthless because it was not merged.
 
-For each registered worktree record absolute path and realpath, branch/detached state, exact HEAD, git-dir, clean/dirty state and staged/unstaged/untracked paths, path existence and `.git` pointer validity, canonical status, whether `GATE_A_CONTROL_HEAD` exists in its object database, and commit relationship to that control head when determinable.
+## B3 — three dirty worktrees
+Resolve an exact Gate C recipe for each of:
+- remoteorbit-audio-p1-a5: untracked P1A5Observer/Info.plist, build.sh, main.swift.
+- remoteorbit-p0-voice-experiment: eight tracked modifications and three untracked source/test files per Gate A evidence.
+- remoteorbit-voice-p0-final: eight tracked modifications and three untracked source/test files per Gate A evidence.
+Recipe design should include BASE_HEAD.txt, STATUS.txt, TRACKED_WORKTREE.patch, TRACKED_INDEX.patch, UNTRACKED_MANIFEST.txt, and untracked-files.tar. Specify binary-safe diff commands for Gate C. Do not create these files in Gate B. Report PRESERVATION_RECIPE_COMPLETE YES/NO for each.
 
-## Gate A2–A4 — filesystem, Git, and artifact candidates
-Search these roots: `/Volumes/Jack-Dev`, `/private/tmp`, `/tmp`, `~/.codex/worktrees`, `~/Documents`, and `~/Applications`. Do not follow symlinks recursively. Search case-insensitively for `RemoteOrbit`, `remoteorbit`, `remote-orbit`, and `remote_orbit`; discover Git metadata independently (`.git` directories/files and worktree gitdir pointers). Focus on candidate source trees under `/Volumes/Jack-Dev/Projects`, including `RemoteOrbit-app-archives`, `remoteorbit-audio-p0`, `remoteorbit-audio-p1-a3`, `remoteorbit-audio-p1-a4`, `remoteorbit-audio-p1-a5`, `remoteorbit-diagnostic-backups`, `RemoteOrbit-flight-recorder`, `remoteorbit-p0-voice-experiment`, and `remoteorbit-voice-p0-final`. Names alone do not establish disposition.
+## B4 — detached HEADs
+Confirm the v0.2.14 publication worktree HEAD 46dc94f58e67d5da38420047f009d3f311321108 remains reachable through annotated tag v0.2.14; if verified, classify that worktree SAFE_LOCAL_RETIRE. Confirm flight-recorder HEAD 01eeddaecd0dff596b7e0fd31cd4b1862360bc9f is retained by local ref codex/cross-mode-flight-recorder-minimal and include that ref in history preservation.
 
-For each candidate Git repository/worktree record absolute/real path, repository top-level, git-dir and common git-dir where applicable, origin URL and all remotes, branch/detached state, exact HEAD and commit subject/date, porcelain-v2 working state with staged/unstaged/untracked path lists, local branches/upstreams, remote-tracking refs, visible tags, and relation to `GATE_A_CONTROL_HEAD`. If the control object exists, determine equality, ancestry, divergence, ahead/behind counts, and candidate-only commits (full list in evidence). Do not fetch in historical repositories. If the control object is absent, record `CONTROL_OBJECT_PRESENT=NO` and relation UNKNOWN for Gate B.
+## B5 — all 26 non-main remote branches
+Use SAFE_REMOTE_RETIRE_MERGED, ARCHIVE_REF_THEN_RETIRE, REMOTE_RETAIN, NEEDS_RECONCILIATION. The three Gate A branches already ancestors of main (codex/project-agents-control-plane-v1, codex/read-only-diagnostic-cli-v1, codex/release-v0.2.14-baseline) should normally be SAFE_REMOTE_RETIRE_MERGED unless evidence contradicts. Default other non-main unmerged branches to ARCHIVE_REF_THEN_RETIRE unless there is an explicit reason to retain them live. Do not merge historical diagnostic/experimental branches just to facilitate cleanup; the history snapshot should preserve their refs/history. Table fields: REMOTE_BRANCH, TIP, IN_MAIN, CLASSIFICATION, PRESERVATION_REQUIRED, REASON.
 
-For non-Git candidate folders/files record absolute/real path, object type (directory/file/symlink/app/dmg/archive/evidence/unknown), apparent size, practical file count, latest modification time, presence of `*.swift`, `Package.swift`, `*.xcodeproj`, `*.xcworkspace`, `*.json`, `*.jsonl`, `*.log`, `*.app`, `*.dmg`, `*.pkg`, and `*.zip`. Identify only; do not declare obsolete. Avoid hashing huge trees; hash discrete manifests or artifacts only when useful.
+## B6 — design one pre-cleanup Git history snapshot
+Design but do not create /Volumes/Jack-Dev/Archives/RemoteOrbit/retirement-20261009/git/RemoteOrbit-pre-cleanup-all-refs.bundle and refs-manifest.txt. It must preserve all local branches, fetched origin branches, tags, candidate-only commits reachable from local refs, and release history. Gate C must explicitly fetch live remote heads before bundle creation without deleting refs. Specify exact bundle verification commands including git bundle verify and proof required unique commits are present. Do not create the bundle in Gate B.
 
-## Gate A5 — unique-work risk
-Explicitly enumerate:
-- `UNCOMMITTED_WORK_CANDIDATES`
-- `LOCAL_ONLY_COMMIT_CANDIDATES`
-- `DETACHED_HEAD_CANDIDATES`
-- `UNKNOWN_HISTORY_CANDIDATES`
+## B7 — all 46 non-Git artifact groups
+Classify each as ARCHIVE_FORENSIC, DELETE_EPHEMERAL, RETAIN_ACTIVE, EXCLUDE_NOT_REMOTEORBIT_OWNED, or NEEDS_INSPECTION. Caches/build/module caches/temp validation outputs generally DELETE_EPHEMERAL. Potentially non-reconstructable capture/evidence/diagnostic/forensic/diff material generally ARCHIVE_FORENSIC. Current Task 036 evidence is RETAIN_ACTIVE. Clearly MemoX-owned material is EXCLUDE_NOT_REMOTEORBIT_OWNED. Unknown source/diff material remains NEEDS_INSPECTION until inspected. Do not delete or move any item.
 
-Preserve all unresolved or unique work. Do not infer disposability.
+## B8 — required special inspections
+A. /Volumes/Jack-Dev/Data: inspect the two working-diff filenames, headers, hashes, and relationship to RemoteOrbit; decide whether unique RemoteOrbit work is present. Do not modify.
+B. /Volumes/Jack-Dev/Projects/_forensics/RemoteOrbit/2026-10-09-v0211-nonseize-hid-audit: inspect MANIFEST.txt, HIDMonitor-working.swift, and the patch; decide whether evidence is unique. Default ARCHIVE_FORENSIC.
+C. /Volumes/Jack-Dev/Projects/RemoteOrbit-app-archives: assess whether the v0.2.12 ZIP has a reason to remain under Projects; classify its lifecycle without moving it.
+D. /Volumes/Jack-Dev/Projects/remoteorbit-diagnostic-backups: determine whether old app bundles contain anything not reproducible from Git/release history.
+E. /Users/jack7788/Applications/RemoteOrbit P1A5 Observer.app: relate the installed app to untracked P1A5Observer source; do not uninstall; classify lifecycle.
+F. /Volumes/Jack-Dev/Worktrees/RemoteOrbit: confirm empty; expected DELETE_EPHEMERAL.
+G. Resolve the MemoX scoped-owner document exact path. If MemoX-owned and unrelated to RemoteOrbit lifecycle, classify EXCLUDE_NOT_REMOTEORBIT_OWNED.
 
-## Gate A6 — remote lifecycle
-Record live remote branch and tag inventories, open PR count if available, and relevant closed/merged PR metadata when readily available. Do not mutate remote state or delete historical `codex/*` branches.
+## B9 — proposed final filesystem design
+Gate C should leave /Volumes/Jack-Dev/Projects/remoteorbit as the only RemoteOrbit development source checkout. Durable history belongs under /Volumes/Jack-Dev/Archives/RemoteOrbit/retirement-20261009/, with proposed subdirectories git/, dirty-worktrees/audio-p1-a5/, dirty-worktrees/p0-voice-experiment/, dirty-worktrees/voice-p0-final/, forensics/, release-history/ only for intentionally retained local artifacts, and manifests/GATE_A/, manifests/GATE_B/, manifests/RETIREMENT_MANIFEST.txt. Design only; do not create this structure.
 
-## Evidence and completion
-Write outside the repository to `/private/tmp/remoteorbit-lifecycle-closeout-036-gatea-YYYYMMDDTHHMMSS`. Include:
-`00-control.txt`, `01-worktrees.txt`, `02-local-branches.txt`, `03-remote-branches.txt`, `04-tags.txt`, `05-filesystem-candidates.tsv`, `06-git-candidates.tsv`, `07-nongit-artifacts.tsv`, `08-unique-work-risk.txt`, `09-scan-errors.txt`, `GATE_A_INVENTORY.md`, and `SHA256SUMS.txt`. Hash the evidence outputs. Do not archive/delete evidence.
+## B10 — exact Gate C manifest
+Produce ordered steps for: preservation; verification; worktree removals; local branch retirements; remote branch retirements; non-Git archive/delete actions; empty-directory cleanup; git worktree prune; reverse filesystem scan; final Git integrity checks. Every destructive entry must identify exact TARGET, ACTION, PRECONDITION, PRESERVATION_PROOF, and ROLLBACK_OR_RECOVERY_SOURCE. No wildcard deletion or broad rm -rf. Gate B only designs this manifest.
 
-Record permission and scan errors. If an important candidate cannot be inspected, set `INVENTORY_COMPLETE=NO` and do not proceed to Gate B.
+## Stop conditions
+Stop if control head drifts; a new dirty worktree or local-only commit appears; any candidate cannot be classified safely; /Volumes/Jack-Dev/Data contains unresolved unique work; bundle design would fail to preserve a unique commit; or any destructive Gate C entry lacks an exact target. Report the exact stop reason and do not continue dependent classification.
 
-At the end, recheck live `origin/main` and record `GATE_A_START_CONTROL_HEAD`, `GATE_A_FINAL_LOCAL_HEAD`, `LIVE_ORIGIN_MAIN`, and `LIVE_REMOTE_MAIN`. If main changes during the scan, set `CONTROL_HEAD_DRIFT_DURING_SCAN=YES` and stop with `FINAL_STATE=STOP_CONTROL_HEAD_DRIFT`.
-
-## Gate A completion and audit handoff
-- Read-only inventory completed in `/private/tmp/remoteorbit-lifecycle-closeout-036-gatea-20261009T180031`.
-- `GATE_A_CONTROL_HEAD` and scan-end canonical HEAD: `957c5f2cbae32b9ab6e67814e6b9d654736ed10f`.
-- At scan end, local HEAD, `origin/main`, and live remote `main` matched; `CONTROL_HEAD_DRIFT_DURING_SCAN=NO`.
-- Inventory complete: 11 registered worktrees (10 noncanonical), 14 Git candidates, 46 non-Git artifact groups, 689 filesystem name matches, 27 remote branches, 0 open PRs.
-- Unique-work risk remains: 3 uncommitted work candidates, 6 branches with 12 distinct candidate-only commits, 2 detached HEAD candidates, and 3 unknown-history candidates.
-- Cleanup was not performed. No Gate B classification was started. Stop here for independent Web Gate A audit.
-
-## Stop conditions and handoff
-Stop before scanning if the Gate 0 repository identity, expected remote baseline, clean canonical main, or control-transition parent/push verification fails. Preserve evidence and report the exact blocker. Do not continue after control-head drift.
-
-On complete inventory, stop at `WAITING_FOR_WEB_GATE_A_AUDIT`. Do not recommend deletion, perform Gate B, or clean up. The final report must include the machine-readable fields and candidate/risk tables required by the initiating task.
-
-The final response starts with `RO_REPOSITORY_LIFECYCLE_CLOSEOUT_036_GATE_A` and reports: task transition result, control parent, control head, live remote main, control-head drift, canonical path/branch/HEAD/cleanliness, registered and noncanonical worktree counts, filesystem/Git/non-Git candidate counts, remote branch and non-main branch counts, open PR count, each unique-work risk count, important uninspected path count, inventory completeness, evidence directory and manifest SHA-256, mutations (`control-plane transition only`), cleanup (`NO`), and final state. Then include complete registered-worktree, Git-candidate, non-Git artifact-group, unique-work-risk, remote-branch, scan-error/inaccessible-path tables, and evidence-file hashes.
+## Acceptance and handoff
+Return complete Git candidate, unique commit, dirty worktree, detached-head, all remote branch, and all non-Git artifact classification tables; special-inspection findings; proposed archive layout; exact Gate C manifest; counts; and evidence hashes. Final state is WAITING_FOR_WEB_GATE_B_AUDIT only when every required classification and Gate C manifest is complete and no stop condition remains. Otherwise state the exact STOP reason. Mutations are limited to the paired control-plane transition. Cleanup performed: NO. Never execute Gate C.
