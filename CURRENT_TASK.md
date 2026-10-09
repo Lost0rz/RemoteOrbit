@@ -1,81 +1,64 @@
 # RemoteOrbit Current Task
 
-## Current task — RUNTIME-IDENTITY BASELINE RELEASE PREPARATION
+## Current task — RUNTIME BASELINE RELEASE BLOCKER REMEDIATION
 
-- **Status:** ACTIVE / VERIFY INSTALLED BASELINE, THEN PREPARE RELEASE CANDIDATE
+- **Status:** ACTIVE / BUILD BUNDLED DRIVER ARTIFACT, REPACKAGE, THEN PUSH PR
 - **Task ID:** `RO-RUNTIME-BASELINE-RELEASE-035`
-- **Control parent:** `8e4bc7a06f2025d5b0abdfca82f68002df95ef7a`
+- **Control parent:** `8a2c67d0f0962a1b78bded0b402c69eb5573b79e`
 - **Canonical path:** `/Volumes/Jack-Dev/Projects/remoteorbit`
-- **Conditional release target:** `v0.2.14` / Build `43`
+- **Release target:** `v0.2.14` / Build `43`
 - **Authorized release branch:** `codex/release-v0.2.14-baseline`
 - **Authorized release worktree:** `/private/tmp/remoteorbit-release-v0.2.14-baseline`
+- **Existing release candidate commit:** `6208266122414db3f3caf5852585eb24ed1b1a71`
 
-## Goal
-Verify the exact installed/running RemoteOrbit identity that the user has been testing and, only if it is product-equivalent to the accepted current `main`, prepare that behavior as the next formal baseline release without changing product behavior.
+## Accepted evidence before remediation
+Phase A runtime/source equivalence is accepted. The installed/running `0.2.13 (42)` app stamped from `f938b919e288a481f5eacaf9aad9c254dcf0cffe` is product-equivalent to current accepted main. The release candidate changed exactly two paths, passed focused tests, 394/394 full Swift tests, 3/3 self-tests, packaging identity/version/build/source-stamp/Universal-2/codesign checks, then stopped because the packaged app did not contain `RemoteOrbitAudio.driver`.
 
-## Phase A — mandatory read-only runtime identity gate
-Read `AGENTS.md`, `CURRENT_STATUS.md`, `CURRENT_TASK.md`, `README.md`, `SETUP_NOTES.md`, the current packaging files, and the prior `v0.2.13` release commit/notes before release work.
+No release branch push, PR, merge, tag, GitHub Release, installation, runtime replacement, or driver change has occurred.
 
-Collect at minimum:
-- canonical local HEAD / `origin/main` and cleanliness;
-- installed app path `/Applications/RemoteOrbit.app`;
-- Bundle ID;
-- `CFBundleShortVersionString`;
-- `CFBundleVersion`;
-- `RemoteOrbitDiagnosticSourceHead`;
-- executable SHA-256;
-- executable architectures;
-- code-signature designated requirement;
-- running PID/path/start time when running;
-- proof that the running executable belongs to that installed app bundle.
+## Authorized blocker remediation
+Use only the existing release worktree and existing release candidate commit. Before mutation, revalidate:
+- fresh remote/canonical control HEAD;
+- canonical clean main;
+- release worktree path/branch;
+- release branch local HEAD exactly `6208266122414db3f3caf5852585eb24ed1b1a71`;
+- release worktree has no tracked or untracked source changes;
+- remote release branch is still absent;
+- diff from the release base contains exactly `RELEASE_NOTES_v0.2.14.md` and `remote-orbit/Packaging/Info.plist`.
 
-Then prove product equivalence between the installed app's stamped source HEAD and current accepted `main`:
-- product/source and packaging behavior must not differ except for later control/documentation-only changes;
-- if the source HEAD is missing/unresolvable, the installed app is not the expected bundle, the executable differs from the running process, or product equivalence is not proven: STOP with no release mutation.
+Then the only newly authorized build-side effect is:
 
-## Phase B — release-candidate preparation, only after Phase A PASS
-Create only:
-- worktree `/private/tmp/remoteorbit-release-v0.2.14-baseline`;
-- branch `codex/release-v0.2.14-baseline` from the fresh control HEAD.
+`./remote-orbit-audio-driver/build-driver.sh`
 
-Allowed repository changes on that branch are limited to:
-1. `remote-orbit/Packaging/Info.plist`
-   - `CFBundleShortVersionString`: `0.2.14`
-   - `CFBundleVersion`: `43`
-2. new `RELEASE_NOTES_v0.2.14.md`
+This may create ignored files under `remote-orbit-audio-driver/build/`. It must not modify tracked or untracked repository source. Do not edit the driver source/build script to make the build pass.
 
-The release notes must describe the accepted dual-receiver baseline and explicitly record the deferred Codex short-mode local-microphone-resume verification issue. Do not claim that deferred behavior is fixed or fully validated.
+Verify the generated driver at minimum:
+- exact path `remote-orbit-audio-driver/build/RemoteOrbitAudio.driver` exists;
+- driver executable exists;
+- driver Bundle ID is recorded;
+- driver executable architecture(s) are recorded;
+- driver executable SHA-256 is recorded;
+- `codesign --verify --deep --strict` passes.
 
-No other product/test/runtime/configuration file may change.
+Then rerun `./remote-orbit/package-app.sh` from the same release candidate commit. Verify at minimum:
+- packaged Bundle ID `com.lost0rz.RemoteOrbit`;
+- version `0.2.14`;
+- build `43`;
+- `RemoteOrbitDiagnosticSourceHead` equals `6208266122414db3f3caf5852585eb24ed1b1a71`;
+- packaged app executable contains `arm64` and `x86_64`;
+- app codesign verification passes;
+- `Contents/Resources/RemoteOrbitAudio.driver` exists;
+- embedded driver executable exists, driver Bundle ID/architectures/SHA-256 are recorded, and embedded driver codesign verification passes.
 
-## Validation
-At minimum:
-- `git diff --check`;
-- focused voice/dual-receiver tests relevant to the accepted baseline;
-- full Swift test suite;
-- `./remote-orbit/run-self-tests.sh`;
-- `./remote-orbit/package-app.sh`;
-- verify packaged app Bundle ID/version/build/source stamp;
-- verify Universal 2 (`arm64` + `x86_64`);
-- `codesign --verify --deep --strict`;
-- verify packaged executable hash is recorded;
-- verify bundled `RemoteOrbitAudio.driver` presence or explicitly report its absence as a release blocker;
-- compare changed paths against the exact allowed two-path manifest.
+After packaging, `git status --porcelain -uall` must remain empty and the committed release diff against the release base/main merge-base must still contain exactly the two authorized release paths. Any product/test/build-script/driver-source/config tracked change is a STOP.
 
-Do not install or launch the newly packaged candidate during this task.
+If all checks pass, push only `codex/release-v0.2.14-baseline`, verify local/remote branch HEAD match, create exactly one PR to `main` titled `Release RemoteOrbit v0.2.14 baseline`, then stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
-## Prior-release pattern
-The previous `v0.2.13` release used branch `codex/release-v0.2.13`, changed only release notes plus `remote-orbit/Packaging/Info.plist`, merged through PR #11, then tagged/released. Follow the same release-only pattern unless current repository evidence proves a newer accepted release procedure.
+## Prohibited
+Do not install the generated driver. Do not run any driver install script. Do not replace `/Applications/RemoteOrbit.app`. Do not launch/restart/kill RemoteOrbit. Do not restart CoreAudio. Do not change TCC/settings/mappings. Do not modify product or test source. Do not create or move tag `v0.2.14`. Do not publish/upload a GitHub Release or DMG. Do not merge the PR. Do not perform lifecycle cleanup or touch protected historical worktrees.
 
-## Deferred known issue — out of scope
-Codex short-press voice mode uses the Mac/local-or-external microphone path; remote long hold takes over with remote audio. The return/resume of local microphone capture after remote hold has not yet been independently accepted. Preserve current behavior unchanged and carry this as a known deferred issue in release notes.
+## Deferred known issue
+Codex short-press Voice Chat local/external microphone capture resumption after remote LONG remains deferred and out of scope. Preserve current behavior unchanged and keep the issue stated in `RELEASE_NOTES_v0.2.14.md`.
 
 ## Stop boundary
-After pushing the release-candidate branch and opening the PR, stop at:
-
-`WAITING_FOR_INDEPENDENT_WEB_AUDIT`
-
-Do not merge the PR, create/push tag `v0.2.14`, publish a GitHub Release, upload a DMG, install the candidate, replace `/Applications/RemoteOrbit.app`, restart the app, modify the audio driver, restart CoreAudio, alter TCC, or perform additional lifecycle cleanup under this task phase.
-
-## Protected objects
-Do not modify, clean, reset, stash, prune, delete, or reuse any of the eight non-canonical protected worktrees retained by Task 034.
+Success stops at `WAITING_FOR_INDEPENDENT_WEB_AUDIT` after branch push and PR creation. Any identity/scope drift, driver build failure, missing embedded driver, signature failure, unexpected repository change, or control-head drift stops before push/PR or at the earliest safe boundary.

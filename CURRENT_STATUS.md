@@ -1,40 +1,42 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-09
-State: TASK 035 ACTIVE / RUNTIME BASELINE RELEASE AUDIT AND PREPARATION
+State: TASK 035 ACTIVE / RELEASE BLOCKER REMEDIATION AUTHORIZED
 Repository: `Lost0rz/RemoteOrbit`
 
-## Authoritative baseline before Task 035
-- Web-verified remote `main`: `8e4bc7a06f2025d5b0abdfca82f68002df95ef7a`.
-- Task 034 is closed and accepted.
-- Remaining registered worktrees after Task 034: 9.
-- Remaining local branches: 24.
-- Remaining live remote `codex/*` branches: 25.
-- The protected dirty/local-unique/forensic/UNKNOWN worktrees recorded by Task 034 remain protected and are out of scope for Task 035.
+## Accepted Phase A / candidate evidence
+Task `RO-RUNTIME-BASELINE-RELEASE-035` has passed installed-runtime identity and product-equivalence verification.
 
-## Release intent
-The user has frozen further product development for now and requested that the currently installed/running RemoteOrbit behavior be verified and promoted to a formal baseline release.
+Accepted local evidence:
+- canonical `main` / `origin/main` before this control transition: `8a2c67d0f0962a1b78bded0b402c69eb5573b79e`, clean;
+- installed/running app: `/Applications/RemoteOrbit.app`, Bundle ID `com.lost0rz.RemoteOrbit`, version `0.2.13`, build `42`;
+- installed source stamp: `f938b919e288a481f5eacaf9aad9c254dcf0cffe`;
+- installed executable SHA-256: `104d4bf0cad8f7316ceea8c8e21568737d3ba3eea0f3c44207107a1159eb850e`;
+- running PID `39949` matched the installed executable;
+- installed stamped source is product-equivalent to current accepted `main`; later changes are control/documentation only;
+- release worktree `/private/tmp/remoteorbit-release-v0.2.14-baseline` exists on branch `codex/release-v0.2.14-baseline`;
+- release candidate commit: `6208266122414db3f3caf5852585eb24ed1b1a71`;
+- candidate changed paths are exactly `RELEASE_NOTES_v0.2.14.md` and `remote-orbit/Packaging/Info.plist`;
+- focused tests PASS; full Swift tests PASS 394/394; self-tests PASS 3/3;
+- packaged candidate identity/version/build/source stamp/Universal-2 app architecture/code signature all passed;
+- candidate packaging stopped because `RemoteOrbitAudio.driver` was absent from the app bundle;
+- release branch was not pushed, no PR was created, and installed runtime/driver were not changed.
 
-The current public release is `v0.2.13` / Build 42. Web verified that `v0.2.14` does not currently exist. Task 035 targets `v0.2.14` / Build 43 only if the installed runtime identity and source-equivalence gates pass.
+## Blocker attribution
+The missing bundled driver is a release-artifact availability blocker, not a product-source regression. `remote-orbit/package-app.sh` bundles `remote-orbit-audio-driver/build/RemoteOrbitAudio.driver` when present. The repository contains `remote-orbit-audio-driver/build-driver.sh`, which rebuilds the driver from pinned BlackHole v0.7.1 source and signs/verifies the generated driver. The generated `**/build/` tree is gitignored.
 
-Task 035 must not change accepted voice behavior. Release preparation is limited to release metadata, release notes, build/package validation, and a release-candidate branch/PR.
+## Authorized remediation
+The user explicitly authorized continuing to解除 this blocker. Task 035 may now, and only in the existing release worktree:
+1. fresh-check canonical/control authority and the exact release candidate commit/scope;
+2. run `remote-orbit-audio-driver/build-driver.sh` to create the ignored release artifact;
+3. verify the built driver identity/signature and that no tracked/untracked repository source changed;
+4. rerun `remote-orbit/package-app.sh`;
+5. verify the packaged app now contains a valid `RemoteOrbitAudio.driver` and re-verify candidate identity/version/build/source stamp/architectures/signature;
+6. re-run the exact two-path release diff gate;
+7. push `codex/release-v0.2.14-baseline` and open the release PR;
+8. stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
-## Deferred known issue — preserve, do not fix in this release
-Codex short-press mode intentionally enables the Mac/local-or-external microphone path for the short voice action. A classified remote long hold takes exclusive control of `RemoteOrbit Mic 2ch` and stops the local capture while remote audio is active. The product intent is to return to the preferred local/external microphone after the remote hold ends, but local microphone capture resumption after that handoff has not yet been independently accepted as a stable runtime contract.
+No driver installation, app installation/replacement, app restart, CoreAudio restart, TCC change, product/test source modification, tag creation, GitHub Release publication, DMG upload, merge, or lifecycle cleanup is authorized.
 
-Classification for Task 035: `KNOWN_DEFERRED / NOT A RELEASE BLOCKER FOR THE CURRENT ACCEPTED BASELINE / DO NOT MODIFY`.
-
-A future single-click/Codex task may verify or correct that handoff. Task 035 must record this in release notes and must not alter the relevant audio or gesture code.
-
-## Task 035 release gate
-Before any release metadata change:
-1. verify canonical repository identity and cleanliness;
-2. verify installed `/Applications/RemoteOrbit.app` identity;
-3. verify the running process identity if RemoteOrbit is running;
-4. record bundle version/build, Bundle ID, `RemoteOrbitDiagnosticSourceHead`, executable SHA-256, architecture and code-signature identity;
-5. prove that the installed runtime source HEAD is product-equivalent to the current accepted `main` product tree, allowing only later control/documentation-only commits;
-6. if identity or product equivalence cannot be proven, STOP before release preparation.
-
-If the gate passes, Task 035 may create exactly one release-candidate worktree/branch `codex/release-v0.2.14-baseline`, change only the version/build metadata and `RELEASE_NOTES_v0.2.14.md`, run the required validation/package build, and open a release PR. It must stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT` before merge, tag creation, GitHub Release publication, or replacement of the installed runtime.
-
-No product source behavior change, driver installation/replacement, CoreAudio restart, TCC change, runtime replacement, hardware gesture testing, lifecycle cleanup, or protected-worktree mutation is authorized by Task 035.
+## Deferred known issue
+Codex short-press Voice Chat local/external microphone capture resume after a remote LONG remains `KNOWN_DEFERRED / DO NOT MODIFY` for this baseline release.
