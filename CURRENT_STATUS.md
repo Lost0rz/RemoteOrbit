@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-09
-State: TASK 036 ACTIVE — GATE B LIFECYCLE CLASSIFICATION
+State: TASK 036 ACTIVE — GATE C PRESERVATION AND RETIREMENT
 Repository: Lost0rz/RemoteOrbit
 
 ## Accepted release baseline
@@ -13,20 +13,23 @@ Repository: Lost0rz/RemoteOrbit
 ## Current repository authority
 - Canonical development path: /Volumes/Jack-Dev/Projects/remoteorbit.
 - Canonical branch: main.
-- origin is https://github.com/Lost0rz/remoteorbit.git.
-- Gate B freshness was verified after fetching origin: the local HEAD, fetched origin/main, and live remote main all matched 7dbd7b39e6e643d5a317d69776b9e2d81006ef83; the canonical worktree was clean.
-- The paired Gate B control transition is a direct child of that verified parent. Its commit is the Gate B control head; the full SHA and post-push live-ref verification are recorded in the external Gate B evidence packet.
+- Verified origin: https://github.com/Lost0rz/remoteorbit.git.
+- Gate C start freshness passed on 2026-10-09: local main, origin/main, and live remote main all equaled 579b35fb5da814fc1f14402807b35fe32dd79828; the canonical worktree was clean.
+- The paired Gate C control transition is a direct child of that Gate B control head. Its resulting SHA and live-ref verification are recorded in the Gate C archive evidence.
+- The accepted Gate C manifest SHA-256 is 4f5e6d8e4aa3496989df7f0a84ce431da1b69d8ba21ff76fb8aca7cad12ff7d9. The exact manifest path is /private/tmp/remoteorbit-lifecycle-closeout-036-gateb-20261009T122025Z/GATE_C_RETIREMENT_MANIFEST.txt.
+- Cleanup authority is limited exactly to the accepted manifest. Preserve, verify, then retire. Any failed preservation proof stops dependent destructive execution.
 
-## Task 036 accepted Gate A inventory
-- Web Gate A audit is accepted as PASS by the Gate B task handoff.
-- Gate A evidence remains at /private/tmp/remoteorbit-lifecycle-closeout-036-gatea-20261009T180031.
-- Inventory totals: 11 registered worktrees (10 noncanonical), 14 Git candidates, 46 non-Git artifact groups, 689 filesystem name matches, 27 live remote branches, and 0 open PRs.
-- Unresolved unique-work risk at Gate A: 3 dirty candidates, 12 distinct candidate-only commits, 2 detached HEAD candidates, and 3 unknown-history candidates. These remain protected until Gate B classification and Gate C preservation proof.
-- Gate A did not classify candidates as disposable.
+## Task 036 accepted gates
+- Gate A inventory and independent web audit: PASS.
+- Gate B classification and independent web audit: PASS.
+- Corrected Gate C manifest and independent web audit: PASS.
+- Gate A evidence source: /private/tmp/remoteorbit-lifecycle-closeout-036-gatea-20261009T180031.
+- Gate B evidence source: /private/tmp/remoteorbit-lifecycle-closeout-036-gateb-20261009T122025Z.
+- Gate C run evidence is written directly under /Volumes/Jack-Dev/Archives/RemoteOrbit/retirement-20261009/manifests/GATE_C/.
 
-## Active task and boundary
+## Active task boundary
 - Task ID: RO-REPOSITORY-LIFECYCLE-CLOSEOUT-036.
-- Phase: ACTIVE — GATE B LIFECYCLE CLASSIFICATION.
-- Gate B classifies all Git candidates, remote branches, and non-Git artifact groups; inspects the specifically named evidence; and produces a Gate C preservation/cleanup design and exact manifest.
-- Gate B does not perform cleanup, archive or move files, create bundles or preservation copies, or execute Gate C.
-- The active authorization, detailed scope, required evidence, and stop conditions are in CURRENT_TASK.md.
+- Phase: ACTIVE — GATE C PRESERVATION AND RETIREMENT.
+- Preserve all required history, dirty work, and forensic/release evidence before exact manifest-authorized retirement.
+- No product, test, runtime, packaging, or unrelated repository work is authorized.
+- Task 036 remains open after execution and awaits the independent web Gate C closeout audit.
