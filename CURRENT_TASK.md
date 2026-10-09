@@ -1,64 +1,40 @@
 # RemoteOrbit Current Task
 
-## Current task — RUNTIME BASELINE RELEASE BLOCKER REMEDIATION
+## Current task — RUNTIME BASELINE RELEASE WEB AUDIT
 
-- **Status:** ACTIVE / BUILD BUNDLED DRIVER ARTIFACT, REPACKAGE, THEN PUSH PR
+- **Status:** WEB AUDIT PASS / WAITING FOR USER RELEASE AUTHORIZATION
 - **Task ID:** `RO-RUNTIME-BASELINE-RELEASE-035`
-- **Control parent:** `8a2c67d0f0962a1b78bded0b402c69eb5573b79e`
+- **Control parent:** `73be7edb38522a19880c76c01897c20ade3afeaa`
 - **Canonical path:** `/Volumes/Jack-Dev/Projects/remoteorbit`
 - **Release target:** `v0.2.14` / Build `43`
-- **Authorized release branch:** `codex/release-v0.2.14-baseline`
-- **Authorized release worktree:** `/private/tmp/remoteorbit-release-v0.2.14-baseline`
-- **Existing release candidate commit:** `6208266122414db3f3caf5852585eb24ed1b1a71`
+- **Release branch:** `codex/release-v0.2.14-baseline`
+- **Release commit:** `6208266122414db3f3caf5852585eb24ed1b1a71`
+- **Release PR:** `#21`
 
-## Accepted evidence before remediation
-Phase A runtime/source equivalence is accepted. The installed/running `0.2.13 (42)` app stamped from `f938b919e288a481f5eacaf9aad9c254dcf0cffe` is product-equivalent to current accepted main. The release candidate changed exactly two paths, passed focused tests, 394/394 full Swift tests, 3/3 self-tests, packaging identity/version/build/source-stamp/Universal-2/codesign checks, then stopped because the packaged app did not contain `RemoteOrbitAudio.driver`.
+## Accepted execution evidence
+Task 035 verified that the installed/running `0.2.13 (42)` app stamped from `f938b919e288a481f5eacaf9aad9c254dcf0cffe` is product-equivalent to the accepted main product tree. Release preparation changed only `RELEASE_NOTES_v0.2.14.md` and `remote-orbit/Packaging/Info.plist`.
 
-No release branch push, PR, merge, tag, GitHub Release, installation, runtime replacement, or driver change has occurred.
+The release candidate passed the focused voice suites, 394/394 full Swift tests, 3/3 self-tests, packaging identity/version/build/source-stamp checks, Universal-2 architecture verification and app codesign. The missing bundled-driver blocker was then remediated only by building the ignored `remote-orbit-audio-driver/build/RemoteOrbitAudio.driver` artifact from the existing pinned build script; the driver was not installed. Repackaging then embedded the driver successfully and its Bundle ID, architectures and codesign verified.
 
-## Authorized blocker remediation
-Use only the existing release worktree and existing release candidate commit. Before mutation, revalidate:
-- fresh remote/canonical control HEAD;
-- canonical clean main;
-- release worktree path/branch;
-- release branch local HEAD exactly `6208266122414db3f3caf5852585eb24ed1b1a71`;
-- release worktree has no tracked or untracked source changes;
-- remote release branch is still absent;
-- diff from the release base contains exactly `RELEASE_NOTES_v0.2.14.md` and `remote-orbit/Packaging/Info.plist`.
+The release worktree remained clean after packaging and the committed release HEAD remained `6208266122414db3f3caf5852585eb24ed1b1a71`. The branch was pushed and PR #21 was created against `main`.
 
-Then the only newly authorized build-side effect is:
+## Independent Web audit result
+PASS.
 
-`./remote-orbit-audio-driver/build-driver.sh`
-
-This may create ignored files under `remote-orbit-audio-driver/build/`. It must not modify tracked or untracked repository source. Do not edit the driver source/build script to make the build pass.
-
-Verify the generated driver at minimum:
-- exact path `remote-orbit-audio-driver/build/RemoteOrbitAudio.driver` exists;
-- driver executable exists;
-- driver Bundle ID is recorded;
-- driver executable architecture(s) are recorded;
-- driver executable SHA-256 is recorded;
-- `codesign --verify --deep --strict` passes.
-
-Then rerun `./remote-orbit/package-app.sh` from the same release candidate commit. Verify at minimum:
-- packaged Bundle ID `com.lost0rz.RemoteOrbit`;
-- version `0.2.14`;
-- build `43`;
-- `RemoteOrbitDiagnosticSourceHead` equals `6208266122414db3f3caf5852585eb24ed1b1a71`;
-- packaged app executable contains `arm64` and `x86_64`;
-- app codesign verification passes;
-- `Contents/Resources/RemoteOrbitAudio.driver` exists;
-- embedded driver executable exists, driver Bundle ID/architectures/SHA-256 are recorded, and embedded driver codesign verification passes.
-
-After packaging, `git status --porcelain -uall` must remain empty and the committed release diff against the release base/main merge-base must still contain exactly the two authorized release paths. Any product/test/build-script/driver-source/config tracked change is a STOP.
-
-If all checks pass, push only `codex/release-v0.2.14-baseline`, verify local/remote branch HEAD match, create exactly one PR to `main` titled `Release RemoteOrbit v0.2.14 baseline`, then stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
-
-## Prohibited
-Do not install the generated driver. Do not run any driver install script. Do not replace `/Applications/RemoteOrbit.app`. Do not launch/restart/kill RemoteOrbit. Do not restart CoreAudio. Do not change TCC/settings/mappings. Do not modify product or test source. Do not create or move tag `v0.2.14`. Do not publish/upload a GitHub Release or DMG. Do not merge the PR. Do not perform lifecycle cleanup or touch protected historical worktrees.
+Web independently verified:
+- PR #21 is OPEN, non-draft and mergeable;
+- base is `main`;
+- head is `codex/release-v0.2.14-baseline` at `6208266122414db3f3caf5852585eb24ed1b1a71`;
+- PR contains one commit and exactly two changed files;
+- the only changed paths are `RELEASE_NOTES_v0.2.14.md` and `remote-orbit/Packaging/Info.plist`;
+- `Info.plist` changes only `0.2.13 -> 0.2.14` and `42 -> 43`;
+- release notes accurately describe the accepted dual-receiver baseline and explicitly preserve the unresolved Codex short-mode local-microphone-resume issue as deferred, not fixed or validated;
+- no GitHub commit status checks are currently reported for the release commit.
 
 ## Deferred known issue
-Codex short-press Voice Chat local/external microphone capture resumption after remote LONG remains deferred and out of scope. Preserve current behavior unchanged and keep the issue stated in `RELEASE_NOTES_v0.2.14.md`.
+Codex short Voice Chat local/external microphone capture resumption after remote LONG remains deferred and out of scope. v0.2.14 must not claim this behavior is fixed or independently accepted.
 
-## Stop boundary
-Success stops at `WAITING_FOR_INDEPENDENT_WEB_AUDIT` after branch push and PR creation. Any identity/scope drift, driver build failure, missing embedded driver, signature failure, unexpected repository change, or control-head drift stops before push/PR or at the earliest safe boundary.
+## Current stop boundary
+WAITING FOR USER RELEASE AUTHORIZATION.
+
+Do not merge PR #21, create/move tag `v0.2.14`, publish a GitHub Release, upload a DMG, install/replace `/Applications/RemoteOrbit.app`, install/replace the audio driver, restart RemoteOrbit/CoreAudio, change TCC/settings/mappings, modify product/test source, or perform lifecycle cleanup unless a new explicitly authorized release transition is recorded in `CURRENT_STATUS.md` and `CURRENT_TASK.md` together.
