@@ -1,28 +1,30 @@
 # RemoteOrbit Current Task
 
-## Task closeout — FINAL v0.2.14 PUBLICATION
+## Task closeout — v0.2.14 PUBLICATION
 
-- **Status:** COMPLETE / PUBLISHED / READY FOR WEB CLOSEOUT
+- **Status:** CLOSED / PUBLISHED / WEB ACCEPTED
 - **Task ID:** `RO-RUNTIME-BASELINE-RELEASE-035`
-- **Publication control baseline:** `0d13e64df2b7aa1f191edf20d34b4152ce52c31f`
 - **Canonical path:** `/Volumes/Jack-Dev/Projects/remoteorbit`
-- **Release target:** `v0.2.14` / Build `43`
-- **Release tag target:** `46dc94f58e67d5da38420047f009d3f311321108`
-- **Merged PR:** `#21`
-- **Merge commit:** `46dc94f58e67d5da38420047f009d3f311321108`
+- **Release:** `v0.2.14` / Build `43`
+- **Release PR:** `#21` — CLOSED / MERGED
+- **Release merge commit:** `46dc94f58e67d5da38420047f009d3f311321108`
+- **Release tag:** `v0.2.14`
+- **Public release:** https://github.com/Lost0rz/RemoteOrbit/releases/tag/v0.2.14
 
-## Completed result
-- Annotated tag `v0.2.14` was pushed; its peeled remote target is the exact merge commit above.
-- Public GitHub Release: https://github.com/Lost0rz/RemoteOrbit/releases/tag/v0.2.14
-- Release name: `RemoteOrbit v0.2.14`; draft: NO; prerelease: NO.
-- Asset `RemoteOrbit-0.2.14.dmg`: 5,928,820 bytes; SHA-256 `6f45831c6cc1d0fcca71e7d7db6b85e6c0864cc778a1fac730921a0eaa0bc9fa` (local and GitHub digest match).
-- DMG integrity: `hdiutil verify` PASS.
-- Packaged app: `com.lost0rz.RemoteOrbit`, version `0.2.14`, build `43`, exact source stamp, Universal 2, codesign PASS.
-- Bundled audio driver: present, Universal 2, codesign PASS.
-- Product/test source edits: NONE. Installation/replacement: NONE.
-- PR #21 validation carried forward: focused voice suites PASS, full Swift suite 394/394 PASS, self-tests 3/3 PASS. No test suites were rerun for publication.
+## Final accepted result
+- Annotated tag `v0.2.14` peels exactly to `46dc94f58e67d5da38420047f009d3f311321108`.
+- Release asset `RemoteOrbit-0.2.14.dmg` is public, 5,928,820 bytes, SHA-256 `6f45831c6cc1d0fcca71e7d7db6b85e6c0864cc778a1fac730921a0eaa0bc9fa`.
+- Local and remote asset digest/size match; DMG verification passed.
+- Packaged app is `com.lost0rz.RemoteOrbit`, version `0.2.14`, build `43`, stamped from the exact release merge commit, Universal 2, codesign PASS.
+- Bundled `RemoteOrbitAudio.driver` is present, Universal 2, codesign PASS.
+- Accepted validation carried forward: focused voice suites PASS, Swift 394/394 PASS, self-tests 3/3 PASS.
+- No product/test source changes or installed runtime/driver replacement occurred during publication.
 
-## Handoff and boundary
-Task 035 is closed. Web closeout is ready using the public Release URL and asset digest above. The verified publication worktree `/private/tmp/remoteorbit-v0.2.14-publish` remains detached at the merge commit and clean so the artifact remains available; no cleanup is authorized here.
+## Web closeout
+Independent Web audit verified the public release metadata, asset digest/size, annotated tag object and peeled target. Task 035 is complete and closed.
 
-The deferred Codex short Voice Chat local/external microphone capture resumption after remote LONG remains unfixed and not independently accepted.
+## Deferred issue retained
+Codex short Voice Chat local/external microphone capture resumption after remote LONG remains deferred, unfixed and not independently accepted.
+
+## Boundary
+No further action is authorized under Task 035. The retained publication worktree and any historical/tag cleanup require a separate lifecycle task. Further product changes require a new task/control transition.
