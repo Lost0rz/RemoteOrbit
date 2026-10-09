@@ -1,16 +1,38 @@
 # RemoteOrbit Current Task
 
-## Current task — CANONICAL LEGACY HID PRESERVATION RECONCILIATION
+## Current task — CANONICAL LEGACY HID PRESERVATION CLOSEOUT
 
-- **Status:** ACTIVE / PRESERVE FIRST
+- **Status:** CLOSED / CANONICAL MAIN CLEAN
 - **Task ID:** `RO-CANONICAL-HID-PRESERVATION-030`
-- **Control parent:** `9c3b0e4446ac89d34ec0c7ee7cb3da18c0e961c5`
-- **Canonical branch:** `codex/v0211-nonseize-hid-audit`
-- **Canonical HEAD:** `48a6d54ffa1a2798ac9ac760673d6406cec6bf12`
-- **Target:** `remote-orbit/Sources/RemoteOrbit/KeyMapping/HIDMonitor.swift`
+- **Control parent:** `59675e770a22e761c9208c7b5adcbc9e7291b39a`
+- **Canonical path:** `/Volumes/Jack-Dev/Projects/remoteorbit`
+- **Final canonical branch:** `main`
+- **Final canonical HEAD:** `59675e770a22e761c9208c7b5adcbc9e7291b39a`
 
-Goal: preserve the exact historical working content and patch outside the repository, verify hashes and reconstruction from historical HEAD, then reconcile the canonical checkout to current authoritative `main`. The historical media-suppression behavior is evidence only and must not be reintegrated.
+## Final evidence
+```text
+LOCAL_REMOTE_MAIN_MATCH: YES
+CANONICAL_CLEAN: YES
+RECONSTRUCTION_MATCH: YES
+HISTORICAL_DIRTY_PATH_CLEARED: YES
+LOCAL_HISTORICAL_BRANCH_REMOVED: YES
+REMOTE_HISTORICAL_BRANCH_EXISTS: NO
+UNIQUE_WORK_PRESERVED: YES
+UNIQUE_WORK_LOST: NO
+PRODUCT_SOURCE_CHANGED: NO
+TEST_SOURCE_CHANGED: NO
+RUNTIME_CHANGED: NO
+```
 
-Stop on remote-main drift, additional dirty paths, hash mismatch, failed reconstruction, or containment failure. No product/runtime behavior change and no unrelated worktree/branch cleanup are authorized.
+Preserved forensic archive:
+`/Volumes/Jack-Dev/Projects/_forensics/RemoteOrbit/2026-10-09-v0211-nonseize-hid-audit`
 
-Completion evidence must report the preservation location and hashes, reconstruction result, final canonical branch/HEAD/clean state, and whether the historical local branch remains.
+Hashes:
+- archived working SHA-256: `fd84bef76c5db39c51b085285283ccd733a19260db2c1bf4796901bcf6337a1a`
+- archived patch SHA-256: `9edd71c35f0118a94f37b716b919576ed330b19766e46eb1b6c7bf2f9f996f9d`
+- reconstructed SHA-256: `fd84bef76c5db39c51b085285283ccd733a19260db2c1bf4796901bcf6337a1a`
+
+The historical global media-suppression behavior is superseded forensic evidence only and must not be reintegrated into current main.
+
+## Next boundary
+This task authorizes no further cleanup. The reported remaining 28 worktrees and 30 remote `codex/*` branches require a separate read-only lifecycle inventory and classification before any deletion. Do not bulk-delete, prune, force-remove, or infer staleness from age/name/count alone.
