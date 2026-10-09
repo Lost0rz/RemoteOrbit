@@ -1,30 +1,33 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-09
-State: SET B INTERNAL RELEASE COMPLETE / EXTERNAL RECEIVER DIVERGENCE / EXTERNAL SEMANTICS GATE
+State: RECEIVER B EXTERNAL SEMANTICS GATE PASSED / REMOTEORBIT REPLAY NOT EXTERNALLY EQUIVALENT
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Authority
-- Previous control HEAD: `b8ca994e102e441ad9ad4b6f98b3a72f931ca79e`.
+- Previous control HEAD: `a75131519085f222a4c7e8f1a613e38a2e191858`.
 - Corrective branch: `codex/dual-receiver-mic-debounce-corrective` at `458e28d91b5ff748613bb88f5b89212d660279c7`.
 - Installed product source: `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8`.
 - Merge remains forbidden.
 
 ## Accepted facts
 - Set A remains accepted 5/5.
-- Corrective 024 fixed the legacy 180 ms microphone debounce conflict for active dual mode.
-- Fresh Set-B retry contains a true B transaction: second DOWN 140.400083 ms after first UP; B was already ready; mapped Right Option entered HardwareOptionGate; B classified; first PCM preceded B DOWN replay.
-- Physical second UP was observed and emitted.
-- Mapped B UP was observed; HardwareOptionGate physical-up ownership, output drain, B-UP release after drain, gate close and `MOMENTARY_COMPLETE` all completed.
-- B->A mapping/filter restoration succeeded and A readback matched.
-- Normal synthetic trigger edge count remained zero.
+- Corrective 024 fixed the active-dual microphone legacy-debounce conflict.
+- Task 025 proved a true Receiver-B transaction completed internally: mapped Right Option entered HardwareOptionGate; B classified; first PCM preceded B DOWN replay; physical UP and mapped B UP were observed; output drain, B-UP release, gate close, `MOMENTARY_COMPLETE`, and B->A restore all completed; normal synthetic trigger edge count remained zero.
+- The user nevertheless observed Receiver B remain open after RemoteOrbit's completed internal release transaction.
+- Task 026 direct keyboard test now proves Receiver B itself has the intended momentary semantics: physical Right Option hold opens B and physical Right Option release immediately ends B.
 
-Decision: `INTERNAL_B_RELEASE_COMPLETE`.
+## Decision
+`REMOTEORBIT_REPLAY_NOT_EXTERNALLY_EQUIVALENT_TO_PHYSICAL_RIGHT_OPTION` is established.
 
-## Remaining incident
-The user reports Receiver B remained open after RemoteOrbit completed the entire internal B release transaction. This is an internal/external state divergence. Current evidence does not prove why the external receiver stayed open.
+The current evidence rules out Receiver-B shortcut semantics/configuration as the explanation and rules out an incomplete RemoteOrbit transaction as the observed internal failure. The unresolved boundary is the externally visible shape/timing of RemoteOrbit's captured/replayed Right Option DOWN/UP versus a real physical Right Option press/release.
 
-Do not modify RemoteOrbit release/drain, mapping, HardwareOptionGate, BLE, gesture timing or synthetic trigger policy without new causal evidence.
+Do not modify gesture timing, debounce, BLE, mapping authority, HardwareOptionGate lifecycle, release/drain timing, or Receiver-B settings without a new authorized task and direct evidence.
 
-## Next boundary
-Run an external Receiver-B shortcut semantics gate before any new product change. The minimum user action is a direct physical Right Option hold/release test against Receiver B, without using the remote gesture. This distinguishes receiver/shortcut semantics from RemoteOrbit replay equivalence.
+## Next recommended investigation
+A future read-only task should compare the exact CGEvent/event-tap characteristics of:
+
+1. a direct physical Right Option hold/release that opens and closes Receiver B; and
+2. the RemoteOrbit B transaction's captured/replayed mapped Right Option DOWN/UP.
+
+Compare event type, key code, flags before/after modifier transition, source PID/state, timestamp, event source/user-data marker, replay tap, and ordering relative to B->A mapping restoration. No product mutation is authorized by this status file.
