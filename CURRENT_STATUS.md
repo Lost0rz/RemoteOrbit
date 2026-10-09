@@ -1,53 +1,40 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-09
-State: TASK 034 CLOSED / AIR TEMP WORKTREE RETIREMENT ACCEPTED / PROTECTED HISTORY REMAINS
+State: TASK 035 ACTIVE / RUNTIME BASELINE RELEASE AUDIT AND PREPARATION
 Repository: `Lost0rz/RemoteOrbit`
 
-## Accepted Task 034 result
-Task `RO-AIR-TEMP-WORKTREE-RETIREMENT-BATCH3-034` completed the authorized worktree-only cleanup.
+## Authoritative baseline before Task 035
+- Web-verified remote `main`: `8e4bc7a06f2025d5b0abdfca82f68002df95ef7a`.
+- Task 034 is closed and accepted.
+- Remaining registered worktrees after Task 034: 9.
+- Remaining local branches: 24.
+- Remaining live remote `codex/*` branches: 25.
+- The protected dirty/local-unique/forensic/UNKNOWN worktrees recorded by Task 034 remain protected and are out of scope for Task 035.
 
-Accepted local executor evidence:
-- canonical path: `/Volumes/Jack-Dev/Projects/remoteorbit`;
-- control/origin/canonical HEAD before this Web closeout commit: `341bcd54b434118a7993e7f8d0d43a37bedf33ac`;
-- canonical clean: YES;
-- exact authorized `/private/tmp` worktrees removed: 14 / 14;
-- skipped due to active use: 0;
-- skipped due to drift: 0;
-- registered worktree count after removal: 9;
-- local branch count after removal: 24;
-- live remote `codex/*` branch count after removal: 25;
-- local branches deleted: 0;
-- remote branches deleted: 0;
-- protected objects modified: NO;
-- product/test/runtime changes: NO.
+## Release intent
+The user has frozen further product development for now and requested that the currently installed/running RemoteOrbit behavior be verified and promoted to a formal baseline release.
 
-Web independently revalidated after the executor receipt that remote `main` remained at the Task-034 authority HEAD and the live remote branch inventory still contains the retained branch history, including the branches backing all fourteen retired worktrees.
+The current public release is `v0.2.13` / Build 42. Web verified that `v0.2.14` does not currently exist. Task 035 targets `v0.2.14` / Build 43 only if the installed runtime identity and source-equivalence gates pass.
 
-## Lifecycle meaning
-Task 034 retired only physical Air `/private/tmp` worktree checkouts. It did not classify the retained branch histories as merged, obsolete, or safe to delete. Worktree retirement and branch/history retirement remain separate lifecycle decisions.
+Task 035 must not change accepted voice behavior. Release preparation is limited to release metadata, release notes, build/package validation, and a release-candidate branch/PR.
 
-## Remaining registered worktree population
-The remaining nine registered worktrees are protected until separately dispositioned:
+## Deferred known issue — preserve, do not fix in this release
+Codex short-press mode intentionally enables the Mac/local-or-external microphone path for the short voice action. A classified remote long hold takes exclusive control of `RemoteOrbit Mic 2ch` and stops the local capture while remote audio is active. The product intent is to return to the preferred local/external microphone after the remote hold ends, but local microphone capture resumption after that handoff has not yet been independently accepted as a stable runtime contract.
 
-### Canonical
-- `/Volumes/Jack-Dev/Projects/remoteorbit` — canonical active repository.
+Classification for Task 035: `KNOWN_DEFERRED / NOT A RELEASE BLOCKER FOR THE CURRENT ACCEPTED BASELINE / DO NOT MODIFY`.
 
-### Dirty / local-unique
-- `/Volumes/Jack-Dev/Projects/remoteorbit-p0-voice-experiment` — tracked changes, untracked files, and unique local history.
-- `/Volumes/Jack-Dev/Projects/remoteorbit-voice-p0-final` — tracked changes and untracked files.
-- `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a5` — untracked files and unique local history.
-- `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p0` — clean worktree with unique local history not preserved by a live remote branch.
-- `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a3` — clean worktree with unique local history not preserved by a live remote branch.
-- `/Volumes/Jack-Dev/Projects/remoteorbit-audio-p1-a4` — clean worktree with unique local history not preserved by a live remote branch.
+A future single-click/Codex task may verify or correct that handoff. Task 035 must record this in release notes and must not alter the relevant audio or gesture code.
 
-### Forensic
-- `/Volumes/Jack-Dev/Projects/RemoteOrbit-flight-recorder` — `FORENSIC_RETAIN`, detached worktree with unique history.
+## Task 035 release gate
+Before any release metadata change:
+1. verify canonical repository identity and cleanliness;
+2. verify installed `/Applications/RemoteOrbit.app` identity;
+3. verify the running process identity if RemoteOrbit is running;
+4. record bundle version/build, Bundle ID, `RemoteOrbitDiagnosticSourceHead`, executable SHA-256, architecture and code-signature identity;
+5. prove that the installed runtime source HEAD is product-equivalent to the current accepted `main` product tree, allowing only later control/documentation-only commits;
+6. if identity or product equivalence cannot be proven, STOP before release preparation.
 
-### Unknown
-- `/private/tmp/remoteorbit-persistent-long-primary-failure-attribution` — retained `UNKNOWN`; remote-backed history exists but forensic disposition remains unresolved.
+If the gate passes, Task 035 may create exactly one release-candidate worktree/branch `codex/release-v0.2.14-baseline`, change only the version/build metadata and `RELEASE_NOTES_v0.2.14.md`, run the required validation/package build, and open a release PR. It must stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT` before merge, tag creation, GitHub Release publication, or replacement of the installed runtime.
 
-## Branch/history state
-Twenty-four local branches and twenty-five live remote `codex/*` branches remain. Their existence is intentional preservation after Task 034, not proof that they are active development authorities.
-
-No additional branch deletion, worktree deletion, pruning, reset/clean/stash, product/test/runtime/settings/mapping/build/install/hardware action is authorized by this closed task.
+No product source behavior change, driver installation/replacement, CoreAudio restart, TCC change, runtime replacement, hardware gesture testing, lifecycle cleanup, or protected-worktree mutation is authorized by Task 035.
