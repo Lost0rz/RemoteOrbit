@@ -1,3 +1,4 @@
+import CoreGraphics
 import XCTest
 @testable import RemoteOrbit
 
@@ -311,7 +312,7 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
         XCTAssertTrue(harness.triggerEdges.isEmpty)
     }
 
-    func testCompletedBLongRestoresAOnlyAfterHeldMappedUpOwnershipCloses() throws {
+    func testPendingReplayedHardwareUpBlocksPrimaryRestore() throws {
         let harness = makeHarness()
 
         harness.edge(isDown: true, at: 1_350.0)
@@ -328,6 +329,7 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
 
         let sessionID = try XCTUnwrap(harness.voicePress.currentGestureIDForDiagnostics)
         harness.edge(isDown: false, at: 1_350.600)
+        XCTAssertTrue(harness.captureMappedHardwareOptionUp())
         harness.voicePress.setRemoteStreaming(false)
         XCTAssertEqual(
             harness.controller.dualReceiverMappedTriggerState.phase,
@@ -344,6 +346,22 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
         XCTAssertEqual(harness.mappingApplyKeys, [.leftOption, .rightOption])
 
         harness.completeOutputDrain(for: sessionID)
+        XCTAssertTrue(harness.hardwareGateIsActive)
+        XCTAssertEqual(harness.controller.dualReceiverMappedTriggerState.phase,
+                       .secondaryActive(gestureID: sessionID))
+        XCTAssertEqual(harness.mappingApplyKeys, [.leftOption, .rightOption])
+        XCTAssertFalse(harness.controller.voiceTriggerReconfigurationInProgress)
+        XCTAssertFalse(harness.controller.filter.shouldSuppressDuringVoiceTriggerReconfiguration(
+            keyCode: VoiceTriggerKey.rightOption.cgKeyCode
+        ))
+
+        var mainQueueHandoffCompleted = false
+        DispatchQueue.main.async { mainQueueHandoffCompleted = true }
+        XCTAssertTrue(waitUntil(timeout: 2) { mainQueueHandoffCompleted })
+        XCTAssertEqual(harness.mappingApplyKeys, [.leftOption, .rightOption])
+
+        let replayedUp = try XCTUnwrap(harness.replayedHardwareOptionUpEvents.first)
+        XCTAssertTrue(harness.acknowledgeReplayedHardwareOptionUp(replayedUp))
         XCTAssertFalse(harness.hardwareGateIsActive)
         XCTAssertTrue(waitUntil(timeout: 2) {
             harness.controller.dualReceiverMappedTriggerState.phase == .primaryReady
@@ -356,6 +374,38 @@ final class DualReceiverVoiceTransactionTests: XCTestCase {
         )
         XCTAssertEqual(harness.controller.filter.voiceTriggerKey, .leftOption)
         XCTAssertTrue(harness.triggerEdges.isEmpty)
+    }
+
+    func testHIDRemovalInvalidatesPendingReplayedHardwareUp() throws {
+        let harness = makeHarness()
+        harness.edge(isDown: true, at: 1_450.0)
+        harness.edge(isDown: false, at: 1_450.050)
+        awaitSecondaryReady(harness)
+        harness.edge(isDown: true, at: 1_450.200)
+        XCTAssertTrue(harness.captureMappedOptionEdge(.down))
+        harness.scheduler.advance(to: 1_450.550)
+        harness.voicePress.setRemoteAudioAvailable()
+
+        let sessionID = try XCTUnwrap(harness.voicePress.currentGestureIDForDiagnostics)
+        harness.edge(isDown: false, at: 1_450.600)
+        XCTAssertTrue(harness.captureMappedHardwareOptionUp())
+        harness.voicePress.setRemoteStreaming(false)
+        harness.completeOutputDrain(for: sessionID)
+        let replayedUp = try XCTUnwrap(harness.replayedHardwareOptionUpEvents.first)
+        XCTAssertEqual(
+            harness.controller.filter.pendingReplayedHardwareOptionUpGestureID,
+            sessionID
+        )
+
+        harness.controller.cancelDualReceiverGestureStateForHIDRemoval()
+
+        XCTAssertNil(harness.controller.filter.pendingReplayedHardwareOptionUpGestureID)
+        XCTAssertFalse(harness.hardwareGateIsActive)
+        XCTAssertFalse(harness.acknowledgeReplayedHardwareOptionUp(replayedUp))
+        XCTAssertEqual(
+            harness.controller.dualReceiverVoiceMode,
+            .unavailable(.rawHIDUnavailable)
+        )
     }
 
     func testSecondLongHoldClassifiesBAndActivatesAt350Milliseconds() {
@@ -613,6 +663,7 @@ private final class DualReceiverVoiceTransactionHarness {
     private(set) var hardwareGateOutputDrainedCount = 0
     private var outputDrainCompletions: [UUID: () -> Void] = [:]
     private var filter: VoiceKeyFilter!
+    private let replayRecorder: TransactionHardwareReplayPostRecorder
 
     var triggerEdges: [String] { triggerRecorder.events }
     func captureMappedOptionEdge(_ edge: HardwareOptionEdge) -> Bool {
@@ -624,8 +675,20 @@ private final class DualReceiverVoiceTransactionHarness {
         return mappingApplyKeysStorage
     }
     var hardwareGateIsActive: Bool { filter.hasActiveHardwareTriggerOwnership }
+    var replayedHardwareOptionUpEvents: [CGEvent] { replayRecorder.events }
     var remoteRouted: Bool {
         voicePress.diagnosticStateFields["remote_routed"] as? Bool ?? false
+    }
+    func captureMappedHardwareOptionUp() -> Bool {
+        guard let event = CGEvent(
+            keyboardEventSource: nil,
+            virtualKey: VoiceTriggerKey.rightOption.cgKeyCode,
+            keyDown: false
+        ) else { return false }
+        return filter.captureHeldHardwareOptionUpEvent(event, type: event.type) == .captured
+    }
+    func acknowledgeReplayedHardwareOptionUp(_ event: CGEvent) -> Bool {
+        filter.acknowledgeReplayedHardwareOptionUpIfExpected(event, type: event.type)
     }
 
     init(mappingApplyDelay: TimeInterval = 0) {
@@ -638,8 +701,11 @@ private final class DualReceiverVoiceTransactionHarness {
             monotonicNow: { [scheduler] in scheduler.now },
             schedule: { [scheduler] delay, work in scheduler.schedule(delay: delay, work: work) }
         )
+        let replayRecorder = TransactionHardwareReplayPostRecorder()
+        self.replayRecorder = replayRecorder
         filter = VoiceKeyFilter(
             syntheticOptionTrigger: trigger,
+            replayEventPoster: { replayRecorder.append($0) },
             emitEmergencyHardwareOptionUp: { _ in }
         )
         controller = nil
@@ -707,6 +773,21 @@ private final class DualReceiverVoiceTransactionHarness {
     func completeOutputDrain(for sessionID: UUID) {
         let completion = outputDrainCompletions.removeValue(forKey: sessionID)
         completion?()
+    }
+}
+
+private final class TransactionHardwareReplayPostRecorder {
+    private let lock = NSLock()
+    private var storage: [CGEvent] = []
+    var events: [CGEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+    func append(_ event: CGEvent) {
+        lock.lock()
+        storage.append(event)
+        lock.unlock()
     }
 }
 

@@ -2027,6 +2027,12 @@ final class VoicePressCoordinator {
 // MARK: - F5 → Option hold filter (CGEvent tap)
 
 final class VoiceKeyFilter {
+    enum HeldHardwareOptionUpCaptureDecision: Equatable {
+        case captured
+        case suppressed
+        case pass
+    }
+
     enum FilterError: LocalizedError {
         case accessibilityDenied
         case tapCreationFailed
@@ -2047,6 +2053,24 @@ final class VoiceKeyFilter {
     private let syntheticOptionTrigger: VoiceOptionTrigger
     private let diagnosticLogger: VoiceDiagnosticLogger?
     private let emitEmergencyHardwareOptionUp: (VoiceTriggerKey) -> Void
+    private let replayEventPoster: (CGEvent) -> Void
+    private struct ReplayedHardwareOptionUpFingerprint: Hashable {
+        let keyCode: CGKeyCode
+        let eventTypeRawValue: UInt32
+        let timestamp: CGEventTimestamp
+
+        init(keyCode: CGKeyCode, eventType: CGEventType, timestamp: CGEventTimestamp) {
+            self.keyCode = keyCode
+            eventTypeRawValue = eventType.rawValue
+            self.timestamp = timestamp
+        }
+    }
+    private struct PendingReplayedHardwareOptionUp {
+        let gestureID: UUID
+        let key: VoiceTriggerKey
+        var remainingComponents: Set<ReplayedHardwareOptionUpFingerprint>
+    }
+    private var pendingReplayedHardwareOptionUp: PendingReplayedHardwareOptionUp?
     private(set) var momentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
     /// Compatibility alias for callers that historically meant the mapped
     /// remote-microphone key.
@@ -2066,10 +2090,15 @@ final class VoiceKeyFilter {
     var suppressedHardwareTriggerSessionID: UUID? {
         optionGate.suppressedSessionID
     }
+    var pendingReplayedHardwareOptionUpGestureID: UUID? {
+        pendingReplayedHardwareOptionUp?.gestureID
+    }
+    var onReplayedHardwareOptionUpPassAcknowledged: ((UUID) -> Void)?
     var hasActiveHardwareTriggerOwnership: Bool {
         optionGate.activeSessionID != nil
             || optionGate.suppressedSessionID != nil
             || heldHardwareOptionSessionID != nil
+            || pendingReplayedHardwareOptionUp != nil
             || hardwareOptionReleaseArmed
             || !heldHardwareOptionUpEvents.isEmpty
             || voiceKeyIsDown
@@ -2103,12 +2132,16 @@ final class VoiceKeyFilter {
     init(
         syntheticOptionTrigger: VoiceOptionTrigger = .shared,
         diagnosticLogger: VoiceDiagnosticLogger? = nil,
+        replayEventPoster: @escaping (CGEvent) -> Void = {
+            $0.post(tap: .cghidEventTap)
+        },
         emitEmergencyHardwareOptionUp: @escaping (VoiceTriggerKey) -> Void = {
             Key.voiceTriggerUp($0)
         }
     ) {
         self.syntheticOptionTrigger = syntheticOptionTrigger
         self.diagnosticLogger = diagnosticLogger
+        self.replayEventPoster = replayEventPoster
         self.emitEmergencyHardwareOptionUp = emitEmergencyHardwareOptionUp
     }
 
@@ -2191,6 +2224,93 @@ final class VoiceKeyFilter {
         copied: Bool
     ) -> Bool {
         captureDeferredHardwareOptionEdge(edge, copied: copied, copiedEvent: nil)
+    }
+
+    @discardableResult
+    func captureHeldHardwareOptionUpEvent(
+        _ event: CGEvent,
+        type: CGEventType
+    ) -> HeldHardwareOptionUpCaptureDecision {
+        guard heldHardwareOptionSessionID != nil,
+              hardwareOptionReleaseArmed,
+              CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+                == momentaryVoiceTriggerKey.cgKeyCode else {
+            return .pass
+        }
+
+        switch type {
+        case .flagsChanged:
+            guard !isTriggerModifierActive(flags: event.flags),
+                  !heldHardwareOptionFlagsUpSeen else {
+                return .suppressed
+            }
+            heldHardwareOptionFlagsUpSeen = true
+        case .keyUp:
+            guard !heldHardwareOptionKeyUpSeen else { return .suppressed }
+            heldHardwareOptionKeyUpSeen = true
+        default:
+            return .pass
+        }
+
+        if let copiedEvent = event.copy() {
+            heldHardwareOptionUpEvents.append(copiedEvent)
+        }
+        return .captured
+    }
+
+    /// A copied hardware UP is acknowledged only at the event-tap pass
+    /// decision. The pending record keeps this gesture's trigger owned until
+    /// every expected event fingerprint has re-entered the filter.
+    @discardableResult
+    func acknowledgeReplayedHardwareOptionUpIfExpected(
+        _ event: CGEvent,
+        type: CGEventType
+    ) -> Bool {
+        guard var pending = pendingReplayedHardwareOptionUp,
+              pending.key == momentaryVoiceTriggerKey else {
+            return false
+        }
+        let fingerprint = ReplayedHardwareOptionUpFingerprint(
+            keyCode: CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode)),
+            eventType: type,
+            timestamp: event.timestamp
+        )
+        guard pending.remainingComponents.remove(fingerprint) != nil else {
+            return false
+        }
+
+        let gestureID = pending.gestureID
+        let key = pending.key
+        let allComponentsPassed = pending.remainingComponents.isEmpty
+        if allComponentsPassed {
+            pendingReplayedHardwareOptionUp = nil
+        } else {
+            pendingReplayedHardwareOptionUp = pending
+        }
+        logMappedTriggerEvent(
+            keyCode: fingerprint.keyCode,
+            eventType: type,
+            flags: event.flags,
+            eventTimestamp: event.timestamp,
+            syntheticMarker: false,
+            action: "replay_up_pass_ack"
+        )
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "REPLAY_UP_PASS_ACK",
+            gestureID: gestureID,
+            key: key,
+            fields: [
+                "key_code": Int(fingerprint.keyCode),
+                "event_type": Int(fingerprint.eventTypeRawValue),
+                "cg_event_timestamp_raw": UInt64(fingerprint.timestamp),
+                "components_remaining": pending.remainingComponents.count,
+            ]
+        )
+        if allComponentsPassed {
+            onReplayedHardwareOptionUpPassAcknowledged?(gestureID)
+        }
+        return true
     }
 
     @discardableResult
@@ -2573,6 +2693,13 @@ final class VoiceKeyFilter {
     /// This prevents the first Option edge from beating a stale WebKit text
     /// client without blocking the event-tap thread.
     func beginOptionDeferral(gestureID: UUID) {
+        if let pendingGestureID = pendingReplayedHardwareOptionUpGestureID,
+           pendingGestureID != gestureID {
+            invalidatePendingReplayedHardwareOptionUp(
+                gestureID: pendingGestureID,
+                reason: "superseded"
+            )
+        }
         if let shortTapOwner = optionGate.shortTapDiscardSessionID {
             _ = resetSuppressedHardwareTrigger(
                 gestureID: shortTapOwner,
@@ -2650,6 +2777,11 @@ final class VoiceKeyFilter {
             abortHeldHardwareOption(gestureID: gestureID, reason: reason)
         } else if let gestureID = optionGate.suppressedSessionID {
             _ = resetSuppressedHardwareTrigger(
+                gestureID: gestureID,
+                reason: reason
+            )
+        } else if let gestureID = pendingReplayedHardwareOptionUpGestureID {
+            invalidatePendingReplayedHardwareOptionUp(
                 gestureID: gestureID,
                 reason: reason
             )
@@ -2785,12 +2917,42 @@ final class VoiceKeyFilter {
             fields: ["reason": reason]
         )
         let events = heldHardwareOptionUpEvents
+        if !events.isEmpty {
+            let fingerprints = Set(events.map { event in
+                ReplayedHardwareOptionUpFingerprint(
+                    keyCode: CGKeyCode(
+                        event.getIntegerValueField(.keyboardEventKeycode)
+                    ),
+                    eventType: event.type,
+                    timestamp: event.timestamp
+                )
+            })
+            pendingReplayedHardwareOptionUp = PendingReplayedHardwareOptionUp(
+                gestureID: gestureID,
+                key: momentaryVoiceTriggerKey,
+                remainingComponents: fingerprints
+            )
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "REPLAY_UP_PENDING",
+                gestureID: gestureID,
+                key: momentaryVoiceTriggerKey,
+                fields: ["component_count": fingerprints.count]
+            )
+        }
         clearHeldHardwareOption()
         if events.isEmpty {
             emitEmergencyHardwareOptionUp(momentaryVoiceTriggerKey)
             print("[VOICE] hardware Option-up missing; emergency balancing up")
         } else {
-            events.forEach { $0.post(tap: .cghidEventTap) }
+            events.forEach(replayEventPoster)
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "REPLAY_UP_POSTED",
+                gestureID: gestureID,
+                key: momentaryVoiceTriggerKey,
+                fields: ["component_count": events.count]
+            )
         }
         VoiceTimingLogger.mark("OPTION_UP_EMITTED", sessionID: gestureID)
         print(
@@ -2830,10 +2992,30 @@ final class VoiceKeyFilter {
         hardwareOptionReleaseArmed = false
     }
 
+    private func invalidatePendingReplayedHardwareOptionUp(
+        gestureID: UUID,
+        reason: String
+    ) {
+        guard pendingReplayedHardwareOptionUp?.gestureID == gestureID else { return }
+        let key = pendingReplayedHardwareOptionUp?.key
+        pendingReplayedHardwareOptionUp = nil
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "REPLAY_UP_INVALIDATED",
+            gestureID: gestureID,
+            key: key,
+            fields: ["reason": reason]
+        )
+    }
+
     /// Drops a fully captured gesture without replaying it. This is used only
     /// when a newer physical press supersedes a completed request; the stale
     /// request must never turn into a delayed Option tap in the new target.
     func cancelDeferredOption(gestureID: UUID, reason: String) {
+        if pendingReplayedHardwareOptionUpGestureID == gestureID {
+            invalidatePendingReplayedHardwareOptionUp(gestureID: gestureID, reason: reason)
+            return
+        }
         if heldHardwareOptionSessionID == gestureID {
             abortHeldHardwareOption(gestureID: gestureID, reason: reason)
             return
@@ -2921,6 +3103,10 @@ final class VoiceKeyFilter {
                         "observer_uptime": ProcessInfo.processInfo.systemUptime,
                     ]
                 )
+            }
+
+            if filter.acknowledgeReplayedHardwareOptionUpIfExpected(event, type: type) {
+                return Unmanaged.passUnretained(event)
             }
 
             if filter.shouldSuppressDuringVoiceTriggerReconfiguration(keyCode: keyCode) {
@@ -3017,35 +3203,28 @@ final class VoiceKeyFilter {
             if filter.matchesTriggerKeyCode(keyCode),
                filter.heldHardwareOptionSessionID != nil,
                filter.hardwareOptionReleaseArmed {
-                switch type {
-                case .flagsChanged:
-                    guard !filter.isTriggerModifierActive(flags: event.flags),
-                          !filter.heldHardwareOptionFlagsUpSeen else {
-                        filter.logMappedTriggerEvent(
-                            keyCode: keyCode,
-                            eventType: type,
-                            flags: event.flags,
-                            eventTimestamp: event.timestamp,
-                            syntheticMarker: false,
-                            action: "suppress"
-                        )
-                        return nil
-                    }
-                    filter.heldHardwareOptionFlagsUpSeen = true
-                case .keyUp:
-                    guard !filter.heldHardwareOptionKeyUpSeen else {
-                        filter.logMappedTriggerEvent(
-                            keyCode: keyCode,
-                            eventType: type,
-                            flags: event.flags,
-                            eventTimestamp: event.timestamp,
-                            syntheticMarker: false,
-                            action: "suppress"
-                        )
-                        return nil
-                    }
-                    filter.heldHardwareOptionKeyUpSeen = true
-                default:
+                switch filter.captureHeldHardwareOptionUpEvent(event, type: type) {
+                case .captured:
+                    filter.logMappedTriggerEvent(
+                        keyCode: keyCode,
+                        eventType: type,
+                        flags: event.flags,
+                        eventTimestamp: event.timestamp,
+                        syntheticMarker: false,
+                        action: "hold_release"
+                    )
+                    return nil
+                case .suppressed:
+                    filter.logMappedTriggerEvent(
+                        keyCode: keyCode,
+                        eventType: type,
+                        flags: event.flags,
+                        eventTimestamp: event.timestamp,
+                        syntheticMarker: false,
+                        action: "suppress"
+                    )
+                    return nil
+                case .pass:
                     filter.logMappedTriggerEvent(
                         keyCode: keyCode,
                         eventType: type,
@@ -3056,18 +3235,6 @@ final class VoiceKeyFilter {
                     )
                     return Unmanaged.passUnretained(event)
                 }
-                if let copiedEvent = event.copy() {
-                    filter.heldHardwareOptionUpEvents.append(copiedEvent)
-                }
-                filter.logMappedTriggerEvent(
-                    keyCode: keyCode,
-                    eventType: type,
-                    flags: event.flags,
-                    eventTimestamp: event.timestamp,
-                    syntheticMarker: false,
-                    action: "hold_release"
-                )
-                return nil
             }
 
             if keyCode == VK.voiceKey {
@@ -3133,6 +3300,12 @@ final class VoiceKeyFilter {
         }
         if let gestureID = optionGate.suppressedSessionID {
             _ = resetSuppressedHardwareTrigger(
+                gestureID: gestureID,
+                reason: "stop"
+            )
+        }
+        if let gestureID = pendingReplayedHardwareOptionUpGestureID {
+            invalidatePendingReplayedHardwareOptionUp(
                 gestureID: gestureID,
                 reason: "stop"
             )
@@ -3326,6 +3499,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         voicePress.onRemoteTransportPreparation = { [weak self] in
             self?.prepareVoiceTransport()
+        }
+        filter.onReplayedHardwareOptionUpPassAcknowledged = { [weak self] gestureID in
+            self?.handleDualReceiverHardwareOutputDrainClosed(gestureID: gestureID)
         }
     }
 
@@ -4091,10 +4267,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Re-establish A only after the mapped B-up owner has emitted or
-    /// discarded its release edge. The main-queue hop lets the output-drain
-    /// callback finish closing VoiceKeyFilter ownership before the state is
-    /// inspected and the device mapping changes.
+    /// Re-establish A only after the mapped B-up has passed the filter. The
+    /// main-queue hop runs after the event-tap pass acknowledgement commits.
     func handleDualReceiverHardwareOutputDrainClosed(
         gestureID: UUID,
         outputDrainCompleted: Bool = true
@@ -4103,6 +4277,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self,
                   self.dualReceiverMappedTriggerState.phase
                     == .secondaryActive(gestureID: gestureID) else {
+                return
+            }
+            guard self.filter.pendingReplayedHardwareOptionUpGestureID != gestureID else {
                 return
             }
             let coordinatorOwnershipActive = self.voicePress
@@ -4234,6 +4411,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func cancelDualReceiverGestureStateForHIDRemoval() {
         hidConnected = false
+        if let pendingReplayGestureID = filter.pendingReplayedHardwareOptionUpGestureID {
+            filter.cancelDeferredOption(
+                gestureID: pendingReplayGestureID,
+                reason: "hid-removed"
+            )
+        }
         if let pendingGestureID = dualReceiverPrewarmGestureID {
             _ = voicePress.cancelClassifiedHardwareGate(sessionID: pendingGestureID)
         }
@@ -5191,6 +5374,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 gestureID: gestureID,
                 reason: "output-drained"
             )
+            guard self.filter.pendingReplayedHardwareOptionUpGestureID != gestureID else {
+                return
+            }
             self.handleDualReceiverHardwareOutputDrainClosed(gestureID: gestureID)
         }
 
