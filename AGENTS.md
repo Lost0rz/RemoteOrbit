@@ -41,7 +41,6 @@ After a material transition (new active worktree, branch/HEAD change, PR
 creation/closure, task handoff, runtime identity change, or accepted conclusion),
 update the relevant current-state/task record as part of the transition.
 
-
 ## Control-plane transition protocol
 
 A material control-plane transition includes any change to:
@@ -77,7 +76,6 @@ allowed side effects, STOP all state-changing work.
 Any detected concurrent control-plane write invalidates an in-progress quality-audit
 PASS count. Reconcile first and restart the audit count from zero.
 
-
 ### PR metadata is evidence, not task authority
 
 The open/closed/draft state of a PR is an observed repository fact. It does not
@@ -94,7 +92,6 @@ If PR metadata changes out-of-band:
 
 The control-plane branch plus CURRENT_TASK remains task authority even if its PR is
 temporarily closed or PR metadata is changed by another session.
-
 
 ### Live branch identity is not the same as PR head identity
 
@@ -164,53 +161,60 @@ process, driver, LaunchAgent, or TCC state without local evidence.
 4. Worktree/branch/PR cleanup is state-changing work. Inventory and classify first;
    delete, prune, close, merge, or rewrite only when the current task explicitly
    authorizes it.
+5. Worktree retirement and branch retirement are separate lifecycle actions. A clean
+   worktree may be removed while its local and remote branches are deliberately
+   retained when current task authority proves the branch remains a valid history
+   authority. Never treat worktree removal as implicit branch deletion.
+6. If a cleanup target is already absent before the authorized mutation begins,
+   classify it as reconciliation/drift; do not count the current executor as having
+   performed that deletion.
 
 ## Runtime identity and evidence
 
-5. Treat these as distinct identities unless proven otherwise:
+7. Treat these as distinct identities unless proven otherwise:
    - source checkout and source HEAD;
    - built executable or app bundle;
    - installed `/Applications/RemoteOrbit.app`;
    - running process;
    - installed `RemoteOrbitAudio.driver`;
    - LaunchAgent/runtime configuration.
-6. Any runtime conclusion that depends on identity must report the material
+8. Any runtime conclusion that depends on identity must report the material
    identity evidence, such as source HEAD, executable path/hash, app version/build,
    Bundle ID/code identity, installed component version, or running process.
-7. A Terminal/helper permission result does not prove the RemoteOrbit product
+9. A Terminal/helper permission result does not prove the RemoteOrbit product
    process has the same TCC/Accessibility/Input Monitoring/Event access. Product
    permission claims require evidence from the product process or an equivalent
    identity-preserving check.
-8. Symptom recovery, restart success, reload success, or temporary stability does
+10. Symptom recovery, restart success, reload success, or temporary stability does
    not by itself establish root cause. Separate observed recovery from causal proof.
-9. Do not substitute one evidence class for another. Source evidence, protocol
+11. Do not substitute one evidence class for another. Source evidence, protocol
    evidence, hardware evidence, runtime identity, packaging evidence, and permission
    evidence answer different questions.
 
 ## Forensic and side-effect discipline
 
-10. During an incident/forensic capture, preserve the observed runtime by default.
+12. During an incident/forensic capture, preserve the observed runtime by default.
     Do not rebuild, reinstall, replace the app, change TCC permissions, alter
     LaunchAgents, replace/reinstall the HAL driver, restart CoreAudio, or change
     diagnostic behavior unless the task explicitly authorizes that mutation.
-11. Packaging, installation, driver replacement, `coreaudiod` restart, TCC
+13. Packaging, installation, driver replacement, `coreaudiod` restart, TCC
     changes, LaunchAgent changes, worktree deletion/pruning, and history rewriting
     are side-effectful operations. An audit, diagnosis, or source-only task does not
     authorize them.
-12. Do not stack a speculative production fix on top of unresolved diagnostic
+14. Do not stack a speculative production fix on top of unresolved diagnostic
     work without first reconciling what is observation-only, experimental, frozen
     evidence, and intended for production.
 
 ## Validation
 
-13. Validate the changed boundary with the smallest sufficient evidence. Protocol,
+15. Validate the changed boundary with the smallest sufficient evidence. Protocol,
     audio, HID, packaging, permission, and installed-runtime claims may require
     different validation; one class of evidence must not be substituted for another.
-14. Tests should establish contract behavior or regression protection, not merely
+16. Tests should establish contract behavior or regression protection, not merely
     increase test count. Use broader regression only when the affected boundary or
     requested acceptance criteria justify it.
-15. Before recommending merge or release, state remaining uncertainty and any
+17. Before recommending merge or release, state remaining uncertainty and any
     runtime behavior that was not directly validated.
-16. A task is not closed merely because tests pass. Reconcile current state, callers,
+18. A task is not closed merely because tests pass. Reconcile current state, callers,
     active worktree/PR, remaining uncertainty, and the explicit acceptance criteria.
-17. A merge does not automatically authorize a release.
+19. A merge does not automatically authorize a release.
