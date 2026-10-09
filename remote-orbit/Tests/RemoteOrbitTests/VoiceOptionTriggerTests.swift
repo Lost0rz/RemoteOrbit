@@ -2,6 +2,24 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceOptionTriggerTests: XCTestCase {
+    func testHardwareGateOwnerCorrelationDoesNotEmitSyntheticReceiverEdges() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let gate = HardwareOptionGate()
+        let session = UUID()
+
+        XCTAssertTrue(gate.begin(sessionID: session))
+        XCTAssertTrue(trigger.begin(sessionID: session))
+        XCTAssertTrue(gate.capture(.down, copied: true))
+        XCTAssertEqual(gate.resolve(sessionID: session), .hardwareReplay)
+        XCTAssertFalse(trigger.abort(sessionID: session))
+
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertNil(trigger.activeSessionID)
+    }
+
     func testHardwareLongUsesOnlyTheCapturedPhysicalDown() {
         let gate = HardwareOptionGate()
         let session = UUID()
@@ -161,6 +179,76 @@ final class VoiceOptionTriggerTests: XCTestCase {
 
         XCTAssertEqual(events.map(\.key), expectedKeys)
         XCTAssertEqual(events.map(\.isDown), expectedEdges)
+    }
+
+    func testExplicitDownAndUpUseOnlyTheSelectedReceiverKey() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+
+        for key in [VoiceTriggerKey.leftOption, .rightOption] {
+            let sessionID = UUID()
+            XCTAssertTrue(trigger.begin(sessionID: sessionID))
+            XCTAssertTrue(
+                trigger.sendDown(
+                    sessionID: sessionID,
+                    key: key,
+                    purpose: "dual_receiver_\(key.rawValue)"
+                )
+            )
+            XCTAssertTrue(trigger.sendUp(sessionID: sessionID))
+        }
+
+        XCTAssertEqual(events.map(\.key), [
+            .leftOption, .leftOption, .rightOption, .rightOption,
+        ])
+        XCTAssertEqual(events.map(\.isDown), [true, false, true, false])
+    }
+
+    func testExplicitDownCapturesItsKeyAgainstLaterConfigurationChanges() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let sessionID = UUID()
+
+        XCTAssertTrue(trigger.begin(sessionID: sessionID))
+        XCTAssertTrue(
+            trigger.sendDown(
+                sessionID: sessionID,
+                key: .rightOption,
+                purpose: "receiver_b"
+            )
+        )
+        XCTAssertFalse(trigger.configureVoiceTriggerKey(.leftControl))
+        XCTAssertEqual(trigger.momentaryVoiceTriggerKey, .leftOption)
+        XCTAssertTrue(trigger.sendUp(sessionID: sessionID))
+
+        XCTAssertEqual(events.map(\.key), [.rightOption, .rightOption])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+    }
+
+    func testAbortBalancesTheExplicitlySelectedReceiverKey() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let sessionID = UUID()
+
+        XCTAssertTrue(trigger.begin(sessionID: sessionID))
+        XCTAssertTrue(
+            trigger.sendDown(
+                sessionID: sessionID,
+                key: .rightOption,
+                purpose: "dual_receiver_right_option"
+            )
+        )
+        XCTAssertTrue(trigger.abort(sessionID: sessionID))
+
+        XCTAssertEqual(events.map(\.key), [.rightOption, .rightOption])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+        XCTAssertNil(trigger.activeSessionID)
     }
 
     func testConfigurationIsRejectedWhileTriggerIsDown() {

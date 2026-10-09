@@ -3,6 +3,149 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceKeyFilterTests: XCTestCase {
+    func testPendingReplayUpRemainsHardwareOwnership() throws {
+        let recorder = HardwareReplayPostRecorder()
+        let (filter, gestureID) = makePendingHardwareReplayUp(recorder: recorder)
+
+        XCTAssertEqual(recorder.events.count, 1, "the copied UP must be posted once")
+        XCTAssertTrue(filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertFalse(
+            filter.beginVoiceTriggerReconfiguration(from: .rightOption, to: .leftOption),
+            "B-to-A restore must remain blocked until the replayed UP passes the filter"
+        )
+        XCTAssertFalse(filter.shouldSuppressDuringVoiceTriggerReconfiguration(
+            keyCode: VoiceTriggerKey.rightOption.cgKeyCode
+        ))
+        XCTAssertEqual(filter.pendingReplayedHardwareOptionUpGestureID, gestureID)
+    }
+
+    func testExpectedReplayedHardwareUpPassAcknowledgementAllowsRestore() throws {
+        let recorder = HardwareReplayPostRecorder()
+        let (filter, gestureID) = makePendingHardwareReplayUp(recorder: recorder)
+        let replayedEvent = try XCTUnwrap(recorder.events.first)
+        let keyCode = CGKeyCode(replayedEvent.getIntegerValueField(.keyboardEventKeycode))
+        let eventType = replayedEvent.type
+        let timestamp = replayedEvent.timestamp
+        let flags = replayedEvent.flags
+        let userData = replayedEvent.getIntegerValueField(.eventSourceUserData)
+        var acknowledgements: [UUID] = []
+        filter.onReplayedHardwareOptionUpPassAcknowledged = { acknowledgements.append($0) }
+
+        XCTAssertFalse(filter.shouldSuppressDuringVoiceTriggerReconfiguration(keyCode: keyCode))
+        XCTAssertTrue(filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+            replayedEvent,
+            type: eventType
+        ))
+        XCTAssertEqual(acknowledgements, [gestureID])
+        XCTAssertFalse(filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertTrue(filter.beginVoiceTriggerReconfiguration(from: .rightOption, to: .leftOption))
+        XCTAssertTrue(filter.shouldSuppressDuringVoiceTriggerReconfiguration(keyCode: keyCode))
+
+        XCTAssertFalse(filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+            replayedEvent,
+            type: eventType
+        ), "the same component must not acknowledge twice")
+        XCTAssertEqual(acknowledgements, [gestureID])
+        XCTAssertEqual(replayedEvent.type, eventType)
+        XCTAssertEqual(replayedEvent.timestamp, timestamp)
+        XCTAssertEqual(replayedEvent.flags, flags)
+        XCTAssertEqual(replayedEvent.getIntegerValueField(.keyboardEventKeycode), Int64(keyCode))
+        XCTAssertEqual(replayedEvent.getIntegerValueField(.eventSourceUserData), userData)
+    }
+
+    func testPendingReplayUpWaitsForEveryCopiedComponent() throws {
+        let recorder = HardwareReplayPostRecorder()
+        let (filter, gestureID) = makePendingHardwareReplayUp(
+            recorder: recorder,
+            eventTypes: [.flagsChanged, .keyUp]
+        )
+        let replayedEvents = recorder.events
+        XCTAssertEqual(replayedEvents.count, 2)
+        var acknowledgements: [UUID] = []
+        filter.onReplayedHardwareOptionUpPassAcknowledged = { acknowledgements.append($0) }
+
+        XCTAssertTrue(filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+            replayedEvents[0],
+            type: replayedEvents[0].type
+        ))
+        XCTAssertEqual(filter.pendingReplayedHardwareOptionUpGestureID, gestureID)
+        XCTAssertTrue(filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertTrue(acknowledgements.isEmpty)
+
+        XCTAssertTrue(filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+            replayedEvents[1],
+            type: replayedEvents[1].type
+        ))
+        XCTAssertNil(filter.pendingReplayedHardwareOptionUpGestureID)
+        XCTAssertFalse(filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertEqual(acknowledgements, [gestureID])
+    }
+
+    func testWrongKeyTypeOrTimestampCannotAcknowledgePendingReplay() throws {
+        let recorder = HardwareReplayPostRecorder()
+        let (filter, _) = makePendingHardwareReplayUp(recorder: recorder)
+        let expectedEvent = try XCTUnwrap(recorder.events.first)
+        let wrongKeyEvent = CGEvent(
+            keyboardEventSource: nil,
+            virtualKey: VoiceTriggerKey.leftOption.cgKeyCode,
+            keyDown: false
+        )!
+        let wrongTimestampEvent = CGEvent(
+            keyboardEventSource: nil,
+            virtualKey: VoiceTriggerKey.rightOption.cgKeyCode,
+            keyDown: false
+        )!
+        wrongTimestampEvent.timestamp = expectedEvent.timestamp &+ 1
+
+        XCTAssertNotEqual(wrongTimestampEvent.timestamp, expectedEvent.timestamp)
+        XCTAssertFalse(filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+            wrongKeyEvent,
+            type: expectedEvent.type
+        ))
+        XCTAssertFalse(filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+            expectedEvent,
+            type: .flagsChanged
+        ))
+        XCTAssertFalse(filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+            wrongTimestampEvent,
+            type: expectedEvent.type
+        ))
+        XCTAssertTrue(filter.hasActiveHardwareTriggerOwnership)
+    }
+
+    func testSupersededReplayCannotAcknowledgeInvalidatedGesture() throws {
+        let recorder = HardwareReplayPostRecorder()
+        let (filter, gestureID) = makePendingHardwareReplayUp(recorder: recorder)
+        let replayedEvent = try XCTUnwrap(recorder.events.first)
+        var acknowledgements: [UUID] = []
+        filter.onReplayedHardwareOptionUpPassAcknowledged = { acknowledgements.append($0) }
+
+        filter.cancelDeferredOption(gestureID: gestureID, reason: "superseded-test")
+
+        XCTAssertNil(filter.pendingReplayedHardwareOptionUpGestureID)
+        XCTAssertFalse(filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertFalse(filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+            replayedEvent,
+            type: replayedEvent.type
+        ))
+        XCTAssertTrue(acknowledgements.isEmpty)
+    }
+
+    func testStopInvalidatesPendingReplayAndRejectsLateAcknowledgement() throws {
+        let recorder = HardwareReplayPostRecorder()
+        let (filter, _) = makePendingHardwareReplayUp(recorder: recorder)
+        let replayedEvent = try XCTUnwrap(recorder.events.first)
+
+        filter.stop()
+
+        XCTAssertNil(filter.pendingReplayedHardwareOptionUpGestureID)
+        XCTAssertFalse(filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertFalse(filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+            replayedEvent,
+            type: replayedEvent.type
+        ))
+    }
+
     func testSelectedKeyCodeAndModifierDriveFilterRecognition() {
         let trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in })
         let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
@@ -310,7 +453,46 @@ final class VoiceKeyFilterTests: XCTestCase {
         )
     }
 
+    private func makePendingHardwareReplayUp(
+        recorder: HardwareReplayPostRecorder,
+        eventTypes: [CGEventType] = [.keyUp]
+    ) -> (VoiceKeyFilter, UUID) {
+        let trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in })
+        let filter = VoiceKeyFilter(
+            syntheticOptionTrigger: trigger,
+            replayEventPoster: { recorder.events.append($0) }
+        )
+        let gestureID = UUID()
+        XCTAssertTrue(filter.configureVoiceTriggerKey(VoiceTriggerKey.rightOption))
+        filter.beginOptionDeferral(gestureID: gestureID)
+        XCTAssertTrue(filter.captureDeferredHardwareOptionEdgeForTesting(
+            HardwareOptionEdge.down,
+            copied: true
+        ))
+        filter.releaseDeferredOption(gestureID: gestureID, reason: "replay-up-test")
+        filter.armHardwareOptionRelease(gestureID: gestureID)
+
+        for eventType in eventTypes {
+            let upEvent = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: VoiceTriggerKey.rightOption.cgKeyCode,
+                keyDown: false
+            )!
+            upEvent.type = eventType
+            XCTAssertEqual(
+                filter.captureHeldHardwareOptionUpEvent(upEvent, type: eventType),
+                .captured
+            )
+        }
+        filter.releaseHeldHardwareOption(gestureID: gestureID, reason: "replay-up-test-drain")
+        return (filter, gestureID)
+    }
+
     private func waitForFilterTiming(_ interval: TimeInterval) {
         RunLoop.current.run(until: Date().addingTimeInterval(interval))
     }
+}
+
+private final class HardwareReplayPostRecorder {
+    var events: [CGEvent] = []
 }

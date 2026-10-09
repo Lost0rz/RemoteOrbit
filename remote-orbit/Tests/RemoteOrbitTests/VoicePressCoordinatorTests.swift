@@ -2,6 +2,429 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoicePressCoordinatorTests: XCTestCase {
+    func testClassifiedHardwareHoldUsesPrearmedGateWithoutSyntheticEdges() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        let sessionID = UUID()
+        var gateBegins: [UUID] = []
+        var longReady: [UUID] = []
+        var physicalUps: [UUID] = []
+        var outputDrained: [UUID] = []
+        var completeDrain: (() -> Void)?
+        press.onHardwareOptionGateBegin = { gateBegins.append($0) }
+        press.onHardwareOptionGateLongReady = { longReady.append($0) }
+        press.onHardwareOptionGatePhysicalUp = { physicalUps.append($0) }
+        press.onHardwareOptionGateOutputDrained = { outputDrained.append($0) }
+        press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
+
+        XCTAssertTrue(press.beginClassifiedHardwareGate(sessionID: sessionID))
+        XCTAssertEqual(gateBegins, [sessionID])
+        XCTAssertTrue(events.isEmpty)
+
+        XCTAssertTrue(
+            press.beginClassifiedHardwareHold(
+                sessionID: sessionID,
+                physicalDownAt: 10,
+                triggerKey: .leftOption
+            )
+        )
+        XCTAssertTrue(events.isEmpty)
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(events.isEmpty)
+
+        press.setRemoteAudioAvailable()
+        XCTAssertEqual(longReady, [sessionID])
+        XCTAssertTrue(events.isEmpty)
+
+        XCTAssertTrue(press.keyUp())
+        XCTAssertEqual(physicalUps, [sessionID])
+        press.setRemoteStreaming(false)
+        XCTAssertNotNil(completeDrain)
+        XCTAssertTrue(outputDrained.isEmpty)
+        completeDrain?()
+
+        XCTAssertEqual(outputDrained, [sessionID])
+        XCTAssertTrue(events.isEmpty)
+        press.stop()
+    }
+
+    func testClassifiedHardwareHoldCanOwnReceiverBWithoutSyntheticEdges() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        let sessionID = UUID()
+        var gateBegins: [UUID] = []
+        var longReady: [UUID] = []
+        var physicalUps: [UUID] = []
+        var outputDrained: [UUID] = []
+        var completeDrain: (() -> Void)?
+        press.onHardwareOptionGateBegin = { gateBegins.append($0) }
+        press.onHardwareOptionGateLongReady = { longReady.append($0) }
+        press.onHardwareOptionGatePhysicalUp = { physicalUps.append($0) }
+        press.onHardwareOptionGateOutputDrained = { outputDrained.append($0) }
+        press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
+
+        XCTAssertTrue(press.beginClassifiedHardwareGate(sessionID: sessionID))
+        XCTAssertTrue(
+            press.beginClassifiedHardwareHold(
+                sessionID: sessionID,
+                physicalDownAt: 20,
+                triggerKey: .rightOption
+            )
+        )
+        XCTAssertEqual(gateBegins, [sessionID])
+        XCTAssertTrue(events.isEmpty)
+
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(events.isEmpty)
+        press.setRemoteAudioAvailable()
+        XCTAssertEqual(longReady, [sessionID])
+        XCTAssertTrue(events.isEmpty)
+
+        XCTAssertTrue(press.keyUp())
+        XCTAssertEqual(physicalUps, [sessionID])
+        press.setRemoteStreaming(false)
+        XCTAssertNotNil(completeDrain)
+        XCTAssertTrue(outputDrained.isEmpty)
+        completeDrain?()
+        XCTAssertEqual(outputDrained, [sessionID])
+        XCTAssertTrue(events.isEmpty)
+        press.stop()
+    }
+
+    func testClassifiedHoldCapturesReceiverAndSendsDownOnlyOnFirstPCM() {
+        for key in [VoiceTriggerKey.leftOption, .rightOption] {
+            var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+            let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+                events.append((key, isDown))
+            })
+            let press = VoicePressCoordinator(optionTrigger: trigger)
+            let sessionID = UUID()
+
+            XCTAssertTrue(
+                press.beginClassifiedHold(
+                    sessionID: sessionID,
+                    physicalDownAt: 10,
+                    triggerKey: key
+                )
+            )
+            XCTAssertTrue(events.isEmpty)
+
+            press.setRemoteStreaming(true) // AUDIO_START is informational.
+            XCTAssertTrue(events.isEmpty)
+
+            press.setRemoteAudioAvailable() // The first decoded PCM authorizes DOWN.
+            XCTAssertEqual(events.map(\.key), [key])
+            XCTAssertEqual(events.map(\.isDown), [true])
+
+            press.stop()
+            XCTAssertEqual(events.map(\.key), [key, key])
+            XCTAssertEqual(events.map(\.isDown), [true, false])
+        }
+    }
+
+    func testClassifiedHoldReleaseWithoutPCMEmitsNoReceiverEdges() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+
+        XCTAssertTrue(
+            press.beginClassifiedHold(
+                sessionID: UUID(),
+                physicalDownAt: 20,
+                triggerKey: .rightOption
+            )
+        )
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertTrue(press.keyUp())
+
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        press.stop()
+    }
+
+    func testClassifiedReceiverReleaseBalancesCapturedKeyOnlyAfterDrain() {
+        for key in [VoiceTriggerKey.leftOption, .rightOption] {
+            var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+            var completeDrain: (() -> Void)?
+            let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+                events.append((key, isDown))
+            })
+            let press = VoicePressCoordinator(optionTrigger: trigger)
+            press.onRemoteOutputDrain = { _, completion in
+                completeDrain = completion
+            }
+            let sessionID = UUID()
+
+            XCTAssertTrue(
+                press.beginClassifiedHold(
+                    sessionID: sessionID,
+                    physicalDownAt: 30,
+                    triggerKey: key
+                )
+            )
+            press.setRemoteAudioAvailable()
+            XCTAssertEqual(events.map(\.key), [key])
+            XCTAssertEqual(events.map(\.isDown), [true])
+
+            XCTAssertTrue(press.keyUp())
+            press.setRemoteStreaming(false)
+            XCTAssertNotNil(completeDrain)
+            XCTAssertEqual(events.map(\.key), [key])
+            XCTAssertEqual(events.map(\.isDown), [true])
+
+            completeDrain?()
+
+            XCTAssertEqual(events.map(\.key), [key, key])
+            XCTAssertEqual(events.map(\.isDown), [true, false])
+            press.stop()
+        }
+    }
+
+    func testTransportLossBeforePCMCancelsWithoutTriggerAndAfterPCMBalancesKey() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+
+        XCTAssertTrue(
+            press.beginClassifiedHold(
+                sessionID: UUID(),
+                physicalDownAt: 40,
+                triggerKey: .leftOption
+            )
+        )
+        press.setRemoteStreaming(true)
+        press.setRemoteStreaming(false)
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+
+        let nextSessionID = UUID()
+        XCTAssertTrue(
+            press.beginClassifiedHold(
+                sessionID: nextSessionID,
+                physicalDownAt: 50,
+                triggerKey: .rightOption
+            )
+        )
+        press.setRemoteAudioAvailable()
+        XCTAssertEqual(events.map(\.key), [.rightOption])
+        XCTAssertEqual(events.map(\.isDown), [true])
+
+        press.handleTransportLoss(deviceRemoved: false)
+
+        XCTAssertEqual(events.map(\.key), [.rightOption, .rightOption])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+    }
+
+    func testStaleDrainCompletionCannotReleaseNextClassifiedReceiver() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        var oldSessionID: UUID?
+        var oldDrainCompletion: (() -> Void)?
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        press.onRemoteOutputDrain = { sessionID, completion in
+            if sessionID == oldSessionID {
+                oldDrainCompletion = completion
+            } else {
+                completion()
+            }
+        }
+
+        let firstSessionID = UUID()
+        oldSessionID = firstSessionID
+        XCTAssertTrue(
+            press.beginClassifiedHold(
+                sessionID: firstSessionID,
+                physicalDownAt: 60,
+                triggerKey: .leftOption
+            )
+        )
+        press.setRemoteAudioAvailable()
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        XCTAssertNotNil(oldDrainCompletion)
+        oldDrainCompletion?()
+        XCTAssertEqual(events.map(\.key), [.leftOption, .leftOption])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+
+        let nextSessionID = UUID()
+        XCTAssertTrue(
+            press.beginClassifiedHold(
+                sessionID: nextSessionID,
+                physicalDownAt: 70,
+                triggerKey: .rightOption
+            )
+        )
+        press.setRemoteAudioAvailable()
+
+        oldDrainCompletion?()
+        XCTAssertEqual(events.map(\.key), [
+            .leftOption, .leftOption, .rightOption,
+        ])
+        XCTAssertEqual(events.map(\.isDown), [true, false, true])
+        XCTAssertEqual(press.diagnosticStateFields["synthetic_owner"] as? String,
+                       nextSessionID.uuidString)
+        XCTAssertTrue(press.diagnosticStateFields["synthetic_down"] as? Bool ?? false)
+
+        press.stop()
+        XCTAssertEqual(events.map(\.key), [
+            .leftOption, .leftOption, .rightOption, .rightOption,
+        ])
+        XCTAssertEqual(events.map(\.isDown), [true, false, true, false])
+    }
+
+    func testClassifiedRepressDuringDrainRetainsItsReceiverUntilOldOwnerCloses() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        var completeOldDrain: (() -> Void)?
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        press.onRemoteOutputDrain = { _, completion in
+            completeOldDrain = completion
+        }
+
+        let firstSessionID = UUID()
+        XCTAssertTrue(
+            press.beginClassifiedHold(
+                sessionID: firstSessionID,
+                physicalDownAt: 80,
+                triggerKey: .leftOption
+            )
+        )
+        press.setRemoteAudioAvailable()
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(events.map(\.key), [.leftOption])
+
+        let nextSessionID = UUID()
+        XCTAssertTrue(
+            press.beginClassifiedHold(
+                sessionID: nextSessionID,
+                physicalDownAt: 81,
+                triggerKey: .rightOption
+            )
+        )
+        XCTAssertEqual(press.pendingRepressSessionID, nextSessionID)
+        XCTAssertEqual(events.map(\.key), [.leftOption])
+
+        completeOldDrain?()
+        waitForCoordinatorTiming(0.02)
+
+        XCTAssertEqual(press.currentStateForTesting, .holding)
+        XCTAssertEqual(press.currentGestureIDForDiagnostics, nextSessionID)
+        XCTAssertNil(press.pendingRepressSessionID)
+        press.setRemoteAudioAvailable()
+        XCTAssertEqual(events.map(\.key), [.leftOption, .leftOption, .rightOption])
+        XCTAssertEqual(events.map(\.isDown), [true, false, true])
+
+        press.stop()
+        XCTAssertEqual(events.map(\.key), [
+            .leftOption, .leftOption, .rightOption, .rightOption,
+        ])
+        XCTAssertEqual(events.map(\.isDown), [true, false, true, false])
+    }
+
+    func testDeferredClassifiedRepressReleasedBeforeDrainCompletesNeverActivates() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        var completeOldDrain: (() -> Void)?
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        press.onRemoteOutputDrain = { _, completion in
+            completeOldDrain = completion
+        }
+
+        let firstSessionID = UUID()
+        XCTAssertTrue(
+            press.beginClassifiedHold(
+                sessionID: firstSessionID,
+                physicalDownAt: 90,
+                triggerKey: .leftOption
+            )
+        )
+        press.setRemoteAudioAvailable()
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+
+        let deferredSessionID = UUID()
+        XCTAssertTrue(
+            press.beginClassifiedHold(
+                sessionID: deferredSessionID,
+                physicalDownAt: 91,
+                triggerKey: .rightOption
+            )
+        )
+        XCTAssertEqual(press.pendingRepressSessionID, deferredSessionID)
+        XCTAssertTrue(press.keyUp())
+        XCTAssertNil(press.pendingRepressSessionID)
+
+        completeOldDrain?()
+        waitForCoordinatorTiming(0.02)
+
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        XCTAssertEqual(events.map(\.key), [.leftOption, .leftOption])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+        press.stop()
+    }
+
+    func testDeviceRemovalCancelsClassifiedRepressQueuedForActivation() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        var completeOldDrain: (() -> Void)?
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        press.onRemoteOutputDrain = { _, completion in
+            completeOldDrain = completion
+        }
+
+        XCTAssertTrue(
+            press.beginClassifiedHold(
+                sessionID: UUID(),
+                physicalDownAt: 100,
+                triggerKey: .leftOption
+            )
+        )
+        press.setRemoteAudioAvailable()
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+
+        let deferredSessionID = UUID()
+        XCTAssertTrue(
+            press.beginClassifiedHold(
+                sessionID: deferredSessionID,
+                physicalDownAt: 101,
+                triggerKey: .rightOption
+            )
+        )
+        completeOldDrain?()
+
+        press.handleTransportLoss(deviceRemoved: true)
+        waitForCoordinatorTiming(0.02)
+
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        XCTAssertNil(press.currentGestureIDForDiagnostics)
+        XCTAssertNil(press.pendingRepressSessionID)
+        XCTAssertEqual(events.map(\.key), [.leftOption, .leftOption])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+        press.stop()
+    }
+
     func testDisabledShortStartsTransportPreparationWithoutSkippingClassifier() {
         var events: [String] = []
         let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })

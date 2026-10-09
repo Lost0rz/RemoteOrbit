@@ -63,6 +63,23 @@ final class EventSuppressorTests: XCTestCase {
         XCTAssertFalse(try handleSystemKey(1, edge: .up, with: suppressor))
     }
 
+    func testRemoteMicrophoneF5PairIsParkedWithoutSuppressingUnrelatedKeys() throws {
+        let suppressor = EventSuppressor()
+        suppressor.updateHeld(button: .microphone, isDown: true)
+
+        let f5Down = try keyboardEvent(keyCode: 96, isDown: true)
+        XCTAssertTrue(suppressor.handle(type: .keyDown, event: f5Down))
+
+        suppressor.updateHeld(button: .microphone, isDown: false)
+        let f5Up = try keyboardEvent(keyCode: 96, isDown: false)
+        XCTAssertTrue(suppressor.handle(type: .keyUp, event: f5Up))
+
+        let unrelatedDown = try keyboardEvent(keyCode: 59, isDown: true)
+        let unrelatedUp = try keyboardEvent(keyCode: 59, isDown: false)
+        XCTAssertFalse(suppressor.handle(type: .keyDown, event: unrelatedDown))
+        XCTAssertFalse(suppressor.handle(type: .keyUp, event: unrelatedUp))
+    }
+
     private func handleSystemKey(
         _ keyType: Int32,
         edge: RemoteEventEdge,
@@ -83,5 +100,13 @@ final class EventSuppressorTests: XCTestCase {
         ))
         let cgEvent = try XCTUnwrap(nsEvent.cgEvent)
         return suppressor.handle(type: cgEvent.type, event: cgEvent)
+    }
+
+    private func keyboardEvent(keyCode: CGKeyCode, isDown: Bool) throws -> CGEvent {
+        try XCTUnwrap(CGEvent(
+            keyboardEventSource: nil,
+            virtualKey: keyCode,
+            keyDown: isDown
+        ))
     }
 }
