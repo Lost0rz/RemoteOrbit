@@ -2,7 +2,7 @@
 
 ## RO-REPOSITORY-LIFECYCLE-CLOSEOUT-036 — Gate A
 
-- **Status:** ACTIVE — GATE A READ-ONLY INVENTORY
+- **Status:** WAITING FOR WEB GATE A AUDIT
 - **Repository:** `Lost0rz/RemoteOrbit`
 - **Canonical path:** `/Volumes/Jack-Dev/Projects/remoteorbit`
 - **Canonical branch:** `main`
@@ -63,6 +63,14 @@ Write outside the repository to `/private/tmp/remoteorbit-lifecycle-closeout-036
 Record permission and scan errors. If an important candidate cannot be inspected, set `INVENTORY_COMPLETE=NO` and do not proceed to Gate B.
 
 At the end, recheck live `origin/main` and record `GATE_A_START_CONTROL_HEAD`, `GATE_A_FINAL_LOCAL_HEAD`, `LIVE_ORIGIN_MAIN`, and `LIVE_REMOTE_MAIN`. If main changes during the scan, set `CONTROL_HEAD_DRIFT_DURING_SCAN=YES` and stop with `FINAL_STATE=STOP_CONTROL_HEAD_DRIFT`.
+
+## Gate A completion and audit handoff
+- Read-only inventory completed in `/private/tmp/remoteorbit-lifecycle-closeout-036-gatea-20261009T180031`.
+- `GATE_A_CONTROL_HEAD` and scan-end canonical HEAD: `957c5f2cbae32b9ab6e67814e6b9d654736ed10f`.
+- At scan end, local HEAD, `origin/main`, and live remote `main` matched; `CONTROL_HEAD_DRIFT_DURING_SCAN=NO`.
+- Inventory complete: 11 registered worktrees (10 noncanonical), 14 Git candidates, 46 non-Git artifact groups, 689 filesystem name matches, 27 remote branches, 0 open PRs.
+- Unique-work risk remains: 3 uncommitted work candidates, 6 branches with 12 distinct candidate-only commits, 2 detached HEAD candidates, and 3 unknown-history candidates.
+- Cleanup was not performed. No Gate B classification was started. Stop here for independent Web Gate A audit.
 
 ## Stop conditions and handoff
 Stop before scanning if the Gate 0 repository identity, expected remote baseline, clean canonical main, or control-transition parent/push verification fails. Preserve evidence and report the exact blocker. Do not continue after control-head drift.

@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-09
-State: TASK 036 ACTIVE — GATE A READ-ONLY INVENTORY
+State: TASK 036 WAITING FOR WEB GATE A AUDIT
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Accepted release baseline
@@ -21,7 +21,10 @@ Repository: `Lost0rz/RemoteOrbit`
 
 ## Active task and boundary
 - Task ID: `RO-REPOSITORY-LIFECYCLE-CLOSEOUT-036`.
-- Phase: GATE A READ-ONLY INVENTORY.
-- Gate A collects lifecycle evidence only. Cleanup, deletion, archive, move, worktree retirement, branch retirement, tag changes, and Gate B/C decisions are NOT AUTHORIZED.
-- Inventory evidence is stored outside the repository under `/private/tmp/remoteorbit-lifecycle-closeout-036-gatea-*`.
-- The canonical repository/worktree is the sole intended development authority; all other candidates remain unclassified until the inventory and independent audit support a disposition.
+- Phase: GATE A READ-ONLY INVENTORY COMPLETE; waiting for independent Web Gate A audit.
+- Gate A collected lifecycle evidence only. Cleanup, deletion, archive, move, worktree retirement, branch retirement, tag changes, and Gate B/C decisions are NOT AUTHORIZED.
+- Inventory evidence is stored outside the repository at `/private/tmp/remoteorbit-lifecycle-closeout-036-gatea-20261009T180031`.
+- Scan-end control head was `957c5f2cbae32b9ab6e67814e6b9d654736ed10f`; scan-end local, cached origin/main, and live origin/main matched with no drift during the scan.
+- Inventory counts: 11 registered worktrees (10 noncanonical), 14 Git candidates, 46 non-Git artifact groups, 689 filesystem name matches, 27 live remote branches, and 0 open PRs.
+- Preserved risk counts: 3 uncommitted work candidates, 6 local-only commit branches (12 distinct candidate-only commits), 2 detached HEAD candidates, and 3 unknown-history candidates. No candidate was classified disposable.
+- The canonical repository/worktree remains the sole intended development authority; all other candidates remain unclassified pending independent audit.
