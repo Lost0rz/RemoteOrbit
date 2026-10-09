@@ -1,58 +1,58 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-09
-State: TASK 028 ACTIVE / RECEIVER-B REPLAY-UP SELF-SUPPRESSION ROOT CAUSE PROVEN / MINIMAL CORRECTIVE AUTHORIZED
+State: TASK 028 WEB AUDIT PASS / USER RECEIVER-B HARDWARE GATE AUTHORIZED / MERGE FORBIDDEN
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Authority
-- Audited control predecessor: `10359be1edf6fab3beb400e28f294cfecb6acfcd`.
-- Corrective product lineage under audit: `codex/dual-receiver-mic-debounce-corrective` at `458e28d91b5ff748613bb88f5b89212d660279c7`.
-- Installed product source remains `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8` by last local evidence.
-- New authorized corrective branch: `codex/dual-receiver-b-up-replay-ack-fix`, based exactly on `458e28d91b5ff748613bb88f5b89212d660279c7`.
-- Authorized worktree: `/private/tmp/remoteorbit-dual-receiver-b-up-replay-ack-fix`.
+- Audited control parent: `6e988ae98792391bce069ced978131472bbb96b3`.
+- Corrective branch: `codex/dual-receiver-b-up-replay-ack-fix`.
+- Product implementation and installed source: `f938b919e288a481f5eacaf9aad9c254dcf0cffe`.
+- Final corrective branch HEAD: `85bb2e12cad41198e5a27d9e610cbdb30b01d357`; independent ref check matched this HEAD.
+- `f938b919... -> 85bb2e12...` changes only `CURRENT_STATUS.md` and `CURRENT_TASK.md`; no later product/test mutation.
+- Installed candidate evidence: `/Applications/RemoteOrbit.app`, version `0.2.13` build `42`, Bundle ID `com.lost0rz.RemoteOrbit`, executable SHA-256 `104d4bf0cad8f7316ceea8c8e21568737d3ba3eea0f3c44207107a1159eb850e`, RemoteOrbit PID `39949`; Core Audio and driver were not restarted by the executor.
 - Merge remains forbidden.
 
-## Accepted prior gates
-- Set A remains accepted 5/5 using system-mapped Left Option through the hardware gate.
-- Corrective 024 fixed the dual-mode microphone legacy-debounce conflict.
-- Task 025 proved a true Receiver-B transaction internally reached mapped Right Option DOWN/UP ownership, output drain, gate close, `MOMENTARY_COMPLETE`, and B->A restore, while Receiver B remained open externally.
-- Task 026 proved direct physical Right Option momentary semantics are correct: hold opens Receiver B and release closes it.
+## Accepted prior evidence
+- Set A passed 5/5 on the system-mapped Left Option hardware path.
+- Corrective 024 fixed the dual-mode microphone legacy 180 ms debounce conflict.
+- Task 025/027 proved the observed stuck-B failure was caused by the reposted copied Right Option UP being suppressed by B->A reconfiguration before it could pass downstream.
+- Task 026 proved a direct physical Right Option hold/release has the correct Receiver-B momentary semantics.
 
-## Task 027 Web audit conclusion
-Task 027 existing-log comparison is accepted. The evidence upgrades the prior boundary from `ROOT_CAUSE UNKNOWN` to a proven lifecycle defect for the observed stuck-B failure.
+## Independent Web audit of Task 028
+PASS for the first user hardware gate.
 
-FACT:
-- Original mapped B DOWN: `flagsChanged`, keyCode 61, flags `0x00080140`; its copied replay returned through `VoiceKeyFilter` with the same Quartz timestamp, action `pass`, and flags `0x20080140`.
-- Original mapped B UP: `flagsChanged`, keyCode 61, flags `0x00000100`, seq 49, Quartz timestamp `9904141163026`.
-- A later event with the exact same key/type/Quartz timestamp returned at seq 58 with flags `0x20000100`, but action was `reconfiguration_suppress`, not `pass`.
-- Source code retains mapped UP with `event.copy()`, preserves its timestamp, reposts the copy at `.cghidEventTap`, then the controller schedules B->A restore.
-- `restorePrimaryMappingAfterSecondary` begins `VoiceKeyFilter.beginVoiceTriggerReconfiguration(...)`; the event tap drops any old/new trigger key while that gate is active using action `reconfiguration_suppress` and `return nil`.
-- Therefore seq 58 is sufficiently correlated to the reposted copied B-UP: the reposted UP re-entered `VoiceKeyFilter` after B->A reconfiguration suppression became active and RemoteOrbit dropped its own release before it could pass downstream.
+Source-backed findings:
+- The product checkpoint is scoped to `main.swift`, `VoiceKeyFilterTests.swift`, `DualReceiverVoiceTransactionTests.swift`, plus control files; no HIDMonitor, BLE/audio, mapping-authority, tail timing, generic gesture, flags, or event-tap relocation changes were introduced.
+- `VoiceKeyFilter` now registers pending replay-UP ownership before reposting copied hardware-UP events.
+- Replay identity is matched using the current gesture-owned pending record plus keyCode, CGEvent type, and original Quartz timestamp. Wrong key/type/timestamp and duplicate events cannot consume the pending component.
+- Pending replay-UP is included in `hasActiveHardwareTriggerOwnership`, so normal B->A reconfiguration cannot start while the expected replay is outstanding.
+- The event-tap callback checks the expected replay acknowledgement before reconfiguration suppression; a matching replay is returned on the pass path unchanged.
+- Only after every expected replay-UP component has passed does the acknowledgement callback enqueue `handleDualReceiverHardwareOutputDrainClosed`, after which primary mapping restoration is allowed.
+- Stop, supersede, and HID-removal paths invalidate pending replay ownership.
+- The no-copied-UP emergency fallback remains viable: `releaseHeldHardwareOption` emits the existing emergency balancing UP, no pending replay owner is created, and the existing output-drain callback can continue to the restore path.
+- Normal dual Receiver-B release still uses the copied hardware event; there is no normal synthetic B-UP, no flag rewrite, and no `.cghidEventTap` relocation.
 
-## Proven causal chain
+Automated verification evidence from the local executor is accepted as local evidence, not independently rerun by Web: VoiceKeyFilter 16/16, DualReceiverVoiceTransaction 20/20, VoiceTriggerRuntime 53/53, VoicePressCoordinator 38/38, full Swift 394/394, self-tests 3/3, release/package/signature/diff/scope PASS.
+
+TDD note: the initial RED on the implementation base was a compile-time failure because the new pending-owner/ack test seams did not yet exist, rather than a behavioral assertion reaching the old race. That is weaker than the ideal RED contract, but it is not a hardware-gate blocker here because Task 027 already captured the old race in a real runtime trace, and the GREEN tests plus independent source audit directly cover the corrective ordering invariant.
+
+## Current authorization
+User-only first Receiver-B hardware gate is authorized now.
+
+Perform exactly one natural gesture:
+
 ```text
-physical B release
--> original mapped Right Option UP captured/suppressed
--> output drain completes
--> copied B UP post(.cghidEventTap)
--> B->A restore starts too early
--> reconfiguration suppression becomes active for Right Option
--> reposted B UP re-enters VoiceKeyFilter
--> action=reconfiguration_suppress / return nil
--> Receiver B never receives the release
--> Receiver B remains open
+quick first tap -> immediate second LONG -> speak -> physical release
 ```
 
-Classification:
-`B_REPLAY_UP_SELF_SUPPRESSED_BY_B_TO_A_RECONFIGURATION = PROVEN`
+Expected:
+- first quick tap opens neither receiver;
+- second LONG opens Receiver B only;
+- Receiver A does not open;
+- physical release closes Receiver B immediately/normally;
+- no duplicate text and no stuck modifier/session state.
 
-The replay-only `0x20000000` flag difference remains an observed event-shape difference but is not the first corrective target: replayed B DOWN carries the same extra bit and still opens Receiver B. Do not normalize flags or alter event source/tap level unless the ordered-release corrective fails hardware acceptance.
+If any item fails: STOP, do not retry to overwrite the sample, do not Set C, do not merge.
 
-## Task 028 decision
-Implement the smallest deterministic ordering correction. The B->A mapping/filter restore must not begin merely because `post(.cghidEventTap)` returned. It may begin only after the expected copied B-UP has re-entered `VoiceKeyFilter` and reached the pass path.
-
-No fixed sleep/delay is allowed. Do not change BLE/audio/tail timing, hidutil destinations, trigger keys, generic gesture timing, event flags, source fields, event tap location, or normal dual synthetic-trigger policy.
-
-TDD is mandatory: prove RED on the current code before product edits, then GREEN with the minimal change.
-
-Hardware acceptance remains user-only after a validated candidate is installed. No merge until Web audits the implementation and the user completes Receiver-B acceptance.
+If the one-shot hardware gate passes: perform read-only evidence capture before expanding to 5/5 stability testing. Expected internal evidence includes `REPLAY_UP_PENDING`, `REPLAY_UP_POSTED`, `REPLAY_UP_PASS_ACK`, no matching replay-UP `reconfiguration_suppress`, then B->A restore and final `primaryReady`/idle.
