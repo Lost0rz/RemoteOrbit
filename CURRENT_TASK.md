@@ -1,38 +1,47 @@
 # RemoteOrbit Current Task
 
-## Current task — CANONICAL LEGACY HID PRESERVATION CLOSEOUT
+## Current task — BROADER LIFECYCLE INVENTORY
 
-- **Status:** CLOSED / CANONICAL MAIN CLEAN
-- **Task ID:** `RO-CANONICAL-HID-PRESERVATION-030`
-- **Control parent:** `59675e770a22e761c9208c7b5adcbc9e7291b39a`
+- **Status:** ACTIVE / READ ONLY
+- **Task ID:** `RO-LIFECYCLE-INVENTORY-031`
+- **Control parent:** `3c4dc85357b0dcca373c85dc2a946a4abe111765`
 - **Canonical path:** `/Volumes/Jack-Dev/Projects/remoteorbit`
-- **Final canonical branch:** `main`
-- **Final canonical HEAD:** `59675e770a22e761c9208c7b5adcbc9e7291b39a`
+- **Expected canonical branch:** `main`
+- **Expected canonical HEAD before local refresh:** `3c4dc85357b0dcca373c85dc2a946a4abe111765`
 
-## Final evidence
-```text
-LOCAL_REMOTE_MAIN_MATCH: YES
-CANONICAL_CLEAN: YES
-RECONSTRUCTION_MATCH: YES
-HISTORICAL_DIRTY_PATH_CLEARED: YES
-LOCAL_HISTORICAL_BRANCH_REMOVED: YES
-REMOTE_HISTORICAL_BRANCH_EXISTS: NO
-UNIQUE_WORK_PRESERVED: YES
-UNIQUE_WORK_LOST: NO
-PRODUCT_SOURCE_CHANGED: NO
-TEST_SOURCE_CHANGED: NO
-RUNTIME_CHANGED: NO
-```
+## Goal
+Produce a complete evidence-backed lifecycle matrix for all remaining RemoteOrbit worktrees and `codex/*` branches before any deletion.
 
-Preserved forensic archive:
-`/Volumes/Jack-Dev/Projects/_forensics/RemoteOrbit/2026-10-09-v0211-nonseize-hid-audit`
+## Classification vocabulary
+Use only:
+- `ACTIVE` — explicitly current authorized work. Existing age/name alone cannot make an item active.
+- `MERGED` — work is fully contained in accepted `main` and has no unique dirty/unpushed work requiring preservation.
+- `SUPERSEDED` — not fully merged as-is, but a later accepted line replaced the intent; unique content, if any, must be identified before deletion.
+- `ABANDONED` — no current authority and no accepted need to continue; unique work status must still be explicit before deletion.
+- `FORENSIC` — intentionally retained evidence or artifact; preserve unless separately authorized.
+- `UNKNOWN` — insufficient evidence. Never delete an UNKNOWN item.
 
-Hashes:
-- archived working SHA-256: `fd84bef76c5db39c51b085285283ccd733a19260db2c1bf4796901bcf6337a1a`
-- archived patch SHA-256: `9edd71c35f0118a94f37b716b919576ed330b19766e46eb1b6c7bf2f9f996f9d`
-- reconstructed SHA-256: `fd84bef76c5db39c51b085285283ccd733a19260db2c1bf4796901bcf6337a1a`
+## Required inventory
+For every registered worktree report path, branch/detached state, HEAD, clean/dirty/untracked state, tracking remote, ahead/behind, whether HEAD is contained in `origin/main`, unique local commits not in main, and provisional lifecycle class with evidence.
 
-The historical global media-suppression behavior is superseded forensic evidence only and must not be reintegrated into current main.
+For every local branch report HEAD, worktree ownership if any, upstream, ahead/behind, containment in main, unpushed commits, associated remote branch if any, associated PR if identifiable, and provisional class.
 
-## Next boundary
-This task authorizes no further cleanup. The reported remaining 28 worktrees and 30 remote `codex/*` branches require a separate read-only lifecycle inventory and classification before any deletion. Do not bulk-delete, prune, force-remove, or infer staleness from age/name/count alone.
+For every live remote `codex/*` branch report live HEAD, containment in current main, commits unique to that branch, associated PR state/merge state if identifiable, matching local branch/worktree if any, and provisional class.
+
+Also identify duplicates where multiple branches/worktrees point to the same HEAD or belong to the same superseded diagnostic lineage.
+
+## Safety boundary
+This task authorizes no lifecycle deletion or mutation. Do not run worktree remove/prune, branch -d/-D, push --delete, reset, restore, clean, stash, rebase, merge, cherry-pick, build/install/restart, or hardware actions.
+
+A normal `git fetch origin` for freshness is allowed; do not use destructive local cleanup. Evidence files may be written only under `/private/tmp`.
+
+## Completion output
+Return counts and a per-item matrix, then summaries:
+- `ACTIVE`
+- `MERGED_CLEAN_DELETE_CANDIDATE`
+- `SUPERSEDED_NEEDS_PRESERVATION_CHECK`
+- `ABANDONED_NEEDS_PRESERVATION_CHECK`
+- `FORENSIC_RETAIN`
+- `UNKNOWN_STOP`
+
+No deletion is authorized even for delete candidates. Final state must be `LIFECYCLE_INVENTORY_READY_FOR_WEB_AUDIT`.
