@@ -1,49 +1,30 @@
 # CURRENT_STATUS
 
-Last updated: 2026-10-08
-State: SET B CORRECTIVE RETRY / B OPENS / RELEASE DOES NOT CLOSE / INCIDENT READ-ONLY
+Last updated: 2026-10-09
+State: SET B INTERNAL RELEASE COMPLETE / EXTERNAL RECEIVER DIVERGENCE / EXTERNAL SEMANTICS GATE
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Authority
-- Previous control HEAD: `3fd2271e7dbb80c8407f7a963b3615a8116c8382`.
-- Debounce corrective task `RO-DUAL-RECEIVER-MIC-DEBOUNCE-CORRECTIVE-024` produced product source `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8` and branch closeout `458e28d91b5ff748613bb88f5b89212d660279c7`.
-- Installed corrective candidate: `/Applications/RemoteOrbit.app`, source `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8`, version 0.2.13 build 42, PID reported as 5331.
-- Corrective branch: `codex/dual-receiver-mic-debounce-corrective`.
+- Previous control HEAD: `b8ca994e102e441ad9ad4b6f98b3a72f931ca79e`.
+- Corrective branch: `codex/dual-receiver-mic-debounce-corrective` at `458e28d91b5ff748613bb88f5b89212d660279c7`.
+- Installed product source: `406f1242e7c3bc17b1fa0da43b069a0b2c6874c8`.
 - Merge remains forbidden.
 
-## Proven 024 result
-The earlier input-layer failure is resolved by the corrective candidate at the user-observable boundary: the natural quick-tap + second-LONG gesture again opens Receiver B. This is consistent with the 024 RED/GREEN evidence that the legitimate second microphone DOWN is no longer discarded by the legacy 180 ms debounce.
+## Accepted facts
+- Set A remains accepted 5/5.
+- Corrective 024 fixed the legacy 180 ms microphone debounce conflict for active dual mode.
+- Fresh Set-B retry contains a true B transaction: second DOWN 140.400083 ms after first UP; B was already ready; mapped Right Option entered HardwareOptionGate; B classified; first PCM preceded B DOWN replay.
+- Physical second UP was observed and emitted.
+- Mapped B UP was observed; HardwareOptionGate physical-up ownership, output drain, B-UP release after drain, gate close and `MOMENTARY_COMPLETE` all completed.
+- B->A mapping/filter restoration succeeded and A readback matched.
+- Normal synthetic trigger edge count remained zero.
 
-Do not infer that the entire Set-B transaction is accepted. User report for the first corrective hardware retry:
+Decision: `INTERNAL_B_RELEASE_COMPLETE`.
 
-```text
-B opened normally.
-Physical release did not close/end B normally.
-```
+## Remaining incident
+The user reports Receiver B remained open after RemoteOrbit completed the entire internal B release transaction. This is an internal/external state divergence. Current evidence does not prove why the external receiver stayed open.
 
-## New incident boundary
-The remaining defect is now isolated to the accepted B transaction's release/close path or to divergence between RemoteOrbit's internal close path and the external receiver's handling of Right Option UP.
+Do not modify RemoteOrbit release/drain, mapping, HardwareOptionGate, BLE, gesture timing or synthetic trigger policy without new causal evidence.
 
-Root cause of this remaining release failure is UNKNOWN until fresh runtime ordering is captured.
-
-Required evidence must determine, for this exact corrective sample:
-
-```text
-second raw F5 DOWN emitted (not debounce-suppressed)
-B HardwareOptionGate begin
-B classification
-first PCM and mapped B DOWN replay
-second raw F5 UP
-mapped Right Option UP capture/defer/replay
-VoicePress release/tail/output-drain completion
-MOMENTARY_COMPLETE
-B->A restore request/result
-final mapping/filter/phase/transaction/runtime state
-external B still open vs internal completion
-```
-
-## Freeze
-No further remote gestures, Set C, settings/mapping changes, app restart, build/install, source/test edits, release/drain fix, receiver shortcut changes, driver/CoreAudio/TCC changes, or merge before this fresh corrective incident is audited.
-
-## Next action
-Read-only capture of the single corrective Set-B retry. Stop after evidence collection. Do not repair yet.
+## Next boundary
+Run an external Receiver-B shortcut semantics gate before any new product change. The minimum user action is a direct physical Right Option hold/release test against Receiver B, without using the remote gesture. This distinguishes receiver/shortcut semantics from RemoteOrbit replay equivalence.
