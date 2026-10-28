@@ -48,7 +48,7 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 - Registration: this paired control commit; the worktree was clean before source/test or diagnostic mutation.
 - The old 038-A worktree closeout was performed after proving clean state, merged reachability, and no unique/unpushed commits; its local branch was deleted and remote branch retained.
 - Current source/test HEAD: `652ea306dc4a22ee3c489b254d87becc6f9a4ed0`, pushed and verified equal to the remote 038-B branch before this paired closeout control update.
-- PR #24: OPEN + DRAFT + UNMERGED; its live head is the current tip of the authorized branch and was remote-verified for this transition. Current GitHub metadata reports `mergeable=true`; this is only a repository fact and merge remains prohibited. The independent Web CODE_DIFF audit passed at the audited product head `6b5fde0b767933a89b8b7643dabe473e46040df8`; later commits are paired control-only runtime transition/result records. Corrective-1 reproduced and removed render-path probe self-contention; corrective-2 bounded lifecycle work; corrective-3 closed the AUDIO_START-before-HID correlation gap; corrective-4 removed submission-path probe contention.
+- PR #24: OPEN + DRAFT + UNMERGED; its live head is the current tip of the authorized branch and was remote-verified for this transition. An earlier control observation recorded `mergeable=true`; the current GitHub metadata is `mergeable=false`; neither is task authority or merge authorization. The independent Web CODE_DIFF audit passed at the audited product head `6b5fde0b767933a89b8b7643dabe473e46040df8`; later commits are paired control-only runtime transition/result records. Corrective-1 reproduced and removed render-path probe self-contention; corrective-2 bounded lifecycle work; corrective-3 closed the AUDIO_START-before-HID correlation gap; corrective-4 removed submission-path probe contention.
 - Corrective-2 delivery source/test HEAD: `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a`; corrective-3 delivery source/test HEAD: `7d33e01cf94aa3685ccfdecc6df28207258cb1bb`, both verified as ancestors of the current branch.
 
 ## Authorized 038-B scope
@@ -412,5 +412,6 @@ The 10-session evidence set is frozen and the authorized 038-B base-rate/lag aud
 - `SOURCE_CHANGED`: NO.
 - `CHANGED_FILES`: `CURRENT_STATUS.md` and `CURRENT_TASK.md` control records only.
 - `PR_STATE`: OPEN / DRAFT / UNMERGED; no merge performed.
+- `PR_LIVE_METADATA`: FACT — current GitHub observation reports head `d27e562a75726c3420aa2a13ab97483529a46100`, `mergeable=false`; this is repository evidence only and does not authorize merge.
 - `WORKTREE_STATUS`: CLEAN after the control-only result commit.
 - `FINAL_STATE`: `BASE_RATE_AUDIT_COMPLETE — TASK 038-B STOP`.
