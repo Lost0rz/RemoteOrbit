@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: BLUETOOTH_TCC_IDENTITY_STALE_OR_UNRESOLVED — 038-B VERIFY.
+- Status: BLOCKED_ATVV_PREPARATION — 038-B VERIFY.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B BLOCKED_BLUETOOTH_AUTHORIZATION`: after the human enabled RemoteOrbit under System Settings → Privacy & Security → Bluetooth, a fresh installed diagnostic launch still reported CoreBluetooth central `Unauthorized`; no voice session is authorized yet.
+- `038-B BLOCKED_ATVV_PREPARATION`: the post-grant fresh installed diagnostic launch reached CoreBluetooth readiness (`[BLE] 蓝牙已就绪`), but no passive ATVV transport preparation was observed before any voice-key interaction; no natural session is authorized yet.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -249,3 +249,21 @@ The launch-to-incident evidence and `centralManagerDidUpdateState` source path e
 - `WORKTREE_STATUS`: FACT — clean before and after the control-only record.
 - `PR_STATE`: FACT — PR #24 remains OPEN, DRAFT, UNMERGED; current head is this paired control transition after publication.
 - `SMALLEST_JUSTIFIED_NEXT_ACTION`: FACT — STOP; do not reset TCC, replace/rebuild/reinstall the app, change drivers/CoreAudio, or request a voice session. Require a separately authorized identity-preserving Bluetooth authorization review.
+
+## 038-B Bluetooth authorization post-grant verification result
+
+- `RUNTIME_PROCESS_IDENTITY`: FACT — PID `21428`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, designated requirement `identifier "com.lost0rz.RemoteOrbit"`; process environment confirms only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1` as the diagnostic variable.
+- `BLUETOOTH_AUTHORIZATION`: UNKNOWN — numeric `CBManager.authorization` was not emitted; the human UI grant is not substituted for process-level numeric evidence.
+- `CENTRAL_INITIAL_STATE`: FACT — `poweredOn`, established by the first fresh `[BLE] 蓝牙已就绪` marker at `17:44:08`.
+- `CENTRAL_FINAL_STATE`: FACT — `poweredOn`; no later contrary state was observed while PID `21428` remained alive.
+- `POWERED_ON_REACHED`: YES.
+- `CONNECTION_STATE`: FACT — ATVV peripheral connection was NOT OBSERVED; the only connection marker was HID compatibility/monitored mode.
+- `SERVICE_DISCOVERY_STATE`: FACT — NOT REACHED/OBSERVED.
+- `CHARACTERISTIC_DISCOVERY_STATE`: FACT — NOT REACHED/OBSERVED.
+- `CAPABILITIES_STATE`: FACT — NOT REACHED/OBSERVED.
+- `ATVV_READY_STATE`: FACT — NOT REACHED/OBSERVED; no fresh `ATVV 语音链路已就绪` marker.
+- `LAST_CONFIRMED_GOOD_STAGE`: `COREBLUETOOTH CENTRAL READY / POWERED_ON`.
+- `FIRST_FAILED_OR_UNCONFIRMED_STAGE`: `ATVV TRANSPORT PREPARATION — RECONNECT/PREWARM PATH NOT OBSERVED`.
+- `SOURCE_CHANGED`: NO.
+- `CHANGED_FILES`: control records only; no product source changed.
+- `SMALLEST_JUSTIFIED_NEXT_ACTION`: STOP without a voice session. A new authority decision is required before any active transport trigger or natural session.
