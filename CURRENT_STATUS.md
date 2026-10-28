@@ -16,7 +16,7 @@ Repository: Lost0rz/RemoteOrbit
 - Task 037 remains merged with `HUMAN_UI_ACCEPTANCE: PENDING` for Command-Space, Command-Shift-4, Option-A, pure modifier recording, and normal shortcut restoration after recorder close/cancel.
 - `AGENTS.md` durable rules were re-read for this transition and require no semantic change.
 - The prior 038-A worktree `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress` was verified clean, fully merged/reachable from current `main`, and without unique/unpushed commits; it was removed and its local branch was deleted. Its remote branch remains retained. Task 037's historical worktree remains untouched.
-- PR #24 is open + DRAFT + UNMERGED for the bounded 038-B observation-only instrumentation. Corrective-1 is explicitly authorized by the current card to remove the probe's render-path self-contention; no runtime capture, installation, merge, audio tuning, or 038-C/D/E/F work is authorized.
+- PR #24 is open + DRAFT + UNMERGED at live head `0c26c61c2a2ec1f147f6179b20a864f335af1dfb` for the bounded 038-B observation-only instrumentation. Corrective-1 reproduced and removed the probe's render-path self-contention; no runtime capture, installation, merge, audio tuning, or 038-C/D/E/F work is authorized.
 
 ## Task 038-B writer identity
 
@@ -24,13 +24,14 @@ Repository: Lost0rz/RemoteOrbit
 - Authorized worktree: `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence`.
 - Start HEAD: `e80c8be50fa489c7f04c4ca5567aff7cc5d3af9b`.
 - Worktree registration: this paired control commit; worktree was clean before any source/test or diagnostic mutation.
-- Current source/test HEAD: `5b3003b0ae19b7c72e00424876f95846e55542a9`, pushed and verified equal to the authorized remote branch.
+- Current source/test HEAD: `0c26c61c2a2ec1f147f6179b20a864f335af1dfb`, pushed and verified equal to the authorized remote branch.
 - Corrective-1 audit baseline: PR #24 head `59fa6a5f0a20f48b623d0edefd1863e6c9073460`; render-side continuity capture currently calls the shared `VoiceTimingLogger` lock and mutates its bucket dictionary while `AudioPipe.stateLock` is held.
+- Corrective-1 delivery: source/test commit `0c26c61c2a2ec1f147f6179b20a864f335af1dfb`; render-side capture now uses AudioPipe-owned fixed-capacity storage and merges a lifecycle snapshot outside the render path.
 
 ## Task 038 roadmap
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B ACTIVE`: audio continuity evidence.
+- `038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT`: audio continuity evidence and corrective-1 probe architecture delivered.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -50,12 +51,13 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 
 ## Current phase and next action
 
-- Phase: 038-B CORRECTIVE-1 ACTIVE — non-perturbing evidence architecture only.
+- Phase: 038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT — corrective-1 non-perturbing evidence architecture delivered.
 - First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
-- Current conclusion: existing telemetry was insufficient for mid-stream temporal alignment; the minimum opt-in 100 ms monotonic/session bucket ledger was added in source/test commit `5b3003b` and leaves buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior unchanged.
-- Verification: focused `AudioDataPlaneDiagnosticsTests` 23/23 PASS; full `swift test` 412/412 PASS; `swift build -c release` PASS; `git diff --check` PASS.
-- Corrective-1 boundary: keep the same monotonic/session/100 ms correlation fields, but remove shared logger-lock, dictionary mutation, formatting, dispatch, and unbounded allocation from the CoreAudio render path when continuity evidence is enabled.
-- Current next action: implement and verify the bounded probe architecture, then return PR #24 to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not install, release, or run a new runtime capture.
+- Current conclusion: existing telemetry was insufficient for mid-stream temporal alignment; the minimum opt-in 100 ms monotonic/session bucket ledger remains in source/test commit `0c26c61`, and buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior remain unchanged.
+- Audit property reproduced: the prior render-side probe acquired the shared logger lock and mutated its dictionary while `AudioPipe.stateLock` was held, creating probe self-contention risk.
+- Corrective-1 result: render-side continuity capture now uses AudioPipe-owned preallocated fixed-capacity storage (8,192 buckets), with no new logger lock, dictionary/hash mutation, formatting/printing, synchronous dispatch, or unbounded allocation in the probe path; snapshot/filter/merge occur after capture ends.
+- Verification: focused `AudioDataPlaneDiagnosticsTests` 27/27 PASS; affected `AudioPipeTests` 4/4 PASS; full `swift test` 416/416 PASS; `swift build -c release` PASS; `git diff --check` PASS.
+- Current next action: independent Web audit of PR #24. Do not install, release, or run a new runtime capture.
 
 ## Protected boundaries
 

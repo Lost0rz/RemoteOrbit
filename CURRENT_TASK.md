@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: ACTIVE — 038-B AUDIO CONTINUITY EVIDENCE.
+- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT — 038-B corrective-1 delivered.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B ACTIVE`: audio continuity evidence — only active product/diagnostic slice.
+- `038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT`: audio continuity evidence and corrective-1 probe architecture delivered; no runtime capture is authorized.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -47,8 +47,8 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 - Start HEAD: `e80c8be50fa489c7f04c4ca5567aff7cc5d3af9b`.
 - Registration: this paired control commit; the worktree was clean before source/test or diagnostic mutation.
 - The old 038-A worktree closeout was performed after proving clean state, merged reachability, and no unique/unpushed commits; its local branch was deleted and remote branch retained.
-- Current source/test HEAD: `5b3003b0ae19b7c72e00424876f95846e55542a9`, pushed and verified equal to the remote 038-B branch.
-- PR #24: OPEN + DRAFT + UNMERGED at live head `59fa6a5`; corrective-1 is explicitly authorized by the current card to remove render-path probe self-contention, then return to independent Web audit.
+- Current source/test HEAD: `0c26c61c2a2ec1f147f6179b20a864f335af1dfb`, pushed and verified equal to the remote 038-B branch.
+- PR #24: OPEN + DRAFT + UNMERGED at live head `0c26c61c2a2ec1f147f6179b20a864f335af1dfb`; corrective-1 reproduced and removed render-path probe self-contention, then returned the task to independent Web audit.
 
 ## Authorized 038-B scope
 
@@ -71,8 +71,8 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 8. If the evidence chain is incomplete, add only the smallest observation instrumentation required to correlate those layers by session/time. This was completed as an opt-in 100 ms bucket ledger using the existing P1A4 monotonic clock and VoiceTimingLogger session identity; it must remain diagnostic-only and must not change production behavior.
 9. Add focused tests for any new accounting/probe logic.
 10. Run proportional verification: focused tests, full Swift tests when source changes, release build for source changes, and diff check.
-11. Return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT` if source/test instrumentation changes are delivered. This slice delivered source/test instrumentation in `5b3003b`; PR #24 is now at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. If no later authority transition exists, do not install/release/runtime-capture.
-12. Corrective-1: reproduce the audit property, then make only the smallest architecture change needed so continuity capture inside CoreAudio IOProc uses no shared logger lock, cross-thread blocking synchronization, dictionary/hash mutation, string formatting/printing, synchronous dispatch, or unbounded allocation. Preserve the existing clock, session identity, 100 ms buckets, fields, active/tail/idle accounting, and default-off behavior.
+11. Return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT` if source/test instrumentation changes are delivered. This slice delivered source/test instrumentation and corrective-1 in `0c26c61`; PR #24 is now at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. If no later authority transition exists, do not install/release/runtime-capture.
+12. Corrective-1 completed: the audit property was reproduced, and the smallest architecture change was made so continuity capture inside CoreAudio IOProc uses no shared logger lock, cross-thread blocking synchronization, dictionary/hash mutation, string formatting/printing, synchronous dispatch, or unbounded allocation. The existing clock, session identity, 100 ms buckets, fields, active/tail/idle accounting, and default-off behavior were preserved.
 
 ## Required output / evidence
 
@@ -110,6 +110,13 @@ The 038-B result must include:
 - If a corrective production change becomes justified, stop after the evidence verdict and request a new governance transition before implementing it.
 - Corrective-1 stop condition: if safe render observation requires a material AudioPipe redesign or cannot be made non-perturbing within this boundary, revert only the intrusive render-side portion and stop.
 
+## Corrective-1 delivery receipt
+
+- Audit finding: FACT — the previous render-side continuity probe called the shared logger while `AudioPipe.stateLock` was held; that logger acquired a global `NSLock` and mutated a dictionary.
+- Architecture: FACT — `AudioContinuityRenderLedger` is AudioPipe-owned, fixed-capacity, preallocated storage; render-side observation only samples the existing monotonic clock, computes a bounded bucket index, and updates fixed counters. Lifecycle snapshot creation and central dictionary merge are outside render.
+- Lifecycle/default-off coverage: FACT — focused tests cover active render, tail/overflow, stale timestamp/session reset, consecutive sessions, bounded capacity, disabled context, and snapshot merge.
+- Product/runtime boundary: UNKNOWN — no installed/runtime capture was performed, so this commit does not establish runtime underrun behavior or a product audio root cause.
+
 ## Current next action
 
-Corrective-1 is the active bounded subphase for PR #24: reproduce the render-path lock/container mutation, implement the smallest non-blocking fixed-cost render observation, verify lifecycle reset and disabled mode, then return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not tune, install, release, capture runtime, or fix audio behavior.
+Independent Web audit of PR #24. Do not tune, install, release, capture runtime, or fix audio behavior.
