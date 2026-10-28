@@ -2,12 +2,12 @@
 
 ## RO-SHORTCUT-RECORDER-EXCLUSIVE-CAPTURE-037 — Task 037
 
-- Status: ACTIVE — CONTROL ACTIVATED.
+- Status: ACTIVE — IMPLEMENTATION ACTIVE.
 - Task class: CORRECTIVE / EXECUTION.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
 - Audited activation parent: `ea41f4ca93674fd70b9730c272eb3e2abee4d768`.
-- Task 037 control head: this paired activation transition; exact commit SHA is the direct child of the audited parent and is recorded by Git/receipt.
+- Task 037 control head: `ef09f80813cd868ede8a63bf3e9724fe46b43b0f`.
 
 ## Objective
 
@@ -40,8 +40,8 @@ This is a shortcut-recorder event-ownership corrective. It is not a Voice correc
 
 - Authorized branch: `codex/shortcut-recorder-exclusive-capture-v1`.
 - Authorized worktree: `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1`.
-- Create exactly one implementation worktree from the Task 037 activation head.
-- Register the exact branch, worktree, start HEAD, canonical control head, and clean state in a paired control commit before product mutation.
+- Implementation start HEAD: `ef09f80813cd868ede8a63bf3e9724fe46b43b0f`.
+- The exact branch, worktree, start HEAD, canonical control head, and clean state are registered by this paired control commit before product mutation.
 - Push the authorized branch and open exactly one Draft PR against `main` only after required implementation verification passes.
 - Do not merge, install `/Applications/RemoteOrbit.app`, package/release a DMG, delete the branch, or delete the worktree.
 
@@ -99,4 +99,4 @@ Required focused cases include plain key, Command-Space, Command-Shift-4 exact c
 
 ## Next action
 
-Create and register the single authorized implementation worktree and branch from the Task 037 activation head. No product file mutation is authorized before that registration transition completes.
+Implement the bounded shortcut-capture change in the registered implementation worktree. Product mutation is authorized only in this worktree and only within the scope above.

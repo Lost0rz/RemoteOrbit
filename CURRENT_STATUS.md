@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: ACTIVE — TASK 037 CONTROL ACTIVATED
+State: ACTIVE — TASK 037 IMPLEMENTATION ACTIVE
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -25,17 +25,19 @@ Repository: Lost0rz/RemoteOrbit
 - Objective: during shortcut recording, capture one complete physical keyboard gesture at the system event layer and prevent that gesture from reaching macOS/apps.
 - Product examples: Command-Space records without opening Spotlight; Command-Shift-4 records without initiating screenshot capture.
 - Task class: corrective execution; verification tier: V2 domain/integration boundary.
-- Control transition: paired `CURRENT_STATUS.md` / `CURRENT_TASK.md` activation commit, direct child of the audited parent above.
+- Task 037 control head: `ef09f80813cd868ede8a63bf3e9724fe46b43b0f`.
+- Control transition: paired `CURRENT_STATUS.md` / `CURRENT_TASK.md` activation commit, direct child of the audited parent above and pushed/verified on live `main`.
 - Authorized implementation branch: `codex/shortcut-recorder-exclusive-capture-v1`.
 - Authorized implementation worktree: `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1`.
-- Implementation worktree has not yet been created.
+- Implementation worktree start HEAD: `ef09f80813cd868ede8a63bf3e9724fe46b43b0f`.
+- Implementation worktree registration: this paired control commit; worktree was clean before product mutation.
 - Target final development state: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 - `HUMAN_UI_ACCEPTANCE: PENDING`.
 
 ## Current phase and next action
 
-- Phase: CONTROL_ACTIVATED; no product files have been changed for Task 037.
-- Next authorized action: create exactly the authorized implementation branch/worktree from the activation head, register its exact identity in a paired control commit, then implement the bounded shortcut-capture change.
+- Phase: IMPLEMENTATION ACTIVE; no product files have been changed for Task 037.
+- Next authorized action: implement the bounded shortcut-capture change in the registered worktree, preserving the listed protected authorities.
 - Single writer: the authorized implementation worktree only after registration; no second product writer.
 
 ## Required closeout evidence
