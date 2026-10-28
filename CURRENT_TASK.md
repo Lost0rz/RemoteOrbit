@@ -142,7 +142,7 @@ The 038-B result must include:
 
 ## Current next action
 
-Inspect existing launch-to-incident evidence and the `centralManagerDidUpdateState` source path for incident session `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`; determine the exact CoreBluetooth readiness/authorization state and minimum fault boundary. Do not create another runtime incident, request another user voice session, mutate product behavior, or change TCC, driver, CoreAudio, or PR lifecycle.
+The launch-to-incident evidence and `centralManagerDidUpdateState` source path establish the exact minimum fault boundary for `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`. Stop after recording the diagnosis; do not create another runtime incident, request another user voice session, mutate product behavior, or change TCC, driver, CoreAudio, or PR lifecycle.
 
 ## 038-B BLE central-readiness diagnosis transition
 
@@ -150,6 +150,31 @@ Inspect existing launch-to-incident evidence and the `centralManagerDidUpdateSta
 - Previous incident outcome: FACT — `OUTCOME_A_PRE_MICOPEN_FAILURE`; no ATVV-ready, `MIC_OPEN_TX`, `AUDIO_START`, or first remote audio packet evidence was observed for `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`.
 - Missing fact: FACT — the exact CoreBluetooth central readiness/authorization state at app start, prewarm, and long activation is not yet established.
 - Scope: FACT — no product correction, reconnect/ATVV behavior change, TCC/driver/CoreAudio mutation, rebuild/reinstall, merge, or second user session is authorized. If existing evidence is insufficient, only the card's smallest diagnostic-only probe may be considered.
+
+## 038-B BLE central-readiness diagnosis result
+
+- `RUNTIME_PROCESS_IDENTITY`: FACT — PID `59512`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, `com.lost0rz.RemoteOrbit 0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
+- `EVIDENCE_INTERVAL`: FACT — process launch `2026-10-28 15:37:55.792 +0800` through incident release `2026-10-28 15:45:44.685 +0800`; selected session `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`.
+- `CENTRAL_STATE_AT_APP_START`: FACT — CoreBluetooth daemon reported `Unauthorized` at `15:37:55.906 +0800` for the PID-59512 central session.
+- `CENTRAL_STATE_BEFORE_PREWARM`: INFERENCE — no later state update was observed before first prewarm; the last recorded state remained Unauthorized.
+- `CENTRAL_STATE_AT_PREWARM`: INFERENCE — the app emitted `等待蓝牙就绪…` at prewarm and no powered-on transition was recorded.
+- `CENTRAL_STATE_AT_LONG_ACTIVATION`: INFERENCE — the app again emitted `等待蓝牙就绪…` after `BLE_START_REQUEST`; no powered-on transition or reconnect callback was recorded.
+- `CENTRAL_AUTHORIZATION_STATUS`: FACT — central session state was Unauthorized; a separate numeric `CBManager.authorization` value was not emitted.
+- `BLUETOOTH_POWER_STATUS`: UNKNOWN — controller power-only status is not separately proven; the app's central was not `.poweredOn` and was explicitly Unauthorized.
+- `HID_TRANSPORT_STATUS`: FACT — compatibility HID down/hold/up evidence remained healthy and is independent of CoreBluetooth ATVV.
+- `ATVV_COREBLUETOOTH_STATUS`: FACT — no connection, discovery, capabilities, ATVV-ready, `MIC_OPEN_TX`, `AUDIO_START`, or remote audio evidence.
+- `POWERED_ON_CALLBACK_OBSERVED`: FACT — NO; neither the app's `蓝牙已就绪` marker nor a powered-on state update for this central was observed.
+- `RECONNECT_AFTER_POWERED_ON_STATUS`: FACT — NOT OBSERVED; there was no powered-on callback to trigger the source's reconnect path.
+- `TRANSPORT_INTENT_AT_POWERED_ON`: UNKNOWN — no powered-on callback occurred; source behavior would schedule immediate reconnect only for an active voice intent.
+- `PREWARM_TO_POWERED_ON_RACE_STATUS`: INFERENCE — not supported as the minimum boundary; the only recorded central state was Unauthorized and no recovery transition occurred.
+- `EVIDENCE_SUFFICIENCY`: SUFFICIENT — the minimum fault boundary is established without a new probe.
+- `MISSING_FACT`: UNKNOWN — the underlying reason for the Unauthorized result (user/TCC/system policy versus another authorization condition) is not established by this diagnosis.
+- `BLOCKED_DECISION`: FACT — no product fix, permission mutation, or second human session is authorized by this card.
+- `INCIDENT_CLASSIFICATION`: FACT — `OUTCOME_A_PRE_MICOPEN_FAILURE`, narrowed to CoreBluetooth central authorization/readiness before ATVV connection.
+- `ROOT_CAUSE_STATUS`: INFERENCE — unauthorized central admission is the earliest proven blocker; causal attribution beyond that remains UNKNOWN.
+- `PROBE_REQUIRED`: FACT — NO.
+- `SMALLEST_JUSTIFIED_NEXT_ACTION`: FACT — stop and preserve evidence; any authorization review or product correction requires separate authority.
+- `SOURCE_CHANGED`: FACT — NO; no probe, build, install, runtime restart, permission change, driver change, CoreAudio restart, or merge occurred.
 
 ## 038-B BLE-start incident diagnosis transition
 

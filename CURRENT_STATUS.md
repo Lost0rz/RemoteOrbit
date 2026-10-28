@@ -73,6 +73,21 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 - Missing fact: FACT — the existing runtime evidence does not yet identify the exact CoreBluetooth central readiness/authorization state that prevented `.poweredOn` transport progress.
 - Scope: FACT — preserve the observed runtime; no product correction, reconnect/ATVV behavior change, TCC/driver/CoreAudio mutation, rebuild/reinstall, merge, or second user session is authorized.
 
+## BLE central-readiness diagnosis result receipt
+
+- Evidence interval: FACT — process launch `2026-10-28 15:37:55.792 +0800` through incident release `2026-10-28 15:45:44.685 +0800`; the selected incident is `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`.
+- Runtime identity: FACT — PID `59512`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, bundle `com.lost0rz.RemoteOrbit`, version `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, with `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
+- Central state: FACT — `bluetoothd` reported `state updated ... state "Unauthorized"` at `15:37:55.906 +0800` for the PID-59512 CoreBluetooth session; no later state update for that session was observed through the incident.
+- Central authorization: FACT — the central session was unauthorized; the numeric `CBManager.authorization` property was not separately emitted. Bluetooth power-only status remains UNKNOWN.
+- HID transport: FACT — HID compatibility input remained functional (`hid_connected=true`, HID down/hold/up evidence); HID health does not prove CoreBluetooth ATVV readiness.
+- ATVV/CoreBluetooth: FACT — no powered-on callback evidence, connection, service discovery, capabilities handshake, ATVV-ready marker, `MIC_OPEN_TX`, `AUDIO_START`, or remote audio packet was observed. The app emitted repeated `等待蓝牙就绪…` and CoreBluetooth recorded powered-on-state API misuse during the same process lifetime.
+- Source behavior: FACT — `start()` sets `isStarted` then returns when `central.state != .poweredOn`; `.poweredOn` would schedule immediate reconnect only when `voiceInputRequested` is true, while `.unauthorized` falls through without a recovery action. Release cleanup later clears the voice intent, so no powered-on callback/reconnect path was observed in this incident.
+- Earliest proven break: FACT — CoreBluetooth central readiness/authorization before ATVV connection and before `micOpen`; the BLE/decode/PCM/AudioPipe stages were never entered.
+- Evidence sufficiency: SUFFICIENT — exact minimum fault boundary is established; no diagnostic probe is required for this diagnosis.
+- Root cause: INFERENCE — the incident is blocked at an unauthorized CoreBluetooth central boundary. The underlying authorization/TCC cause and any product correction are not established or authorized here.
+- Smallest justified next action: STOP after diagnosis. Preserve the runtime and require a separate authority decision for any user-owned authorization review or product correction; do not request another voice session in this pass.
+- Source changed: FACT — NO; no probe, build, install, runtime restart, permission change, driver change, CoreAudio restart, or merge was performed.
+
 ## BLE-start incident transition receipt
 
 - Transition authority: FACT — the current 038-B BLE-start incident card explicitly authorizes this control-only transition and existing-evidence diagnosis.
