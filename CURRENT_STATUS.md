@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: CAUSAL_ANALYSIS_COMPLETE — TASK 038-B STOP
+State: EXISTING_EVIDENCE_BASE_RATE_AUDIT — TASK 038-B AUDIT ACTIVE
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -52,7 +52,7 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 
 ## Current phase and next action
 
-- Phase: 038-B ANALYSIS COMPLETE — frozen natural-session set analyzed; stop at the evidence verdict.
+- Phase: 038-B EXISTING EVIDENCE BASE-RATE AUDIT — frozen natural-session set remains unchanged; audit active.
 - First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
 - Current conclusion: FACT — the opt-in 100 ms monotonic/session bucket ledger aligned BLE, decode, submission, queue, and render evidence across 10 usable sessions; buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior remain unchanged.
 - Audit property reproduced: the prior render-side probe acquired the shared logger lock and mutated its dictionary while `AudioPipe.stateLock` was held, creating probe self-contention risk.
@@ -64,7 +64,7 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 - Corrective-3 result: AUDIO_START now owns a stable opt-in capture identity even when no HID session exists; pre-session BLE/decode/render observations remain on that capture, and the matching later session can bind it once. Binding is exact-identity and one-shot; wrong or repeated session bindings are rejected. HID-before-AUDIO_START reuses the same bound capture identity.
 - Verification: focused `AudioDataPlaneDiagnosticsTests` 31/31 PASS; affected `AudioPipeTests` 4/4 PASS; `VoiceBoundaryOrderingTests` 3/3 PASS; `VoicePressCoordinatorTests` 39/39 PASS; full `swift test` 420/420 PASS; `swift build -c release` PASS; `git diff --check` PASS.
 - Product/runtime boundary: FACT — PID `21428` produced 10 usable sessions with exact session/bucket joins and `render_capacity_dropped=0`; final text omission and human-visible quality remain UNKNOWN/NOT_REPORTED.
-- Current next action: STOP. No additional sessions, corrective product change, 038-C/D/E/F work, TCC/driver/CoreAudio mutation, rebuild/reinstall, or merge is authorized. Any corrective implementation requires a separate governance transition.
+- Current next action: perform the authorized read-only ACTIVE-STREAM bucket base-rate and lag audit over the existing 10-session evidence set; no additional sessions, corrective product change, 038-C/D/E/F work, TCC/driver/CoreAudio mutation, rebuild/reinstall, or merge is authorized.
 
 ## BLE central-readiness diagnosis transition receipt
 

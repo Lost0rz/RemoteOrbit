@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: CAUSAL_ANALYSIS_COMPLETE — 038-B STOP.
+- Status: EXISTING_EVIDENCE_BASE_RATE_AUDIT — 038-B AUDIT ACTIVE.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B CAUSAL_ANALYSIS_COMPLETE`: 10 usable natural sessions from the expected diagnostic runtime were frozen and analyzed. Decoder rejection and overflow are downgraded; BLE/PCM supply are supported as recurring contributors, while active AudioPipe underrun also occurs with same-bucket healthy submission. Root cause is NARROWED_NOT_ESTABLISHED.
+- `038-B EXISTING_EVIDENCE_BASE_RATE_AUDIT`: the same 10 usable natural sessions are frozen; independently revalidate ACTIVE-STREAM base rates and lag relationships before retaining or downgrading the prior BLE/PCM contributor claims. No new runtime capture is authorized.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
