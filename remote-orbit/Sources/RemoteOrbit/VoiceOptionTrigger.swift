@@ -486,6 +486,10 @@ enum VoiceTimingLogger {
     static func observeAudioPipeSnapshot(_ snapshot: AudioPipeDiagnosticsSnapshot) {
         LongTermObservabilityService.shared.observeAudioPipe(snapshot)
     }
+
+    static func observeLongTermAudioSnapshot(_ snapshot: LongTermAudioObservationSnapshot) {
+        LongTermObservabilityService.shared.observeLongTermAudioSnapshot(snapshot)
+    }
 }
 
 /// The physical HID path is the normal owner. This small state object only

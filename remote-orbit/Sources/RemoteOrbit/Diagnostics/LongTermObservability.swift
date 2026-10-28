@@ -55,6 +55,11 @@ struct FixedCapacityObservationTraceSnapshot: Equatable, Sendable {
     var all: [LongTermObservationPoint] { front + recent }
 }
 
+struct LongTermAudioObservationSnapshot: Equatable, Sendable {
+    let trace: FixedCapacityObservationTraceSnapshot
+    let mainQueueLag: MainQueueLagSummary
+}
+
 /// A bounded trace for the timing path. Append only writes into preallocated
 /// slots and does not call the DiagnosticAuthority or perform I/O.
 struct FixedCapacityObservationTrace: Sendable {
@@ -571,6 +576,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
     private struct ActiveSession {
         var summary: LongTermVoiceSessionSummary
         var trace = FixedCapacityObservationTrace(frontCapacity: 64, recentCapacity: 256)
+        var detachedTraceSnapshot: FixedCapacityObservationTraceSnapshot? = nil
     }
 
     private let authority: any DiagnosticAuthority
@@ -714,6 +720,17 @@ final class LongTermObservabilityService: @unchecked Sendable {
         lock.unlock()
     }
 
+    func observeLongTermAudioSnapshot(_ snapshot: LongTermAudioObservationSnapshot) {
+        lock.lock()
+        guard activeSession != nil else {
+            lock.unlock()
+            return
+        }
+        activeSession!.detachedTraceSnapshot = snapshot.trace
+        activeSession!.summary.mainQueueLag = snapshot.mainQueueLag
+        lock.unlock()
+    }
+
     @discardableResult
     func end(sessionID: UUID) -> LongTermVoiceSessionSummary? {
         lock.lock()
@@ -726,7 +743,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         activeSession.summary.runtimeIdentity = runtimeIdentity
         activeSession.summary.authorityDroppedEventCount = authority.droppedEventCount
         activeSession.summary.authorityWriteFailureCount = authority.writeFailureCount
-        let traceSnapshot = activeSession.trace.snapshot()
+        let traceSnapshot = activeSession.detachedTraceSnapshot ?? activeSession.trace.snapshot()
         activeSession.summary.traceDroppedObservationCount =
             traceSnapshot.droppedObservationCount + traceSnapshot.overwrittenObservationCount
         activeSession.summary.anomalyFlags = thresholds.classify(

@@ -2,6 +2,24 @@ import XCTest
 @testable import RemoteOrbit
 
 final class AudioDataPlaneDiagnosticsTests: XCTestCase {
+    func testAudioPipeLongTermSnapshotCapturesSubmissionAndStopsProbe() {
+        let pipe = AudioPipe.shared
+        pipe.setRemoteActive(false)
+        pipe.endRemoteCandidate()
+        pipe.beginRemoteAudioDiagnostics()
+        _ = pipe.setRemoteActive(true)
+        pipe.feed(samples: Array(repeating: Int16(7), count: 320))
+
+        let observation = pipe.takeLongTermObservationSnapshot()
+        XCTAssertTrue(
+            observation.trace.all.contains { $0.kind == .pcmSubmitted }
+        )
+        XCTAssertGreaterThanOrEqual(observation.mainQueueLag.sampleCount, 0)
+
+        _ = pipe.setRemoteActive(false)
+        _ = pipe.endRemoteAudioDiagnostics()
+    }
+
     func testVoiceTimingLoggerMapsTailEventsToDistinctTimelineFields() {
         XCTAssertEqual(
             VoiceTimingLogger.timelineEventName(for: "AUDIO_STOP"),

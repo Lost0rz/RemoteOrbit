@@ -1590,6 +1590,9 @@ extension BLEBridge: CBPeripheralDelegate {
         ))
         let continuitySnapshot = AudioPipe.shared.endRemoteAudioDiagnostics()
         VoiceTimingLogger.mergeContinuityRenderSnapshot(continuitySnapshot)
+        VoiceTimingLogger.observeLongTermAudioSnapshot(
+            AudioPipe.shared.takeLongTermObservationSnapshot()
+        )
         let reason = pendingAudioStopReason ?? 0
         pendingAudioStopReason = nil
         print("[BLE] AUDIO_STOP drained reason=0x\(String(format: "%02x", reason))")
