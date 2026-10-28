@@ -127,6 +127,69 @@ final class LongTermObservabilityTests: XCTestCase {
         XCTAssertEqual(object["deficit_frames"], .unsignedInteger(2))
     }
 
+    func testServiceEmitsAlwaysOnSummaryWithPreHIDCaptureBindingAndUnavailableReceiver() throws {
+        let authority = CapturingLongTermAuthority()
+        let runtime = LongTermRuntimeIdentity(
+            processInstanceID: UUID(uuidString: "00000000-0000-0000-0000-000000000099")!,
+            processID: 99,
+            binaryPath: "/tmp/RemoteOrbit-test",
+            appVersion: "1.2.3",
+            buildVersion: "99",
+            sourceRevision: "abc123"
+        )
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: runtime
+        )
+        let sessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let captureID = service.observeTransportStart(
+            protocolVersion: "2",
+            mode: "remote",
+            codec: "ADPCM",
+            sampleRate: 16_000,
+            timestampNanoseconds: 100
+        )
+
+        service.begin(sessionID: sessionID, timestampNanoseconds: 200)
+        service.observeControl(policy: "momentary_trigger", classification: "hold", triggerSource: "hardware")
+        service.mark("MIC_OPEN_TX", timestampNanoseconds: 300, sessionID: sessionID)
+        service.mark("AUDIO_START", timestampNanoseconds: 400, sessionID: sessionID)
+        service.mark("AUDIO_FIRST", timestampNanoseconds: 500, sessionID: sessionID)
+        service.observeNotification(bytes: 120, gapNanoseconds: 30_000_000)
+        service.observeDecode(frameCount: 2, sampleCount: 320)
+        service.observeSupply(submittedFrames: 320)
+        service.observePlayout(expectedFrames: 320, deliveredFrames: 300, marker: .active)
+        service.mark("PHYSICAL_UP", timestampNanoseconds: 600, sessionID: sessionID)
+        service.mark("AUDIO_STOP", timestampNanoseconds: 700, sessionID: sessionID)
+        service.mark("AUDIO_DRAIN_BEGIN", timestampNanoseconds: 800, sessionID: sessionID)
+        service.mark("DRAIN_FINISH", timestampNanoseconds: 900, sessionID: sessionID)
+        service.mark("AUDIO_PIPELINE_CLOSED", timestampNanoseconds: 1_000, sessionID: sessionID)
+
+        let summary = try XCTUnwrap(service.end(sessionID: sessionID))
+        XCTAssertEqual(summary.captureID, captureID.uuidString)
+        XCTAssertEqual(authority.inputs.count, 1)
+        let input = try XCTUnwrap(authority.inputs.first)
+        XCTAssertEqual(input.eventType, "voice.session.summary")
+        XCTAssertEqual(input.sessionID, sessionID.uuidString)
+        XCTAssertEqual(input.incidentID, nil)
+        guard case .object(let payload) = input.payload["summary"] else {
+            return XCTFail("summary payload must be an object")
+        }
+        XCTAssertEqual(payload["capture_id"], .string(captureID.uuidString))
+        XCTAssertEqual(payload["physical_down_timestamp_nanoseconds"], .unsignedInteger(200))
+        XCTAssertEqual(payload["mic_open_timestamp_nanoseconds"], .unsignedInteger(300))
+        XCTAssertEqual(payload["audio_first_timestamp_nanoseconds"], .unsignedInteger(500))
+        XCTAssertEqual(payload["drain_finish_timestamp_nanoseconds"], .unsignedInteger(900))
+        XCTAssertEqual(payload["notification_count"], .unsignedInteger(1))
+        XCTAssertEqual(payload["notification_gap_count"], .unsignedInteger(1))
+        XCTAssertEqual(payload["decoded_sample_count"], .unsignedInteger(320))
+        XCTAssertEqual(payload["submitted_frames"], .unsignedInteger(320))
+        XCTAssertEqual(payload["rendered_frames"], .unsignedInteger(300))
+        XCTAssertEqual(payload["receiver_evidence_status"], .string("unavailable"))
+        XCTAssertEqual(payload["runtime_process_id"], .integer(99))
+        XCTAssertEqual(payload["runtime_source_revision"], .string("abc123"))
+    }
+
     private func point(timestamp: UInt64) -> LongTermObservationPoint {
         LongTermObservationPoint(
             timestampNanoseconds: timestamp,
@@ -137,6 +200,26 @@ final class LongTermObservabilityTests: XCTestCase {
             queueDepthFrames: 1,
             byteOrSampleCount: 1,
             marker: .active
+        )
+    }
+}
+
+private final class CapturingLongTermAuthority: DiagnosticAuthority {
+    var droppedEventCount: UInt64 = 0
+    var writeFailureCount: UInt64 = 0
+    var inputs: [DiagnosticEventInput] = []
+
+    func emit(_ input: DiagnosticEventInput) {
+        inputs.append(input)
+    }
+
+    func query(_ filter: DiagnosticQueryFilter) throws -> DiagnosticQueryPage {
+        DiagnosticQueryPage(schemaVersion: DiagnosticEvent.currentSchemaVersion, events: [], nextCursor: nil)
+    }
+
+    func snapshot(_ filter: DiagnosticQueryFilter) throws -> Data {
+        try JSONEncoder().encode(
+            DiagnosticQueryPage(schemaVersion: DiagnosticEvent.currentSchemaVersion, events: [], nextCursor: nil)
         )
     }
 }

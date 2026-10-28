@@ -114,6 +114,10 @@ enum VoiceTimingLogger {
         lastEndedSessionID = nil
         lastEndedStartedAt = 0
         lock.unlock()
+        LongTermObservabilityService.shared.begin(
+            sessionID: sessionID,
+            timestampNanoseconds: timestamp
+        )
         if let captureToBind {
             _ = AudioPipe.shared.bindRemoteAudioDiagnostics(
                 captureID: captureToBind.captureID,
@@ -295,6 +299,11 @@ enum VoiceTimingLogger {
         if let timelineEvent = timelineEventName(for: event) {
             record(timelineEvent, timestampNanoseconds: nowNanoseconds)
         }
+        LongTermObservabilityService.shared.mark(
+            event,
+            timestampNanoseconds: nowNanoseconds,
+            sessionID: activeSessionID
+        )
         print(
             "[VOICE][\(shortID)][TIMING] \(event) "
                 + String(format: "+%.1fms", elapsedMS)
@@ -324,6 +333,11 @@ enum VoiceTimingLogger {
         let sessionUUID = sessionID.uuidString
         lock.unlock()
         let nowNanoseconds = P1A4MonotonicClock.nowNanoseconds()
+        LongTermObservabilityService.shared.mark(
+            event,
+            timestampNanoseconds: nowNanoseconds,
+            sessionID: sessionID
+        )
         print(
             "[VOICE][\(shortID)][TIMING] \(event) "
                 + String(format: "+%.1fms", elapsedMS)
@@ -380,6 +394,7 @@ enum VoiceTimingLogger {
         for line in continuityLines {
             print(line)
         }
+        _ = LongTermObservabilityService.shared.end(sessionID: sessionID)
         guard p1A5Enabled else { return }
 
         let frontEdgeEvents = [
@@ -405,6 +420,71 @@ enum VoiceTimingLogger {
             "[P1-A5] FRONT_EDGE_TIMELINE session_id=\(sessionID.uuidString) "
                 + frontEdgeValues + " " + bucketValues
         )
+    }
+
+    static func observeControlPolicy(
+        policy: String,
+        classification: String,
+        triggerSource: String
+    ) {
+        LongTermObservabilityService.shared.observeControl(
+            policy: policy,
+            classification: classification,
+            triggerSource: triggerSource
+        )
+    }
+
+    @discardableResult
+    static func observeTransportStart(
+        protocolVersion: String,
+        mode: String,
+        codec: String,
+        sampleRate: UInt64,
+        timestampNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()
+    ) -> UUID {
+        LongTermObservabilityService.shared.observeTransportStart(
+            protocolVersion: protocolVersion,
+            mode: mode,
+            codec: codec,
+            sampleRate: sampleRate,
+            timestampNanoseconds: timestampNanoseconds
+        )
+    }
+
+    static func observeNotification(bytes: Int, gapNanoseconds: UInt64?) {
+        LongTermObservabilityService.shared.observeNotification(
+            bytes: UInt64(max(0, bytes)),
+            gapNanoseconds: gapNanoseconds
+        )
+    }
+
+    static func observeDecoded(frameCount: Int, sampleCount: Int) {
+        LongTermObservabilityService.shared.observeDecode(
+            frameCount: UInt64(max(0, frameCount)),
+            sampleCount: UInt64(max(0, sampleCount))
+        )
+    }
+
+    static func observeSupply(submittedFrames: Int) {
+        LongTermObservabilityService.shared.observeSupply(
+            submittedFrames: UInt64(max(0, submittedFrames))
+        )
+    }
+
+    static func observePlayout(
+        expectedFrames: Int,
+        deliveredFrames: Int,
+        marker: LongTermObservationSemanticMarker
+    ) {
+        LongTermObservabilityService.shared.observePlayout(
+            expectedFrames: UInt64(max(0, expectedFrames)),
+            deliveredFrames: UInt64(max(0, deliveredFrames)),
+            marker: marker
+        )
+    }
+
+    static func observeAudioPipeSnapshot(_ snapshot: AudioPipeDiagnosticsSnapshot) {
+        LongTermObservabilityService.shared.observeAudioPipe(snapshot)
     }
 }
 

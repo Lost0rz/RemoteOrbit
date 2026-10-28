@@ -1188,6 +1188,12 @@ extension BLEBridge: CBPeripheralDelegate {
                     + "codec=\(codec) stream_id=\(sid) streamID=\(sid) "
                     + "session_origin=\(streamSessionOrigin.rawValue)"
             )
+            _ = VoiceTimingLogger.observeTransportStart(
+                protocolVersion: protocolHandler.capabilities?.version.description ?? "unknown",
+                mode: "remote",
+                codec: codec.description,
+                sampleRate: UInt64(max(0, codec.sampleRate))
+            )
             VoiceTimingLogger.mark("AUDIO_START")
         case .audioStop(let reason):
             guard isStreaming else {
@@ -1304,6 +1310,10 @@ extension BLEBridge: CBPeripheralDelegate {
             frameSize: protocolHandler.capabilities?.frameSize ?? 0,
             at: now.timeIntervalSinceReferenceDate
         )
+        VoiceTimingLogger.observeNotification(
+            bytes: data.count,
+            gapNanoseconds: UInt64(max(0, streamNotificationTelemetry.lastNotificationGapMilliseconds * 1_000_000))
+        )
         if VoiceTimingLogger.continuityEvidenceEnabled {
             VoiceTimingLogger.recordContinuityBLE(
                 timestampNanoseconds: packetTimestamp,
@@ -1338,6 +1348,11 @@ extension BLEBridge: CBPeripheralDelegate {
             "T3_last_decoded_pcm_frame",
             timestampNanoseconds: decodedTimestamp
         )
+        VoiceTimingLogger.observeDecoded(
+            frameCount: 1,
+            sampleCount: frame.samples.count
+        )
+        VoiceTimingLogger.observeSupply(submittedFrames: frame.samples.count)
         if VoiceTimingLogger.continuityEvidenceEnabled {
             VoiceTimingLogger.recordContinuityDecoded(
                 timestampNanoseconds: decodedTimestamp,
@@ -1498,6 +1513,7 @@ extension BLEBridge: CBPeripheralDelegate {
             elapsedSeconds: timing.measurementElapsedSeconds
         )
         let pipe = AudioPipe.shared.takeAudioDiagnosticsSnapshot()
+        VoiceTimingLogger.observeAudioPipeSnapshot(pipe)
         if let timestamp = pipe.lastRemoteSubmittedMonotonicNanoseconds {
             VoiceTimingLogger.record(
                 "T4_last_playout_frame_submitted",

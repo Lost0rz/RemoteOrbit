@@ -2120,6 +2120,11 @@ final class VoicePressCoordinator {
                 "policy": policy == .audioOnly ? "audio_only" : "momentary_trigger",
             ]
         )
+        VoiceTimingLogger.observeControlPolicy(
+            policy: policy == .audioOnly ? "audio_only" : "momentary_trigger",
+            classification: result,
+            triggerSource: usesHardwareOptionPath ? "hardware" : "synthetic"
+        )
     }
 
     private func logPhysicalGestureRelease(

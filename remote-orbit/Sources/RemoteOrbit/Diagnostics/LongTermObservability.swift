@@ -301,11 +301,48 @@ enum LongTermAnomalyFlag: String, Codable, CaseIterable, Hashable, Sendable {
     case authorityWriteFailure = "authority_write_failure"
 }
 
+struct LongTermRuntimeIdentity: Equatable, Sendable {
+    let processInstanceID: UUID
+    let processID: Int32
+    let binaryPath: String
+    let appVersion: String
+    let buildVersion: String
+    let sourceRevision: String?
+
+    init(
+        processInstanceID: UUID,
+        processID: Int32,
+        binaryPath: String,
+        appVersion: String,
+        buildVersion: String,
+        sourceRevision: String?
+    ) {
+        self.processInstanceID = processInstanceID
+        self.processID = processID
+        self.binaryPath = binaryPath
+        self.appVersion = appVersion
+        self.buildVersion = buildVersion
+        self.sourceRevision = sourceRevision
+    }
+
+    static func current() -> LongTermRuntimeIdentity {
+        let context = DiagnosticRuntimeContext.current()
+        return LongTermRuntimeIdentity(
+            processInstanceID: context.processInstanceID,
+            processID: context.processID,
+            binaryPath: context.binaryPath,
+            appVersion: context.appVersion,
+            buildVersion: context.buildVersion,
+            sourceRevision: context.sourceRevision
+        )
+    }
+}
+
 struct LongTermVoiceSessionSummary: Equatable, Sendable {
     static let schemaVersion: UInt64 = 1
 
-    let sessionID: String
-    let captureID: String
+    var sessionID: String
+    var captureID: String
     var expectedFrames: UInt64 = 0
     var deliveredFrames: UInt64 = 0
     var activeExpectedFrames: UInt64 = 0
@@ -322,6 +359,32 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
     var anomalyFlags: [LongTermAnomalyFlag] = []
     var tracePersisted = false
     var receiverEvidenceStatus = "unavailable"
+    var physicalDownTimestampNanoseconds: UInt64?
+    var holdConfirmedTimestampNanoseconds: UInt64?
+    var physicalUpTimestampNanoseconds: UInt64?
+    var micOpenTimestampNanoseconds: UInt64?
+    var audioStartTimestampNanoseconds: UInt64?
+    var audioFirstTimestampNanoseconds: UInt64?
+    var micCloseTimestampNanoseconds: UInt64?
+    var audioStopTimestampNanoseconds: UInt64?
+    var drainBeginTimestampNanoseconds: UInt64?
+    var drainFinishTimestampNanoseconds: UInt64?
+    var outputCompleteTimestampNanoseconds: UInt64?
+    var controlPolicy = "unavailable"
+    var classification = "unavailable"
+    var triggerSource = "unavailable"
+    var atvvProtocolVersion = "unavailable"
+    var atvvMode = "unavailable"
+    var atvvCodec = "unavailable"
+    var atvvSampleRate: UInt64?
+    var notificationCount: UInt64 = 0
+    var notificationBytes: UInt64 = 0
+    var decodedFrameCount: UInt64 = 0
+    var decodedSampleCount: UInt64 = 0
+    var submittedFrames: UInt64 = 0
+    var renderedFrames: UInt64 = 0
+    var queueStarvationFrames: UInt64 = 0
+    var runtimeIdentity: LongTermRuntimeIdentity?
 
     init(sessionID: String, captureID: String) {
         self.sessionID = sessionID
@@ -355,6 +418,34 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
         }
     }
 
+    mutating func recordNotification(bytes: UInt64, gapNanoseconds: UInt64?) {
+        notificationCount &+= 1
+        notificationBytes &+= bytes
+        if gapNanoseconds ?? 0 > 20_000_000 { notificationGapCount &+= 1 }
+    }
+
+    mutating func recordDecode(frameCount: UInt64, sampleCount: UInt64) {
+        decodedFrameCount &+= frameCount
+        decodedSampleCount &+= sampleCount
+    }
+
+    mutating func recordSupply(submittedFrames: UInt64) {
+        self.submittedFrames &+= submittedFrames
+    }
+
+    mutating func recordPlayout(
+        expectedFrames: UInt64,
+        deliveredFrames: UInt64,
+        marker: LongTermObservationSemanticMarker
+    ) {
+        self.renderedFrames &+= deliveredFrames
+        recordDelivery(
+            expectedFrames: expectedFrames,
+            deliveredFrames: deliveredFrames,
+            marker: marker
+        )
+    }
+
     func toDiagnosticJSONValue() -> DiagnosticJSONValue {
         .object([
             "schema_version": .unsignedInteger(Self.schemaVersion),
@@ -381,7 +472,42 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
             "anomaly_flags": .array(anomalyFlags.map { .string($0.rawValue) }),
             "trace_persisted": .bool(tracePersisted),
             "receiver_evidence_status": .string(receiverEvidenceStatus),
+            "physical_down_timestamp_nanoseconds": optionalUInt(physicalDownTimestampNanoseconds),
+            "hold_confirmed_timestamp_nanoseconds": optionalUInt(holdConfirmedTimestampNanoseconds),
+            "physical_up_timestamp_nanoseconds": optionalUInt(physicalUpTimestampNanoseconds),
+            "mic_open_timestamp_nanoseconds": optionalUInt(micOpenTimestampNanoseconds),
+            "audio_start_timestamp_nanoseconds": optionalUInt(audioStartTimestampNanoseconds),
+            "audio_first_timestamp_nanoseconds": optionalUInt(audioFirstTimestampNanoseconds),
+            "mic_close_timestamp_nanoseconds": optionalUInt(micCloseTimestampNanoseconds),
+            "audio_stop_timestamp_nanoseconds": optionalUInt(audioStopTimestampNanoseconds),
+            "drain_begin_timestamp_nanoseconds": optionalUInt(drainBeginTimestampNanoseconds),
+            "drain_finish_timestamp_nanoseconds": optionalUInt(drainFinishTimestampNanoseconds),
+            "output_complete_timestamp_nanoseconds": optionalUInt(outputCompleteTimestampNanoseconds),
+            "control_policy": .string(controlPolicy),
+            "classification": .string(classification),
+            "trigger_source": .string(triggerSource),
+            "atvv_protocol_version": .string(atvvProtocolVersion),
+            "atvv_mode": .string(atvvMode),
+            "atvv_codec": .string(atvvCodec),
+            "atvv_sample_rate": optionalUInt(atvvSampleRate),
+            "notification_count": .unsignedInteger(notificationCount),
+            "notification_bytes": .unsignedInteger(notificationBytes),
+            "decoded_frame_count": .unsignedInteger(decodedFrameCount),
+            "decoded_sample_count": .unsignedInteger(decodedSampleCount),
+            "submitted_frames": .unsignedInteger(submittedFrames),
+            "rendered_frames": .unsignedInteger(renderedFrames),
+            "queue_starvation_frames": .unsignedInteger(queueStarvationFrames),
+            "runtime_process_instance_id": runtimeIdentity.map { .string($0.processInstanceID.uuidString) } ?? .null,
+            "runtime_process_id": runtimeIdentity.map { .integer(Int64($0.processID)) } ?? .null,
+            "runtime_binary_path": runtimeIdentity.map { .string($0.binaryPath) } ?? .null,
+            "runtime_app_version": runtimeIdentity.map { .string($0.appVersion) } ?? .null,
+            "runtime_build_version": runtimeIdentity.map { .string($0.buildVersion) } ?? .null,
+            "runtime_source_revision": runtimeIdentity.flatMap { $0.sourceRevision }.map { .string($0) } ?? .null,
         ])
+    }
+
+    private func optionalUInt(_ value: UInt64?) -> DiagnosticJSONValue {
+        value.map(DiagnosticJSONValue.unsignedInteger) ?? .null
     }
 }
 
@@ -436,5 +562,196 @@ struct LongTermObservabilityThresholds: Equatable, Sendable {
             flags.append(.authorityWriteFailure)
         }
         return flags
+    }
+}
+
+final class LongTermObservabilityService: @unchecked Sendable {
+    static let shared = LongTermObservabilityService()
+
+    private struct ActiveSession {
+        var summary: LongTermVoiceSessionSummary
+        var trace = FixedCapacityObservationTrace(frontCapacity: 64, recentCapacity: 256)
+    }
+
+    private let authority: any DiagnosticAuthority
+    private let runtimeIdentity: LongTermRuntimeIdentity
+    private let thresholds: LongTermObservabilityThresholds
+    private let lock = NSLock()
+    private var activeSession: ActiveSession?
+
+    init(
+        authority: any DiagnosticAuthority = DiagnosticAuthorityService.shared,
+        runtimeIdentity: LongTermRuntimeIdentity = .current(),
+        thresholds: LongTermObservabilityThresholds = LongTermObservabilityThresholds()
+    ) {
+        self.authority = authority
+        self.runtimeIdentity = runtimeIdentity
+        self.thresholds = thresholds
+    }
+
+    @discardableResult
+    func observeTransportStart(
+        protocolVersion: String,
+        mode: String,
+        codec: String,
+        sampleRate: UInt64,
+        timestampNanoseconds: UInt64
+    ) -> UUID {
+        lock.lock()
+        if activeSession == nil {
+            activeSession = ActiveSession(
+                summary: makeSummary(sessionID: "unavailable", captureID: UUID().uuidString)
+            )
+        }
+        let captureID = UUID(uuidString: activeSession!.summary.captureID) ?? UUID()
+        activeSession!.summary.captureID = captureID.uuidString
+        activeSession!.summary.audioStartTimestampNanoseconds = timestampNanoseconds
+        activeSession!.summary.atvvProtocolVersion = protocolVersion
+        activeSession!.summary.atvvMode = mode
+        activeSession!.summary.atvvCodec = codec
+        activeSession!.summary.atvvSampleRate = sampleRate
+        lock.unlock()
+        return captureID
+    }
+
+    func begin(sessionID: UUID, timestampNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()) {
+        lock.lock()
+        if activeSession == nil {
+            activeSession = ActiveSession(
+                summary: makeSummary(sessionID: sessionID.uuidString, captureID: UUID().uuidString)
+            )
+        } else {
+            activeSession!.summary.sessionID = sessionID.uuidString
+        }
+        activeSession!.summary.physicalDownTimestampNanoseconds = timestampNanoseconds
+        lock.unlock()
+    }
+
+    func observeControl(policy: String, classification: String, triggerSource: String) {
+        lock.lock()
+        guard activeSession != nil else {
+            lock.unlock()
+            return
+        }
+        activeSession!.summary.controlPolicy = policy
+        activeSession!.summary.classification = classification
+        activeSession!.summary.triggerSource = triggerSource
+        lock.unlock()
+    }
+
+    func mark(_ event: String, timestampNanoseconds: UInt64, sessionID: UUID? = nil) {
+        lock.lock()
+        guard activeSession != nil,
+              sessionID == nil || activeSession!.summary.sessionID == sessionID!.uuidString else {
+            lock.unlock()
+            return
+        }
+        switch event {
+        case "VOICE_DOWN": activeSession!.summary.physicalDownTimestampNanoseconds = timestampNanoseconds
+        case "HOLD_CONFIRMED": activeSession!.summary.holdConfirmedTimestampNanoseconds = timestampNanoseconds
+        case "PHYSICAL_UP": activeSession!.summary.physicalUpTimestampNanoseconds = timestampNanoseconds
+        case "MIC_OPEN_TX": activeSession!.summary.micOpenTimestampNanoseconds = timestampNanoseconds
+        case "AUDIO_START": activeSession!.summary.audioStartTimestampNanoseconds = timestampNanoseconds
+        case "AUDIO_FIRST": activeSession!.summary.audioFirstTimestampNanoseconds = timestampNanoseconds
+        case "MIC_CLOSE_TX": activeSession!.summary.micCloseTimestampNanoseconds = timestampNanoseconds
+        case "AUDIO_STOP": activeSession!.summary.audioStopTimestampNanoseconds = timestampNanoseconds
+        case "AUDIO_DRAIN_BEGIN", "OUTPUT_DRAIN_BEGIN": activeSession!.summary.drainBeginTimestampNanoseconds = timestampNanoseconds
+        case "DRAIN_FINISH": activeSession!.summary.drainFinishTimestampNanoseconds = timestampNanoseconds
+        case "AUDIO_PIPELINE_CLOSED", "OUTPUT_DRAIN_COMPLETE": activeSession!.summary.outputCompleteTimestampNanoseconds = timestampNanoseconds
+        default: break
+        }
+        lock.unlock()
+    }
+
+    func observeNotification(bytes: UInt64, gapNanoseconds: UInt64?) {
+        lock.lock()
+        activeSession?.summary.recordNotification(bytes: bytes, gapNanoseconds: gapNanoseconds)
+        lock.unlock()
+    }
+
+    func observeDecode(frameCount: UInt64, sampleCount: UInt64) {
+        lock.lock()
+        activeSession?.summary.recordDecode(frameCount: frameCount, sampleCount: sampleCount)
+        lock.unlock()
+    }
+
+    func observeSupply(submittedFrames: UInt64) {
+        lock.lock()
+        activeSession?.summary.recordSupply(submittedFrames: submittedFrames)
+        lock.unlock()
+    }
+
+    func observePlayout(
+        expectedFrames: UInt64,
+        deliveredFrames: UInt64,
+        marker: LongTermObservationSemanticMarker
+    ) {
+        lock.lock()
+        activeSession?.summary.recordPlayout(
+            expectedFrames: expectedFrames,
+            deliveredFrames: deliveredFrames,
+            marker: marker
+        )
+        lock.unlock()
+    }
+
+    func observeAudioPipe(_ snapshot: AudioPipeDiagnosticsSnapshot) {
+        lock.lock()
+        guard activeSession != nil else {
+            lock.unlock()
+            return
+        }
+        activeSession!.summary.submittedFrames = UInt64(max(0, snapshot.submittedRemoteFrames))
+        activeSession!.summary.renderedFrames = UInt64(max(0, snapshot.renderedRemoteFrames))
+        activeSession!.summary.queueStarvationFrames = UInt64(max(0, snapshot.renderUnfilledFrames))
+        activeSession!.summary.recordDelivery(
+            expectedFrames: UInt64(max(0, snapshot.renderRequestedFrames)),
+            deliveredFrames: UInt64(max(0, snapshot.renderFilledFrames)),
+            marker: .active
+        )
+        activeSession!.summary.tailExpectedFrames = UInt64(max(0, snapshot.tailRenderedFrames))
+        activeSession!.summary.tailDeliveredFrames = UInt64(max(0, snapshot.tailRenderedFrames))
+        lock.unlock()
+    }
+
+    @discardableResult
+    func end(sessionID: UUID) -> LongTermVoiceSessionSummary? {
+        lock.lock()
+        guard var activeSession,
+              activeSession.summary.sessionID == sessionID.uuidString else {
+            lock.unlock()
+            return nil
+        }
+        self.activeSession = nil
+        activeSession.summary.runtimeIdentity = runtimeIdentity
+        activeSession.summary.authorityDroppedEventCount = authority.droppedEventCount
+        activeSession.summary.authorityWriteFailureCount = authority.writeFailureCount
+        let traceSnapshot = activeSession.trace.snapshot()
+        activeSession.summary.traceDroppedObservationCount =
+            traceSnapshot.droppedObservationCount + traceSnapshot.overwrittenObservationCount
+        activeSession.summary.anomalyFlags = thresholds.classify(
+            summary: activeSession.summary,
+            trace: traceSnapshot
+        )
+        let summary = activeSession.summary
+        lock.unlock()
+
+        guard let input = try? DiagnosticEventInput(
+            eventType: "voice.session.summary",
+            subsystem: "voice.session",
+            category: "summary",
+            severity: .info,
+            sourceComponent: "long_term_observability",
+            sessionID: sessionID.uuidString,
+            payload: ["summary": summary.toDiagnosticJSONValue()]
+        ) else { return summary }
+        authority.emit(input)
+        return summary
+    }
+
+    private func makeSummary(sessionID: String, captureID: String) -> LongTermVoiceSessionSummary {
+        var summary = LongTermVoiceSessionSummary(sessionID: sessionID, captureID: captureID)
+        summary.runtimeIdentity = runtimeIdentity
+        return summary
     }
 }
