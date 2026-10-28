@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: BLE_START_INCIDENT_DIAGNOSIS — TASK 038-B
+State: BLE_CENTRAL_READINESS_DIAGNOSIS — TASK 038-B
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -32,7 +32,7 @@ Repository: Lost0rz/RemoteOrbit
 ## Task 038 roadmap
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B BLE_START_INCIDENT_DIAGNOSIS`: the first healthy-permission session reached `INPUT/GESTURE + REMOTE_ROUTE_BEGIN` but stopped before confirmed BLE audio start; existing evidence must determine whether `micOpen` was transmitted.
+- `038-B BLE_CENTRAL_READINESS_DIAGNOSIS`: the first healthy-permission session reached `INPUT/GESTURE + REMOTE_ROUTE_BEGIN`, stopped before confirmed BLE audio start, and existing evidence must determine the exact CoreBluetooth readiness/authorization state that blocked transport progress.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -52,7 +52,7 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 
 ## Current phase and next action
 
-- Phase: 038-B BLE_START_INCIDENT_DIAGNOSIS — the installed diagnostic identity and the first incident session are fixed; no second user session is authorized.
+- Phase: 038-B BLE_CENTRAL_READINESS_DIAGNOSIS — the installed diagnostic identity and the first incident session are fixed; no second user session is authorized.
 - First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
 - Current conclusion: existing telemetry was insufficient for mid-stream temporal alignment; the minimum opt-in 100 ms monotonic/session bucket ledger remains in source/test commit `652ea30`, and buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior remain unchanged.
 - Audit property reproduced: the prior render-side probe acquired the shared logger lock and mutated its dictionary while `AudioPipe.stateLock` was held, creating probe self-contention risk.
@@ -64,7 +64,14 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 - Corrective-3 result: AUDIO_START now owns a stable opt-in capture identity even when no HID session exists; pre-session BLE/decode/render observations remain on that capture, and the matching later session can bind it once. Binding is exact-identity and one-shot; wrong or repeated session bindings are rejected. HID-before-AUDIO_START reuses the same bound capture identity.
 - Verification: focused `AudioDataPlaneDiagnosticsTests` 31/31 PASS; affected `AudioPipeTests` 4/4 PASS; `VoiceBoundaryOrderingTests` 3/3 PASS; `VoicePressCoordinatorTests` 39/39 PASS; full `swift test` 420/420 PASS; `swift build -c release` PASS; `git diff --check` PASS.
 - Product/runtime boundary: UNKNOWN — the authorized runtime capture has not yet produced evidence; root cause remains UNKNOWN.
-- Current next action: inspect existing evidence for session `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE` to distinguish pre-`micOpen` transport/readiness failure from post-`micOpen` missing `AUDIO_START`; do not create another runtime incident or change product behavior.
+- Current next action: inspect existing launch-to-incident evidence and `centralManagerDidUpdateState` behavior for session `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE` to determine the exact CoreBluetooth readiness/authorization state and the minimum fault boundary; no source/product correction or second runtime incident is authorized.
+
+## BLE central-readiness diagnosis transition receipt
+
+- Transition authority: FACT — the current 038-B BLE central-readiness card explicitly authorizes this control-only transition and bounded existing-evidence diagnosis.
+- Previous incident outcome: FACT — `OUTCOME_A_PRE_MICOPEN_FAILURE`; the session reached the long-activation route boundary but no ATVV-ready, `MIC_OPEN_TX`, `AUDIO_START`, or first remote audio packet evidence was observed.
+- Missing fact: FACT — the existing runtime evidence does not yet identify the exact CoreBluetooth central readiness/authorization state that prevented `.poweredOn` transport progress.
+- Scope: FACT — preserve the observed runtime; no product correction, reconnect/ATVV behavior change, TCC/driver/CoreAudio mutation, rebuild/reinstall, merge, or second user session is authorized.
 
 ## BLE-start incident transition receipt
 

@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: BLE_START_INCIDENT_DIAGNOSIS — 038-B.
+- Status: BLE_CENTRAL_READINESS_DIAGNOSIS — 038-B.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B BLE_START_INCIDENT_DIAGNOSIS`: the first healthy-permission session reached `INPUT/GESTURE + REMOTE_ROUTE_BEGIN` but stopped before confirmed BLE audio start; existing evidence must determine whether `micOpen` was transmitted.
+- `038-B BLE_CENTRAL_READINESS_DIAGNOSIS`: the first healthy-permission session reached `INPUT/GESTURE + REMOTE_ROUTE_BEGIN`, stopped before confirmed BLE audio start, and existing evidence must determine the exact CoreBluetooth readiness/authorization state that blocked transport progress.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -142,7 +142,14 @@ The 038-B result must include:
 
 ## Current next action
 
-Inspect existing evidence for incident session `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE` and determine whether the failure occurred before `micOpen` transmission or after `micOpen` transmission without `AUDIO_START`. Do not create another runtime incident, request another user voice session, mutate product behavior, or change TCC, driver, CoreAudio, or PR lifecycle.
+Inspect existing launch-to-incident evidence and the `centralManagerDidUpdateState` source path for incident session `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`; determine the exact CoreBluetooth readiness/authorization state and minimum fault boundary. Do not create another runtime incident, request another user voice session, mutate product behavior, or change TCC, driver, CoreAudio, or PR lifecycle.
+
+## 038-B BLE central-readiness diagnosis transition
+
+- Transition authority: FACT — the current 038-B card explicitly authorizes this control-only transition and existing-evidence diagnosis.
+- Previous incident outcome: FACT — `OUTCOME_A_PRE_MICOPEN_FAILURE`; no ATVV-ready, `MIC_OPEN_TX`, `AUDIO_START`, or first remote audio packet evidence was observed for `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`.
+- Missing fact: FACT — the exact CoreBluetooth central readiness/authorization state at app start, prewarm, and long activation is not yet established.
+- Scope: FACT — no product correction, reconnect/ATVV behavior change, TCC/driver/CoreAudio mutation, rebuild/reinstall, merge, or second user session is authorized. If existing evidence is insufficient, only the card's smallest diagnostic-only probe may be considered.
 
 ## 038-B BLE-start incident diagnosis transition
 
