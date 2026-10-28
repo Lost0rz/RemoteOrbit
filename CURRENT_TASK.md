@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: READY_FOR_ONE_NATURAL_SESSION — 038-B EXECUTE.
+- Status: FIRST_SESSION_PROBE_PASS — 038-B EXECUTE.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B READY_FOR_ONE_NATURAL_SESSION`: the post-grant fresh installed diagnostic launch reached CoreBluetooth readiness (`[BLE] 蓝牙已就绪`). The prior passive-ATVV readiness expectation was an invalid test assumption; ATVV preparation is demand-triggered by voice-key pending/prewarm.
+- `038-B FIRST_SESSION_PROBE_PASS`: exactly one natural session completed the full continuity evidence chain. The probe passed as an observability/chain-health result, while active AudioPipe underrun remains observed and the audio-continuity root cause remains UNKNOWN.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -279,3 +279,33 @@ The launch-to-incident evidence and `centralManagerDidUpdateState` source path e
 - `SOURCE_CHANGED`: NO.
 - `CHANGED_FILES`: control records only; no product source changed.
 - `NEXT_ACTION`: FACT — request exactly one natural long voice interaction; no synthetic key event, weak-BLE condition, retry, second session, or corrective source work.
+
+## 038-B first natural session result
+
+- `SESSION_ID`: FACT — `F406982F-E2F8-4EE6-A228-C12A37B20BE7`.
+- `SESSION_INTERVAL`: FACT — `2026-10-28 19:19:13.941 +0800` through `19:19:23.822 +0800`.
+- `HID_TRIGGER_STATUS`: FACT — HID down, `VOICE_DOWN`, `HOLD_CONFIRMED`, physical up; one natural session only.
+- `PREWARM_STATUS`: FACT — demand-triggered transport prewarm and saved-UUID connect executed.
+- `CONNECTION_STATE`: FACT — ATVV peripheral connected.
+- `SERVICE_DISCOVERY_STATE`: FACT — ATVV service discovered.
+- `CHARACTERISTIC_DISCOVERY_STATE`: FACT — command, audio, and control characteristics discovered/subscribed.
+- `CAPABILITIES_STATE`: FACT — capabilities response accepted, codec `ADPCM 16 kHz`.
+- `ATVV_READY_STATE`: FACT — `ATVV 语音链路已就绪`.
+- `MIC_OPEN_TX_STATUS`: FACT — transmitted at +312.8 ms.
+- `AUDIO_START_STATUS`: FACT — received at +370.3 ms.
+- `FIRST_AUDIO_PACKET_STATUS`: FACT — first audio at +370.6 ms / +16.0 ms from AUDIO_START.
+- `DECODE_STATUS`: FACT — 516 frames / 123,840 samples; decode rejects `0`; zero-sample decodes `0`.
+- `PCM_SUBMISSION_STATUS`: FACT — 371,520 submitted frames.
+- `AUDIOPIPE_RENDER_STATUS`: FACT — 393,216 requested; 371,520 filled; 21,696 unfilled; 62 active underrun callbacks / 452.0 ms; overflow drops `0`.
+- `CONTINUITY_SESSION_PRESENT`: YES.
+- `CONTINUITY_BUCKET_PRESENT`: YES — 83 buckets at 100 ms.
+- `SESSION_JOIN_INTEGRITY`: PASS — same session ID joins timing, BLE/decode, submission, render, and continuity records.
+- `RENDER_CAPACITY_DROP_STATUS`: `0`.
+- `HUMAN_AUDIO_RECEPTION`: UNKNOWN — remote PCM/WAV evidence exists; target input-method waveform was not independently observed.
+- `LAST_CONFIRMED_GOOD_STAGE`: `CONTINUITY SESSION/BUCKET CLOSE`.
+- `FIRST_FAILED_OR_UNCONFIRMED_STAGE`: `NONE` for required stage reachability; quality deficits were observed in BLE supply cadence and AudioPipe active render.
+- `PROBE_HEALTH_STATUS`: `PASS` — complete evidence chain, not an audio-quality verdict.
+- `ROOT_CAUSE_STATUS`: UNKNOWN — one session is insufficient for causal attribution; no corrective action authorized.
+- `SOURCE_CHANGED`: NO.
+- `CHANGED_FILES`: control records only; no product source changed.
+- `NEXT_ACTION`: STOP. Do not perform a second session or fix source until this session is evaluated under a separate continuation decision.

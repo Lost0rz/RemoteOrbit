@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: READY_FOR_ONE_NATURAL_SESSION — TASK 038-B EXECUTE
+State: FIRST_SESSION_PROBE_PASS — TASK 038-B EXECUTE
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -32,7 +32,7 @@ Repository: Lost0rz/RemoteOrbit
 ## Task 038 roadmap
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B READY_FOR_ONE_NATURAL_SESSION`: the post-grant fresh installed diagnostic launch reached CoreBluetooth readiness (`[BLE] 蓝牙已就绪`). The prior passive-ATVV readiness expectation was an invalid test assumption; ATVV preparation is demand-triggered by voice-key pending/prewarm.
+- `038-B FIRST_SESSION_PROBE_PASS`: exactly one natural session completed the full continuity evidence chain. The probe passed as an observability/chain-health result, while active AudioPipe underrun remains observed and the audio-continuity root cause remains UNKNOWN.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -201,3 +201,19 @@ A finding may identify a likely layer, but no buffer or playback fix is authoriz
 - Root cause: UNKNOWN — the original audio-continuity problem has not been classified.
 - Scope: FACT — no source change, rebuild, reinstall, TCC/driver/CoreAudio mutation, merge, or second session is authorized.
 - Next action: FACT — ask for exactly one natural long voice interaction, then stop and evaluate that single session before any further capture.
+
+## 038-B first natural session result
+
+- Transition authority: FACT — the current card authorizes exactly one natural voice interaction and requires stopping after this session before any retry or second capture.
+- Runtime identity: FACT — PID `21428`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, diagnostic environment `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
+- Session: FACT — `F406982F-E2F8-4EE6-A228-C12A37B20BE7`, `2026-10-28 19:19:13.941 +0800` through `19:19:23.822 +0800`.
+- HID trigger: FACT — HID down, `VOICE_DOWN`, `HOLD_CONFIRMED` at +311.5 ms, physical up at +8185.9 ms; no retry or second session was performed.
+- ATVV chain: FACT — transport prewarm, saved-UUID connect, peripheral connection, ATVV service discovery, command/audio/control characteristic discovery, capabilities response, codec `ADPCM 16 kHz`, ATVV ready, and `MIC_OPEN_TX` all occurred.
+- Remote audio/decode: FACT — `AUDIO_START` at +370.3 ms, first audio at +370.6 ms / +16.0 ms from AUDIO_START, 516 notifications / 61,920 bytes, 516 decoded frames / 123,840 samples, delivery ratio `0.991`, deficit `1,173 samples / 73.3 ms`, decode rejects `0`, zero-sample decodes `0`, max notification gap `46.8 ms`.
+- PCM/render: FACT — 371,520 submitted frames; AudioPipe requested 393,216, filled 371,520, unfilled 21,696; active remote underrun 21,696 frames / 62 callbacks / 452.0 ms; queue depth max 56.0 ms; overflow drops `0`.
+- Continuity: FACT — `CONTINUITY_SESSION` present with the same session ID; 83 100-ms `CONTINUITY_BUCKET` records present; submission/render/session join is exact; `render_capacity_dropped=0`.
+- Probe result: FACT — `PROBE_HEALTH=PASS` for complete observability-chain coverage. This does not mean audio quality was healthy.
+- Human boundary: UNKNOWN — remote PCM and WAV evidence exist, but no independent target input-method waveform observation was captured.
+- Earliest stage: FACT — no required stage failed to execute. The first observed quality deficits are BLE supply cadence/expected-sample deficit and correlated AudioPipe active underrun; causality remains unproven from one session.
+- Root cause: UNKNOWN — no corrective action is justified by this single session.
+- Scope: FACT — no source, TCC, driver, CoreAudio, protocol, buffer, or merge change; no second session.
