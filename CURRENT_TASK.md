@@ -48,7 +48,7 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 - Registration: this paired control commit; the worktree was clean before source/test or diagnostic mutation.
 - The old 038-A worktree closeout was performed after proving clean state, merged reachability, and no unique/unpushed commits; its local branch was deleted and remote branch retained.
 - Current source/test HEAD: `0c26c61c2a2ec1f147f6179b20a864f335af1dfb`, pushed and verified equal to the remote 038-B branch.
-- PR #24: OPEN + DRAFT + UNMERGED at live head `0c26c61c2a2ec1f147f6179b20a864f335af1dfb`; corrective-1 reproduced and removed render-path probe self-contention, then returned the task to independent Web audit.
+- PR #24: OPEN + DRAFT + UNMERGED; its live head is the current tip of this authorized branch and must be read directly for any future transition. The last revalidated tip before this control correction is `229fec6680cdd09a90c1a7134403cb9bd6620fce`; corrective-1 reproduced and removed render-path probe self-contention, then returned the task to independent Web audit.
 
 ## Authorized 038-B scope
 

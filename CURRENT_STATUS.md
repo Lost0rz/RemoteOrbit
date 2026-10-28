@@ -16,7 +16,7 @@ Repository: Lost0rz/RemoteOrbit
 - Task 037 remains merged with `HUMAN_UI_ACCEPTANCE: PENDING` for Command-Space, Command-Shift-4, Option-A, pure modifier recording, and normal shortcut restoration after recorder close/cancel.
 - `AGENTS.md` durable rules were re-read for this transition and require no semantic change.
 - The prior 038-A worktree `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress` was verified clean, fully merged/reachable from current `main`, and without unique/unpushed commits; it was removed and its local branch was deleted. Its remote branch remains retained. Task 037's historical worktree remains untouched.
-- PR #24 is open + DRAFT + UNMERGED at live head `0c26c61c2a2ec1f147f6179b20a864f335af1dfb` for the bounded 038-B observation-only instrumentation. Corrective-1 reproduced and removed the probe's render-path self-contention; no runtime capture, installation, merge, audio tuning, or 038-C/D/E/F work is authorized.
+- PR #24 is OPEN + DRAFT + UNMERGED for the bounded 038-B observation-only instrumentation. Its live head is the current tip of the authorized branch and must be read directly for any future transition; the last revalidated tip before this control correction is `229fec6680cdd09a90c1a7134403cb9bd6620fce`. Corrective-1 reproduced and removed the probe's render-path self-contention; no runtime capture, installation, merge, audio tuning, or 038-C/D/E/F work is authorized.
 
 ## Task 038-B writer identity
 
@@ -27,6 +27,7 @@ Repository: Lost0rz/RemoteOrbit
 - Current source/test HEAD: `0c26c61c2a2ec1f147f6179b20a864f335af1dfb`, pushed and verified equal to the authorized remote branch.
 - Corrective-1 audit baseline: PR #24 head `59fa6a5f0a20f48b623d0edefd1863e6c9073460`; render-side continuity capture currently calls the shared `VoiceTimingLogger` lock and mutates its bucket dictionary while `AudioPipe.stateLock` is held.
 - Corrective-1 delivery: source/test commit `0c26c61c2a2ec1f147f6179b20a864f335af1dfb`; render-side capture now uses AudioPipe-owned fixed-capacity storage and merges a lifecycle snapshot outside the render path.
+- Last revalidated control tip before this correction: `229fec6680cdd09a90c1a7134403cb9bd6620fce`; the current branch tip is the live PR head after this paired control update.
 
 ## Task 038 roadmap
 
