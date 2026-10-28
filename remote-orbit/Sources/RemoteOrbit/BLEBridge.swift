@@ -265,8 +265,6 @@ final class BLEBridge: NSObject {
         prewarmVoiceInputActive = false
         stopAfterVoiceWorkItem?.cancel()
         stopAfterVoiceWorkItem = nil
-        audioStopDrainWorkItem?.cancel()
-        audioStopDrainWorkItem = nil
         stopTransportAfterRemoteAudioStop = false
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
@@ -684,9 +682,6 @@ final class BLEBridge: NSObject {
         connectTimeoutWorkItem = nil
         handshakeTimeoutWorkItem?.cancel()
         handshakeTimeoutWorkItem = nil
-        let didClearAudioStopDrain = audioStopDrainWorkItem != nil
-        audioStopDrainWorkItem?.cancel()
-        audioStopDrainWorkItem = nil
         AudioPipe.shared.endRemoteAudioDiagnostics()
         keepAliveTimer?.invalidate()
         keepAliveTimer = nil
@@ -714,9 +709,7 @@ final class BLEBridge: NSObject {
         if wasReady {
             onConnectionChanged?(false)
         }
-        if didClearAudioStopDrain {
-            notifyVoiceSessionAdmissionAvailable()
-        }
+        retireAudioStopDrainBarrier()
     }
 
     private func connectionSetupFailed(_ reason: String) {
@@ -1135,8 +1128,6 @@ extension BLEBridge: CBPeripheralDelegate {
                 )
                 return
             }
-            audioStopDrainWorkItem?.cancel()
-            audioStopDrainWorkItem = nil
             pendingAudioStopReason = nil
             protocolHandler.beginAudioStream(codec: codec)
             // Some firmware emits AUDIO_START before the matching HID
@@ -1420,9 +1411,8 @@ extension BLEBridge: CBPeripheralDelegate {
 
     private func finishAudioStopAfterDrain() {
         guard audioStopDrainWorkItem != nil else { return }
-        audioStopDrainWorkItem = nil
         guard isStreaming else {
-            notifyVoiceSessionAdmissionAvailable()
+            retireAudioStopDrainBarrier()
             return
         }
 
@@ -1571,7 +1561,20 @@ extension BLEBridge: CBPeripheralDelegate {
             stopTransportAfterRemoteAudioStop = false
             scheduleTransportStopAfterVoiceClose(hadMicOpen: true)
         }
+        retireAudioStopDrainBarrier()
+    }
+
+    /// Retire the AUDIO_STOP drain barrier from every production lifecycle.
+    /// The admission callback is emitted only when this transition actually
+    /// clears an active barrier, so reset/stop/normal completion and a stale
+    /// canceled completion remain exactly-once.
+    @discardableResult
+    private func retireAudioStopDrainBarrier() -> Bool {
+        guard audioStopDrainWorkItem != nil else { return false }
+        audioStopDrainWorkItem?.cancel()
+        audioStopDrainWorkItem = nil
         notifyVoiceSessionAdmissionAvailable()
+        return true
     }
 
     private func notifyVoiceSessionAdmissionAvailable() {

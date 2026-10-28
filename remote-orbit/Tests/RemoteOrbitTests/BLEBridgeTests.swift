@@ -132,6 +132,28 @@ final class BLEBridgeTests: XCTestCase {
         XCTAssertEqual(harness.probe.optionEdges, [true, false])
     }
 
+    func testExplicitTransportStopRetiresAudioDrainBarrierAndReplaysDeferredRepressExactlyOnce() {
+        let harness = AdmissionHarness()
+        defer { harness.shutdown() }
+        let deferredSessionID = harness.deferNextPress()
+
+        harness.bridge.stop()
+        harness.wait()
+
+        XCTAssertEqual(harness.probe.admissionNotifications, 1)
+        XCTAssertNil(harness.press.pendingRepressSessionID)
+        XCTAssertEqual(harness.press.currentGestureIDForDiagnostics, deferredSessionID)
+        XCTAssertEqual(harness.probe.transportPreparations, 1)
+
+        // Repeated stop and the canceled Session A completion cannot notify twice.
+        harness.bridge.stop()
+        harness.bridge.completeAudioStopDrainForTesting()
+        harness.wait()
+        XCTAssertEqual(harness.probe.admissionNotifications, 1)
+        XCTAssertEqual(harness.probe.transportPreparations, 1)
+        XCTAssertEqual(harness.probe.optionEdges, [true, false])
+    }
+
     func testPendingPreparationKeepsTransportAndVoiceIntentSeparate() {
         var state = BLEVoiceTransportState()
 
