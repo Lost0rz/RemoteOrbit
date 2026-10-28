@@ -44,6 +44,19 @@ struct LongTermObservationPoint: Equatable, Sendable {
         self.byteOrSampleCount = byteOrSampleCount
         self.marker = marker
     }
+
+    func toDiagnosticJSONValue() -> DiagnosticJSONValue {
+        .object([
+            "timestamp_nanoseconds": .unsignedInteger(timestampNanoseconds),
+            "kind": .string(kind.rawValue),
+            "requested_frames": .unsignedInteger(requestedFrames),
+            "filled_frames": .unsignedInteger(filledFrames),
+            "unfilled_frames": .unsignedInteger(unfilledFrames),
+            "queue_depth_frames": .unsignedInteger(queueDepthFrames),
+            "byte_or_sample_count": .unsignedInteger(byteOrSampleCount),
+            "marker": .string(marker.rawValue),
+        ])
+    }
 }
 
 struct FixedCapacityObservationTraceSnapshot: Equatable, Sendable {
@@ -750,7 +763,10 @@ final class LongTermObservabilityService: @unchecked Sendable {
             summary: activeSession.summary,
             trace: traceSnapshot
         )
-        let summary = activeSession.summary
+        var summary = activeSession.summary
+        if !summary.anomalyFlags.isEmpty {
+            summary.tracePersisted = true
+        }
         lock.unlock()
 
         guard let input = try? DiagnosticEventInput(
@@ -763,6 +779,33 @@ final class LongTermObservabilityService: @unchecked Sendable {
             payload: ["summary": summary.toDiagnosticJSONValue()]
         ) else { return summary }
         authority.emit(input)
+        guard !summary.anomalyFlags.isEmpty else { return summary }
+
+        let observations = traceSnapshot.all
+        let chunkSize = 128
+        let chunkCount = max(1, (observations.count + chunkSize - 1) / chunkSize)
+        for chunkIndex in 0..<chunkCount {
+            let start = chunkIndex * chunkSize
+            let end = min(start + chunkSize, observations.count)
+            let chunk = Array(observations[start..<end])
+            guard let traceInput = try? DiagnosticEventInput(
+                eventType: "voice.session.trace",
+                subsystem: "voice.session",
+                category: "trace",
+                severity: .warning,
+                sourceComponent: "long_term_observability",
+                sessionID: sessionID.uuidString,
+                payload: [
+                    "capture_id": .string(summary.captureID),
+                    "chunk_index": .unsignedInteger(UInt64(chunkIndex)),
+                    "chunk_count": .unsignedInteger(UInt64(chunkCount)),
+                    "observation_schema_version": .unsignedInteger(LongTermVoiceSessionSummary.schemaVersion),
+                    "observations": .array(chunk.map { $0.toDiagnosticJSONValue() }),
+                    "dropped_observations": .unsignedInteger(summary.traceDroppedObservationCount),
+                ]
+            ) else { continue }
+            authority.emit(traceInput)
+        }
         return summary
     }
 

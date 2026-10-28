@@ -533,6 +533,7 @@ enum DiagnosticEventCatalog {
                 "capture_id": .string,
                 "chunk_index": .unsignedInteger,
                 "chunk_count": .unsignedInteger,
+                "observation_schema_version": .unsignedInteger,
                 "observations": .array,
                 "dropped_observations": .unsignedInteger,
             ]

@@ -139,7 +139,11 @@ final class LongTermObservabilityTests: XCTestCase {
         )
         let service = LongTermObservabilityService(
             authority: authority,
-            runtimeIdentity: runtime
+            runtimeIdentity: runtime,
+            thresholds: LongTermObservabilityThresholds(
+                maxNotificationGapCount: 1,
+                maxActiveDeficitFrames: 1_000
+            )
         )
         let sessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
         let captureID = service.observeTransportStart(
@@ -188,6 +192,73 @@ final class LongTermObservabilityTests: XCTestCase {
         XCTAssertEqual(payload["receiver_evidence_status"], .string("unavailable"))
         XCTAssertEqual(payload["runtime_process_id"], .integer(99))
         XCTAssertEqual(payload["runtime_source_revision"], .string("abc123"))
+    }
+
+    func testNormalSessionPersistsSummaryOnly() {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current()
+        )
+        let sessionID = UUID()
+        service.begin(sessionID: sessionID, timestampNanoseconds: 1)
+
+        let summary = service.end(sessionID: sessionID)
+
+        XCTAssertEqual(summary?.anomalyFlags, [])
+        XCTAssertEqual(authority.inputs.map(\.eventType), ["voice.session.summary"])
+    }
+
+    func testAnomalousSessionPersistsSummaryAndBoundedTraceChunks() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current(),
+            thresholds: LongTermObservabilityThresholds(maxNotificationGapCount: 0)
+        )
+        let sessionID = UUID()
+        service.begin(sessionID: sessionID, timestampNanoseconds: 1)
+        service.observeNotification(bytes: 120, gapNanoseconds: 30_000_000)
+
+        var trace = FixedCapacityObservationTrace(frontCapacity: 1, recentCapacity: 129)
+        for timestamp in UInt64(1)...130 {
+            trace.append(point(timestamp: timestamp))
+        }
+        service.observeLongTermAudioSnapshot(
+            LongTermAudioObservationSnapshot(trace: trace.snapshot(), mainQueueLag: .empty)
+        )
+
+        let summary = try XCTUnwrap(service.end(sessionID: sessionID))
+        XCTAssertTrue(summary.anomalyFlags.contains(.notificationGap))
+        XCTAssertTrue(summary.tracePersisted)
+        XCTAssertEqual(authority.inputs.first?.eventType, "voice.session.summary")
+        let traceInputs = authority.inputs.dropFirst()
+        XCTAssertEqual(traceInputs.map(\.eventType), ["voice.session.trace", "voice.session.trace"])
+
+        for input in traceInputs {
+            guard case .string(let captureID) = input.payload["capture_id"],
+                  case .unsignedInteger(let chunkIndex) = input.payload["chunk_index"],
+                  case .unsignedInteger(let chunkCount) = input.payload["chunk_count"],
+                  case .unsignedInteger(let schemaVersion) = input.payload["observation_schema_version"],
+                  case .array(let observations) = input.payload["observations"] else {
+                return XCTFail("trace payload is not machine-readable")
+            }
+            XCTAssertEqual(captureID, summary.captureID)
+            XCTAssertEqual(chunkCount, 2)
+            XCTAssertEqual(schemaVersion, 1)
+            XCTAssertLessThanOrEqual(observations.count, 128)
+            XCTAssertTrue(observations.allSatisfy { value in
+                guard case .object(let object) = value else { return false }
+                return object["timestamp_nanoseconds"] != nil
+                    && object["requested_frames"] != nil
+                    && object["filled_frames"] != nil
+                    && object["unfilled_frames"] != nil
+                    && object["queue_depth_frames"] != nil
+                    && object["byte_or_sample_count"] != nil
+            })
+            XCTAssertEqual(input.sessionID, sessionID.uuidString)
+            XCTAssertEqual(chunkIndex < chunkCount, true)
+        }
     }
 
     private func point(timestamp: UInt64) -> LongTermObservationPoint {

@@ -151,6 +151,7 @@ final class DiagnosticAuthorityTests: XCTestCase {
                 "capture_id": .string("capture-1"),
                 "chunk_index": .unsignedInteger(0),
                 "chunk_count": .unsignedInteger(1),
+                "observation_schema_version": .unsignedInteger(1),
                 "observations": .array([
                     .object(["kind": .string("render"), "timestamp_nanoseconds": .unsignedInteger(10)])
                 ]),
@@ -362,6 +363,7 @@ final class DiagnosticAuthorityTests: XCTestCase {
         failingAuthority.emit(try makeInput())
         _ = try failingAuthority.query(DiagnosticQueryFilter())
         XCTAssertEqual(failingAuthority.droppedEventCount, 1)
+        XCTAssertEqual(failingAuthority.writeFailureCount, 1)
     }
 
     func testQueueSaturationDropsEventWithoutBlockingProducerAndCountsDrop() throws {
