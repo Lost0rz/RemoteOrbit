@@ -164,25 +164,6 @@ enum VoiceTimingLogger {
         lock.unlock()
     }
 
-    static func recordContinuitySubmitted(
-        timestampNanoseconds: UInt64,
-        frames: Int,
-        queueDepthFrames: Int
-    ) {
-        guard continuityEvidenceEnabled else { return }
-        lock.lock()
-        guard activeSessionID != nil || continuityCaptureAwaitingSession else {
-            lock.unlock()
-            return
-        }
-        continuityLedger.recordSubmitted(
-            timestampNanoseconds: timestampNanoseconds,
-            frames: frames,
-            queueDepthFrames: queueDepthFrames
-        )
-        lock.unlock()
-    }
-
     static func mergeContinuityRenderSnapshot(
         _ snapshot: AudioContinuityRenderSnapshot?
     ) {

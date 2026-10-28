@@ -559,6 +559,7 @@ struct AudioContinuityBucketLedger {
         renderCapacityDroppedObservationCount += snapshot.droppedObservationCount
         for source in snapshot.buckets where source.hasObservation {
             var target = bucket(for: source.index)
+            target.submittedRemoteFrames += source.submittedRemoteFrames
             target.renderRequestedFrames += source.renderRequestedFrames
             target.renderFilledFrames += source.renderFilledFrames
             target.renderUnfilledFrames += source.renderUnfilledFrames
@@ -653,7 +654,7 @@ struct AudioContinuityBucketLedger {
     }
 }
 
-/// Fixed-capacity render-side storage. The live ledger is owned by AudioPipe
+/// Fixed-capacity submission/render storage. The live ledger is owned by AudioPipe
 /// and accessed while AudioPipe's existing stateLock is held. When capture
 /// ends, ownership is detached under that lock; the detached ledger can then
 /// be scanned without racing the render callback. The render callback never
@@ -760,6 +761,26 @@ struct AudioContinuityRenderLedger {
             queueDepthBefore: queueDepthBefore,
             queueDepthAfter: queueDepthAfter
         )
+    }
+
+    mutating func recordSubmitted(
+        timestampNanoseconds: UInt64,
+        frames: Int,
+        queueDepthFrames: Int
+    ) {
+        guard let startNanoseconds = captureStartNanoseconds,
+              let index = bucketIndex(
+                  timestampNanoseconds: timestampNanoseconds,
+                  sessionStartNanoseconds: startNanoseconds
+              ) else {
+            return
+        }
+        guard buckets.indices.contains(index) else {
+            droppedObservationCount += 1
+            return
+        }
+        buckets[index].submittedRemoteFrames += max(0, frames)
+        buckets[index].recordQueueDepth(queueDepthFrames)
     }
 
     mutating func recordOverflow(

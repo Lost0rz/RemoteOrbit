@@ -242,6 +242,43 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testAudioStartBeforeHIDPreservesPreSessionSubmissionUntilLateBinding() {
+        let captureID = UUID()
+        let audioStart: UInt64 = 2_550_000_000
+        let capture = AudioContinuityCaptureContext(
+            captureID: captureID,
+            sessionID: nil,
+            startNanoseconds: audioStart
+        )
+        var renderLedger = AudioContinuityRenderLedger(capture: capture)
+
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: audioStart + 25_000_000,
+            frames: 480,
+            queueDepthFrames: 960
+        )
+
+        let sessionID = UUID()
+        XCTAssertTrue(
+            renderLedger.bind(
+                captureID: captureID,
+                session: AudioContinuitySessionContext(
+                    sessionID: sessionID,
+                    startNanoseconds: audioStart + 40_000_000
+                )
+            )
+        )
+
+        let snapshot = renderLedger.snapshot()
+        XCTAssertEqual(snapshot?.captureID, captureID)
+        XCTAssertEqual(snapshot?.session.sessionID, sessionID)
+        XCTAssertEqual(snapshot?.session.startNanoseconds, audioStart)
+        XCTAssertEqual(snapshot?.buckets.first?.submittedRemoteFrames, 480)
+        XCTAssertEqual(snapshot?.buckets.first?.queueMinFrames, 960)
+        XCTAssertEqual(snapshot?.buckets.first?.queueMaxFrames, 960)
+        XCTAssertEqual(snapshot?.buckets.first?.queueEndFrames, 960)
+    }
+
     func testHIDBeforeAudioStartKeepsBoundSessionIdentity() {
         let sessionID = UUID()
         let sessionStart: UInt64 = 2_800_000_000
@@ -251,6 +288,11 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
             startNanoseconds: sessionStart
         )
         var renderLedger = AudioContinuityRenderLedger(capture: capture)
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: sessionStart + 105_000_000,
+            frames: 240,
+            queueDepthFrames: 240
+        )
         renderLedger.recordOverflow(
             timestampNanoseconds: sessionStart + 105_000_000,
             frames: 12
@@ -259,6 +301,7 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
         let snapshot = renderLedger.snapshot()
         XCTAssertEqual(snapshot?.captureID, capture.captureID)
         XCTAssertEqual(snapshot?.session.sessionID, sessionID)
+        XCTAssertEqual(snapshot?.buckets.first?.submittedRemoteFrames, 240)
         XCTAssertEqual(snapshot?.buckets.first?.overflowDroppedFrames, 12)
     }
 
@@ -273,6 +316,11 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
             startNanoseconds: session.startNanoseconds
         )
         var renderLedger = AudioContinuityRenderLedger(capture: capture)
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: session.startNanoseconds + 105_000_000,
+            frames: 160,
+            queueDepthFrames: 320
+        )
         renderLedger.recordOverflow(
             timestampNanoseconds: session.startNanoseconds + 105_000_000,
             frames: 8
@@ -295,6 +343,8 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
             matchingLedger.bucket(at: 1)?.overflowDroppedFrames,
             8
         )
+        XCTAssertEqual(matchingLedger.bucket(at: 1)?.submittedRemoteFrames, 160)
+        XCTAssertEqual(matchingLedger.bucket(at: 1)?.queueEndFrames, 320)
     }
 
     func testRenderLedgerUsesFixedSessionOwnedStorageAndResetsBetweenSessions() {
@@ -321,12 +371,18 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
             queueDepthBefore: 480,
             queueDepthAfter: 0
         )
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: firstSession.startNanoseconds + 105_000_000,
+            frames: 480,
+            queueDepthFrames: 480
+        )
 
         let firstSnapshot = renderLedger.snapshot()
         XCTAssertEqual(firstSnapshot?.session, firstSession)
         XCTAssertEqual(firstSnapshot?.buckets.count, 1)
         XCTAssertEqual(firstSnapshot?.buckets.first?.index, 1)
         XCTAssertEqual(firstSnapshot?.buckets.first?.activeUnderrunFrames, 480)
+        XCTAssertEqual(firstSnapshot?.buckets.first?.submittedRemoteFrames, 480)
 
         let secondSession = AudioContinuitySessionContext(
             sessionID: UUID(),
@@ -357,8 +413,14 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
             timestampNanoseconds: secondSession.startNanoseconds + 205_000_000,
             frames: 32
         )
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: secondSession.startNanoseconds + 205_000_000,
+            frames: 240,
+            queueDepthFrames: 240
+        )
         XCTAssertEqual(renderLedger.snapshot()?.session, secondSession)
         XCTAssertEqual(renderLedger.snapshot()?.buckets.first?.overflowDroppedFrames, 32)
+        XCTAssertEqual(renderLedger.snapshot()?.buckets.first?.submittedRemoteFrames, 240)
     }
 
     func testRenderLedgerDisabledContextDoesNotCollect() {
@@ -385,6 +447,11 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
         renderLedger.recordOverflow(
             timestampNanoseconds: 1_000_000_000,
             frames: 32
+        )
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: 1_000_000_000,
+            frames: 480,
+            queueDepthFrames: 480
         )
 
         XCTAssertNil(renderLedger.snapshot())
@@ -423,19 +490,31 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
                     * AudioContinuityBucketLedger.bucketWidthNanoseconds,
             frames: 32
         )
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: session.startNanoseconds
+                + UInt64(AudioContinuityRenderLedger.maxBucketCount)
+                    * AudioContinuityBucketLedger.bucketWidthNanoseconds,
+            frames: 480,
+            queueDepthFrames: 480
+        )
 
         let snapshot = renderLedger.snapshot()
-        XCTAssertEqual(snapshot?.droppedObservationCount, 1)
+        XCTAssertEqual(snapshot?.droppedObservationCount, 2)
         XCTAssertTrue(snapshot?.buckets.isEmpty == true)
     }
 
-    func testRenderSnapshotMergesActiveTailAndOverflowIntoCentralLedger() {
+    func testRenderSnapshotMergesSubmissionActiveTailAndOverflowIntoCentralLedger() {
         let session = AudioContinuitySessionContext(
             sessionID: UUID(),
             startNanoseconds: 5_000_000_000
         )
         var renderLedger = AudioContinuityRenderLedger()
         renderLedger.reset(session: session)
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: session.startNanoseconds + 105_000_000,
+            frames: 480,
+            queueDepthFrames: 480
+        )
         renderLedger.recordRender(
             timestampNanoseconds: session.startNanoseconds + 105_000_000,
             accounting: AudioPipeRenderAccounting(
@@ -479,6 +558,10 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
         centralLedger.mergeRenderSnapshot(renderLedger.snapshot()!)
 
         XCTAssertEqual(centralLedger.bucket(at: 1)?.activeUnderrunFrames, 480)
+        XCTAssertEqual(centralLedger.bucket(at: 1)?.submittedRemoteFrames, 480)
+        XCTAssertEqual(centralLedger.bucket(at: 1)?.queueMinFrames, 0)
+        XCTAssertEqual(centralLedger.bucket(at: 1)?.queueMaxFrames, 480)
+        XCTAssertEqual(centralLedger.bucket(at: 1)?.queueEndFrames, 0)
         XCTAssertEqual(centralLedger.bucket(at: 2)?.tailRenderedFrames, 240)
         XCTAssertEqual(centralLedger.bucket(at: 2)?.tailEmptyCallbacks, 1)
         XCTAssertEqual(centralLedger.bucket(at: 2)?.overflowDroppedFrames, 16)

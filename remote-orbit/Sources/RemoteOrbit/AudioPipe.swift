@@ -691,7 +691,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 }
             }
             if VoiceTimingLogger.continuityEvidenceEnabled {
-                VoiceTimingLogger.recordContinuitySubmitted(
+                continuityRenderLedger?.recordSubmitted(
                     timestampNanoseconds: submissionTimestamp,
                     frames: resampled.count,
                     queueDepthFrames: pendingRemoteOutputFrames
