@@ -1,76 +1,40 @@
 # CURRENT_STATUS
 
-Last updated: 2026-10-28
-State: RELEASE V0.2.15 PREPARATION
+Last updated: 2026-10-29
+State: ACTIVE — RO-OBSERVABILITY-039 LONG-TERM OBSERVABILITY CONSTRUCTION
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
 
 - Canonical development repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
-- Canonical branch: `main`.
-- Verified origin: `https://github.com/Lost0rz/RemoteOrbit.git`.
-- Release-transition parent: `30134cc9a8a705409b28440b5f2215091f6a5e81`.
-- PR #24 (`038-B Audio Continuity Evidence`) is merged at `b4dbd60d6c27c756bcf735eff050bd29a8324617`.
-- Durable 038-B closeout: `docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`.
-- Task 038-B product/evidence work is terminal. Its local `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence` workspace still has a local-host cleanup obligation; remote evidence does not prove that local worktree is physically closed.
-- The retained 038-B workspace is frozen/read-only by authority and may not resume product writes without a new transition, so it does not authorize or overlap this release task.
-- `038-C/D/E/F` remain deferred.
+- Verified origin: `https://github.com/Lost0rz/remoteorbit.git`.
+- Audited control parent: `origin/main` at `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9`.
+- Active implementation branch: `codex/observability-039`.
+- Active implementation worktree: `/private/tmp/remoteorbit-longterm-observability-039`.
+- PR #25 (`Release RemoteOrbit v0.2.15`) is Draft/Open/Unmerged; public release is blocked and no merge, tag, or release is authorized by this task.
+- The former release-control branch `codex/release-v0.2.15` remains at `f049e6eb7f0e5625b807fba1860d04c048b638ca` in `/private/tmp/remoteorbit-release-v0.2.15-local-soak`; it is retained for provenance and is not an active writer for this task.
+- The owner's MacBook Air natural-use observation reported substantial final-text omission. This records the release decision as `RELEASE_BLOCKED / SOAK_FAILED`; it does not claim a technical root cause.
+- Task 038-B is terminal at `NARROWED_NOT_ESTABLISHED`; its closeout is `docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`.
+- `038-C/D/E/F` remain deferred unless a later transition explicitly activates them.
 
-## Release decision
+## Task transition
 
-The owner explicitly authorized a new release after the 038-B evidence phase because there is no currently justified product corrective to apply safely.
+- Previous active task: `RO-RELEASE-V0.2.15`, state `LOCAL_SOAK_ACTIVE`.
+- Current active task: `RO-OBSERVABILITY-039`, state `ACTIVE — IMPLEMENTATION CANDIDATE CONSTRUCTION`.
+- Transition parent: `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9`.
+- `CURRENT_STATUS.md` and `CURRENT_TASK.md` were updated together in the control-transition commit immediately following that parent.
 
-Release target:
+## Product and runtime boundaries
 
-- marketing version: `0.2.15`
-- build: `44`
-- architecture: Universal 2
-- release class: stability + diagnostics baseline
-- predecessor release: `v0.2.14` / build `43`
-
-The release does **not** claim that the audio-continuity root cause is fixed. Final 038-B root-cause status remains `NARROWED_NOT_ESTABLISHED`.
-
-## Delta since v0.2.14
-
-Repository comparison `v0.2.14...main` shows the release line is 73 commits ahead and includes the following accepted work:
-
-- rapid re-press admission / runtime reliability 038-A;
-- shortcut recorder exclusive capture and restoration hardening;
-- opt-in audio-continuity correlation across BLE -> decode -> PCM submission -> AudioPipe render/underrun;
-- observer-effect corrections that remove shared diagnostic lock/dictionary work from the real-time render/submission path;
-- stable AUDIO_START-before-HID capture/session correlation;
-- runtime evidence and durable diagnostic conclusions.
-
-This release preparation itself must not add speculative audio/BLE correction.
-
-## Diagnostic observation boundary
-
-The 038-B continuity ledger is intentionally opt-in. Normal app launch does not enable it automatically.
-
-For the owner's post-release observation run, the installed v0.2.15 app should be launched in the existing diagnostic mode with:
-
-`REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`
-
-Do not change the product default to always-on continuity capture solely for this release. This preserves the audited default-off production path while allowing a bounded owner-operated observation period.
-
-## Release verification requirements
-
-Before publication, the local macOS release executor must prove the exact release candidate identity and run proportional release checks:
-
-1. reconcile/fetch `main` and create/use the authorized release branch;
-2. bump `remote-orbit/Packaging/Info.plist` to `0.2.15 (44)`;
-3. add `RELEASE_NOTES_v0.2.15.md` with the accepted scope and known unresolved audio-continuity limitation;
-4. run the applicable Swift tests/self-tests;
-5. build the audio driver used by the DMG if required by the established packaging flow;
-6. run `remote-orbit/package-app.sh` and verify app identity/version/architectures/codesign;
-7. run `package-dmg.sh` and verify the DMG contents/version;
-8. merge the release PR only after release evidence passes;
-9. create tag `v0.2.15` at the exact merged release commit;
-10. publish GitHub Release `RemoteOrbit v0.2.15` with `RemoteOrbit-0.2.15.dmg` and the release notes;
-11. verify the published asset digest and release/tag/commit provenance.
-
-No hosted CI status is assumed; if none exists, report `NO_HOSTED_CI` rather than PASS.
+- This task is diagnostics/observability infrastructure only.
+- ATVV mode, BLE command/protocol semantics, codec, sample rate, AudioPipe buffering/playout, jitter behavior, gain, HID mapping, gesture semantics, Option/Control ownership, persistent sessions, driver semantics, and Doubao trigger behavior are frozen.
+- Mac mini is the construction/verification host. MacBook Air is the owner-controlled natural-use acceptance host. Runtime PIDs and local runtime identity must not be compared across hosts.
+- No installed Air runtime, TCC state, driver, LaunchAgent, tag, release, or PR #25 lifecycle state may be changed by this task.
 
 ## Current next action
 
-Prepare the v0.2.15 release branch/metadata, then hand the exact branch to the local macOS release executor for build/package/release verification. Do not publish a release artifact that has not been built and inspected on macOS.
+Inventory the existing Diagnostics authority and continuity observers, then implement bounded always-on L1 summaries, anomaly-gated L2 traces, host scheduling aggregation, bounded journal retention, and explicit export with focused tests and source-level observer-effect evidence.
+
+## Stop conditions
+
+Stop and report if the control plane drifts, a concurrent diagnostic writer appears, a unique local work conflicts, or the requested evidence cannot be implemented without changing product audio/gesture semantics, adding invasive text capture, or adding hot-path disk/lock/allocation behavior.
