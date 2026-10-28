@@ -1,148 +1,148 @@
 # RemoteOrbit Current Task
 
-## RO-RUNTIME-RELIABILITY-038 — Task 038
+## RO-RELEASE-V0.2.15 — Stability + Diagnostics Baseline Release
 
-Status: `038-B MERGED / LOCAL WORKTREE CLOSEOUT PENDING`
+Status: `AUTHORIZED / RELEASE PREPARATION`
 
 Repository: `Lost0rz/RemoteOrbit`
 
 Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`
 
-## Current slice
+## Objective
 
-`038-B — Audio Continuity Evidence`
+Publish RemoteOrbit `v0.2.15` / build `44` as the next stable diagnostic baseline after the merged 038-A / 038-B work, so the owner can run the released build for a longer observation period and later analyze fresh logs.
 
-The evidence phase is complete and PR #24 has been merged to `main`.
+This task is a release task, not a new audio corrective task.
 
-Remote merge identity:
+## Release baseline
 
-- PR: `#24 — [038-B] Add opt-in audio continuity correlation evidence`
-- merged head: `617fb1239c35acef44dd29b5ed115e0f30fcadcb`
-- merge commit: `b4dbd60d6c27c756bcf735eff050bd29a8324617`
-- merged at: `2026-10-28T12:48:04Z`
+- Transition parent: `30134cc9a8a705409b28440b5f2215091f6a5e81`.
+- Previous public release: `v0.2.14`, build `43`.
+- Release target: `v0.2.15`, build `44`, Universal 2.
+- PR #24 / 038-B is merged at `b4dbd60d6c27c756bcf735eff050bd29a8324617`.
+- 038-B durable closeout: `docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`.
+- 038-B root-cause verdict remains `NARROWED_NOT_ESTABLISHED`.
+- No safe new product corrective is authorized before this release.
 
-This merge delivers the diagnostic/observability capability and durable phase findings. It does not establish or implement an exclusive product audio root-cause correction.
+## Authorized release branch
 
-## Final 038-B verdict
+Create one release branch from the authoritative release-transition head:
 
-Frozen runtime evidence:
+`codex/release-v0.2.15`
 
-- runtime PID `21428`;
-- `/Applications/RemoteOrbit.app`;
-- bundle `com.lost0rz.RemoteOrbit`;
-- version/build `0.2.14 (43)`;
-- executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`;
-- diagnostic mode `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`;
-- evidence window `2026-10-28 19:19:13.941–19:58:44.510 +0800`;
-- 10 usable natural LONG sessions; one historical session excluded.
+The branch is the only writer for release metadata/packaging changes until merge or explicit abandonment.
 
-Final classification:
+## Authorized changes
 
-- `DECODER_REJECTION_CAUSAL_STATUS = DOWNGRADED`
-- `OVERFLOW_CAUSAL_STATUS = DOWNGRADED`
-- `BLE_CADENCE_CAUSAL_STATUS = SUPPORTED_AS_RECURRING_CONTRIBUTOR`
-- `PCM_SUPPLY_TO_UNDERRUN_CAUSAL_STATUS = DOWNGRADED_FROM_SUPPORTED`
-- `ACTIVE_STREAM_UNDERRUN_STATUS = FACT`
-- `FINAL_TEXT_OMISSION_STATUS = UNKNOWN`
-- `ROOT_CAUSE_STATUS = NARROWED_NOT_ESTABLISHED`
+Only the following release-preparation changes are authorized unless a verification failure proves a smaller necessary packaging correction:
 
-Active-stream base-rate evidence:
+1. `remote-orbit/Packaging/Info.plist`
+   - `CFBundleShortVersionString = 0.2.15`
+   - `CFBundleVersion = 44`
+2. add `RELEASE_NOTES_v0.2.15.md`;
+3. update control records as required by release lifecycle/provenance;
+4. packaging-only corrections required to reproduce the established app/DMG release contract, but only if a concrete release failure is reproduced and the correction is narrowly justified.
 
-- ACTIVE buckets: `391` total;
-- ACTIVE underrun buckets: `48`;
-- ACTIVE non-underrun controls: `343`;
-- BLE gap >20 ms: `39.58%` underrun vs `9.62%` control, RR `4.11`;
-- BLE gap >30 ms: `14.58%` underrun vs `1.75%` control, RR `8.34`;
-- supply deficit: `68.75%` underrun vs `59.48%` control, RR `1.16`;
-- lag analysis supports BLE cadence as a recurring coincident contributor but does not establish consistent earlier BLE precedence;
-- 100 ms aggregation cannot establish intra-bucket arrival/render ordering.
+Do not modify product audio, BLE, HID, shortcut, Option, queue, buffer, timing, codec, or voice semantics for this release.
 
-Boundary evidence:
+## Release notes contract
 
-- active-stream underrun is real across 4/10 sessions;
-- no startup/prestable unfilled render buckets were observed;
-- about 89.2% of total unfilled frames occurred in tail/teardown and must remain separate from active-stream continuity analysis.
+The v0.2.15 notes must state clearly:
 
-## Delivered capability
+- this is a stability/diagnostics baseline, not a claim that the audio-continuity root cause is fixed;
+- rapid re-press reliability work is included;
+- shortcut recorder exclusive-capture/restoration hardening is included;
+- the new opt-in BLE/decode/PCM/AudioPipe continuity evidence path is included;
+- decoder rejection and overflow were downgraded by the 038-B evidence set;
+- BLE cadence is supported as a recurring contributor, not an exclusive cause;
+- PCM aggregate supply causality was downgraded;
+- active-stream underrun remains a fact;
+- final text omission remains unverified;
+- continuity evidence remains opt-in rather than default-on.
 
-038-B delivered an opt-in diagnostic chain:
+## Diagnostic observation after release
 
-`BLE notifications -> decode -> PCM submission -> AudioPipe queue/render -> underrun`
+The owner intends to run v0.2.15 for a longer period and later analyze fresh logs.
 
-by session and 100 ms monotonic buckets.
+For that observation period, preserve the audited opt-in boundary:
 
-Before runtime use, the diagnostic path itself was corrected to remove observer-effect risks:
+`REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`
 
-- no shared central diagnostic lock/dictionary mutation from render observation under `AudioPipe.stateLock`;
-- no full fixed-capacity lifecycle scan under the audio state lock;
-- stable capture identity for AUDIO_START-before-HID ordering;
-- submission observation moved into the AudioPipe-owned fixed-capacity ledger;
-- exact session/capture isolation and `render_capacity_dropped` accounting preserved.
+Do not silently make the continuity ledger always-on in normal app launch.
 
-Semantic source/test delivery head: `652ea306dc4a22ee3c489b254d87becc6f9a4ed0`.
+A post-release observation run should preserve release identity in its evidence receipt:
 
-Independent Web CODE_DIFF audit passed at `6b5fde0b767933a89b8b7643dabe473e46040df8`.
+- app path;
+- bundle ID;
+- version/build;
+- executable SHA-256;
+- tag/release commit;
+- diagnostic environment enabled;
+- observation window.
 
-Durable closeout record:
+## Local macOS release execution
 
-`docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`
+The local release executor must:
 
-## Unresolved problem record
+1. fetch/reconcile `main` and this release branch;
+2. prove no conflicting active writer for the same release metadata;
+3. run applicable tests/self-tests;
+4. build the required audio driver if the established DMG flow expects it;
+5. run `remote-orbit/package-app.sh`;
+6. verify packaged `RemoteOrbit.app`:
+   - bundle `com.lost0rz.RemoteOrbit`;
+   - version/build `0.2.15 (44)`;
+   - arm64 + x86_64;
+   - designated requirement `identifier "com.lost0rz.RemoteOrbit"`;
+   - embedded `RemoteOrbitDiagnosticSourceHead` equals the exact release candidate commit;
+7. run `package-dmg.sh`;
+8. verify DMG includes the intended app/driver/install surfaces and is named `RemoteOrbit-0.2.15.dmg`;
+9. report SHA-256 of the final DMG;
+10. open/merge the release PR only after the release gate passes;
+11. tag the exact merged release commit as `v0.2.15`;
+12. publish GitHub Release `RemoteOrbit v0.2.15` with the DMG and `RELEASE_NOTES_v0.2.15.md`;
+13. re-fetch release/tag/asset metadata and prove provenance.
 
-The continuity defect still does not have a single corrective owner.
+## Required verification
 
-Evidence currently supports:
+At minimum report:
 
-- BLE cadence degradation as a recurring contributor;
-- decoder rejection and overflow as downgraded explanations;
-- aggregate PCM supply deficit as insufficient to explain the active underrun population by itself.
+- release branch start/final/remote heads;
+- changed paths;
+- focused/full test results that actually ran;
+- release build result;
+- app bundle identity/version/architecture/codesign;
+- DMG path/name/SHA-256;
+- PR state and merge commit;
+- tag target;
+- GitHub Release URL/id;
+- uploaded asset name/size/digest;
+- whether hosted CI existed (`NO_HOSTED_CI` if absent);
+- worktree status and local release-worktree lifecycle state.
 
-The main unresolved technical boundary is finer-grained intra-bucket ordering among:
+## Stop conditions
 
-`BLE arrival -> decode -> PCM submission -> instantaneous queue depth -> render callback`
+STOP rather than silently expanding scope if:
 
-A future investigation, only if separately authorized, should discriminate whether active starvation is primarily caused by late BLE arrival, late PCM availability within the bucket, or a distinct AudioPipe queue/render scheduling behavior.
+- `main` or the release branch drifts unexpectedly;
+- product source changes appear necessary;
+- packaging requires a material redesign;
+- version/build identity is inconsistent;
+- app/DMG provenance cannot be established;
+- tests/build/package fail for an unresolved reason;
+- tag/release would point to a commit different from the verified release candidate;
+- unique/unpushed local work is discovered.
 
-Human waveform/audio quality and final text omission remain unverified. 038-F remains deferred.
+## Non-goals
 
-## Phase lessons
+- No attempt to solve the remaining audio root cause.
+- No new continuity probe granularity.
+- No 038-C/D/E/F execution.
+- No TCC/permission reset.
+- No driver semantic change.
+- No speculative performance tuning.
+- No always-on diagnostic mode change.
 
-- Observability PASS is not product-quality PASS.
-- Causal claims need a control population/base rate, not only properties of failing buckets.
-- Startup, active, tail/teardown, and idle render populations must remain separate.
-- Same-bucket aggregate sufficiency does not prove event ordering.
-- Real-time diagnostic probes require explicit observer-effect review.
-- Runtime app identity and OS permission state are part of evidence provenance.
-- Do not convert a recurring contributor into an exclusive root cause without a discriminating temporal observation.
+## Completion
 
-## Remaining authorization
-
-No further 038-B product or diagnostic mutation is authorized.
-
-The only remaining task-038-B lifecycle action is local workspace closeout:
-
-1. verify `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence` exists/identity if still registered;
-2. verify staged/unstaged/untracked state is clean;
-3. verify all local commits are merged/reachable from current `main` and no unique/unpushed work exists;
-4. remove/prune the obsolete worktree;
-5. remove the local task branch only when safe under repository policy;
-6. report the final workspace disposition.
-
-This local lifecycle evidence cannot be inferred from the GitHub merge. Until it is supplied, the task state is `MERGED / LOCAL WORKTREE CLOSEOUT PENDING`, not `CLOSED_CLEAN`.
-
-## Prohibited mutation
-
-- No AudioPipe buffer, target-depth, scheduling, pacing, resampling, or playback correction.
-- No BLE codec, packet timing, keep-alive, micOpen/micClose, or AUDIO_STOP correction.
-- No Adaptive Playout production change.
-- No SHORT/LONG, rapid re-press, Option, or shortcut behavior change.
-- No new continuity probe or runtime session.
-- No 038-C/D/E/F execution under this task state.
-- No TCC, driver, CoreAudio, installer, or release mutation.
-- No opportunistic refactor.
-
-## Next task boundary
-
-No successor task is activated by the 038-B merge.
-
-`038-C — Option-edge authority` remains deferred until separately authorized after local 038-B workspace closeout or an explicit owner decision that permits overlap.
+This task is complete only when the verified v0.2.15 DMG is published against the exact tagged release commit and the control plane records the release identity and remaining diagnostic uncertainty.
