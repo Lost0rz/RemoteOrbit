@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: BLE_CENTRAL_READINESS_DIAGNOSIS — TASK 038-B
+State: BLOCKED_BLUETOOTH_AUTHORIZATION — TASK 038-B VERIFY
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -32,7 +32,7 @@ Repository: Lost0rz/RemoteOrbit
 ## Task 038 roadmap
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B BLE_CENTRAL_READINESS_DIAGNOSIS`: the first healthy-permission session reached `INPUT/GESTURE + REMOTE_ROUTE_BEGIN`, stopped before confirmed BLE audio start, and existing evidence must determine the exact CoreBluetooth readiness/authorization state that blocked transport progress.
+- `038-B BLOCKED_BLUETOOTH_AUTHORIZATION`: after the human enabled RemoteOrbit under System Settings → Privacy & Security → Bluetooth, a fresh installed diagnostic launch still reported CoreBluetooth central `Unauthorized`; no voice session is authorized yet.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -52,7 +52,7 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 
 ## Current phase and next action
 
-- Phase: 038-B BLE_CENTRAL_READINESS_DIAGNOSIS — the installed diagnostic identity and the first incident session are fixed; no second user session is authorized.
+- Phase: 038-B VERIFY — fresh authorization-resume launch is blocked at CoreBluetooth central `Unauthorized`; no voice session is authorized.
 - First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
 - Current conclusion: existing telemetry was insufficient for mid-stream temporal alignment; the minimum opt-in 100 ms monotonic/session bucket ledger remains in source/test commit `652ea30`, and buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior remain unchanged.
 - Audit property reproduced: the prior render-side probe acquired the shared logger lock and mutated its dictionary while `AudioPipe.stateLock` was held, creating probe self-contention risk.
@@ -64,7 +64,7 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 - Corrective-3 result: AUDIO_START now owns a stable opt-in capture identity even when no HID session exists; pre-session BLE/decode/render observations remain on that capture, and the matching later session can bind it once. Binding is exact-identity and one-shot; wrong or repeated session bindings are rejected. HID-before-AUDIO_START reuses the same bound capture identity.
 - Verification: focused `AudioDataPlaneDiagnosticsTests` 31/31 PASS; affected `AudioPipeTests` 4/4 PASS; `VoiceBoundaryOrderingTests` 3/3 PASS; `VoicePressCoordinatorTests` 39/39 PASS; full `swift test` 420/420 PASS; `swift build -c release` PASS; `git diff --check` PASS.
 - Product/runtime boundary: UNKNOWN — the authorized runtime capture has not yet produced evidence; root cause remains UNKNOWN.
-- Current next action: inspect existing launch-to-incident evidence and `centralManagerDidUpdateState` behavior for session `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE` to determine the exact CoreBluetooth readiness/authorization state and the minimum fault boundary; no source/product correction or second runtime incident is authorized.
+- Current next action: stop at `BLOCKED_BLUETOOTH_AUTHORIZATION`; preserve fresh PID `56531` evidence and do not request a voice session, change TCC, modify Bluetooth logic, change the driver, restart CoreAudio, or merge.
 
 ## BLE central-readiness diagnosis transition receipt
 
@@ -87,6 +87,18 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 - Root cause: INFERENCE — the incident is blocked at an unauthorized CoreBluetooth central boundary. The underlying authorization/TCC cause and any product correction are not established or authorized here.
 - Smallest justified next action: STOP after diagnosis. Preserve the runtime and require a separate authority decision for any user-owned authorization review or product correction; do not request another voice session in this pass.
 - Source changed: FACT — NO; no probe, build, install, runtime restart, permission change, driver change, CoreAudio restart, or merge was performed.
+
+## BLE authorization-resume verification receipt
+
+- Transition authority: FACT — the current 038-B VERIFY card explicitly authorizes cleanly replacing the prior diagnostic process, relaunching the same installed diagnostic app, and observing fresh CoreBluetooth readiness without a voice session.
+- Installed bundle: FACT — `/Applications/RemoteOrbit.app`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`; both `NSBluetoothAlwaysUsageDescription` and `NSBluetoothPeripheralUsageDescription` exist.
+- Prior runtime: FACT — PID `59512` was quit through the application-level quit path and its launcher exited before the new launch.
+- Fresh runtime: FACT — PID `56531`, `RUN_START=2026-10-28 17:22:48.532 +0800`, same installed executable, only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1` observed.
+- Bluetooth authorization: UNKNOWN — the fresh process did not emit a numeric `CBManager.authorization` value; the human Settings action is not substituted for process evidence.
+- Central state: FACT — `bluetoothd` sent the fresh PID-56531 central session `state updated ... state "Unauthorized"` at `17:22:48.758 +0800`; no `.poweredOn` transition or `[BLE] 蓝牙已就绪` marker followed.
+- Transport preparation: FACT — blocked before reconnect/scan/retrieve, peripheral connection, service discovery, characteristic discovery, capabilities handshake, and ATVV readiness; no synthetic `micOpen` was sent.
+- Final state: FACT — `BLOCKED_BLUETOOTH_AUTHORIZATION`; do not request a natural voice session until a separately authorized fresh runtime reaches `.poweredOn` and ATVV readiness.
+- Scope: FACT — no source change, TCC mutation, rebuild, reinstall, driver change, CoreAudio change, PR merge, or ten-session run occurred.
 
 ## BLE-start incident transition receipt
 

@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: BLE_CENTRAL_READINESS_DIAGNOSIS — 038-B.
+- Status: BLOCKED_BLUETOOTH_AUTHORIZATION — 038-B VERIFY.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B BLE_CENTRAL_READINESS_DIAGNOSIS`: the first healthy-permission session reached `INPUT/GESTURE + REMOTE_ROUTE_BEGIN`, stopped before confirmed BLE audio start, and existing evidence must determine the exact CoreBluetooth readiness/authorization state that blocked transport progress.
+- `038-B BLOCKED_BLUETOOTH_AUTHORIZATION`: after the human enabled RemoteOrbit under System Settings → Privacy & Security → Bluetooth, a fresh installed diagnostic launch still reported CoreBluetooth central `Unauthorized`; no voice session is authorized yet.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -142,7 +142,7 @@ The 038-B result must include:
 
 ## Current next action
 
-The launch-to-incident evidence and `centralManagerDidUpdateState` source path establish the exact minimum fault boundary for `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`. Stop after recording the diagnosis; do not create another runtime incident, request another user voice session, mutate product behavior, or change TCC, driver, CoreAudio, or PR lifecycle.
+The launch-to-incident evidence and `centralManagerDidUpdateState` source path establish the exact minimum fault boundary for `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`. The fresh authorization-resume launch remains `Unauthorized`; stop without creating another runtime incident, requesting another user voice session, mutating product behavior, or changing TCC, driver, CoreAudio, or PR lifecycle.
 
 ## 038-B BLE central-readiness diagnosis transition
 
@@ -175,6 +175,25 @@ The launch-to-incident evidence and `centralManagerDidUpdateState` source path e
 - `PROBE_REQUIRED`: FACT — NO.
 - `SMALLEST_JUSTIFIED_NEXT_ACTION`: FACT — stop and preserve evidence; any authorization review or product correction requires separate authority.
 - `SOURCE_CHANGED`: FACT — NO; no probe, build, install, runtime restart, permission change, driver change, CoreAudio restart, or merge occurred.
+
+## 038-B BLE authorization-resume verification result
+
+- `RUNTIME_PROCESS_IDENTITY`: FACT — PID `56531`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, `com.lost0rz.RemoteOrbit 0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
+- `INSTALLED_BUNDLE_ID`: FACT — `com.lost0rz.RemoteOrbit`.
+- `INSTALLED_VERSION_BUILD`: FACT — `0.2.14 (43)`.
+- `INSTALLED_BLUETOOTH_USAGE_KEYS`: FACT — `NSBluetoothAlwaysUsageDescription` and `NSBluetoothPeripheralUsageDescription` both present.
+- `BLUETOOTH_AUTHORIZATION`: UNKNOWN — fresh runtime did not emit the numeric `CBManager.authorization` value; do not infer `allowedAlways` from the human Settings action.
+- `CENTRAL_INITIAL_STATE`: FACT — `unauthorized` at fresh CoreBluetooth initialization.
+- `CENTRAL_FINAL_STATE`: FACT — `unauthorized`; no later transition observed.
+- `POWERED_ON_REACHED`: FACT — NO.
+- `CONNECTION_STATE`: FACT — NOT REACHED; central remained unauthorized before reconnect/scan/retrieve.
+- `SERVICE_DISCOVERY_STATE`: FACT — NOT REACHED.
+- `CHARACTERISTIC_DISCOVERY_STATE`: FACT — NOT REACHED.
+- `CAPABILITIES_STATE`: FACT — NOT REACHED.
+- `ATVV_READY_STATE`: FACT — NOT REACHED; no `ATVV 语音链路已就绪`.
+- `FINAL_STATE`: FACT — `BLOCKED_BLUETOOTH_AUTHORIZATION`.
+- `SOURCE_CHANGED`: FACT — NO; no source, TCC, driver, CoreAudio, or PR lifecycle mutation.
+- `NEXT`: remain stopped; do not ask for a natural session until a separately authorized fresh process reaches `.poweredOn` and ATVV readiness.
 
 ## 038-B BLE-start incident diagnosis transition
 
