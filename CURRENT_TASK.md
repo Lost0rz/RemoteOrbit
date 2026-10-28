@@ -2,7 +2,7 @@
 
 ## RO-SHORTCUT-RECORDER-EXCLUSIVE-CAPTURE-037 — Task 037
 
-- Status: ACTIVE — IMPLEMENTATION ACTIVE.
+- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT.
 - Task class: CORRECTIVE / EXECUTION.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -44,6 +44,8 @@ This is a shortcut-recorder event-ownership corrective. It is not a Voice correc
 - The exact branch, worktree, start HEAD, canonical control head, and clean state are registered by this paired control commit before product mutation.
 - Push the authorized branch and open exactly one Draft PR against `main` only after required implementation verification passes.
 - Do not merge, install `/Applications/RemoteOrbit.app`, package/release a DMG, delete the branch, or delete the worktree.
+- Implementation commit: `24ad60d020c73cb306d6258c50575ba64571f01c`.
+- Active Draft PR: `https://github.com/Lost0rz/RemoteOrbit/pull/22` (PR #22, base `main`; implementation branch head was remotely verified at the implementation commit before handoff).
 
 ## Behavioral contract
 
@@ -99,4 +101,15 @@ Required focused cases include plain key, Command-Space, Command-Shift-4 exact c
 
 ## Next action
 
-Implement the bounded shortcut-capture change in the registered implementation worktree. Product mutation is authorized only in this worktree and only within the scope above.
+Independent Web audit of PR #22 is the next authorized engineering action. Keep `HUMAN_UI_ACCEPTANCE: PENDING` until the user explicitly reports real macOS acceptance for Command-Space, Command-Shift-4, Option-A, pure modifier, and post-cancel restoration behavior. Do not merge, install, package, release, delete the branch/worktree, or claim runtime acceptance from the automated tests.
+
+## Execution receipt
+
+- Changed product files: `remote-orbit/Sources/RemoteOrbit/KeyMapping/ShortcutCaptureMonitor.swift`; `remote-orbit/Sources/RemoteOrbit/KeyMapping/SettingsView.swift`.
+- Changed test file: `remote-orbit/Tests/RemoteOrbitTests/ShortcutCaptureMonitorTests.swift`.
+- Protected files and authorities remain unchanged: `EventSuppressor.swift`, `KeyInjector.swift`, Voice sources, `BLEBridge.swift`, audio/driver sources, and mapping persistence/schema.
+- Focused tests: PASS — 11 tests, 0 failures.
+- Full suite: PASS — 405 tests, 0 failures.
+- Release build: PASS.
+- Self-tests: PASS — 3/3.
+- `HUMAN_UI_ACCEPTANCE: PENDING`; actual macOS event-tap/system-shortcut behavior and independent Web audit remain outstanding.
