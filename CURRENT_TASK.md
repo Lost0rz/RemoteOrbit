@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT — 038-B corrective-3 ordering correlation delivered.
+- Status: EXECUTING — 038-B corrective-4 submission-path contention correction.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT`: corrective-3 closes only the AUDIO_START-before-HID continuity-correlation gap; no runtime capture is authorized.
+- `038-B EXECUTING`: corrective-4 removes submission-path probe contention; no runtime capture is authorized.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -47,9 +47,9 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 - Start HEAD: `e80c8be50fa489c7f04c4ca5567aff7cc5d3af9b`.
 - Registration: this paired control commit; the worktree was clean before source/test or diagnostic mutation.
 - The old 038-A worktree closeout was performed after proving clean state, merged reachability, and no unique/unpushed commits; its local branch was deleted and remote branch retained.
-- Current source/test HEAD: `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a`, pushed and verified equal to the remote 038-B branch before this paired control update.
-- PR #24: OPEN + DRAFT + UNMERGED; its live head is the current tip of this authorized branch and must be read directly for any future transition. The last revalidated tip before this control correction is `229fec6680cdd09a90c1a7134403cb9bd6620fce`; corrective-1 reproduced and removed render-path probe self-contention, then returned the task to independent Web audit.
-- Corrective-2 delivery source/test HEAD: `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a`, verified equal to the remote branch before this transition.
+- Current source/test HEAD: `7d33e01cf94aa3685ccfdecc6df28207258cb1bb`, pushed and verified equal to the remote 038-B branch before the current control-only head.
+- PR #24: OPEN + DRAFT + UNMERGED; its live head is `575c2feb62af6f8ddc3ef49b0e1ca0793ffdca60` at the current control-only head and must be read directly for any future transition. Corrective-1 reproduced and removed render-path probe self-contention; corrective-2 bounded lifecycle work; corrective-3 closed the AUDIO_START-before-HID correlation gap.
+- Corrective-2 delivery source/test HEAD: `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a`; corrective-3 delivery source/test HEAD: `7d33e01cf94aa3685ccfdecc6df28207258cb1bb`, both verified as ancestors of the current branch.
 
 ## Authorized 038-B scope
 
@@ -77,6 +77,8 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 13. Corrective-2 completed in `ebd6f1d`: the fixed-capacity render-side evidence model is preserved while disabled begin/end are cheap, lock-held begin/end are bounded, and snapshot creation is safely detached from render writes. The clock, session identity, 100 ms buckets, BLE/decode/submission correlation, active/tail/idle accounting, overflow evidence, `render_capacity_dropped`, and default-off behavior are preserved.
 14. Corrective-3 authorized in the current execution card: add a deterministic RED regression for AUDIO_START before HID/session creation, then close only the late session-correlation gap. Preserve pre-session observations, reject stale/wrong-session binding, preserve session isolation, and keep corrective-1/2 render and lifecycle invariants unchanged. Stop if this requires a material AudioPipe redesign or changes product voice semantics.
 15. Corrective-3 delivered in `7d33e01`: AUDIO_START owns a stable capture identity when the gesture UUID is absent; pre-session observations are retained and bound once to the later HID session. The HID-before-AUDIO_START path remains bound to the same capture identity, while wrong/repeated capture bindings are rejected. No voice semantics, rapid re-press behavior, audio scheduling, queue targets, BLE timing, or AUDIO_STOP interpretation changed.
+16. Corrective-4 is authorized in the current execution card: reproduce the remaining `AudioPipe.stateLock -> VoiceTimingLogger.recordContinuitySubmitted -> shared diagnostic lock/dictionary` edge, then move only submission observation into the existing AudioPipe-owned fixed-capacity ledger. Preserve monotonic timestamp, submitted frames, queue depth, 100 ms bucket alignment, capture identity, provisional AUDIO_START-before-HID support, and exact one-time submission-plus-render merge after detach. Preserve corrective-1/2/3 invariants and stop for any production audio redesign, unsafe association, or authority drift.
+17. Corrective-4 verification must cover submission bucket/queue evidence, provisional and bound ordering, wrong/stale isolation, same-session submission-plus-render merge, disabled mode, consecutive sessions, focused diagnostics, affected AudioPipe/order/lifecycle tests, full Swift tests, release build, and diff check. After delivery, return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not install, release, merge, or capture runtime.
 
 ## Required output / evidence
 
@@ -137,7 +139,14 @@ The 038-B result must include:
 
 ## Current next action
 
-Independent Web audit of PR #24. Corrective-3 source/test delivery, focused/full/release/diff verification, and remote branch delivery are complete. Do not tune, install, release, capture runtime, or fix audio behavior.
+Reproduce and correct the Corrective-4 submission-path contention finding on the authorized branch, run the required tests/build/diff checks, push and verify the branch, then return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not tune, install, release, merge, capture runtime, or fix audio behavior.
+
+## Corrective-4 execution receipt
+
+- Authorization: FACT — the current card authorizes only the submission-observation critical-path correction and its proportional verification.
+- Audit target: FACT — `AudioPipe.schedule()` currently holds `stateLock` across `VoiceTimingLogger.recordContinuitySubmitted()`, which acquires shared diagnostic locking and mutates the central dictionary.
+- Required architecture: FACT — use the existing AudioPipe-owned fixed-capacity ledger or an equivalent bounded observation under `stateLock`; central aggregation and merge remain after safe detach.
+- Stop boundary: UNKNOWN until implementation — stop if preserving association requires a material AudioPipe redesign, unsafe session/capture binding, production audio change, or authority drift.
 
 ## Corrective-3 delivery receipt
 

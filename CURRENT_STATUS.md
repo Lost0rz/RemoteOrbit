@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: WAITING_FOR_INDEPENDENT_WEB_AUDIT — TASK 038-B CORRECTIVE-3 DELIVERED
+State: EXECUTING — TASK 038-B CORRECTIVE-4 SUBMISSION-PATH CONTENTION
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -32,7 +32,7 @@ Repository: Lost0rz/RemoteOrbit
 ## Task 038 roadmap
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT`: corrective-3 ordering correlation delivered; no runtime capture is authorized.
+- `038-B EXECUTING`: corrective-4 is removing submission-path probe contention; no runtime capture is authorized.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -52,7 +52,7 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 
 ## Current phase and next action
 
-- Phase: 038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT — corrective-3 ordering correlation delivered.
+- Phase: 038-B EXECUTING — corrective-4 submission-path contention correction.
 - First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
 - Current conclusion: existing telemetry was insufficient for mid-stream temporal alignment; the minimum opt-in 100 ms monotonic/session bucket ledger remains in source/test commit `ebd6f1d`, and buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior remain unchanged.
 - Audit property reproduced: the prior render-side probe acquired the shared logger lock and mutated its dictionary while `AudioPipe.stateLock` was held, creating probe self-contention risk.
@@ -64,7 +64,14 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 - Corrective-3 result: AUDIO_START now owns a stable opt-in capture identity even when no HID session exists; pre-session BLE/decode/render observations remain on that capture, and the matching later session can bind it once. Binding is exact-identity and one-shot; wrong or repeated session bindings are rejected. HID-before-AUDIO_START reuses the same bound capture identity.
 - Verification: focused `AudioDataPlaneDiagnosticsTests` 31/31 PASS; affected `AudioPipeTests` 4/4 PASS; `VoiceBoundaryOrderingTests` 3/3 PASS; `VoicePressCoordinatorTests` 39/39 PASS; full `swift test` 420/420 PASS; `swift build -c release` PASS; `git diff --check` PASS.
 - Product/runtime boundary: UNKNOWN — no installed/runtime capture was performed, so this delivery does not establish runtime underrun behavior or an audio root cause.
-- Current next action: independent Web audit of PR #24. Do not install, release, or run a new runtime capture.
+- Current next action: reproduce the submission-path lock edge, move only the submission observation into the existing AudioPipe-owned fixed-capacity ledger, run the authorized verification, push the result, and return to independent Web audit. Do not install, release, or run a runtime capture.
+
+## Corrective-4 authorization
+
+- Audit finding to reproduce: FACT — `AudioPipe.schedule()` holds `stateLock` while `VoiceTimingLogger.recordContinuitySubmitted()` acquires the shared diagnostic lock and mutates the central dictionary ledger.
+- Authorized result: remove that shared-lock/dynamic-aggregation edge from the submission critical path by recording the same submission timestamp, frame count, queue depth, 100 ms bucket, capture identity, and provisional-session evidence in the existing AudioPipe-owned fixed-capacity ledger, then merge submission and render evidence exactly once after safe detach.
+- Preservation boundary: retain corrective-1/2/3 render, lifecycle, default-off, capture identity, late binding, session isolation, ordering, overflow, and `render_capacity_dropped` invariants. Do not redesign production audio, alter voice semantics, or add runtime capture.
+- Verification boundary: add RED-first regression coverage for submission bucket/queue evidence, provisional and bound ordering, wrong/stale isolation, same-session submission-plus-render merge, disabled mode, and consecutive sessions; run focused diagnostics, affected AudioPipe/order/lifecycle tests, full Swift tests, release build, and diff check.
 
 ## Protected boundaries
 
