@@ -25,7 +25,8 @@ enum DiagnosticCLI {
             authority: authority ?? DiagnosticAuthorityService.shared,
             journalURL: journalURL ?? DiagnosticStorage.defaultJournalURL,
             output: output,
-            errorOutput: errorOutput
+            errorOutput: errorOutput,
+            exportHandler: nil
         )
     }
 
@@ -34,7 +35,8 @@ enum DiagnosticCLI {
         authority: any DiagnosticAuthority,
         journalURL: URL,
         output: Writer,
-        errorOutput: Writer
+        errorOutput: Writer,
+        exportHandler: ((DiagnosticExportOptions) throws -> URL)? = nil
     ) -> Int32 {
         let command = arguments.first ?? "help"
         let commandArguments = Array(arguments.dropFirst())
@@ -53,6 +55,19 @@ enum DiagnosticCLI {
                     throw DiagnosticCLIError.usage("status takes no arguments")
                 }
                 output(try statusJSON(journalURL: journalURL))
+                return 0
+
+            case "export":
+                let options = try parseExportOptions(commandArguments)
+                let archive = if let exportHandler {
+                    try exportHandler(options)
+                } else {
+                    try DiagnosticExporter(
+                        authority: authority,
+                        journalURL: journalURL
+                    ).export(options: options)
+                }
+                output(archive.path)
                 return 0
 
             case "query", "snapshot":
@@ -95,6 +110,9 @@ enum DiagnosticCLI {
             case .invalidFilter, .invalidCursor, .unsupportedSchemaVersion, .corruptJournal:
                 return 65
             }
+        } catch let error as DiagnosticExportError {
+            errorOutput("diagnostics: export failed: \(error)")
+            return 74
         } catch {
             errorOutput("diagnostics: \(error)")
             return 1
@@ -184,6 +202,52 @@ enum DiagnosticCLI {
         )
     }
 
+    private static func parseExportOptions(_ arguments: [String]) throws -> DiagnosticExportOptions {
+        var outputDirectory: URL?
+        var hostRole = "controller"
+        var startWallTimestampUnixMilliseconds: Int64?
+        var endWallTimestampUnixMilliseconds: Int64?
+
+        var index = 0
+        while index < arguments.count {
+            let option = arguments[index]
+            guard index + 1 < arguments.count else {
+                throw DiagnosticCLIError.usage("missing value for (option)")
+            }
+            let value = arguments[index + 1]
+            switch option {
+            case "--output":
+                guard !value.isEmpty else { throw DiagnosticCLIError.usage("output must not be empty") }
+                outputDirectory = URL(fileURLWithPath: value, isDirectory: true)
+            case "--host-role":
+                hostRole = value
+            case "--since-unix-ms":
+                guard let parsed = Int64(value) else {
+                    throw DiagnosticCLIError.usage("since timestamp must be an integer")
+                }
+                startWallTimestampUnixMilliseconds = parsed
+            case "--until-unix-ms":
+                guard let parsed = Int64(value) else {
+                    throw DiagnosticCLIError.usage("until timestamp must be an integer")
+                }
+                endWallTimestampUnixMilliseconds = parsed
+            default:
+                throw DiagnosticCLIError.usage("unknown export option: (option)")
+            }
+            index += 2
+        }
+
+        guard let outputDirectory else {
+            throw DiagnosticCLIError.usage("export requires --output <directory>")
+        }
+        return DiagnosticExportOptions(
+            outputDirectory: outputDirectory,
+            hostRole: hostRole,
+            startWallTimestampUnixMilliseconds: startWallTimestampUnixMilliseconds,
+            endWallTimestampUnixMilliseconds: endWallTimestampUnixMilliseconds
+        )
+    }
+
     private static func statusJSON(journalURL: URL) throws -> String {
         let fileManager = FileManager.default
         let exists = fileManager.fileExists(atPath: journalURL.path)
@@ -231,6 +295,7 @@ enum DiagnosticCLI {
 
     Usage:
       RemoteOrbit diagnostics status
+      RemoteOrbit diagnostics export --output <directory> [options]
       RemoteOrbit diagnostics query [filters]
       RemoteOrbit diagnostics snapshot [filters]
       RemoteOrbit diagnostics verify
@@ -249,6 +314,12 @@ enum DiagnosticCLI {
       --since-unix-ms <timestamp>
       --until-unix-ms <timestamp>
       --limit <1...500>
+
+    Export options:
+      --output <directory>        required; creates a bounded tar.gz evidence bundle
+      --host-role <token>         controller (default) or receiver
+      --since-unix-ms <timestamp>
+      --until-unix-ms <timestamp>
 
     The CLI is read-only. It exposes the existing DiagnosticAuthority query/snapshot
     contract and has no restart, reset, repair, install, delete, clear, or settings

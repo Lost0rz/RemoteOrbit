@@ -92,6 +92,51 @@ final class DiagnosticCLITests: XCTestCase {
         XCTAssertEqual(filter.endWallTimestampUnixMilliseconds, 200)
     }
 
+    func testExportParsesOutputHostRoleAndWallClockWindow() throws {
+        let authority = RecordingDiagnosticAuthority()
+        var captured: DiagnosticExportOptions?
+        var stdout: [String] = []
+        let code = DiagnosticCLI.run(
+            arguments: [
+                "export",
+                "--output", "/tmp/remoteorbit-export",
+                "--host-role", "receiver",
+                "--since-unix-ms", "100",
+                "--until-unix-ms", "200",
+            ],
+            authority: authority,
+            journalURL: URL(fileURLWithPath: "/tmp/unused"),
+            output: { stdout.append($0) },
+            errorOutput: { _ in },
+            exportHandler: { options in
+                captured = options
+                return URL(fileURLWithPath: "/tmp/RemoteOrbit-diagnostics-test.tar.gz")
+            }
+        )
+
+        XCTAssertEqual(code, 0)
+        XCTAssertEqual(captured?.outputDirectory.path, "/tmp/remoteorbit-export")
+        XCTAssertEqual(captured?.hostRole, "receiver")
+        XCTAssertEqual(captured?.startWallTimestampUnixMilliseconds, 100)
+        XCTAssertEqual(captured?.endWallTimestampUnixMilliseconds, 200)
+        XCTAssertEqual(stdout, ["/tmp/RemoteOrbit-diagnostics-test.tar.gz"])
+    }
+
+    func testExportRequiresOutputDirectory() {
+        let authority = RecordingDiagnosticAuthority()
+        var stderr: [String] = []
+        let code = DiagnosticCLI.run(
+            arguments: ["export"],
+            authority: authority,
+            journalURL: URL(fileURLWithPath: "/tmp/unused"),
+            output: { _ in },
+            errorOutput: { stderr.append($0) }
+        )
+
+        XCTAssertEqual(code, 64)
+        XCTAssertTrue(stderr.joined(separator: "\n").contains("output"))
+    }
+
     func testUnknownControlCommandFailsClosedWithoutAuthorityAccess() {
         let authority = RecordingDiagnosticAuthority()
         var stderr: [String] = []
