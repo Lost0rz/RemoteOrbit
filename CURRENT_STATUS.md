@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: RELEASE V0.2.15 — LOCAL_DMG_SOAK_CANDIDATE_ACTIVE
+State: RELEASE V0.2.15 — LOCAL_SOAK_ACTIVE
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -83,6 +83,24 @@ Later analysis must bind logs to:
 - diagnostic environment;
 - observation window.
 
+## Local packaging and soak receipt
+
+- `SOAK_BUILD_SOURCE_HEAD`: `38a3bfd8d5a5de47c31d2fed00edf7d7f7d7f2a7`.
+- `SOAK_CONTROL_HEAD`: this control transition commit; verify the published commit directly after push.
+- `swift test`: PASS, 421 tests / 0 failures.
+- `remote-orbit/run-self-tests.sh`: PASS, 3/3 checks.
+- Driver build: PASS, Universal 2; codesign valid. The card's `remoteorbit-audio-driver` path was a typo; the repository-supported `remote-orbit-audio-driver/build-driver.sh` was used.
+- Packaging-only corrective: `MACOSX_DEPLOYMENT_TARGET=12.0` for the pinned BlackHole build and SwiftPM `--triple x86_64-apple-macos13.0` for the isolated Intel app build. No product/runtime semantics changed.
+- DMG: `/private/tmp/remoteorbit-release-v0.2.15-local-soak/dist/RemoteOrbit-0.2.15.dmg`.
+- DMG SHA-256: `286aa4f74950d3ec725d3ff25d3b96b59f1a8709d1d7bbab4acae556e783a1ab`.
+- Packaged/installed identity: `com.lost0rz.RemoteOrbit`, `0.2.15 (44)`, `x86_64 arm64`, designated requirement `identifier "com.lost0rz.RemoteOrbit"`.
+- Packaged/installed executable SHA-256: `8d274e6fb2c896965891a974907f9e104dcd565379570ad2748020c6b6d88a6d`.
+- Embedded `RemoteOrbitDiagnosticSourceHead`: `38a3bfd8d5a5de47c31d2fed00edf7d7f7d7f2a7`.
+- Installed runtime: PID `56028`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
+- Soak log: `/Users/ox_miles/Library/Logs/RemoteOrbit/v0.2.15-local-soak-20261028.log`.
+- Observation start: `2026-10-28T22:03:59+0800`.
+- No natural voice-session result is claimed yet; owner observation remains pending.
+
 ## Current next action
 
-Build and verify the local v0.2.15 DMG candidate, install it on the owner's Mac, start the opt-in diagnostic runtime, and enter a longer soak period. Do not merge PR #25, create `v0.2.15`, or publish GitHub Release during this phase.
+Leave the exact installed candidate running for owner-controlled natural use and later log review. Do not merge PR #25, create `v0.2.15`, or publish GitHub Release during this phase.

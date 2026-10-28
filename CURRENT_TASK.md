@@ -2,7 +2,7 @@
 
 ## RO-RELEASE-V0.2.15 — Local DMG Soak Candidate
 
-Status: `LOCAL_DMG_SOAK_CANDIDATE_ACTIVE`
+Status: `LOCAL_SOAK_ACTIVE`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -83,6 +83,24 @@ Record the running candidate identity:
 - diagnostic environment;
 - observation start time.
 
+## Verified local transition receipt
+
+- `SOAK_BUILD_SOURCE_HEAD`: `38a3bfd8d5a5de47c31d2fed00edf7d7f7d7f2a7`.
+- `SOAK_CONTROL_HEAD`: this control transition commit; verify the published commit directly after push.
+- `swift test`: PASS, 421 tests / 0 failures.
+- `remote-orbit/run-self-tests.sh`: PASS, 3/3 checks.
+- Driver build: PASS, Universal 2; codesign valid. The card's `remoteorbit-audio-driver` path was a typo; the repository-supported `remote-orbit-audio-driver/build-driver.sh` was used.
+- Packaging-only corrective: `MACOSX_DEPLOYMENT_TARGET=12.0` for the pinned BlackHole build and SwiftPM `--triple x86_64-apple-macos13.0` for the isolated Intel app build. No product/runtime semantics changed.
+- DMG: `/private/tmp/remoteorbit-release-v0.2.15-local-soak/dist/RemoteOrbit-0.2.15.dmg`.
+- DMG SHA-256: `286aa4f74950d3ec725d3ff25d3b96b59f1a8709d1d7bbab4acae556e783a1ab`.
+- Installed app: `/Applications/RemoteOrbit.app`, `com.lost0rz.RemoteOrbit`, `0.2.15 (44)`, `x86_64 arm64`.
+- Installed executable SHA-256: `8d274e6fb2c896965891a974907f9e104dcd565379570ad2748020c6b6d88a6d`.
+- Embedded `RemoteOrbitDiagnosticSourceHead`: `38a3bfd8d5a5de47c31d2fed00edf7d7f7d7f2a7`.
+- Runtime: PID `56028`, exact installed binary, `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
+- Soak log: `/Users/ox_miles/Library/Logs/RemoteOrbit/v0.2.15-local-soak-20261028.log`.
+- Observation start: `2026-10-28T22:03:59+0800`.
+- Owner natural-use observation is now active; no voice-session outcome is predeclared.
+
 ## Explicit non-goals / STOP
 
 During the soak phase:
@@ -111,5 +129,7 @@ This phase is complete only when:
 2. its SHA-256 and exact candidate source head are recorded;
 3. the candidate is installed and launched with the intended diagnostic environment;
 4. the control plane records `LOCAL_SOAK_ACTIVE`.
+
+The phase gate is satisfied. The remaining work is owner-controlled soak and later evidence review, not automated interaction or publication.
 
 Formal publication remains a separate later decision after the soak/log review.
