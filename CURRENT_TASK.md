@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT — 038-B corrective-2 delivered.
+- Status: EXECUTING — 038-B corrective-3 ordering correlation.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT`: corrective-2 lifecycle observer-effect removal delivered; no runtime capture is authorized.
+- `038-B EXECUTING`: corrective-3 is authorized to close only the AUDIO_START-before-HID continuity-correlation gap; no runtime capture is authorized.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -75,6 +75,7 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 11. Return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT` if source/test instrumentation changes are delivered. This slice delivered source/test instrumentation in `0c26c61` and corrective-2 in `ebd6f1d`; PR #24 is now at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. If no later authority transition exists, do not install/release/runtime-capture.
 12. Corrective-1 completed: the audit property was reproduced, and the smallest architecture change was made so continuity capture inside CoreAudio IOProc uses no shared logger lock, cross-thread blocking synchronization, dictionary/hash mutation, string formatting/printing, synchronous dispatch, or unbounded allocation. The existing clock, session identity, 100 ms buckets, fields, active/tail/idle accounting, and default-off behavior were preserved.
 13. Corrective-2 completed in `ebd6f1d`: the fixed-capacity render-side evidence model is preserved while disabled begin/end are cheap, lock-held begin/end are bounded, and snapshot creation is safely detached from render writes. The clock, session identity, 100 ms buckets, BLE/decode/submission correlation, active/tail/idle accounting, overflow evidence, `render_capacity_dropped`, and default-off behavior are preserved.
+14. Corrective-3 authorized in the current execution card: add a deterministic RED regression for AUDIO_START before HID/session creation, then close only the late session-correlation gap. Preserve pre-session observations, reject stale/wrong-session binding, preserve session isolation, and keep corrective-1/2 render and lifecycle invariants unchanged. Stop if this requires a material AudioPipe redesign or changes product voice semantics.
 
 ## Required output / evidence
 
@@ -135,4 +136,4 @@ The 038-B result must include:
 
 ## Current next action
 
-Independent Web audit of PR #24. Do not tune, install, release, capture runtime, or fix audio behavior.
+Add the AUDIO_START-before-HID RED regression, implement the narrowest bounded correlation architecture, run focused/full/release/diff verification, push the same branch, and return PR #24 to independent Web audit. Do not tune, install, release, capture runtime, or fix audio behavior.

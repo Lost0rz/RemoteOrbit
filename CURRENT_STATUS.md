@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: WAITING_FOR_INDEPENDENT_WEB_AUDIT — TASK 038-B CORRECTIVE-2 DELIVERED
+State: EXECUTING — TASK 038-B CORRECTIVE-3 ORDERING CORRELATION
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -16,7 +16,7 @@ Repository: Lost0rz/RemoteOrbit
 - Task 037 remains merged with `HUMAN_UI_ACCEPTANCE: PENDING` for Command-Space, Command-Shift-4, Option-A, pure modifier recording, and normal shortcut restoration after recorder close/cancel.
 - `AGENTS.md` durable rules were re-read for this transition and require no semantic change.
 - The prior 038-A worktree `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress` was verified clean, fully merged/reachable from current `main`, and without unique/unpushed commits; it was removed and its local branch was deleted. Its remote branch remains retained. Task 037's historical worktree remains untouched.
-- PR #24 is OPEN + DRAFT + UNMERGED; its live head is the current tip of the authorized branch and must be read directly for any future transition. Corrective-2 delivery commit `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a` removes the remaining lifecycle observer-effect. No runtime capture, installation, merge, audio tuning, or 038-C/D/E/F work is authorized.
+- PR #24 is OPEN + DRAFT + UNMERGED; its live head is the current tip of the authorized branch and must be read directly for any future transition. Corrective-2 delivery commit `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a` removes the remaining lifecycle observer-effect. Corrective-3 is explicitly authorized by the current card to close only the AUDIO_START-before-HID continuity-correlation gap. No runtime capture, installation, merge, audio tuning, or 038-C/D/E/F work is authorized.
 
 ## Task 038-B writer identity
 
@@ -32,7 +32,7 @@ Repository: Lost0rz/RemoteOrbit
 ## Task 038 roadmap
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT`: corrective-2 lifecycle observer-effect removal delivered.
+- `038-B EXECUTING`: corrective-3 ordering correlation is authorized; no runtime capture is authorized.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -52,7 +52,7 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 
 ## Current phase and next action
 
-- Phase: 038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT — corrective-2 bounded lifecycle transition delivered.
+- Phase: 038-B EXECUTING — corrective-3 ordering correlation.
 - First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
 - Current conclusion: existing telemetry was insufficient for mid-stream temporal alignment; the minimum opt-in 100 ms monotonic/session bucket ledger remains in source/test commit `ebd6f1d`, and buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior remain unchanged.
 - Audit property reproduced: the prior render-side probe acquired the shared logger lock and mutated its dictionary while `AudioPipe.stateLock` was held, creating probe self-contention risk.
@@ -61,7 +61,7 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 - Corrective-2 boundary: preserve the fixed-capacity render ledger and evidence fields, but make disabled activation/deactivation cheap, keep lock-held transitions bounded metadata/state work, and detach snapshot creation without racing render writes.
 - Corrective-2 result: disabled begin/end keep the ledger nil; enabled begin allocates before `stateLock`, end detaches under `stateLock`, and snapshot/filter runs after unlock with no render race.
 - Verification: focused `AudioDataPlaneDiagnosticsTests` 28/28 PASS; affected `AudioPipeTests` 4/4 PASS; full `swift test` 417/417 PASS; `swift build -c release` PASS; `git diff --check` PASS.
-- Current next action: independent Web audit of PR #24. Do not install, release, or run a new runtime capture.
+- Current next action: add the deterministic AUDIO_START-before-HID RED regression, then implement the narrowest bounded late-binding model and verify both event orderings. Return to independent Web audit only after fresh source/test delivery evidence is complete.
 
 ## Protected boundaries
 
