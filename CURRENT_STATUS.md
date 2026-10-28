@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: RELEASE V0.2.15 — REMOTE MACOS ACTIONS RELEASE ACTIVE
+State: RELEASE V0.2.15 — REMOTE MACOS ACTIONS RELEASE ACTIVE / CONTROL RECONCILED
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -17,11 +17,17 @@ Repository: Lost0rz/RemoteOrbit
 - Task 038-B product/evidence work is terminal; root-cause status remains `NARROWED_NOT_ESTABLISHED`.
 - `038-C/D/E/F` remain deferred.
 
+## Control reconciliation
+
+A split control-plane write was detected at branch head `d47eb1fd258f850f2f1ed8a6d7b8b7fd66997f46`: `CURRENT_STATUS.md` advanced before `CURRENT_TASK.md` and the workflow were published. No release build, merge, tag or publication was allowed from that inconsistent state.
+
+This state supersedes that split write through one atomic direct-child commit that updates `CURRENT_STATUS.md` and `CURRENT_TASK.md` together and adds the authorized release workflow. That atomic commit is the authoritative remote-release transition.
+
 ## Owner release decision
 
 The owner explicitly requested that release preparation and publication be completed remotely rather than on the local Mac.
 
-The repository previously had no `.github/workflows` release automation. A bounded release workflow is therefore authorized for this release so GitHub's hosted Apple-silicon macOS runner can execute the same repository-native Swift/driver/app/DMG packaging flow before merge and publication.
+The repository previously had no `.github/workflows` release automation. A bounded release workflow is authorized for this release so GitHub's hosted Apple-silicon macOS runner can execute the same repository-native Swift/driver/app/DMG packaging flow before merge and publication.
 
 Authorized remote release workflow:
 
@@ -80,4 +86,4 @@ Any failed test/build/package/provenance/merge/tag/release step is a STOP. The w
 
 ## Current next action
 
-Push the remote-release workflow/control transition to `codex/release-v0.2.15`, observe the hosted macOS run, and only accept v0.2.15 as released after the published tag/release/DMG provenance is independently re-fetched.
+Publish the reconciled remote-release transition to `codex/release-v0.2.15`, observe the hosted macOS run, and accept v0.2.15 as released only after tag/release/DMG provenance is independently re-fetched.
