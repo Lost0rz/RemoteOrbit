@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: ACTIVE — 038-B corrective-2 lifecycle observer-effect removal.
+- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT — 038-B corrective-2 delivered.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B CORRECTIVE-2 ACTIVE`: remove lifecycle observer-effect from the continuity probe; no runtime capture is authorized.
+- `038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT`: corrective-2 lifecycle observer-effect removal delivered; no runtime capture is authorized.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -47,9 +47,9 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 - Start HEAD: `e80c8be50fa489c7f04c4ca5567aff7cc5d3af9b`.
 - Registration: this paired control commit; the worktree was clean before source/test or diagnostic mutation.
 - The old 038-A worktree closeout was performed after proving clean state, merged reachability, and no unique/unpushed commits; its local branch was deleted and remote branch retained.
-- Current source/test HEAD: `0c26c61c2a2ec1f147f6179b20a864f335af1dfb`, pushed and verified equal to the remote 038-B branch.
+- Current source/test HEAD: `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a`, pushed and verified equal to the remote 038-B branch before this paired control update.
 - PR #24: OPEN + DRAFT + UNMERGED; its live head is the current tip of this authorized branch and must be read directly for any future transition. The last revalidated tip before this control correction is `229fec6680cdd09a90c1a7134403cb9bd6620fce`; corrective-1 reproduced and removed render-path probe self-contention, then returned the task to independent Web audit.
-- Corrective-2 activation HEAD: `9d488492543ac96486fa9d60cdf963f2f1d4ebcb`, verified equal to the remote branch before this transition.
+- Corrective-2 delivery source/test HEAD: `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a`, verified equal to the remote branch before this transition.
 
 ## Authorized 038-B scope
 
@@ -72,9 +72,9 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 8. If the evidence chain is incomplete, add only the smallest observation instrumentation required to correlate those layers by session/time. This was completed as an opt-in 100 ms bucket ledger using the existing P1A4 monotonic clock and VoiceTimingLogger session identity; it must remain diagnostic-only and must not change production behavior.
 9. Add focused tests for any new accounting/probe logic.
 10. Run proportional verification: focused tests, full Swift tests when source changes, release build for source changes, and diff check.
-11. Return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT` if source/test instrumentation changes are delivered. This slice delivered source/test instrumentation and corrective-1 in `0c26c61`; PR #24 is now at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. If no later authority transition exists, do not install/release/runtime-capture.
+11. Return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT` if source/test instrumentation changes are delivered. This slice delivered source/test instrumentation in `0c26c61` and corrective-2 in `ebd6f1d`; PR #24 is now at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. If no later authority transition exists, do not install/release/runtime-capture.
 12. Corrective-1 completed: the audit property was reproduced, and the smallest architecture change was made so continuity capture inside CoreAudio IOProc uses no shared logger lock, cross-thread blocking synchronization, dictionary/hash mutation, string formatting/printing, synchronous dispatch, or unbounded allocation. The existing clock, session identity, 100 ms buckets, fields, active/tail/idle accounting, and default-off behavior were preserved.
-13. Corrective-2: reproduce the remaining lifecycle observer-effect; preserve the fixed-capacity render-side evidence model while making disabled begin/end cheap, keeping lock-held begin/end bounded, and detaching snapshot creation safely from render writes. Preserve the clock, session identity, 100 ms buckets, BLE/decode/submission correlation, active/tail/idle accounting, overflow evidence, `render_capacity_dropped`, and default-off behavior.
+13. Corrective-2 completed in `ebd6f1d`: the fixed-capacity render-side evidence model is preserved while disabled begin/end are cheap, lock-held begin/end are bounded, and snapshot creation is safely detached from render writes. The clock, session identity, 100 ms buckets, BLE/decode/submission correlation, active/tail/idle accounting, overflow evidence, `render_capacity_dropped`, and default-off behavior are preserved.
 
 ## Required output / evidence
 
@@ -122,9 +122,17 @@ The 038-B result must include:
 ## Corrective-2 scope receipt
 
 - Remaining audit basis: FACT — `beginRemoteAudioDiagnostics()` resets all 8,192 buckets under `stateLock` even when continuity is disabled; `endRemoteAudioDiagnostics()` snapshots/filters and resets the full ledger under the same lock.
-- Required result: FACT — not yet implemented; the next source change must prove disabled begin/end avoid capacity-proportional work, enabled begin/end keep lock-held work bounded, and snapshot detachment cannot race render writes.
+- Required result: FACT — delivered in `ebd6f1d`; disabled begin/end avoid capacity-proportional work, enabled begin/end keep lock-held work bounded, and snapshot detachment cannot race render writes.
 - Stop boundary: if safe detachment requires a material AudioPipe redesign or new synchronization risk, revert only the intrusive corrective-2 portion and stop.
+
+## Corrective-2 delivery receipt
+
+- Lifecycle ordering: FACT — enabled ledger construction occurs before `stateLock`; end detaches the live ledger and disables capture under `stateLock`, then snapshots the detached ledger after unlock.
+- Default-off invariant: FACT — `AudioPipe` keeps no continuity ledger when the context is nil; begin/end perform no fixed-capacity reset or snapshot scan.
+- Snapshot race safety: FACT — render writes require the attached ledger and existing `stateLock`; once detached under that lock, render can only observe nil/disabled state, so the detached ledger is stable for snapshot creation.
+- Verification: FACT — focused diagnostics 28/28, AudioPipe 4/4, full Swift 417/417, release build PASS, diff check PASS.
+- Product/runtime boundary: UNKNOWN — no installed/runtime capture was performed, so this does not establish runtime underrun behavior or an audio root cause.
 
 ## Current next action
 
-Reproduce and implement corrective-2 lifecycle observer-effect removal, verify it, then return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not tune, install, release, capture runtime, or fix audio behavior.
+Independent Web audit of PR #24. Do not tune, install, release, capture runtime, or fix audio behavior.
