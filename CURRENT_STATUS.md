@@ -14,6 +14,7 @@ Repository: Lost0rz/RemoteOrbit
 - Recorded Task 038-A verification: `VoicePressCoordinatorTests` 39/39 PASS; `BLEBridgeTests` 18/18 PASS; full Swift 410/410 PASS; release build PASS; diff check PASS.
 - Task 037 remains merged with `HUMAN_UI_ACCEPTANCE: PENDING` for Command-Space, Command-Shift-4, Option-A, pure modifier recording, and normal shortcut restoration after recorder close/cancel.
 - `AGENTS.md` durable rules were re-read for this transition and require no semantic change.
+- The prior 038-A local worktree cannot be verified from this remote-only control transition. The next local executor is explicitly authorized to retire that worktree only after proving it is clean, fully merged, and contains no unique/unpushed work.
 
 ## Task 038 roadmap
 
@@ -37,7 +38,8 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 ## Current phase and next action
 
 - Phase: 038-B ACTIVE — evidence/correlation only.
-- First action: create one bounded 038-B worktree/branch from this activation control head, audit existing continuity probes, and establish whether current telemetry is sufficient for session-level correlation.
+- First local action: reconcile `main`, then safely retire the merged 038-A worktree if and only if clean/merged/no-unique-work proof passes. Do not count already-absent paths as cleanup performed.
+- After 038-A workspace closeout, create one bounded 038-B worktree/branch from the current activation control head, audit existing continuity probes, and establish whether current telemetry is sufficient for session-level correlation.
 - If current telemetry is sufficient, produce the analysis without production behavior changes.
 - If a material evidence gap remains, only minimal observation instrumentation may be added; it must not alter buffer sizing, pacing, codec behavior, gesture semantics, Option handling, or text-output behavior.
 - Any observation-instrumentation change must return to independent Web audit before install/release/runtime acceptance.
