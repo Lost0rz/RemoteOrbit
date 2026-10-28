@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: BLOCKED_ATVV_PREPARATION — 038-B VERIFY.
+- Status: READY_FOR_ONE_NATURAL_SESSION — 038-B EXECUTE.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B BLOCKED_ATVV_PREPARATION`: the post-grant fresh installed diagnostic launch reached CoreBluetooth readiness (`[BLE] 蓝牙已就绪`), but no passive ATVV transport preparation was observed before any voice-key interaction; no natural session is authorized yet.
+- `038-B READY_FOR_ONE_NATURAL_SESSION`: the post-grant fresh installed diagnostic launch reached CoreBluetooth readiness (`[BLE] 蓝牙已就绪`). The prior passive-ATVV readiness expectation was an invalid test assumption; ATVV preparation is demand-triggered by voice-key pending/prewarm.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -267,3 +267,15 @@ The launch-to-incident evidence and `centralManagerDidUpdateState` source path e
 - `SOURCE_CHANGED`: NO.
 - `CHANGED_FILES`: control records only; no product source changed.
 - `SMALLEST_JUSTIFIED_NEXT_ACTION`: STOP without a voice session. A new authority decision is required before any active transport trigger or natural session.
+
+## 038-B post-Bluetooth first-natural-session authorization transition
+
+- `CONTROL_TRANSITION`: FACT — the current `RO-038-B-POST-BLUETOOTH-FIRST-NATURAL-SESSION` card corrects the passive-readiness assumption and explicitly authorizes exactly one natural voice session after this control-only transition.
+- `BLUETOOTH_AUTHORIZATION_BOUNDARY`: FACT — the fresh installed runtime reached CoreBluetooth `.poweredOn` and emitted `[BLE] 蓝牙已就绪`; the Bluetooth authorization blocker is resolved at runtime boundary.
+- `PASSIVE_ATVV_EXPECTATION`: FACT — INVALID TEST ASSUMPTION. ATVV preparation is demand-triggered by voice-key pending/prewarm through `onRemoteTransportPreparation` → `prepareVoiceTransport()`.
+- `CURRENT_STATE`: FACT — `READY_FOR_ONE_NATURAL_SESSION`.
+- `RUNTIME_PROCESS_IDENTITY`: FACT — preserve PID `21428`, `/Applications/RemoteOrbit.app`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, and only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
+- `ROOT_CAUSE_STATUS`: UNKNOWN — the original audio-continuity problem remains unclassified.
+- `SOURCE_CHANGED`: NO.
+- `CHANGED_FILES`: control records only; no product source changed.
+- `NEXT_ACTION`: FACT — request exactly one natural long voice interaction; no synthetic key event, weak-BLE condition, retry, second session, or corrective source work.
