@@ -1,0 +1,142 @@
+import XCTest
+@testable import RemoteOrbit
+
+final class LongTermObservabilityTests: XCTestCase {
+    func testFixedTracePreservesFrontAndWrapsRecentWithoutAllocatingOnAppend() {
+        var trace = FixedCapacityObservationTrace(frontCapacity: 2, recentCapacity: 3)
+        for timestamp in UInt64(1)...6 {
+            trace.append(point(timestamp: timestamp))
+        }
+
+        let snapshot = trace.snapshot()
+        XCTAssertEqual(snapshot.front.map(\.timestampNanoseconds), [1, 2])
+        XCTAssertEqual(snapshot.recent.map(\.timestampNanoseconds), [4, 5, 6])
+        XCTAssertEqual(snapshot.overwrittenObservationCount, 1)
+        XCTAssertEqual(snapshot.droppedObservationCount, 0)
+        XCTAssertEqual(snapshot.all.map(\.timestampNanoseconds), [1, 2, 4, 5, 6])
+    }
+
+    func testTraceDropsOutOfOrderAndWhenNoCapacityIsAvailable() {
+        var trace = FixedCapacityObservationTrace(frontCapacity: 1, recentCapacity: 0)
+        trace.append(point(timestamp: 10))
+        trace.append(point(timestamp: 9))
+        trace.append(point(timestamp: 11))
+
+        XCTAssertEqual(trace.droppedObservationCount, 2)
+        XCTAssertEqual(trace.snapshot().all.map(\.timestampNanoseconds), [10])
+    }
+
+    func testSummaryAccountsForExpectedDeliveredAndActiveTailDeficits() {
+        var summary = LongTermVoiceSessionSummary(sessionID: "session-1", captureID: "capture-1")
+        summary.recordDelivery(expectedFrames: 100, deliveredFrames: 90, marker: .active)
+        summary.recordDelivery(expectedFrames: 50, deliveredFrames: 45, marker: .tail)
+
+        XCTAssertEqual(summary.expectedFrames, 150)
+        XCTAssertEqual(summary.deliveredFrames, 135)
+        XCTAssertEqual(summary.deficitFrames, 15)
+        XCTAssertEqual(summary.activeExpectedFrames, 100)
+        XCTAssertEqual(summary.activeDeliveredFrames, 90)
+        XCTAssertEqual(summary.activeDeficitFrames, 10)
+        XCTAssertEqual(summary.tailExpectedFrames, 50)
+        XCTAssertEqual(summary.tailDeliveredFrames, 45)
+        XCTAssertEqual(summary.tailDeficitFrames, 5)
+    }
+
+    func testThresholdClassificationReturnsObservationFlagsOnly() {
+        var summary = LongTermVoiceSessionSummary(sessionID: "session-1", captureID: "capture-1")
+        summary.notificationGapCount = 1
+        summary.decodeGapCount = 1
+        summary.activeExpectedFrames = 10
+        summary.activeDeliveredFrames = 8
+        summary.tailExpectedFrames = 10
+        summary.tailDeliveredFrames = 8
+        summary.queueStarvationCount = 1
+        summary.mainQueueLag = MainQueueLagSummary(
+            sampleCount: 1,
+            maxLagNanoseconds: 101,
+            p95LagNanoseconds: 101,
+            histogram: [1]
+        )
+        summary.authorityWriteFailureCount = 1
+        var trace = FixedCapacityObservationTrace(frontCapacity: 1, recentCapacity: 1)
+        trace.append(point(timestamp: 1))
+        trace.append(point(timestamp: 2))
+        trace.append(point(timestamp: 3))
+
+        let thresholds = LongTermObservabilityThresholds(
+            maxNotificationGapCount: 0,
+            maxDecodeGapCount: 0,
+            maxActiveDeficitFrames: 0,
+            maxTailDeficitFrames: 0,
+            maxQueueStarvationCount: 0,
+            maxMainQueueP95LagNanoseconds: 100,
+            maxTraceDroppedObservations: 0,
+            maxAuthorityWriteFailures: 0
+        )
+        let flags = Set(thresholds.classify(summary: summary, trace: trace.snapshot()))
+
+        XCTAssertEqual(flags, Set([
+            .notificationGap,
+            .decodeGap,
+            .activeDeficit,
+            .tailDeficit,
+            .queueStarvation,
+            .mainQueueLag,
+            .traceOverwritten,
+            .authorityWriteFailure,
+        ]))
+    }
+
+    func testMainQueueLagAccumulatorProvidesP95AndHistogram() {
+        var accumulator = MainQueueLagAccumulator(bucketUpperBoundsNanoseconds: [10, 20, 50, 100])
+        for value in [1, 9, 11, 19, 20, 70, 100] {
+            accumulator.record(lagNanoseconds: UInt64(value))
+        }
+
+        let summary = accumulator.summary
+        XCTAssertEqual(summary.sampleCount, 7)
+        XCTAssertEqual(summary.maxLagNanoseconds, 100)
+        XCTAssertEqual(summary.p95LagNanoseconds, 100)
+        XCTAssertEqual(summary.histogram, [2, 3, 0, 2])
+    }
+
+    func testMainQueueProbeCanBeStartedStoppedAndReturnsRecordedSamples() {
+        let probe = MainQueueResponsivenessProbe(sampleIntervalNanoseconds: 1_000_000)
+        probe.start()
+        probe.record(lagNanoseconds: 3)
+        let summary = probe.stop()
+
+        XCTAssertGreaterThanOrEqual(summary.sampleCount, 1)
+        XCTAssertGreaterThanOrEqual(summary.maxLagNanoseconds, 3)
+        XCTAssertEqual(probe.stop(), summary)
+    }
+
+    func testSummaryDiagnosticValueHasStableAccountingKeys() throws {
+        var summary = LongTermVoiceSessionSummary(sessionID: "session-1", captureID: "capture-1")
+        summary.recordDelivery(expectedFrames: 10, deliveredFrames: 8, marker: .active)
+        let value = summary.toDiagnosticJSONValue()
+        guard case .object(let object) = value else {
+            return XCTFail("summary must encode as an object")
+        }
+
+        XCTAssertEqual(object["schema_version"], .unsignedInteger(1))
+        XCTAssertEqual(object["session_id"], .string("session-1"))
+        XCTAssertEqual(object["capture_id"], .string("capture-1"))
+        XCTAssertEqual(object["expected_frames"], .unsignedInteger(10))
+        XCTAssertEqual(object["delivered_frames"], .unsignedInteger(8))
+        XCTAssertEqual(object["deficit_frames"], .unsignedInteger(2))
+    }
+
+    private func point(timestamp: UInt64) -> LongTermObservationPoint {
+        LongTermObservationPoint(
+            timestampNanoseconds: timestamp,
+            kind: .lifecycle,
+            requestedFrames: 1,
+            filledFrames: 1,
+            unfilledFrames: 0,
+            queueDepthFrames: 1,
+            byteOrSampleCount: 1,
+            marker: .active
+        )
+    }
+}
