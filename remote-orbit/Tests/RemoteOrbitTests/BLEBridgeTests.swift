@@ -2,6 +2,136 @@ import XCTest
 @testable import RemoteOrbit
 
 final class BLEBridgeTests: XCTestCase {
+    private final class AdmissionProbe {
+        var transportPreparations = 0
+        var admissionNotifications = 0
+        var optionEdges: [Bool] = []
+    }
+
+    private final class AdmissionHarness {
+        let bridge: BLEBridge
+        let press: VoicePressCoordinator
+        let probe: AdmissionProbe
+
+        init() {
+            let probe = AdmissionProbe()
+            let bridge = BLEBridge()
+            let press = VoicePressCoordinator(
+                optionTrigger: VoiceOptionTrigger { probe.optionEdges.append($0) }
+            )
+            self.probe = probe
+            self.bridge = bridge
+            self.press = press
+
+            press.onRemoteTransportPreparation = {
+                probe.transportPreparations += 1
+            }
+            press.isVoiceSessionAdmissionBlocked = { [weak bridge] in
+                bridge?.isVoiceSessionAdmissionBlocked ?? false
+            }
+            bridge.onVoiceSessionAdmissionAvailable = { [weak press] in
+                probe.admissionNotifications += 1
+                press?.voiceSessionAdmissionBecameAvailable()
+            }
+            bridge.onStreamingChanged = { [weak press] streaming, _ in
+                press?.setRemoteStreaming(streaming)
+            }
+            bridge.onConnectionChanged = { [weak press] connected in
+                if !connected {
+                    press?.handleTransportLoss()
+                }
+            }
+        }
+
+        func deferNextPress() -> UUID {
+            XCTAssertTrue(
+                press.keyDown(
+                    sessionID: UUID(),
+                    bypassesShortClassification: true
+                )
+            )
+            press.setRemoteAudioAvailable()
+            XCTAssertTrue(press.keyUp())
+            press.setRemoteStreaming(false)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.20))
+
+            bridge.beginAudioStopDrainForTesting()
+            let deferredSessionID = UUID()
+            XCTAssertTrue(
+                press.keyDown(
+                    sessionID: deferredSessionID,
+                    preparesRemoteTransport: true
+                )
+            )
+            return deferredSessionID
+        }
+
+        func wait(_ interval: TimeInterval = 0.05) {
+            RunLoop.main.run(until: Date().addingTimeInterval(interval))
+        }
+
+        func shutdown() {
+            bridge.stop()
+            press.stop()
+        }
+    }
+
+    func testNormalAudioDrainCompletionReplaysDeferredRepressExactlyOnce() {
+        let harness = AdmissionHarness()
+        defer { harness.shutdown() }
+        let deferredSessionID = harness.deferNextPress()
+
+        harness.bridge.completeAudioStopDrainForTesting()
+        harness.wait()
+
+        XCTAssertEqual(harness.probe.admissionNotifications, 1)
+        XCTAssertNil(harness.press.pendingRepressSessionID)
+        XCTAssertEqual(harness.press.currentGestureIDForDiagnostics, deferredSessionID)
+        XCTAssertEqual(harness.probe.transportPreparations, 1)
+
+        // A stale completion after the barrier has already retired is a no-op.
+        harness.bridge.completeAudioStopDrainForTesting()
+        harness.wait()
+        XCTAssertEqual(harness.probe.admissionNotifications, 1)
+        XCTAssertEqual(harness.probe.transportPreparations, 1)
+    }
+
+    func testPhysicalUpBeforeAudioDrainRetirementDoesNotReplayDeferredRepress() {
+        let harness = AdmissionHarness()
+        defer { harness.shutdown() }
+        _ = harness.deferNextPress()
+
+        XCTAssertFalse(harness.press.keyUp())
+        harness.bridge.completeAudioStopDrainForTesting()
+        harness.wait()
+
+        XCTAssertEqual(harness.probe.admissionNotifications, 1)
+        XCTAssertNil(harness.press.pendingRepressSessionID)
+        XCTAssertNil(harness.press.currentGestureIDForDiagnostics)
+        XCTAssertEqual(harness.probe.transportPreparations, 0)
+        XCTAssertEqual(harness.probe.optionEdges, [true, false])
+    }
+
+    func testCanceledAudioDrainCompletionAfterResetCannotReplayResolvedPressTwice() {
+        let harness = AdmissionHarness()
+        defer { harness.shutdown() }
+        let deferredSessionID = harness.deferNextPress()
+
+        harness.bridge.resetTransportForTesting()
+        harness.wait()
+        XCTAssertEqual(harness.probe.admissionNotifications, 1)
+        XCTAssertNil(harness.press.pendingRepressSessionID)
+        XCTAssertEqual(harness.press.currentGestureIDForDiagnostics, deferredSessionID)
+        XCTAssertEqual(harness.probe.transportPreparations, 1)
+
+        // The canceled Session A work item cannot produce a second replay.
+        harness.bridge.completeAudioStopDrainForTesting()
+        harness.wait()
+        XCTAssertEqual(harness.probe.admissionNotifications, 1)
+        XCTAssertEqual(harness.probe.transportPreparations, 1)
+        XCTAssertEqual(harness.probe.optionEdges, [true, false])
+    }
+
     func testPendingPreparationKeepsTransportAndVoiceIntentSeparate() {
         var state = BLEVoiceTransportState()
 

@@ -203,6 +203,22 @@ final class BLEBridge: NSObject {
         audioStopDrainWorkItem != nil
     }
 
+    // Test seams exercise the real drain-retirement and transport-reset paths
+    // without requiring a live CoreBluetooth peripheral.
+    func beginAudioStopDrainForTesting() {
+        audioStopDrainWorkItem?.cancel()
+        isStreaming = true
+        audioStopDrainWorkItem = DispatchWorkItem { }
+    }
+
+    func completeAudioStopDrainForTesting() {
+        finishAudioStopAfterDrain()
+    }
+
+    func resetTransportForTesting() {
+        clearTransportState(notify: true)
+    }
+
     override init() {
         super.init()
         central = CBCentralManager(delegate: self, queue: .main)
@@ -668,6 +684,7 @@ final class BLEBridge: NSObject {
         connectTimeoutWorkItem = nil
         handshakeTimeoutWorkItem?.cancel()
         handshakeTimeoutWorkItem = nil
+        let didClearAudioStopDrain = audioStopDrainWorkItem != nil
         audioStopDrainWorkItem?.cancel()
         audioStopDrainWorkItem = nil
         AudioPipe.shared.endRemoteAudioDiagnostics()
@@ -696,6 +713,9 @@ final class BLEBridge: NSObject {
         }
         if wasReady {
             onConnectionChanged?(false)
+        }
+        if didClearAudioStopDrain {
+            notifyVoiceSessionAdmissionAvailable()
         }
     }
 
@@ -1399,8 +1419,12 @@ extension BLEBridge: CBPeripheralDelegate {
     }
 
     private func finishAudioStopAfterDrain() {
+        guard audioStopDrainWorkItem != nil else { return }
         audioStopDrainWorkItem = nil
-        guard isStreaming else { return }
+        guard isStreaming else {
+            notifyVoiceSessionAdmissionAvailable()
+            return
+        }
 
         drainFinishedAt = Date()
         let timing = AudioDeliveryTiming.measure(
@@ -1547,9 +1571,12 @@ extension BLEBridge: CBPeripheralDelegate {
             stopTransportAfterRemoteAudioStop = false
             scheduleTransportStopAfterVoiceClose(hadMicOpen: true)
         }
-        if let onVoiceSessionAdmissionAvailable {
-            DispatchQueue.main.async(execute: onVoiceSessionAdmissionAvailable)
-        }
+        notifyVoiceSessionAdmissionAvailable()
+    }
+
+    private func notifyVoiceSessionAdmissionAvailable() {
+        guard let onVoiceSessionAdmissionAvailable else { return }
+        DispatchQueue.main.async(execute: onVoiceSessionAdmissionAvailable)
     }
 
     private func formatMilliseconds(_ value: Double?) -> String {
