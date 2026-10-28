@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: FIRST_SESSION_PROBE_PASS — 038-B EXECUTE.
+- Status: MULTI_SESSION_CAPTURE_ACTIVE — 038-B EXECUTE.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B FIRST_SESSION_PROBE_PASS`: exactly one natural session completed the full continuity evidence chain. The probe passed as an observability/chain-health result, while active AudioPipe underrun remains observed and the audio-continuity root cause remains UNKNOWN.
+- `038-B MULTI_SESSION_CAPTURE_ACTIVE`: the first natural probe passed as an observability/chain-health result; one usable session exists and at least 9 additional usable natural LONG sessions are required to reach the 10-session comparison target. Active AudioPipe underrun remains observed and the audio-continuity root cause remains UNKNOWN.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -142,7 +142,7 @@ The 038-B result must include:
 
 ## Current next action
 
-The launch-to-incident evidence and `centralManagerDidUpdateState` source path establish the exact minimum fault boundary for `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`. The fresh authorization-resume launch remains `Unauthorized`; stop without creating another runtime incident, requesting another user voice session, mutating product behavior, or changing TCC, driver, CoreAudio, or PR lifecycle.
+The first natural session established a healthy continuity observability chain. The authorized next step is representative natural multi-session capture; do not create another runtime incident, mutate product behavior, change TCC, driver, or CoreAudio, or merge.
 
 ## 038-B BLE central-readiness diagnosis transition
 
@@ -309,3 +309,17 @@ The launch-to-incident evidence and `centralManagerDidUpdateState` source path e
 - `SOURCE_CHANGED`: NO.
 - `CHANGED_FILES`: control records only; no product source changed.
 - `NEXT_ACTION`: STOP. Do not perform a second session or fix source until this session is evaluated under a separate continuation decision.
+
+## 038-B multi-session capture activation
+
+- `CONTROL_TRANSITION`: FACT — `FIRST_SESSION_PROBE_PASS` → `MULTI_SESSION_CAPTURE_ACTIVE`, authorized by `RO-038-B-MULTI-SESSION-CONTINUITY-CAPTURE-20261028`.
+- `FIRST_SESSION_PROBE`: FACT — one usable natural LONG session completed the full BLE → decode → PCM submission → AudioPipe render → continuity evidence chain.
+- `RUNTIME_PROBE_HEALTH`: FACT — installed PID `21428` remains the expected `/Applications/RemoteOrbit.app` diagnostic runtime with `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`; no runtime identity or environment drift observed.
+- `CAPTURE_TARGET`: FACT — at least 10 usable natural LONG sessions total.
+- `CAPTURE_PROGRESS`: FACT — 1 usable session already exists; at least 9 additional usable sessions are required.
+- `SESSION_METHOD`: FACT — natural press-and-hold voice interactions only, with naturally varying utterance lengths and ordinary release; no synthetic events, manufactured weak Bluetooth, CPU load, or intentional underrun induction.
+- `STOP_BOUNDARY`: FACT — stop on continuity probe regression, session-identity join failure, `render_capacity_dropped > 0` compromising evidence, runtime/environment drift, source-change requirement, out-of-scope evidence, or need for corrective product work.
+- `ROOT_CAUSE_STATUS`: UNKNOWN — the first session observed BLE cadence deficit and active AudioPipe underrun, but causal ownership remains unproven.
+- `SOURCE_CHANGED`: NO.
+- `CHANGED_FILES`: control records only; no product source changed.
+- `NEXT_ACTION`: collect at least 9 additional usable natural LONG sessions, then perform the required 038-B correlation analysis; do not fix or merge.

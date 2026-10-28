@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: FIRST_SESSION_PROBE_PASS — TASK 038-B EXECUTE
+State: MULTI_SESSION_CAPTURE_ACTIVE — TASK 038-B EXECUTE
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -32,7 +32,7 @@ Repository: Lost0rz/RemoteOrbit
 ## Task 038 roadmap
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B FIRST_SESSION_PROBE_PASS`: exactly one natural session completed the full continuity evidence chain. The probe passed as an observability/chain-health result, while active AudioPipe underrun remains observed and the audio-continuity root cause remains UNKNOWN.
+- `038-B MULTI_SESSION_CAPTURE_ACTIVE`: the first natural probe passed as an observability/chain-health result; one usable session exists and at least 9 additional usable natural LONG sessions are required to reach the 10-session comparison target. Active AudioPipe underrun remains observed and the audio-continuity root cause remains UNKNOWN.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -52,7 +52,7 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 
 ## Current phase and next action
 
-- Phase: 038-B VERIFY — fresh authorization-resume launch is blocked at CoreBluetooth central `Unauthorized`; no voice session is authorized.
+- Phase: 038-B EXECUTE — first natural probe passed; representative multi-session continuity capture is active.
 - First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
 - Current conclusion: existing telemetry was insufficient for mid-stream temporal alignment; the minimum opt-in 100 ms monotonic/session bucket ledger remains in source/test commit `652ea30`, and buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior remain unchanged.
 - Audit property reproduced: the prior render-side probe acquired the shared logger lock and mutated its dictionary while `AudioPipe.stateLock` was held, creating probe self-contention risk.
@@ -64,7 +64,7 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 - Corrective-3 result: AUDIO_START now owns a stable opt-in capture identity even when no HID session exists; pre-session BLE/decode/render observations remain on that capture, and the matching later session can bind it once. Binding is exact-identity and one-shot; wrong or repeated session bindings are rejected. HID-before-AUDIO_START reuses the same bound capture identity.
 - Verification: focused `AudioDataPlaneDiagnosticsTests` 31/31 PASS; affected `AudioPipeTests` 4/4 PASS; `VoiceBoundaryOrderingTests` 3/3 PASS; `VoicePressCoordinatorTests` 39/39 PASS; full `swift test` 420/420 PASS; `swift build -c release` PASS; `git diff --check` PASS.
 - Product/runtime boundary: UNKNOWN — the authorized runtime capture has not yet produced evidence; root cause remains UNKNOWN.
-- Current next action: stop at `BLOCKED_BLUETOOTH_AUTHORIZATION`; preserve fresh PID `56531` evidence and do not request a voice session, change TCC, modify Bluetooth logic, change the driver, restart CoreAudio, or merge.
+- Current next action: collect at least 9 additional usable natural LONG sessions with the preserved diagnostic runtime, stopping only at 10 usable total or an authorized STOP condition; then perform the required 038-B correlation analysis. No corrective product change, 038-C/D/E/F work, TCC/driver/CoreAudio mutation, or merge is authorized.
 
 ## BLE central-readiness diagnosis transition receipt
 
@@ -217,3 +217,13 @@ A finding may identify a likely layer, but no buffer or playback fix is authoriz
 - Earliest stage: FACT — no required stage failed to execute. The first observed quality deficits are BLE supply cadence/expected-sample deficit and correlated AudioPipe active underrun; causality remains unproven from one session.
 - Root cause: UNKNOWN — no corrective action is justified by this single session.
 - Scope: FACT — no source, TCC, driver, CoreAudio, protocol, buffer, or merge change; no second session.
+
+## 038-B multi-session capture activation
+
+- Transition authority: FACT — the current `RO-038-B-MULTI-SESSION-CONTINUITY-CAPTURE-20261028` card explicitly authorizes the control-only activation and at least 9 additional natural LONG sessions after the first usable session.
+- Prior probe: FACT — first natural session `F406982F-E2F8-4EE6-A228-C12A37B20BE7` passed the complete BLE → decode → PCM submission → AudioPipe render → continuity observability chain.
+- Runtime/probe health: FACT — installed diagnostic PID `21428` remains `/Applications/RemoteOrbit.app`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, with `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
+- Capture target: FACT — at least 10 usable natural LONG sessions total; 1 usable session already exists; at least 9 additional usable sessions are required.
+- Session conditions: FACT — use normal press-and-hold interactions with naturally varying utterance lengths and ordinary release; do not synthesize events, manufacture weak Bluetooth, add CPU load, or intentionally induce underruns.
+- Stop boundary: FACT — preserve naturally weak/broken sessions as evidence; stop on probe-health regression, identity/environment drift, unjoinable session identity, compromised continuity evidence, source-change requirement, out-of-scope evidence, or justified need for corrective work.
+- Scope: FACT — no corrective product change, audio tuning, protocol change, 038-C/D/E/F work, TCC/driver/CoreAudio mutation, rebuild/reinstall, or merge.
