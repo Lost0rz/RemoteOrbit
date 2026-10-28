@@ -9,7 +9,8 @@ Repository: Lost0rz/RemoteOrbit
 - Canonical development repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
 - Canonical branch: `main`.
 - Verified origin: `https://github.com/Lost0rz/remoteorbit.git`.
-- Fresh live `main`, local `main`, and `origin/main` are aligned at `baa6d4dd655d862e0a70fbcb93410909e49a0146`.
+- Fresh live `main`, local `main`, and `origin/main` were aligned at `baa6d4dd655d862e0a70fbcb93410909e49a0146` before the Task 038 activation commit.
+- Task 038 activation control head: `b17194c498e8b7c31495e4a95de97a21a9e0893c`, pushed and verified on live `main`.
 - The canonical worktree was clean before this Task 038 control transition.
 - Task 037 PR #22 is merged at `326b56911ef883d62f1f0fda0c38fc40c06ab648`; its human acceptance debt remains pending and is carried forward below.
 - No open PR exists for the new task. The retained Task 037 implementation worktree `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1` is not an active Task 038 writer and is not modified by this task.
@@ -34,15 +35,18 @@ Repository: Lost0rz/RemoteOrbit
   - `038-F DEFERRED`: privacy-preserving text-output observation.
 - Only 038-A implementation is authorized in this transition. No unrelated stage is opened by implication.
 - Reported incident basis: a new physical voice-key down during the previous session's AUDIO_STOP/drain window was followed by `late AUDIO_START ignored during drain`; the new interaction did not establish an independent lifecycle. This runtime report is task input and still requires deterministic source/test reconstruction.
-- Authorized implementation branch/worktree: not yet created; it must be created from this control head and registered before product mutation.
+- Authorized implementation branch: `codex/runtime-reliability-038-a-rapid-repress`.
+- Authorized implementation worktree: `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress`.
+- Implementation start HEAD: `b17194c498e8b7c31495e4a95de97a21a9e0893c`.
+- Worktree registration: this paired control commit; worktree was clean before product mutation.
 - Target final development state: `WAITING_FOR_INDEPENDENT_WEB_AUDIT` unless the required deterministic regression cannot reproduce the represented failure, in which case stop with `ROOT_CAUSE_NOT_REPRODUCED`.
 - `HUMAN_UI_ACCEPTANCE: PENDING`; no UI change is expected in 038-A.
 
 ## Current phase and next action
 
-- Phase: CONTROL ACTIVATED — 038-A only.
-- Next authorized action: create one Task 038-A implementation worktree from this control head, register its exact branch/worktree/start HEAD in a paired control commit, then add the deterministic regression before implementing the smallest admission fix.
-- Single active Task 038-A product writer: the yet-to-be-registered implementation worktree. The retained Task 037 worktree is historical and non-authoritative for 038.
+- Phase: IMPLEMENTATION ACTIVE — 038-A only.
+- Next authorized action: add the deterministic RED regression in the registered implementation worktree, then implement the smallest admission fix if the failure reproduces.
+- Single active Task 038-A product writer: `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress`. The retained Task 037 worktree is historical and non-authoritative for 038.
 
 ## Task 038-A boundaries
 

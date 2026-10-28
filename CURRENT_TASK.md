@@ -7,7 +7,7 @@
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
 - Task 038 is a new task. Task 037 is merged and has no further product-code mutation authority.
-- Task 038 control head: this paired activation transition; its exact SHA is recorded by Git/receipt after commit.
+- Task 038 control head: `b17194c498e8b7c31495e4a95de97a21a9e0893c`.
 
 ## Preserved Task 037 history and deferred acceptance debt
 
@@ -57,8 +57,10 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 
 ## Authorized identity and lifecycle
 
-- Authorized implementation branch/worktree: not yet created.
-- Create one implementation worktree from the Task 038 control head, then register exact branch, worktree, start HEAD, and clean state in a paired control commit before product mutation.
+- Authorized implementation branch: `codex/runtime-reliability-038-a-rapid-repress`.
+- Authorized implementation worktree: `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress`.
+- Implementation start HEAD: `b17194c498e8b7c31495e4a95de97a21a9e0893c`.
+- The exact branch, worktree, start HEAD, control head, and clean state are registered by this paired control commit before product mutation.
 - Preserve the retained Task 037 worktree/branch as historical delivery state; do not use it as the Task 038 writer.
 - Do not merge unless a later repository-governance transition explicitly authorizes merge. Do not install, package, release, change permissions, delete branches, or delete worktrees.
 
@@ -71,4 +73,4 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 
 ## Next action
 
-Create and register the Task 038-A implementation worktree from the fresh `main` control head, then add the deterministic regression as the first product-boundary change. Do not predeclare PASS, CLOSED, merge readiness, or root cause.
+Add the deterministic regression as the first product-boundary change in the registered Task 038-A worktree. Do not predeclare PASS, CLOSED, merge readiness, or root cause.
