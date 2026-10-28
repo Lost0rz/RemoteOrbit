@@ -118,6 +118,9 @@ final class BLEBridge: NSObject {
     var onConnectionChanged: ((Bool) -> Void)?
     /// Audio level meter update; arg is dBFS in [-60, 0].
     var onLevel: ((Double, Int /* peak */) -> Void)?
+    /// Called after the old stream's AUDIO_STOP drain has fully retired and a
+    /// deferred physical press may be admitted on a fresh lifecycle.
+    var onVoiceSessionAdmissionAvailable: (() -> Void)?
 
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
@@ -193,6 +196,29 @@ final class BLEBridge: NSObject {
         ProcessInfo.processInfo.environment["REMOTE_ORBIT_DIAGNOSTICS"] == "1"
     private var lastStartSearchAt = Date.distantPast
 
+    /// A new voice session must not request micOpen while the previous stream
+    /// still owns the AUDIO_STOP drain barrier. Otherwise its AUDIO_START can
+    /// be rejected as a late packet and the physical press disappears.
+    var isVoiceSessionAdmissionBlocked: Bool {
+        audioStopDrainWorkItem != nil
+    }
+
+    // Test seams exercise the real drain-retirement and transport-reset paths
+    // without requiring a live CoreBluetooth peripheral.
+    func beginAudioStopDrainForTesting() {
+        audioStopDrainWorkItem?.cancel()
+        isStreaming = true
+        audioStopDrainWorkItem = DispatchWorkItem { }
+    }
+
+    func completeAudioStopDrainForTesting() {
+        finishAudioStopAfterDrain()
+    }
+
+    func resetTransportForTesting() {
+        clearTransportState(notify: true)
+    }
+
     override init() {
         super.init()
         central = CBCentralManager(delegate: self, queue: .main)
@@ -239,8 +265,6 @@ final class BLEBridge: NSObject {
         prewarmVoiceInputActive = false
         stopAfterVoiceWorkItem?.cancel()
         stopAfterVoiceWorkItem = nil
-        audioStopDrainWorkItem?.cancel()
-        audioStopDrainWorkItem = nil
         stopTransportAfterRemoteAudioStop = false
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
@@ -658,8 +682,6 @@ final class BLEBridge: NSObject {
         connectTimeoutWorkItem = nil
         handshakeTimeoutWorkItem?.cancel()
         handshakeTimeoutWorkItem = nil
-        audioStopDrainWorkItem?.cancel()
-        audioStopDrainWorkItem = nil
         AudioPipe.shared.endRemoteAudioDiagnostics()
         keepAliveTimer?.invalidate()
         keepAliveTimer = nil
@@ -687,6 +709,7 @@ final class BLEBridge: NSObject {
         if wasReady {
             onConnectionChanged?(false)
         }
+        retireAudioStopDrainBarrier()
     }
 
     private func connectionSetupFailed(_ reason: String) {
@@ -1105,8 +1128,6 @@ extension BLEBridge: CBPeripheralDelegate {
                 )
                 return
             }
-            audioStopDrainWorkItem?.cancel()
-            audioStopDrainWorkItem = nil
             pendingAudioStopReason = nil
             protocolHandler.beginAudioStream(codec: codec)
             // Some firmware emits AUDIO_START before the matching HID
@@ -1389,8 +1410,11 @@ extension BLEBridge: CBPeripheralDelegate {
     }
 
     private func finishAudioStopAfterDrain() {
-        audioStopDrainWorkItem = nil
-        guard isStreaming else { return }
+        guard audioStopDrainWorkItem != nil else { return }
+        guard isStreaming else {
+            retireAudioStopDrainBarrier()
+            return
+        }
 
         drainFinishedAt = Date()
         let timing = AudioDeliveryTiming.measure(
@@ -1537,6 +1561,25 @@ extension BLEBridge: CBPeripheralDelegate {
             stopTransportAfterRemoteAudioStop = false
             scheduleTransportStopAfterVoiceClose(hadMicOpen: true)
         }
+        retireAudioStopDrainBarrier()
+    }
+
+    /// Retire the AUDIO_STOP drain barrier from every production lifecycle.
+    /// The admission callback is emitted only when this transition actually
+    /// clears an active barrier, so reset/stop/normal completion and a stale
+    /// canceled completion remain exactly-once.
+    @discardableResult
+    private func retireAudioStopDrainBarrier() -> Bool {
+        guard audioStopDrainWorkItem != nil else { return false }
+        audioStopDrainWorkItem?.cancel()
+        audioStopDrainWorkItem = nil
+        notifyVoiceSessionAdmissionAvailable()
+        return true
+    }
+
+    private func notifyVoiceSessionAdmissionAvailable() {
+        guard let onVoiceSessionAdmissionAvailable else { return }
+        DispatchQueue.main.async(execute: onVoiceSessionAdmissionAvailable)
     }
 
     private func formatMilliseconds(_ value: Double?) -> String {

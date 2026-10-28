@@ -823,6 +823,72 @@ final class VoicePressCoordinatorTests: XCTestCase {
         press.stop()
     }
 
+    func testRapidRepressDuringBLEAudioDrainIsDeferredAndReplayed() {
+        var events: [Bool] = []
+        var audioDrainPending = false
+        var transportPreparations = 0
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+        press.onRemoteTransportPreparation = {
+            transportPreparations += 1
+        }
+        press.isVoiceSessionAdmissionBlocked = {
+            audioDrainPending
+        }
+
+        let firstSessionID = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: firstSessionID,
+                bypassesShortClassification: true
+            )
+        )
+        press.setRemoteAudioAvailable()
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(events, [true, false])
+        waitForCoordinatorTiming(0.20)
+        audioDrainPending = true
+
+        let nextSessionID = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: nextSessionID,
+                preparesRemoteTransport: true
+            )
+        )
+        XCTAssertEqual(
+            press.lastRepressDecisionForTesting,
+            "deferred-audio-drain"
+        )
+        XCTAssertEqual(press.pendingRepressSessionID, nextSessionID)
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        XCTAssertEqual(transportPreparations, 0)
+
+        audioDrainPending = false
+        press.voiceSessionAdmissionBecameAvailable()
+        waitForCoordinatorTiming(0.02)
+
+        XCTAssertNil(press.pendingRepressSessionID)
+        XCTAssertEqual(press.currentStateForTesting, .pending)
+        XCTAssertEqual(transportPreparations, 1)
+        waitForCoordinatorTiming(0.35)
+        XCTAssertEqual(press.currentStateForTesting, .holding)
+        press.setRemoteAudioAvailable()
+        XCTAssertEqual(events, [true, false, true])
+
+        // A late completion from Session A must not terminate Session B.
+        press.invokeTailCompletionForTesting(sessionID: firstSessionID)
+        XCTAssertEqual(press.currentGestureIDForDiagnostics, nextSessionID)
+        XCTAssertEqual(events, [true, false, true])
+
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(events, [true, false, true, false])
+        press.stop()
+    }
+
     func testNormalTailTimingUnchanged() {
         let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _ in })
 
