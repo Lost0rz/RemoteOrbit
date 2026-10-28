@@ -13,7 +13,7 @@ Repository: Lost0rz/RemoteOrbit
 - Task 038 activation control head: `b17194c498e8b7c31495e4a95de97a21a9e0893c`, pushed and verified on live `main`.
 - The canonical worktree was clean before this Task 038 control transition.
 - Task 037 PR #22 is merged at `326b56911ef883d62f1f0fda0c38fc40c06ab648`; its human acceptance debt remains pending and is carried forward below.
-- Task 038-A implementation commit is `6f2c47d8bfc906c55d71c78c67243004708dd80a`, pushed to the authorized branch and verified as the live remote branch head.
+- Task 038-A product implementation commit is `6f2c47d8bfc906c55d71c78c67243004708dd80a`, pushed and verified in the authorized branch history; later commits are control-plane handoff records.
 - Draft PR #23 is open at `https://github.com/Lost0rz/RemoteOrbit/pull/23`, base `main`; it is not merged.
 - The retained Task 037 implementation worktree `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1` is not an active Task 038 writer and is not modified by this task.
 
