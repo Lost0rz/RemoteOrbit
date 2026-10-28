@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: TASK 038-B CLOSEOUT — MERGE AUTHORIZED
+State: TASK 038-B MERGED — LOCAL WORKTREE CLOSEOUT PENDING
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -10,14 +10,16 @@ Repository: Lost0rz/RemoteOrbit
 - Canonical branch: `main`.
 - Verified origin: `https://github.com/Lost0rz/remoteorbit.git`.
 - Task 038-A is merged and complete.
-- Task 038-B is at evidence/diagnostic closeout. Product correction is not authorized by this state.
+- Task 038-B evidence/diagnostic implementation is merged through PR #24.
+- PR #24 merged from head `617fb1239c35acef44dd29b5ed115e0f30fcadcb` as merge commit `b4dbd60d6c27c756bcf735eff050bd29a8324617`.
 - Task 037 human UI acceptance debt remains separate and is not rewritten by Task 038.
-- `AGENTS.md` durable rules remain authoritative and require no semantic change for this closeout.
+- `AGENTS.md` durable rules remain authoritative and required no semantic change for this closeout.
+- Remote merge is complete; local task-worktree cleanup has not been verified from this execution context, so the repository must not yet be described as `CLOSED_CLEAN`.
 
 ## Task 038 roadmap
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B EVIDENCE COMPLETE / MERGE AUTHORIZED`: continuity observability, runtime evidence capture, multi-session analysis, and active-bucket base-rate audit are complete. The evidence narrows the problem but does not establish an exclusive root cause.
+- `038-B MERGED / EVIDENCE COMPLETE`: continuity observability, runtime evidence capture, multi-session analysis, active-bucket base-rate audit, final conclusions, unresolved problem record, and phase lessons are merged to `main`. The evidence narrows the problem but does not establish an exclusive root cause.
 - `038-C DEFERRED`: Option-edge authority. Not started by this closeout.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -41,7 +43,11 @@ The probe architecture was hardened before runtime use:
 - no buffer size, queue target, pacing, codec, BLE timing, AUDIO_STOP, SHORT/LONG, Option, or production audio behavior was intentionally changed.
 
 Semantic source/test delivery head: `652ea306dc4a22ee3c489b254d87becc6f9a4ed0`.
-Independent Web CODE_DIFF audit passed at product/control head `6b5fde0b767933a89b8b7643dabe473e46040df8`; later branch changes through the evidence phase are control/evidence records unless explicitly documented otherwise.
+Independent Web CODE_DIFF audit passed at product/control head `6b5fde0b767933a89b8b7643dabe473e46040df8`; later evidence/control work culminated in the merged head above.
+
+Durable phase closeout:
+
+`docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`
 
 ## 038-B frozen runtime evidence
 
@@ -99,7 +105,7 @@ PCM/supply:
 - `FINAL_TEXT_OMISSION_STATUS = UNKNOWN`
 - `ROOT_CAUSE_STATUS = NARROWED_NOT_ESTABLISHED`
 
-BLE cadence is therefore evidence-backed as a recurring contributor, but it is not established as an exclusive root cause. PCM aggregate supply alone does not explain the observed active starvation.
+BLE cadence is evidence-backed as a recurring contributor, but it is not established as an exclusive root cause. PCM aggregate supply alone does not explain the observed active starvation.
 
 ## Remaining unresolved problem
 
@@ -125,20 +131,14 @@ Human-visible waveform/audio quality and final text omission were not independen
 6. Runtime identity and macOS permissions are part of evidence provenance. The Bluetooth authorization detour demonstrated that a healthy HID path does not prove CoreBluetooth readiness.
 7. Root cause remains `UNKNOWN/NARROWED` until competing explanations are discriminated; evidence should not be converted into opportunistic buffer or timing changes.
 
-## Closeout / merge authority
+## Current boundary
 
-The user explicitly authorized:
+No AudioPipe/BLE corrective implementation, finer-grained probe, additional runtime session, or 038-C/D/E/F execution is authorized by the 038-B merge.
 
-- updating the relevant project documentation;
-- recording the unresolved problem, current conclusions, and phase lessons;
-- merging PR #24 after the live merge gate is rechecked.
+The only remaining 038-B lifecycle obligation is local-host workspace closeout:
 
-This closeout does **not** authorize:
+- verify `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence` is clean;
+- verify all commits are merged/reachable and no unique/unpushed work exists;
+- remove/prune the obsolete worktree and local branch according to workspace policy.
 
-- AudioPipe/BLE corrective implementation;
-- finer-grained probe implementation;
-- additional runtime sessions;
-- 038-C/D/E/F execution;
-- TCC, driver, CoreAudio, or release mutation beyond the PR merge itself.
-
-After remote merge, local task-worktree cleanup remains a separate local-host lifecycle obligation and must be verified before claiming `CLOSED_CLEAN`.
+Until that local evidence exists, state remains `MERGED — LOCAL WORKTREE CLOSEOUT PENDING` rather than `CLOSED_CLEAN`.
