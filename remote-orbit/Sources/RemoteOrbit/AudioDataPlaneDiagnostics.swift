@@ -395,6 +395,38 @@ struct AudioContinuityBucket: Equatable {
         queueMaxFrames = max(queueMaxFrames ?? safeFrames, safeFrames)
         queueEndFrames = safeFrames
     }
+
+    mutating func recordRender(
+        accounting: AudioPipeRenderAccounting,
+        queueDepthBefore: Int,
+        queueDepthAfter: Int
+    ) {
+        renderRequestedFrames += accounting.activeRequestedFrames
+        renderFilledFrames += accounting.activeFilledFrames
+        renderUnfilledFrames += accounting.activeUnderrunFrames
+        activeUnderrunFrames += accounting.activeUnderrunFrames
+        activeUnderrunCallbacks += accounting.activeUnderrunCallbacks
+        tailRenderedFrames += accounting.tailRenderedFrames
+        tailEmptyCallbacks += accounting.tailEmptyCallbacks
+        idleRenderCallbacks += accounting.idleRenderCallbacks
+        recordQueueDepth(queueDepthBefore)
+        recordQueueDepth(queueDepthAfter)
+    }
+
+    mutating func recordOverflow(_ frames: Int) {
+        overflowDroppedFrames += max(0, frames)
+    }
+}
+
+struct AudioContinuitySessionContext: Equatable {
+    let sessionID: UUID
+    let startNanoseconds: UInt64
+}
+
+struct AudioContinuityRenderSnapshot: Equatable {
+    let session: AudioContinuitySessionContext
+    let buckets: [AudioContinuityBucket]
+    let droppedObservationCount: Int
 }
 
 /// Coarse, session-relative correlation for the BLE-to-render continuity path.
@@ -404,11 +436,12 @@ struct AudioContinuityBucket: Equatable {
 /// unchanged.
 struct AudioContinuityBucketLedger {
     static let bucketWidthMilliseconds = 100
-    private static let bucketWidthNanoseconds: UInt64 = 100_000_000
+    static let bucketWidthNanoseconds: UInt64 = 100_000_000
 
     private(set) var sessionStartNanoseconds: UInt64?
     private var lastBLETimestampNanoseconds: UInt64?
     private var buckets: [Int: AudioContinuityBucket] = [:]
+    private var renderCapacityDroppedObservationCount = 0
 
     init(sessionStartNanoseconds: UInt64? = nil) {
         self.sessionStartNanoseconds = sessionStartNanoseconds
@@ -418,6 +451,7 @@ struct AudioContinuityBucketLedger {
         self.sessionStartNanoseconds = sessionStartNanoseconds
         lastBLETimestampNanoseconds = nil
         buckets.removeAll(keepingCapacity: true)
+        renderCapacityDroppedObservationCount = 0
     }
 
     var bucketCount: Int { buckets.count }
@@ -481,34 +515,67 @@ struct AudioContinuityBucketLedger {
     ) {
         guard let bucketIndex = bucketIndex(for: timestampNanoseconds) else { return }
         var bucket = bucket(for: bucketIndex)
-        bucket.renderRequestedFrames += accounting.activeRequestedFrames
-        bucket.renderFilledFrames += accounting.activeFilledFrames
-        bucket.renderUnfilledFrames += accounting.activeUnderrunFrames
-        bucket.activeUnderrunFrames += accounting.activeUnderrunFrames
-        bucket.activeUnderrunCallbacks += accounting.activeUnderrunCallbacks
-        bucket.tailRenderedFrames += accounting.tailRenderedFrames
-        bucket.tailEmptyCallbacks += accounting.tailEmptyCallbacks
-        bucket.idleRenderCallbacks += accounting.idleRenderCallbacks
-        bucket.recordQueueDepth(queueDepthBefore)
-        bucket.recordQueueDepth(queueDepthAfter)
+        bucket.recordRender(
+            accounting: accounting,
+            queueDepthBefore: queueDepthBefore,
+            queueDepthAfter: queueDepthAfter
+        )
         buckets[bucketIndex] = bucket
     }
 
     mutating func recordOverflow(timestampNanoseconds: UInt64, frames: Int) {
         guard let bucketIndex = bucketIndex(for: timestampNanoseconds) else { return }
         var bucket = bucket(for: bucketIndex)
-        bucket.overflowDroppedFrames += max(0, frames)
+        bucket.recordOverflow(frames)
         buckets[bucketIndex] = bucket
     }
 
+    mutating func mergeRenderSnapshot(_ snapshot: AudioContinuityRenderSnapshot) {
+        guard sessionStartNanoseconds == snapshot.session.startNanoseconds else {
+            return
+        }
+        renderCapacityDroppedObservationCount += snapshot.droppedObservationCount
+        for source in snapshot.buckets where source.hasObservation {
+            var target = bucket(for: source.index)
+            target.renderRequestedFrames += source.renderRequestedFrames
+            target.renderFilledFrames += source.renderFilledFrames
+            target.renderUnfilledFrames += source.renderUnfilledFrames
+            target.activeUnderrunFrames += source.activeUnderrunFrames
+            target.activeUnderrunCallbacks += source.activeUnderrunCallbacks
+            target.tailRenderedFrames += source.tailRenderedFrames
+            target.tailEmptyCallbacks += source.tailEmptyCallbacks
+            target.idleRenderCallbacks += source.idleRenderCallbacks
+            if let queueMinFrames = source.queueMinFrames {
+                target.queueMinFrames = min(
+                    target.queueMinFrames ?? queueMinFrames,
+                    queueMinFrames
+                )
+            }
+            if let queueMaxFrames = source.queueMaxFrames {
+                target.queueMaxFrames = max(
+                    target.queueMaxFrames ?? queueMaxFrames,
+                    queueMaxFrames
+                )
+            }
+            if let queueEndFrames = source.queueEndFrames {
+                target.queueEndFrames = queueEndFrames
+            }
+            target.overflowDroppedFrames += source.overflowDroppedFrames
+            buckets[source.index] = target
+        }
+    }
+
     func reportLines(sessionID: UUID) -> [String] {
-        guard !buckets.isEmpty else { return [] }
+        guard !buckets.isEmpty || renderCapacityDroppedObservationCount > 0 else {
+            return []
+        }
         var lines = [
             "[AUDIO-PATH] CONTINUITY_SESSION "
                 + "session_id=\(sessionID.uuidString) "
                 + "clock=P1A4MonotonicClock "
                 + "bucket_ms=\(Self.bucketWidthMilliseconds) "
-                + "bucket_count=\(buckets.count)"
+                + "bucket_count=\(buckets.count) "
+                + "render_capacity_dropped=\(renderCapacityDroppedObservationCount)"
         ]
         for bucket in buckets.values.sorted(by: { $0.index < $1.index }) {
             guard bucket.hasObservation else { continue }
@@ -552,14 +619,110 @@ struct AudioContinuityBucketLedger {
               timestampNanoseconds >= sessionStartNanoseconds else {
             return nil
         }
-        return Int(
+        let bucketIndex =
             (timestampNanoseconds - sessionStartNanoseconds)
                 / Self.bucketWidthNanoseconds
-        )
+        guard bucketIndex <= UInt64(Int.max) else { return nil }
+        return Int(bucketIndex)
     }
 
     private func bucket(for index: Int) -> AudioContinuityBucket {
         buckets[index] ?? AudioContinuityBucket(index: index)
+    }
+}
+
+/// Fixed-capacity render-side storage. It is owned by AudioPipe and is only
+/// accessed while AudioPipe's existing stateLock is held. The render callback
+/// never calls VoiceTimingLogger, takes a new lock, mutates a dictionary, or
+/// formats output. A compact snapshot is created only after the callback path
+/// has been disabled.
+struct AudioContinuityRenderLedger {
+    static let maxBucketCount = 8_192
+
+    private var session: AudioContinuitySessionContext?
+    private var buckets = Array(
+        repeating: AudioContinuityBucket(index: 0),
+        count: Self.maxBucketCount
+    )
+    private var droppedObservationCount = 0
+
+    mutating func reset(session: AudioContinuitySessionContext?) {
+        self.session = session
+        droppedObservationCount = 0
+        for index in buckets.indices {
+            buckets[index] = AudioContinuityBucket(index: index)
+        }
+    }
+
+    mutating func recordRender(
+        timestampNanoseconds: UInt64,
+        accounting: AudioPipeRenderAccounting,
+        queueDepthBefore: Int,
+        queueDepthAfter: Int
+    ) {
+        guard let session,
+              let index = bucketIndex(
+                  timestampNanoseconds: timestampNanoseconds,
+                  sessionStartNanoseconds: session.startNanoseconds
+              ) else {
+            return
+        }
+        guard buckets.indices.contains(index) else {
+            droppedObservationCount += 1
+            return
+        }
+        buckets[index].recordRender(
+            accounting: accounting,
+            queueDepthBefore: queueDepthBefore,
+            queueDepthAfter: queueDepthAfter
+        )
+    }
+
+    mutating func recordOverflow(
+        timestampNanoseconds: UInt64,
+        frames: Int
+    ) {
+        guard let session,
+              let index = bucketIndex(
+                  timestampNanoseconds: timestampNanoseconds,
+                  sessionStartNanoseconds: session.startNanoseconds
+              ) else {
+            return
+        }
+        guard buckets.indices.contains(index) else {
+            droppedObservationCount += 1
+            return
+        }
+        buckets[index].recordOverflow(frames)
+    }
+
+    func snapshot() -> AudioContinuityRenderSnapshot? {
+        guard let session else { return nil }
+        let observedBuckets = buckets.filter(\.hasObservation)
+        guard !observedBuckets.isEmpty || droppedObservationCount > 0 else {
+            return nil
+        }
+        return AudioContinuityRenderSnapshot(
+            session: session,
+            buckets: observedBuckets,
+            droppedObservationCount: droppedObservationCount
+        )
+    }
+
+    private func bucketIndex(
+        timestampNanoseconds: UInt64,
+        sessionStartNanoseconds: UInt64
+    ) -> Int? {
+        guard timestampNanoseconds >= sessionStartNanoseconds else {
+            return nil
+        }
+        let bucketIndex =
+            (timestampNanoseconds - sessionStartNanoseconds)
+                / AudioContinuityBucketLedger.bucketWidthNanoseconds
+        guard bucketIndex < UInt64(Self.maxBucketCount) else {
+            return Self.maxBucketCount
+        }
+        return Int(bucketIndex)
     }
 }
 

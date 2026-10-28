@@ -25,6 +25,20 @@ enum VoiceTimingLogger {
         return activeSessionID
     }
 
+    static func currentContinuityContext() -> AudioContinuitySessionContext? {
+        guard continuityEvidenceEnabled else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        guard let activeSessionID,
+              let startNanoseconds = continuityLedger.sessionStartNanoseconds else {
+            return nil
+        }
+        return AudioContinuitySessionContext(
+            sessionID: activeSessionID,
+            startNanoseconds: startNanoseconds
+        )
+    }
+
     static func begin(sessionID: UUID) {
         let timestamp = P1A4MonotonicClock.nowNanoseconds()
         lock.lock()
@@ -98,41 +112,16 @@ enum VoiceTimingLogger {
         lock.unlock()
     }
 
-    static func recordContinuityRender(
-        timestampNanoseconds: UInt64,
-        accounting: AudioPipeRenderAccounting,
-        queueDepthBefore: Int,
-        queueDepthAfter: Int
+    static func mergeContinuityRenderSnapshot(
+        _ snapshot: AudioContinuityRenderSnapshot?
     ) {
-        guard continuityEvidenceEnabled else { return }
+        guard continuityEvidenceEnabled, let snapshot else { return }
         lock.lock()
-        guard activeSessionID != nil else {
+        guard activeSessionID == snapshot.session.sessionID else {
             lock.unlock()
             return
         }
-        continuityLedger.recordRender(
-            timestampNanoseconds: timestampNanoseconds,
-            accounting: accounting,
-            queueDepthBefore: queueDepthBefore,
-            queueDepthAfter: queueDepthAfter
-        )
-        lock.unlock()
-    }
-
-    static func recordContinuityOverflow(
-        timestampNanoseconds: UInt64,
-        frames: Int
-    ) {
-        guard continuityEvidenceEnabled else { return }
-        lock.lock()
-        guard activeSessionID != nil else {
-            lock.unlock()
-            return
-        }
-        continuityLedger.recordOverflow(
-            timestampNanoseconds: timestampNanoseconds,
-            frames: frames
-        )
+        continuityLedger.mergeRenderSnapshot(snapshot)
         lock.unlock()
     }
 

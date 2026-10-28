@@ -682,7 +682,8 @@ final class BLEBridge: NSObject {
         connectTimeoutWorkItem = nil
         handshakeTimeoutWorkItem?.cancel()
         handshakeTimeoutWorkItem = nil
-        AudioPipe.shared.endRemoteAudioDiagnostics()
+        let continuitySnapshot = AudioPipe.shared.endRemoteAudioDiagnostics()
+        VoiceTimingLogger.mergeContinuityRenderSnapshot(continuitySnapshot)
         keepAliveTimer?.invalidate()
         keepAliveTimer = nil
         if let recorder = wavRecorder {
@@ -1154,7 +1155,10 @@ extension BLEBridge: CBPeripheralDelegate {
                     timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
                 )
             }
-            AudioPipe.shared.beginRemoteAudioDiagnostics()
+            let continuityContext = VoiceTimingLogger.currentContinuityContext()
+            AudioPipe.shared.beginRemoteAudioDiagnostics(
+                continuityContext: continuityContext
+            )
             streamAudioSyncCount = pendingAudioSyncCount
             pendingAudioSyncCount = 0
             streamStartedAt = Date()
@@ -1568,7 +1572,8 @@ extension BLEBridge: CBPeripheralDelegate {
             pipe.overflowDroppedMilliseconds,
             pipe.compactionCount
         ))
-        AudioPipe.shared.endRemoteAudioDiagnostics()
+        let continuitySnapshot = AudioPipe.shared.endRemoteAudioDiagnostics()
+        VoiceTimingLogger.mergeContinuityRenderSnapshot(continuitySnapshot)
         let reason = pendingAudioStopReason ?? 0
         pendingAudioStopReason = nil
         print("[BLE] AUDIO_STOP drained reason=0x\(String(format: "%02x", reason))")
