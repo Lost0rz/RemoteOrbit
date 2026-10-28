@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT — 038-B corrective-4 delivered.
+- Status: EXECUTING_RUNTIME_CAPTURE — 038-B runtime-capture card active.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT`: corrective-4 removes submission-path probe contention; no runtime capture is authorized.
+- `038-B EXECUTING_RUNTIME_CAPTURE`: independent Web CODE_DIFF audit passed at `6b5fde0`; evidence-only diagnostic runtime capture is authorized.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -48,7 +48,7 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 - Registration: this paired control commit; the worktree was clean before source/test or diagnostic mutation.
 - The old 038-A worktree closeout was performed after proving clean state, merged reachability, and no unique/unpushed commits; its local branch was deleted and remote branch retained.
 - Current source/test HEAD: `652ea306dc4a22ee3c489b254d87becc6f9a4ed0`, pushed and verified equal to the remote 038-B branch before this paired closeout control update.
-- PR #24: OPEN + DRAFT + UNMERGED; its live head is the current tip of this authorized branch and must be read directly for any future transition. Corrective-1 reproduced and removed render-path probe self-contention; corrective-2 bounded lifecycle work; corrective-3 closed the AUDIO_START-before-HID correlation gap; corrective-4 removed submission-path probe contention.
+- PR #24: OPEN + DRAFT + UNMERGED; its live head is `6b5fde0b767933a89b8b7643dabe473e46040df8`. Current GitHub metadata reports `mergeable=true`, but merge remains prohibited. The current card records an independent Web CODE_DIFF audit PASS at this observed head. Corrective-1 reproduced and removed render-path probe self-contention; corrective-2 bounded lifecycle work; corrective-3 closed the AUDIO_START-before-HID correlation gap; corrective-4 removed submission-path probe contention.
 - Corrective-2 delivery source/test HEAD: `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a`; corrective-3 delivery source/test HEAD: `7d33e01cf94aa3685ccfdecc6df28207258cb1bb`, both verified as ancestors of the current branch.
 
 ## Authorized 038-B scope
@@ -81,6 +81,8 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 17. Corrective-4 verification must cover submission bucket/queue evidence, provisional and bound ordering, wrong/stale isolation, same-session submission-plus-render merge, disabled mode, consecutive sessions, focused diagnostics, affected AudioPipe/order/lifecycle tests, full Swift tests, release build, and diff check. After delivery, return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not install, release, merge, or capture runtime.
 18. Corrective-4 delivered in `652ea30`: `AudioPipe.schedule()` records submission evidence in the AudioPipe-owned fixed-capacity ledger, central merge includes submitted frames and queue depth, and `VoiceTimingLogger.recordContinuitySubmitted()` plus its shared-lock/dictionary path were removed. No voice semantics, audio scheduling, queue targets, BLE timing, or AUDIO_STOP interpretation changed.
 
+19. The runtime-capture card now authorizes the diagnostic build/install/run and fresh session evidence only. Build the audited product tree represented by semantic source/test commit `652ea30`, enable only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`, and record source/app/process/driver/launch/log identities. Do not merge, release, tune audio, alter permissions, restart CoreAudio, change the driver, add text observation, or begin 038-C/D/E/F.
+
 ## Required output / evidence
 
 The 038-B result must include:
@@ -106,7 +108,7 @@ The 038-B result must include:
 - No text-output Accessibility observer.
 - No DiagnosticAuthority redesign or log-retention cleanup.
 - No mapping/config backup cleanup.
-- No package/install/release/driver/TCC mutation unless a later control transition explicitly authorizes a runtime-capture step.
+- No package/install/release/driver/TCC mutation except the explicitly authorized diagnostic app build/install/run in the current runtime-capture card; driver, TCC, LaunchAgent, CoreAudio, and release mutations remain prohibited.
 - No opportunistic refactor.
 
 ## Stop conditions
@@ -140,7 +142,7 @@ The 038-B result must include:
 
 ## Current next action
 
-Independent Web audit of PR #24 after the Corrective-4 source/test delivery and required verification. Do not tune, install, release, merge, capture runtime, or fix audio behavior.
+Build the exact audited product tree represented by semantic source/test commit `652ea30`, record runtime identities, launch only with `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`, run the minimal probe-health check, and capture the representative session set. Stop after FACT / INFERENCE / UNKNOWN classification; do not tune, merge, release, or implement a corrective.
 
 ## Corrective-4 delivery receipt
 
