@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: BLOCKED_BLUETOOTH_AUTHORIZATION — 038-B VERIFY.
+- Status: BLUETOOTH_TCC_IDENTITY_STALE_OR_UNRESOLVED — 038-B VERIFY.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -231,3 +231,21 @@ The launch-to-incident evidence and `centralManagerDidUpdateState` source path e
 - Stale/wrong-session protection: FACT — AudioPipe binding requires the exact captureID and an unbound active ledger; wrong and repeated bindings are rejected, and captureID is checked again during snapshot merge.
 - Render/lifecycle preservation: FACT — render remains AudioPipe-owned fixed-capacity mutation only; late binding is bounded metadata under `stateLock`; construction remains outside the lock; snapshot remains after safe detach; default-off keeps the ledger nil.
 - Product/runtime boundary: UNKNOWN — no installed/runtime capture was performed, so no runtime underrun or audio root-cause claim is made.
+
+## 038-B Bluetooth app-identity reconciliation result
+
+- `RUNNING_DIAGNOSTIC_IDENTITY`: FACT — PID `56531`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, designated requirement `identifier "com.lost0rz.RemoteOrbit"`, CDHash `7465273e606e288198cff206625bb46b46f8c819`.
+- `DISCOVERED_APP_COUNT`: FACT — 16 plausible on-disk `.app` bundles; 15 exact `com.lost0rz.RemoteOrbit` bundles and one `com.lost0rz.RemoteOrbit.P1A5Observer` observer bundle.
+- `REMOTE_ORBIT_APP_PATH`: FACT — `/Applications/RemoteOrbit.app` is the current installed diagnostic app.
+- `REMOTE_ORBITAL_APP_PATH`: FACT — `NONE_FOUND` in `/Applications`, `~/Applications`, `/Users/Shared`, the RemoteOrbit project/archive/build roots, relevant Code/dist roots, and disposable runtime roots.
+- `BUNDLE_ID_COLLISIONS`: FACT — 15 on-disk candidates share `com.lost0rz.RemoteOrbit`; they span current 0.2.14 (43), archived 0.2.13 (42), and historical 0.2.11 (40) identities with different executable hashes/CDHashes. The observer has a separate bundle ID.
+- `LAUNCHSERVICES_REGISTRATIONS`: FACT — 21 records for `com.lost0rz.RemoteOrbit`: one current `/Applications/RemoteOrbit.app` record and 20 stale/nonexistent historical paths/records, including old mounted-volume, Trash, backup, and miremotevoice dist paths. No `Remote Orbital` registration was observed.
+- `BLUETOOTH_UI_VISIBLE_NAME`: FACT — user-reported as `Remote Orbital`; independently captured bundle identity is UNKNOWN.
+- `MATCH_STATUS`: FACT — `STALE_OR_UNRESOLVED_ENTRY`.
+- `CURRENT_APP_VS_VISIBLE_PERMISSION_ENTRY`: INFERENCE — the current app is not proven to own the visible entry; the name differs and no actual different `Remote Orbital` app exists to establish a cross-application mapping.
+- `IDENTITY_CONCLUSION`: FACT — no exact identity match and no conclusively different installed app; with the fresh runtime still recorded as CoreBluetooth `Unauthorized`, stop as `BLUETOOTH_TCC_IDENTITY_STALE_OR_UNRESOLVED`.
+- `SOURCE_CHANGED`: FACT — NO.
+- `SYSTEM_STATE_CHANGED`: FACT — NO; LaunchServices and TCC were read only.
+- `WORKTREE_STATUS`: FACT — clean before and after the control-only record.
+- `PR_STATE`: FACT — PR #24 remains OPEN, DRAFT, UNMERGED; current head is this paired control transition after publication.
+- `SMALLEST_JUSTIFIED_NEXT_ACTION`: FACT — STOP; do not reset TCC, replace/rebuild/reinstall the app, change drivers/CoreAudio, or request a voice session. Require a separately authorized identity-preserving Bluetooth authorization review.

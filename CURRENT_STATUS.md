@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: BLOCKED_BLUETOOTH_AUTHORIZATION — TASK 038-B VERIFY
+State: BLUETOOTH_TCC_IDENTITY_STALE_OR_UNRESOLVED — TASK 038-B VERIFY
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -160,3 +160,18 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 - boundary/tail artifacts versus active-stream continuity defects.
 
 A finding may identify a likely layer, but no buffer or playback fix is authorized until a later governance transition explicitly opens corrective implementation.
+
+## 038-B Bluetooth app-identity reconciliation result
+
+- Transition authority: FACT — the current `RO-038-B-BLUETOOTH-APP-IDENTITY-RECONCILIATION` card explicitly authorizes this read-only identity inventory and requires the stale/unresolved stop state when no `Remote Orbital` application can be found while the current diagnostic runtime remains CoreBluetooth Unauthorized.
+- Evidence interval: FACT — read-only inventory completed on `2026-10-28 17:36:54 +0800`; the existing diagnostic process launched at `2026-10-28 17:22:48` and remained PID `56531`.
+- Current diagnostic identity: FACT — `/Applications/RemoteOrbit.app`, display/name `RemoteOrbit`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, designated requirement `identifier "com.lost0rz.RemoteOrbit"`, CDHash `7465273e606e288198cff206625bb46b46f8c819`, embedded `RemoteOrbitDiagnosticSourceHead=54cdaf2a407d4d24ec6626725c9846bf2bbba80f`.
+- Running-process identity: FACT — PID `56531` resolves through `lsof` to `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`; the executable hash, bundle ID, version/build, and designated requirement match the installed app.
+- Candidate inventory: FACT — 16 plausible on-disk `.app` bundles were found across the authorized application, project/archive, and disposable runtime/build roots. Fifteen use `com.lost0rz.RemoteOrbit`; one observer uses `com.lost0rz.RemoteOrbit.P1A5Observer`. All display as `RemoteOrbit` or `RemoteOrbit P1A5 Observer`; no on-disk `Remote Orbital.app` or `Remote Orbit.app` was found.
+- LaunchServices: FACT — 21 exact `com.lost0rz.RemoteOrbit` registration records were observed: the current `/Applications/RemoteOrbit.app` plus stale/nonexistent archive, Trash, backup, volume, and historical build paths. The stale records retain `RemoteOrbit` display names, not `Remote Orbital`.
+- Bluetooth UI mapping: FACT/UNKNOWN — `Remote Orbital` is the human-reported Bluetooth UI label; no independent path or bundle identity for that label was available. It cannot be conclusively mapped to the current app or to a different installed app.
+- Match: FACT — `STALE_OR_UNRESOLVED_ENTRY`; display name differs, no actual `Remote Orbital` bundle exists in the searched scopes, and the visible label alone does not prove TCC ownership.
+- Root-cause boundary: INFERENCE — the current diagnostic app's CoreBluetooth Unauthorized result is not identity-proven as belonging to the visible `Remote Orbital` entry. The underlying TCC/system reason remains UNKNOWN.
+- Final state: FACT — `BLUETOOTH_TCC_IDENTITY_STALE_OR_UNRESOLVED`.
+- Scope: FACT — no source, app bundle, TCC database, LaunchServices registry, driver, CoreAudio, runtime configuration, voice session, or PR lifecycle was changed.
+- Smallest justified next action: STOP. Do not reset TCC or ask for another voice session in this pass; a separately authorized identity-preserving Bluetooth authorization review is required.
