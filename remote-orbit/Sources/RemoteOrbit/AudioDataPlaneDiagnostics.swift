@@ -631,24 +631,42 @@ struct AudioContinuityBucketLedger {
     }
 }
 
-/// Fixed-capacity render-side storage. It is owned by AudioPipe and is only
-/// accessed while AudioPipe's existing stateLock is held. The render callback
-/// never calls VoiceTimingLogger, takes a new lock, mutates a dictionary, or
-/// formats output. A compact snapshot is created only after the callback path
-/// has been disabled.
+/// Fixed-capacity render-side storage. The live ledger is owned by AudioPipe
+/// and accessed while AudioPipe's existing stateLock is held. When capture
+/// ends, ownership is detached under that lock; the detached ledger can then
+/// be scanned without racing the render callback. The render callback never
+/// calls VoiceTimingLogger, takes a new lock, mutates a dictionary, or formats
+/// output.
 struct AudioContinuityRenderLedger {
     static let maxBucketCount = 8_192
 
     private var session: AudioContinuitySessionContext?
-    private var buckets = Array(
-        repeating: AudioContinuityBucket(index: 0),
-        count: Self.maxBucketCount
-    )
+    private var buckets: [AudioContinuityBucket]
     private var droppedObservationCount = 0
+
+    init() {
+        session = nil
+        buckets = []
+    }
+
+    init(session: AudioContinuitySessionContext) {
+        self.session = session
+        buckets = Self.makeBuckets()
+    }
+
+    var storageCount: Int { buckets.count }
 
     mutating func reset(session: AudioContinuitySessionContext?) {
         self.session = session
         droppedObservationCount = 0
+        guard session != nil else {
+            buckets.removeAll(keepingCapacity: false)
+            return
+        }
+        if buckets.count != Self.maxBucketCount {
+            buckets = Self.makeBuckets()
+            return
+        }
         for index in buckets.indices {
             buckets[index] = AudioContinuityBucket(index: index)
         }
@@ -723,6 +741,10 @@ struct AudioContinuityRenderLedger {
             return Self.maxBucketCount
         }
         return Int(bucketIndex)
+    }
+
+    private static func makeBuckets() -> [AudioContinuityBucket] {
+        (0..<Self.maxBucketCount).map { AudioContinuityBucket(index: $0) }
     }
 }
 

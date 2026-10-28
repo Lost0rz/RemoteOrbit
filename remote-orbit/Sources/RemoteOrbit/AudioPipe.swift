@@ -62,7 +62,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var diagnosticsTimer: Timer?
     private var remoteDiagnosticsActive = false
     private var remoteDiagnosticsSawActiveRoute = false
-    private var continuityRenderLedger = AudioContinuityRenderLedger()
+    private var continuityRenderLedger: AudioContinuityRenderLedger?
     private var lastRemoteSubmittedMonotonicNanoseconds: UInt64?
     private var lastRemoteRenderedMonotonicNanoseconds: UInt64?
     private var p1A5StableRenderIntervals = 0
@@ -113,6 +113,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     func beginRemoteAudioDiagnostics(
         continuityContext: AudioContinuitySessionContext? = nil
     ) {
+        let nextContinuityLedger = continuityContext.map {
+            AudioContinuityRenderLedger(session: $0)
+        }
         stateLock.lock()
         let totalDepth = max(0, pendingOutput.count - pendingOutputIndex)
         let currentDepth = AudioRemoteQueueAttribution.remoteQueueDepth(
@@ -121,7 +124,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         )
         remoteDiagnosticsActive = true
         remoteDiagnosticsSawActiveRoute = remoteActive
-        continuityRenderLedger.reset(session: continuityContext)
+        continuityRenderLedger = nextContinuityLedger
         diagnosticsCumulative.reset(currentQueueDepthFrames: currentDepth)
         diagnosticsWindow.reset(currentQueueDepthFrames: currentDepth)
         stateLock.unlock()
@@ -129,12 +132,12 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
 
     func endRemoteAudioDiagnostics() -> AudioContinuityRenderSnapshot? {
         stateLock.lock()
-        let snapshot = continuityRenderLedger.snapshot()
-        continuityRenderLedger.reset(session: nil)
+        let detachedContinuityLedger = continuityRenderLedger
+        continuityRenderLedger = nil
         remoteDiagnosticsActive = false
         remoteDiagnosticsSawActiveRoute = false
         stateLock.unlock()
-        return snapshot
+        return detachedContinuityLedger?.snapshot()
     }
 
     func takeAudioDiagnosticsSnapshot(
@@ -825,7 +828,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         )
         if remoteDiagnosticsActive,
            VoiceTimingLogger.continuityEvidenceEnabled {
-            continuityRenderLedger.recordRender(
+            continuityRenderLedger?.recordRender(
                 timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds(),
                 accounting: renderAccounting,
                 queueDepthBefore: availableRemoteFrames,
@@ -937,7 +940,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 diagnosticsCumulative.recordOverflow(remoteDroppedFrames)
                 diagnosticsWindow.recordOverflow(remoteDroppedFrames)
                 if VoiceTimingLogger.continuityEvidenceEnabled {
-                    continuityRenderLedger.recordOverflow(
+                    continuityRenderLedger?.recordOverflow(
                         timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds(),
                         frames: remoteDroppedFrames
                     )

@@ -241,7 +241,9 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
 
     func testRenderLedgerDisabledContextDoesNotCollect() {
         var renderLedger = AudioContinuityRenderLedger()
+        XCTAssertEqual(renderLedger.storageCount, 0)
         renderLedger.reset(session: nil)
+        XCTAssertEqual(renderLedger.storageCount, 0)
         renderLedger.recordRender(
             timestampNanoseconds: 1_000_000_000,
             accounting: AudioPipeRenderAccounting(
@@ -264,6 +266,26 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
         )
 
         XCTAssertNil(renderLedger.snapshot())
+    }
+
+    func testRenderLedgerSnapshotRemainsStableAfterCaptureIsDetached() {
+        let session = AudioContinuitySessionContext(
+            sessionID: UUID(),
+            startNanoseconds: 7_000_000_000
+        )
+        var activeLedger = AudioContinuityRenderLedger(session: session)
+        activeLedger.recordOverflow(
+            timestampNanoseconds: session.startNanoseconds + 105_000_000,
+            frames: 24
+        )
+
+        let detachedLedger = activeLedger
+        activeLedger = AudioContinuityRenderLedger()
+
+        let snapshot = detachedLedger.snapshot()
+        XCTAssertEqual(snapshot?.session, session)
+        XCTAssertEqual(snapshot?.buckets.first?.overflowDroppedFrames, 24)
+        XCTAssertEqual(activeLedger.storageCount, 0)
     }
 
     func testRenderLedgerReportsBoundedCapacityDrops() {
