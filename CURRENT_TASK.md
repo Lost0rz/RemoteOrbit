@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: ACTIVE — 038-A CORRECTIVE-1 RAPID REPRESS ADMISSION LIFECYCLE.
+- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT — 038-A CORRECTIVE-1 COMPLETE.
 - Task class: RUNTIME RELIABILITY / CORRECTIVE EXECUTION.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -11,6 +11,7 @@
 - Implementation commit: `6f2c47d8bfc906c55d71c78c67243004708dd80a`, verified as the live head of `codex/runtime-reliability-038-a-rapid-repress`.
 - Draft PR #23: `https://github.com/Lost0rz/RemoteOrbit/pull/23`; base `main`, state OPEN/Draft, not merged.
 - Corrective card: `RO-RUNTIME-RELIABILITY-038-A-CORRECTIVE-1-20261028`; same Task 038-A and same PR/worktree, no new task.
+- Corrective product commit: `a9f1c242582f902a64a1edc3dc17e2c83e8c08d4`, pushed and verified on the authorized branch.
 
 ## Preserved Task 037 history and deferred acceptance debt
 
@@ -61,7 +62,18 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 - This same-task corrective authorizes only deterministic reproduction of that lifecycle and the narrowest fix if reproduced.
 - Required invariant: every transition of the BLE admission barrier from BLOCKED to CLEAR must resolve every retained press waiting specifically on that barrier as admitted/replayed or explicitly cancelled/rejected with a concrete reason.
 - Required evidence: normal drain replay exactly once; cancelled/reset drain reaches a terminal B state; physical-up before retirement prevents replay; stale/cancelled Session A completion cannot mutate B; ordinary LONG remains unchanged; no duplicate mic or Option edges.
-- Corrective next action: reproduce the cancellation/reset path before changing production behavior. If an existing path already guarantees resolution, stop with `ROOT_CAUSE_NOT_REPRODUCED` for this delta and record that source/test proof.
+- **AUDIT_FINDING_REPRODUCED: YES.** The real `BLEBridge.clearTransportState` reset path cleared the active drain barrier without notifying the coordinator; B remained pending and no transport preparation occurred.
+- **ROOT_CAUSE: FACT.** Normal `finishAudioStopAfterDrain` emitted the admission-available callback, but reset/cancellation cleanup did not.
+- **SELECTED_LIFECYCLE_OWNER:** `BLEBridge`, at the shared barrier-retirement points. `clearTransportState` and normal completion each notify once after their cleanup/connection callbacks; stale completion is ignored when the work item is already cleared.
+- **BARRIER_RETIREMENT_POLICY:** any active drain work item cleared by normal completion or reset/cancellation schedules one admission-available notification. The coordinator retains the existing replay policy; physical-up before replay cancels the retained press.
+- **WHY_DEFERRED_REPRESS_CANNOT_REMAIN_STRANDED:** the only transitions that clear the BLE barrier now notify the coordinator; the coordinator either replays once when idle or drops a released press, and a cancelled old work item cannot emit a second notification.
+- **NORMAL_DRAIN_REPLAY:** `testNormalAudioDrainCompletionReplaysDeferredRepressExactlyOnce` passes; one notification and one preparation, with a second stale completion producing neither.
+- **CANCELLED_DRAIN:** `testCanceledAudioDrainCompletionAfterResetCannotReplayResolvedPressTwice` passes through reset cleanup, replays once, and rejects the later canceled completion as a no-op.
+- **STALE CALLBACK / RELEASE:** the canceled-completion test and `testPhysicalUpBeforeAudioDrainRetirementDoesNotReplayDeferredRepress` pass; existing stale Session A and ordinary LONG tests also pass.
+- **DUPLICATE MIC/OPTION GUARD:** replay preparation count is one, reset/completion notification count is one, and the lifecycle tests preserve the original `[Option-down, Option-up]` pair; existing repeated mic-open and Option ownership tests remain green.
+- **FOCUSED TESTS:** VoicePressCoordinatorTests 39/39 PASS; BLEBridgeTests 17/17 PASS.
+- **FULL SWIFT TEST:** 409/409 PASS. **RELEASE BUILD:** PASS. **DIFF CHECK:** PASS.
+- **CORRECTIVE CHANGED FILES:** `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift` and `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift`.
 
 ## Non-goals
 
@@ -82,7 +94,7 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 - Authorized implementation branch: `codex/runtime-reliability-038-a-rapid-repress`.
 - Authorized implementation worktree: `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress`.
 - Implementation start HEAD: `b17194c498e8b7c31495e4a95de97a21a9e0893c`.
-- Product implementation commit: `6f2c47d8bfc906c55d71c78c67243004708dd80a`. Control-plane handoff commits `ac203d4` and `d488aca` follow it; the worktree is clean and the remote branch is aligned with the final control record.
+- Product implementation commit: `6f2c47d8bfc906c55d71c78c67243004708dd80a`; corrective product commit: `a9f1c242582f902a64a1edc3dc17e2c83e8c08d4`. Control-plane handoff commits follow them; the worktree is clean and the remote branch is aligned with the final control record.
 - The exact branch, worktree, start HEAD, control head, and clean state are registered by this paired control commit before product mutation.
 - Preserve the retained Task 037 worktree/branch as historical delivery state; do not use it as the Task 038 writer.
 - Do not merge unless a later repository-governance transition explicitly authorizes merge. Do not install, package, release, change permissions, delete branches, or delete worktrees.
@@ -96,4 +108,4 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 
 ## Next action
 
-Reproduce the corrective cancellation/reset lifecycle in the registered PR #23 worktree before product mutation. If reproduced, make the narrowest lifecycle-safe correction, run the required focused/full/release checks, update both control files in one handoff commit, and return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge, install, package, release, change permissions, or retire branches/worktrees.
+Independent Web audit of Draft PR #23. Do not merge, install, package, release, change permissions, or retire branches/worktrees. `HUMAN_UI_ACCEPTANCE: PENDING`; Task 037 deferred human acceptance remains unchanged.
