@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: EXECUTING_RUNTIME_CAPTURE_RESUME — 038-B first-session probe.
+- Status: BLE_START_INCIDENT_DIAGNOSIS — 038-B.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B EXECUTING_RUNTIME_CAPTURE_RESUME`: user reports permissions enabled; fresh process must verify both permission flags before exactly one first natural session.
+- `038-B BLE_START_INCIDENT_DIAGNOSIS`: the first healthy-permission session reached `INPUT/GESTURE + REMOTE_ROUTE_BEGIN` but stopped before confirmed BLE audio start; existing evidence must determine whether `micOpen` was transmitted.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -142,7 +142,18 @@ The 038-B result must include:
 
 ## Current next action
 
-Relaunch the already-authorized diagnostic identity with only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`; verify `input=true` and `accessibility=true` from the fresh product process, then perform exactly one natural voice interaction. Stop before additional sessions if any required probe field is missing; do not mutate TCC, synthesize sessions, tune, merge, release, or implement a corrective.
+Inspect existing evidence for incident session `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE` and determine whether the failure occurred before `micOpen` transmission or after `micOpen` transmission without `AUDIO_START`. Do not create another runtime incident, request another user voice session, mutate product behavior, or change TCC, driver, CoreAudio, or PR lifecycle.
+
+## 038-B BLE-start incident diagnosis transition
+
+- Transition authority: FACT — the current BLE-start incident card explicitly authorizes this control-only transition and bounded existing-evidence diagnosis.
+- Incident session: `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`.
+- Incident interval: `2026-10-28 15:45:41.216 +0800` through `2026-10-28 15:45:44.685 +0800`.
+- `LAST_CONFIRMED_GOOD_STAGE`: `INPUT/GESTURE + REMOTE_ROUTE_BEGIN`.
+- `FIRST_FAILED_OR_UNCONFIRMED_STAGE`: `BLE AUDIO START / FIRST REMOTE AUDIO PACKET`.
+- Root cause: UNKNOWN.
+- No second user session is authorized in this pass.
+- No product fix is authorized in this pass.
 
 ## Runtime-capture result receipt
 
