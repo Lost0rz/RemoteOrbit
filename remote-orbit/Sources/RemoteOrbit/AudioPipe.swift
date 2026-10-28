@@ -663,6 +663,13 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                     )
                 }
             }
+            if VoiceTimingLogger.continuityEvidenceEnabled {
+                VoiceTimingLogger.recordContinuitySubmitted(
+                    timestampNanoseconds: submissionTimestamp,
+                    frames: resampled.count,
+                    queueDepthFrames: pendingRemoteOutputFrames
+                )
+            }
         } else {
             scheduledMacBuffers += 1
         }
@@ -809,6 +816,15 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             totalQueueFrames: remaining,
             pendingRemoteFrames: pendingRemoteOutputFrames
         )
+        if remoteDiagnosticsActive,
+           VoiceTimingLogger.continuityEvidenceEnabled {
+            VoiceTimingLogger.recordContinuityRender(
+                timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds(),
+                accounting: renderAccounting,
+                queueDepthBefore: availableRemoteFrames,
+                queueDepthAfter: queuedRemoteFramesAfter
+            )
+        }
         if VoiceTimingLogger.p1A5Enabled,
            remoteActive,
            remoteDiagnosticsActive {
@@ -913,6 +929,12 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             if remoteDiagnosticsActive, remoteDroppedFrames > 0 {
                 diagnosticsCumulative.recordOverflow(remoteDroppedFrames)
                 diagnosticsWindow.recordOverflow(remoteDroppedFrames)
+                if VoiceTimingLogger.continuityEvidenceEnabled {
+                    VoiceTimingLogger.recordContinuityOverflow(
+                        timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds(),
+                        frames: remoteDroppedFrames
+                    )
+                }
             }
         }
         recordQueueDepthLocked(pendingRemoteOutputFrames)

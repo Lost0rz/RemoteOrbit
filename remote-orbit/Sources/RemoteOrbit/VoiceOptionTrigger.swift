@@ -8,12 +8,16 @@ enum VoiceTimingLogger {
     private static var startedAt: TimeInterval = 0
     private static var timeline: [String: UInt64] = [:]
     private static var frontEdgeUnderrunStats = P1A5FrontEdgeUnderrunStats()
+    private static var continuityLedger = AudioContinuityBucketLedger()
     private static var lastEndedSessionID: UUID?
     private static var lastEndedStartedAt: TimeInterval = 0
 
     static var p1A5Enabled: Bool {
         ProcessInfo.processInfo.environment["REMOTE_ORBIT_P1A5_FRONT_EDGE"] == "1"
     }
+
+    static let continuityEvidenceEnabled =
+        ProcessInfo.processInfo.environment["REMOTE_ORBIT_CONTINUITY_EVIDENCE"] == "1"
 
     static var currentSessionID: UUID? {
         lock.lock()
@@ -22,18 +26,114 @@ enum VoiceTimingLogger {
     }
 
     static func begin(sessionID: UUID) {
+        let timestamp = P1A4MonotonicClock.nowNanoseconds()
         lock.lock()
         activeSessionID = sessionID
         startedAt = ProcessInfo.processInfo.systemUptime
         timeline = [:]
         frontEdgeUnderrunStats = P1A5FrontEdgeUnderrunStats()
+        continuityLedger.reset(
+            sessionStartNanoseconds: continuityEvidenceEnabled ? timestamp : nil
+        )
         lastEndedSessionID = nil
         lastEndedStartedAt = 0
         lock.unlock()
-        let timestamp = P1A4MonotonicClock.nowNanoseconds()
         record("T0_voice_trigger_down", timestampNanoseconds: timestamp)
         recordIfAbsent("F0_trigger_down", timestampNanoseconds: timestamp)
         mark("VOICE_DOWN", sessionID: sessionID)
+    }
+
+    static func recordContinuityBLE(
+        timestampNanoseconds: UInt64,
+        bytes: Int
+    ) {
+        guard continuityEvidenceEnabled else { return }
+        lock.lock()
+        guard activeSessionID != nil else {
+            lock.unlock()
+            return
+        }
+        continuityLedger.recordBLE(
+            timestampNanoseconds: timestampNanoseconds,
+            bytes: bytes
+        )
+        lock.unlock()
+    }
+
+    static func recordContinuityDecoded(
+        timestampNanoseconds: UInt64,
+        frameCount: Int,
+        sampleCount: Int
+    ) {
+        guard continuityEvidenceEnabled else { return }
+        lock.lock()
+        guard activeSessionID != nil else {
+            lock.unlock()
+            return
+        }
+        continuityLedger.recordDecoded(
+            timestampNanoseconds: timestampNanoseconds,
+            frameCount: frameCount,
+            sampleCount: sampleCount
+        )
+        lock.unlock()
+    }
+
+    static func recordContinuitySubmitted(
+        timestampNanoseconds: UInt64,
+        frames: Int,
+        queueDepthFrames: Int
+    ) {
+        guard continuityEvidenceEnabled else { return }
+        lock.lock()
+        guard activeSessionID != nil else {
+            lock.unlock()
+            return
+        }
+        continuityLedger.recordSubmitted(
+            timestampNanoseconds: timestampNanoseconds,
+            frames: frames,
+            queueDepthFrames: queueDepthFrames
+        )
+        lock.unlock()
+    }
+
+    static func recordContinuityRender(
+        timestampNanoseconds: UInt64,
+        accounting: AudioPipeRenderAccounting,
+        queueDepthBefore: Int,
+        queueDepthAfter: Int
+    ) {
+        guard continuityEvidenceEnabled else { return }
+        lock.lock()
+        guard activeSessionID != nil else {
+            lock.unlock()
+            return
+        }
+        continuityLedger.recordRender(
+            timestampNanoseconds: timestampNanoseconds,
+            accounting: accounting,
+            queueDepthBefore: queueDepthBefore,
+            queueDepthAfter: queueDepthAfter
+        )
+        lock.unlock()
+    }
+
+    static func recordContinuityOverflow(
+        timestampNanoseconds: UInt64,
+        frames: Int
+    ) {
+        guard continuityEvidenceEnabled else { return }
+        lock.lock()
+        guard activeSessionID != nil else {
+            lock.unlock()
+            return
+        }
+        continuityLedger.recordOverflow(
+            timestampNanoseconds: timestampNanoseconds,
+            frames: frames
+        )
+        lock.unlock()
     }
 
     /// Records a correlation timestamp without emitting a high-frequency log.
@@ -193,14 +293,21 @@ enum VoiceTimingLogger {
 
     static func end(sessionID: UUID) {
         lock.lock()
+        let continuityLines: [String]
         if activeSessionID == sessionID {
             lastEndedSessionID = sessionID
             lastEndedStartedAt = startedAt
             activeSessionID = nil
+            continuityLines = continuityEvidenceEnabled
+                ? continuityLedger.reportLines(sessionID: sessionID)
+                : []
+        } else {
+            continuityLines = []
         }
         let snapshot = timeline
         let underrunSnapshot = frontEdgeUnderrunStats
         timeline = [:]
+        continuityLedger.reset(sessionStartNanoseconds: nil)
         lock.unlock()
         let orderedEvents = [
             "T0_voice_trigger_down",
@@ -226,6 +333,9 @@ enum VoiceTimingLogger {
             "[P1-A4] AUDIO_TIMELINE session_id=\(sessionID.uuidString) "
                 + values
         )
+        for line in continuityLines {
+            print(line)
+        }
         guard p1A5Enabled else { return }
 
         let frontEdgeEvents = [

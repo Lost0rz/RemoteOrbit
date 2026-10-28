@@ -100,6 +100,81 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
         XCTAssertEqual(sessionAfterWindowReset.renderedRemoteFrames, 2_400)
     }
 
+    func testContinuityLedgerCorrelatesMonotonicSupplyAndActiveUnderrunBuckets() {
+        let sessionID = UUID()
+        let start: UInt64 = 1_000_000_000
+        var ledger = AudioContinuityBucketLedger(sessionStartNanoseconds: start)
+
+        ledger.recordBLE(timestampNanoseconds: start + 10_000_000, bytes: 120)
+        ledger.recordBLE(timestampNanoseconds: start + 90_000_000, bytes: 120)
+        ledger.recordDecoded(
+            timestampNanoseconds: start + 95_000_000,
+            frameCount: 1,
+            sampleCount: 160
+        )
+        ledger.recordSubmitted(
+            timestampNanoseconds: start + 98_000_000,
+            frames: 480,
+            queueDepthFrames: 480
+        )
+        ledger.recordRender(
+            timestampNanoseconds: start + 105_000_000,
+            accounting: AudioPipeRenderAccounting(
+                state: .activeRemote,
+                accounted: true,
+                activeRequestedFrames: 480,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 480,
+                activeUnderrunCallbacks: 1,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 0,
+                idleRenderCallbacks: 0
+            ),
+            queueDepthBefore: 480,
+            queueDepthAfter: 0
+        )
+
+        XCTAssertEqual(ledger.bucketCount, 2)
+        XCTAssertEqual(ledger.bucket(at: 0)?.bleGapOver50Milliseconds, 1)
+        XCTAssertEqual(ledger.bucket(at: 0)?.decodedSampleCount, 160)
+        XCTAssertEqual(ledger.bucket(at: 0)?.submittedRemoteFrames, 480)
+        XCTAssertEqual(ledger.bucket(at: 1)?.activeUnderrunFrames, 480)
+        XCTAssertEqual(ledger.bucket(at: 1)?.queueEndFrames, 0)
+
+        let lines = ledger.reportLines(sessionID: sessionID)
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertTrue(lines[0].contains("bucket_ms=100"))
+        XCTAssertTrue(lines[1].contains("start_ms=0 end_ms=100"))
+        XCTAssertTrue(lines[1].contains("ble_gap_gt50=1"))
+        XCTAssertTrue(lines[2].contains("start_ms=100 end_ms=200"))
+        XCTAssertTrue(lines[2].contains("active_underrun_frames=480"))
+    }
+
+    func testContinuityLedgerKeepsTailUnderrunSeparateFromActiveUnderrun() {
+        let start: UInt64 = 2_000_000_000
+        var ledger = AudioContinuityBucketLedger(sessionStartNanoseconds: start)
+
+        ledger.recordRender(
+            timestampNanoseconds: start + 20_000_000,
+            accounting: AudioPipeRenderAccounting(
+                state: .tailDrain,
+                accounted: true,
+                activeRequestedFrames: 0,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 0,
+                activeUnderrunCallbacks: 0,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 1,
+                idleRenderCallbacks: 0
+            ),
+            queueDepthBefore: 0,
+            queueDepthAfter: 0
+        )
+
+        XCTAssertEqual(ledger.bucket(at: 0)?.tailEmptyCallbacks, 1)
+        XCTAssertEqual(ledger.bucket(at: 0)?.activeUnderrunFrames, 0)
+    }
+
     func testDeliveryRatioAtFullRateHasNoDeficit() {
         let result = AudioDeliveryAccounting.measure(
             decodedSamples: 80_000,
