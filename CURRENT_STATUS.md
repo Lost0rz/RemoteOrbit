@@ -16,7 +16,7 @@ Repository: Lost0rz/RemoteOrbit
 - Task 037 remains merged with `HUMAN_UI_ACCEPTANCE: PENDING` for Command-Space, Command-Shift-4, Option-A, pure modifier recording, and normal shortcut restoration after recorder close/cancel.
 - `AGENTS.md` durable rules were re-read for this transition and require no semantic change.
 - The prior 038-A worktree `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress` was verified clean, fully merged/reachable from current `main`, and without unique/unpushed commits; it was removed and its local branch was deleted. Its remote branch remains retained. Task 037's historical worktree remains untouched.
-- No open PR currently exists for 038-B; create a bounded PR only if source/test instrumentation changes are required.
+- PR #24 is open + DRAFT + UNMERGED for the bounded 038-B observation-only instrumentation; independent Web audit is the next owner.
 
 ## Task 038-B writer identity
 
@@ -24,6 +24,7 @@ Repository: Lost0rz/RemoteOrbit
 - Authorized worktree: `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence`.
 - Start HEAD: `e80c8be50fa489c7f04c4ca5567aff7cc5d3af9b`.
 - Worktree registration: this paired control commit; worktree was clean before any source/test or diagnostic mutation.
+- Current source/test HEAD: `5b3003b0ae19b7c72e00424876f95846e55542a9`, pushed and verified equal to the authorized remote branch.
 
 ## Task 038 roadmap
 
@@ -38,6 +39,8 @@ Repository: Lost0rz/RemoteOrbit
 
 Historical runtime evidence motivating this slice shows repeated BLE delivery deficits and AudioPipe underruns while decoder rejects and overflow drops remained zero. This is not yet end-to-end proof of text omission and must not be promoted to root cause without fresh session-level correlation.
 
+The fresh safe log check used `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log`, from `2026-10-27 22:54:47 UTC` through `2026-10-28 04:47:40 UTC` (`21174` lines, `3493732` bytes). It contains only `AUDIO-METER` records; voice continuity lines and `diagnostic-events-v1.jsonl` are absent, so `SESSION_COUNT=0` for this evidence slice. The installed/running `/Applications/RemoteOrbit.app` is a separate old identity (`com.lost0rz.RemoteOrbit`, version `0.2.11`, build `40`, executable SHA-256 `4dcd1cc27d7b56bbf5c9b67240eb5fcef4a8c966fbc4a86e029a7877288fe66c`) and is not evidence for source HEAD `5b3003b`.
+
 038-B therefore investigates the continuity chain only:
 
 `BLE notification cadence -> decoded PCM supply -> AudioPipe queue/render underrun`
@@ -48,10 +51,9 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 
 - Phase: 038-B ACTIVE — evidence/correlation only.
 - First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
-- Current next action: audit existing continuity probes in the registered 038-B worktree and establish whether current telemetry is sufficient for session-level correlation before adding any observation-only instrumentation.
-- If current telemetry is sufficient, produce the analysis without production behavior changes.
-- If a material evidence gap remains, only minimal observation instrumentation may be added; it must not alter buffer sizing, pacing, codec behavior, gesture semantics, Option handling, or text-output behavior.
-- Any observation-instrumentation change must return to independent Web audit before install/release/runtime acceptance.
+- Current conclusion: existing telemetry was insufficient for mid-stream temporal alignment; the minimum opt-in 100 ms monotonic/session bucket ledger was added in source/test commit `5b3003b` and leaves buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior unchanged.
+- Verification: focused `AudioDataPlaneDiagnosticsTests` 23/23 PASS; full `swift test` 412/412 PASS; `swift build -c release` PASS; `git diff --check` PASS.
+- Current next action: WAITING_FOR_INDEPENDENT_WEB_AUDIT on PR #24. Do not install, release, or run a new runtime capture until a later authority transition explicitly authorizes it.
 
 ## Protected boundaries
 

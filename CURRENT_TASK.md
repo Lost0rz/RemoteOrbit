@@ -47,6 +47,8 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 - Start HEAD: `e80c8be50fa489c7f04c4ca5567aff7cc5d3af9b`.
 - Registration: this paired control commit; the worktree was clean before source/test or diagnostic mutation.
 - The old 038-A worktree closeout was performed after proving clean state, merged reachability, and no unique/unpushed commits; its local branch was deleted and remote branch retained.
+- Current source/test HEAD: `5b3003b0ae19b7c72e00424876f95846e55542a9`, pushed and verified equal to the remote 038-B branch.
+- PR #24: OPEN + DRAFT + UNMERGED; next owner is independent Web audit.
 
 ## Authorized 038-B scope
 
@@ -66,10 +68,10 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
    - active-stream versus tail/boundary classification.
 6. Compare representative normal, weak, short, and long sessions rather than relying on one aggregate statistic.
 7. Determine whether current telemetry can directly align a BLE supply gap with the corresponding PCM/AudioPipe starvation interval.
-8. If the evidence chain is incomplete, add only the smallest observation instrumentation required to correlate those layers by session/time. Instrumentation must be diagnostic-only and must not change production behavior.
+8. If the evidence chain is incomplete, add only the smallest observation instrumentation required to correlate those layers by session/time. This was completed as an opt-in 100 ms bucket ledger using the existing P1A4 monotonic clock and VoiceTimingLogger session identity; it must remain diagnostic-only and must not change production behavior.
 9. Add focused tests for any new accounting/probe logic.
 10. Run proportional verification: focused tests, full Swift tests when source changes, release build for source changes, and diff check.
-11. Return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT` if source/test instrumentation changes are delivered. If no source change is required, return a read-only evidence report with explicit classifications and next-governance recommendation.
+11. Return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT` if source/test instrumentation changes are delivered. This slice delivered source/test instrumentation in `5b3003b`; PR #24 is now at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. If no later authority transition exists, do not install/release/runtime-capture.
 
 ## Required output / evidence
 
@@ -108,4 +110,4 @@ The 038-B result must include:
 
 ## Current next action
 
-Perform the existing continuity telemetry inventory and correlation audit in the registered 038-B worktree. Do not tune or fix audio behavior in this phase.
+Existing telemetry inventory and correlation audit are complete. Existing aggregates cannot align a mid-stream BLE gap with PCM/queue/render timing; PR #24 delivers the smallest opt-in observation-only bucket ledger. Await independent Web audit; do not tune, install, release, or fix audio behavior in this phase.
