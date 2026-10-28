@@ -1,8 +1,8 @@
 # RemoteOrbit Current Task
 
-## RO-RELEASE-V0.2.15 — Stability + Diagnostics Baseline Release
+## RO-RELEASE-V0.2.15 — Local DMG Soak Candidate
 
-Status: `BLOCKED_BEFORE_HOSTED_MACOS_RUNNER_ASSIGNMENT`
+Status: `LOCAL_DMG_SOAK_CANDIDATE_ACTIVE`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -10,89 +10,106 @@ Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`
 
 ## Objective
 
-Publish RemoteOrbit `v0.2.15` / build `44` as the next stable diagnostics baseline so the owner can run the released build for a longer real-world observation period and later analyze fresh logs.
+Build RemoteOrbit `0.2.15` / build `44` locally as a verified Universal 2 DMG candidate, install it on the owner's Mac, and run it naturally for a longer observation period before deciding whether the candidate should become the public `v0.2.15` release.
 
-This remains a release task, not an audio corrective task.
+This is a local candidate/soak task. It is not a formal publication task and not a new audio corrective task.
 
-## Release authority
+## Authority
 
-- Control-transition head on `main`: `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9`.
-- Active release branch: `codex/release-v0.2.15`.
-- PR #25: `Release RemoteOrbit v0.2.15`.
-- Target: `v0.2.15`, build `44`, Universal 2.
-- Previous release: `v0.2.14`, build `43`.
+- Active branch: `codex/release-v0.2.15`.
+- PR #25 remains Draft/Open/Unmerged.
+- Candidate version/build: `0.2.15 (44)`.
+- Previous public release: `v0.2.14 (43)`.
 - 038-B root-cause verdict remains `NARROWED_NOT_ESTABLISHED`.
+- Durable soak plan: `docs/diagnostics/2026-10-28-v0.2.15-local-soak-plan.md`.
 
-## Prepared release delta
+## Authorized actions
 
-Authorized release metadata already exists:
+1. Reconcile/fetch the live candidate branch.
+2. Use one clean local candidate worktree.
+3. Run release-proportional tests and self-tests.
+4. Build the existing audio driver using the repository-supported script.
+5. Build/package the app and DMG using the established repository scripts.
+6. Apply only a narrowly justified packaging-only corrective if fresh local evidence proves one is required and product/runtime semantics are unchanged.
+7. Verify candidate identity/provenance.
+8. Install the verified candidate locally.
+9. Launch the installed candidate with opt-in continuity evidence for the soak period.
+10. Record runtime identity and later review fresh logs.
+11. Update control records with local packaging/install identity and soak state.
 
-1. `remote-orbit/Packaging/Info.plist` -> `0.2.15 (44)`;
-2. `RELEASE_NOTES_v0.2.15.md`;
-3. `CURRENT_STATUS.md` / `CURRENT_TASK.md` lifecycle/provenance.
+## Required local packaging verification
 
-No product audio/BLE/HID/Option/shortcut corrective is authorized.
+Run the applicable repository release checks, including:
 
-## Remote publication attempt
+- `swift test`;
+- `remote-orbit/run-self-tests.sh`;
+- `remote-orbit-audio-driver/build-driver.sh`;
+- `package-dmg.sh`.
 
-The owner explicitly requested a fully remote release. A bounded release workflow was added at atomic control head `ed0cd313f6d754bdde98fcad2ea2115f7889b005` to run on GitHub-hosted `macos-15` and gate all publication on successful tests/build/DMG provenance.
+Verify the generated candidate:
 
-Fresh platform evidence:
+- bundle ID `com.lost0rz.RemoteOrbit`;
+- version/build `0.2.15 (44)`;
+- executable architectures include arm64 and x86_64;
+- codesign verification succeeds;
+- designated requirement remains `identifier "com.lost0rz.RemoteOrbit"`;
+- `RemoteOrbitDiagnosticSourceHead` equals the exact candidate commit used for the build;
+- DMG mounts successfully;
+- expected app, Applications shortcut and Documentation are present;
+- DMG SHA-256 is recorded.
 
-- Actions run `40697742964`;
-- job `122848932358`;
-- requested runner label `macos-15`;
-- conclusion `failure`;
-- `runner_id=0`;
-- empty runner name;
-- zero executed steps;
-- duration about two seconds.
+## Installation / soak
 
-No checkout or repository command ran. Therefore this is not evidence of a RemoteOrbit test/build/package failure. It is a hosted-runner assignment/platform blocker. The exact account-side cause is not established by the available repository evidence.
+After packaging verification, install the local candidate to:
 
-## Current authorization after blocker
+`/Applications/RemoteOrbit.app`
 
-STOP publication.
+Preserve normal user-owned macOS permission/TCC decisions; do not reset permissions merely for the soak.
 
-Do not:
-
-- mark PR #25 ready or merge it;
-- create `v0.2.15` tag;
-- publish a source-only GitHub Release as a substitute for the missing DMG;
-- reuse or relabel the v0.2.14 DMG;
-- claim any Swift/self-test/app/DMG PASS from the failed hosted run;
-- add product-code work to bypass the runner blocker.
-
-The push-triggered workflow is removed from the active release branch after recording the failure so subsequent control-only pushes do not repeatedly execute a known-blocked job. The failed workflow remains recoverable from commit `ed0cd313f6d754bdde98fcad2ea2115f7889b005`.
-
-## Resume gate
-
-Release execution may resume only after a real macOS execution surface is available to this repository, such as:
-
-- GitHub-hosted `macos-15` can actually be assigned; or
-- a self-hosted `macOS/ARM64` runner is explicitly registered for `Lost0rz/RemoteOrbit`.
-
-When resumed, restore/run the bounded release workflow or execute equivalent verified release gates:
-
-1. `swift test`;
-2. `remote-orbit/run-self-tests.sh`;
-3. established driver/app/DMG packaging;
-4. app identity/version/arm64+x86_64/codesign/designated-requirement/source-head checks;
-5. DMG mount/content/SHA-256 checks;
-6. only then merge PR #25;
-7. rebuild from exact merge commit;
-8. tag exact merge commit as `v0.2.15`;
-9. publish `RemoteOrbit-0.2.15.dmg` with the GitHub Release;
-10. independently re-fetch release/tag/asset provenance.
-
-## Diagnostic observation after release
-
-Continuity evidence remains opt-in:
+For continuity observation, launch the installed binary with:
 
 `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`
 
-Do not make the ledger always-on.
+Use the app naturally for an extended period. Do not intentionally create weak Bluetooth, CPU stress, synthetic input, repeated failure loops, or artificial underruns.
 
-## Completion
+Record the running candidate identity:
 
-This task is not complete. It completes only after a verified v0.2.15 DMG is published from the exact tagged release commit and the final control plane records that provenance.
+- executable path;
+- PID;
+- bundle ID;
+- version/build;
+- executable SHA-256;
+- embedded source head;
+- diagnostic environment;
+- observation start time.
+
+## Explicit non-goals / STOP
+
+During the soak phase:
+
+- do NOT merge PR #25;
+- do NOT create tag `v0.2.15`;
+- do NOT publish GitHub Release;
+- do NOT reactivate hosted release CI as the active path;
+- do NOT implement speculative AudioPipe/BLE fixes;
+- do NOT begin 038-C/D/E/F;
+- do NOT claim the audio root cause is fixed.
+
+STOP if:
+
+- candidate branch identity drifts unexpectedly;
+- unique/unpushed local work conflicts with the candidate;
+- tests or packaging fail for an unresolved reason;
+- packaged version/architecture/codesign/source-head identity is inconsistent;
+- installing the candidate would require unrelated product or system mutation.
+
+## Completion of this phase
+
+This phase is complete only when:
+
+1. a verified local `RemoteOrbit-0.2.15.dmg` exists;
+2. its SHA-256 and exact candidate source head are recorded;
+3. the candidate is installed and launched with the intended diagnostic environment;
+4. the control plane records `LOCAL_SOAK_ACTIVE`.
+
+Formal publication remains a separate later decision after the soak/log review.

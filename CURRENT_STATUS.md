@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: RELEASE V0.2.15 — BLOCKED_BEFORE_HOSTED_MACOS_RUNNER_ASSIGNMENT
+State: RELEASE V0.2.15 — LOCAL_DMG_SOAK_CANDIDATE_ACTIVE
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -9,61 +9,80 @@ Repository: Lost0rz/RemoteOrbit
 - Canonical development repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
 - Canonical branch: `main`.
 - Verified origin: `https://github.com/Lost0rz/RemoteOrbit.git`.
-- Release-transition control head on `main`: `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9`.
-- Active release branch: `codex/release-v0.2.15`.
-- PR #25: `Release RemoteOrbit v0.2.15`.
-- Target release: `v0.2.15` / build `44` / Universal 2.
-- PR remains unmerged; tag `v0.2.15` and GitHub Release `RemoteOrbit v0.2.15` must not be claimed until a verified DMG exists.
-- 038-B root-cause status remains `NARROWED_NOT_ESTABLISHED`; `038-C/D/E/F` remain deferred.
+- Active candidate branch: `codex/release-v0.2.15`.
+- PR #25: `Release RemoteOrbit v0.2.15` remains Draft/Open/Unmerged.
+- Candidate version: `0.2.15` / build `44` / Universal 2.
+- Public release state: NOT RELEASED.
+- No `v0.2.15` tag or GitHub Release is authorized during the soak period.
+- Task 038-B remains terminal with `ROOT_CAUSE_STATUS = NARROWED_NOT_ESTABLISHED`; `038-C/D/E/F` remain deferred.
 
-## Control reconciliation
+## Owner decision
 
-A split control-plane write at `d47eb1fd258f850f2f1ed8a6d7b8b7fd66997f46` was superseded by atomic control transition `ed0cd313f6d754bdde98fcad2ea2115f7889b005`, which updated `CURRENT_STATUS.md` and `CURRENT_TASK.md` together and added the bounded hosted release workflow. No release mutation occurred from the split state.
+The owner changed the release plan: do not continue fighting the hosted CI path and do not publish v0.2.15 yet.
 
-## Remote hosted-release attempt
+Instead:
 
-The owner explicitly authorized a fully remote release. The repository had no prior GitHub Actions workflow, so a release-specific workflow was added at `ed0cd313f6d754bdde98fcad2ea2115f7889b005` to use GitHub-hosted `macos-15` and perform tests, driver/app/DMG packaging, merge, exact-merge rebuild, tag and GitHub Release publication only after all gates passed.
+1. build a verified local DMG from the current candidate branch;
+2. install/run that candidate locally for a longer real-world observation period;
+3. collect fresh continuity logs under the exact candidate runtime identity;
+4. review stability and logs after the soak period;
+5. only then decide whether to merge/tag/publish v0.2.15 or begin another corrective cycle.
 
-Observed GitHub Actions evidence:
+Durable soak plan:
 
-- workflow run: `40697742964`
-- workflow: `RemoteOrbit v0.2.15 remote release`
-- head: `ed0cd313f6d754bdde98fcad2ea2115f7889b005`
-- job: `122848932358`
-- requested label: `macos-15`
-- status: `completed`
-- conclusion: `failure`
-- `runner_id = 0`
-- `runner_name = ""`
-- `steps = []`
-- job interval: `2026-10-28T13:34:56Z`–`13:34:58Z`
+`docs/diagnostics/2026-10-28-v0.2.15-local-soak-plan.md`
 
-Therefore no repository checkout, test, Swift compilation, driver build, app build, DMG build, PR merge, tag or release-publication step executed.
+## Hosted CI disposition
 
-GitHub's current hosted-runner documentation lists `macos-15` as a valid arm64 hosted runner label for private repositories. The observed failure is therefore classified at the hosted-runner assignment/platform boundary, not as a RemoteOrbit build/test failure. The exact account-side reason (for example billing/spending/availability policy) is not exposed by the available repository API evidence and remains unverified.
+The remote macOS release attempt never reached repository execution because GitHub did not assign a runner (`runner_id=0`, `steps=[]`). Repeated reruns did not change that boundary.
 
-## Release metadata already prepared
+That hosted-release path is no longer the active next action. The push-triggered release workflow has already been removed from the live candidate branch, while the failed attempt remains in Git history as evidence.
+
+## Candidate scope
+
+Already prepared:
 
 - `remote-orbit/Packaging/Info.plist` -> `0.2.15 (44)`;
 - `RELEASE_NOTES_v0.2.15.md`;
-- release control records.
+- 038-A / shortcut-recorder / 038-B accepted code already present in the candidate lineage;
+- no new speculative AudioPipe/BLE corrective.
 
-No product audio/BLE/HID/Option/shortcut corrective was added.
+## Local packaging gate
 
-## Safety disposition
+The local Mac executor must build from the live candidate branch and prove:
 
-Because no macOS runner was assigned, there is no verified `RemoteOrbit-0.2.15.dmg`. Publishing a source-only GitHub Release or reusing a previous DMG would not satisfy the owner's goal of running the new merged code and would break release provenance.
+- `swift test` PASS;
+- `remote-orbit/run-self-tests.sh` PASS;
+- driver build succeeds;
+- `package-dmg.sh` succeeds;
+- packaged app is `com.lost0rz.RemoteOrbit`;
+- version/build = `0.2.15 (44)`;
+- executable contains arm64 + x86_64;
+- codesign/designated requirement is valid;
+- embedded `RemoteOrbitDiagnosticSourceHead` equals the exact candidate commit used for the build;
+- DMG mounts and contains the expected app/Applications/Documentation structure;
+- DMG SHA-256 is recorded.
 
-The push-triggered release workflow is removed from the active branch after this failed platform attempt so unrelated control updates do not repeatedly launch a known-blocked hosted job. The failed workflow remains preserved in Git history at `ed0cd313f6d754bdde98fcad2ea2115f7889b005`.
+A packaging-only corrective is allowed only if a fresh packaging failure directly requires it and product/runtime semantics remain unchanged.
 
-## Diagnostic boundary
+## Observation mode
 
-The 038-B continuity ledger remains opt-in:
+Continuity evidence remains opt-in:
 
 `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`
 
-v0.2.15 must not claim that the audio-continuity root cause is fixed.
+The local candidate should be used naturally. Do not manufacture weak Bluetooth, synthetic triggers, artificial load, or deliberate underruns.
+
+Later analysis must bind logs to:
+
+- app path;
+- bundle ID;
+- version/build;
+- executable SHA-256;
+- embedded source head;
+- diagnostic environment;
+- observation window.
 
 ## Current next action
 
-STOP release publication at the hosted-runner boundary. Resume only after a macOS execution surface is actually available for this repository (for example GitHub-hosted macOS becomes assignable, or a RemoteOrbit-scoped self-hosted macOS runner is explicitly registered). Then re-run the existing release gates before merge/tag/publication.
+Build and verify the local v0.2.15 DMG candidate, install it on the owner's Mac, start the opt-in diagnostic runtime, and enter a longer soak period. Do not merge PR #25, create `v0.2.15`, or publish GitHub Release during this phase.
