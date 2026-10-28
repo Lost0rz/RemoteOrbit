@@ -346,6 +346,11 @@ final class VoicePressCoordinator {
         var isStillHeld = true
     }
 
+    private enum DeferredRepressWaitReason: Equatable {
+        case previousRoute
+        case audioDrain
+    }
+
     private struct PendingPersistentToggle {
         let gestureID: UUID
         let expectedFromMode: VoiceSessionMode
@@ -382,6 +387,11 @@ final class VoicePressCoordinator {
     var onRemoteTransportPreparation: (() -> Void)?
     /// Complete a long gesture only after queued remote PCM has rendered.
     var onRemoteOutputDrain: ((UUID, @escaping () -> Void) -> Void)?
+    /// Returns true while BLE cleanup owns the admission boundary for a new
+    /// voice session. A physical press is retained until the bridge reports
+    /// that boundary clear; it must not start a stream that AUDIO_START will
+    /// immediately reject as a late packet.
+    var isVoiceSessionAdmissionBlocked: (() -> Bool)?
     /// The raw HID voice-key release arms the matching mapped Option-up.
     var onHardwareOptionGatePhysicalUp: ((UUID) -> Void)?
     /// Release a replayed hardware Option-up after output drain.
@@ -434,6 +444,7 @@ final class VoicePressCoordinator {
     private var pendingRepress: PendingRepress?
     private var deferredRepressAwaitingActivation = false
     private var deferredRepressActivationWorkItem: DispatchWorkItem?
+    private var deferredRepressWaitReason: DeferredRepressWaitReason?
     private var shortTapAction: (() -> Void)?
     private var shortInputUsesLocalMicrophone = false
     private var shortInputTogglesPersistentVoiceSession = false
@@ -614,6 +625,11 @@ final class VoicePressCoordinator {
         preparesRemoteTransport: Bool = false
     ) -> Bool {
         if let pendingPersistentToggle {
+            logAdmissionDecision(
+                sessionID: sessionID,
+                result: "rejected",
+                reason: "pending_persistent_toggle"
+            )
             diagnosticLogger?.log(
                 category: "voice",
                 event: "VOICE_GESTURE_BLOCKED_PENDING_PERSISTENT_TOGGLE",
@@ -634,13 +650,25 @@ final class VoicePressCoordinator {
                 now.timeIntervalSince($0) * 1000
             } ?? 0
             lastRepressDecisionForTesting = "release-bounce"
+            logAdmissionDecision(
+                sessionID: sessionID,
+                result: "rejected",
+                reason: "release_bounce"
+            )
             print(
                 "[PRESS] rejected release bounce delta=" +
                     String(format: "%.1fms", delta)
             )
             return false
         }
-        guard mode == .idle, !awaitingPhysicalVoiceKeyUp else { return false }
+        guard mode == .idle, !awaitingPhysicalVoiceKeyUp else {
+            logAdmissionDecision(
+                sessionID: sessionID,
+                result: "rejected",
+                reason: "voice_key_release_pending"
+            )
+            return false
+        }
         if remoteRouted || longInputStarted || tailWorkItem != nil {
             if pendingRepress == nil {
                 pendingRepress = PendingRepress(
@@ -667,6 +695,55 @@ final class VoicePressCoordinator {
                 print("[PRESS] deferred re-press already pending")
             }
             lastRepressDecisionForTesting = "deferred-previous-tail-active"
+            logAdmissionDecision(
+                sessionID: sessionID,
+                result: "deferred",
+                reason: "previous_route_tail_active"
+            )
+            return true
+        }
+        if isVoiceSessionAdmissionBlocked?() == true {
+            if pendingRepress == nil {
+                pendingRepress = PendingRepress(
+                    sessionID: sessionID,
+                    physicalDownAt: physicalDownAt,
+                    onShortTap: onShortTap,
+                    usesLocalMicrophone: usesLocalMicrophone,
+                    togglesPersistentVoiceSession: togglesPersistentVoiceSession,
+                    bypassesShortClassification: bypassesShortClassification,
+                    usesHardwareOption: usesHardwareOption,
+                    preparesRemoteTransport: preparesRemoteTransport,
+                    classifiedTriggerKey: nil
+                )
+                deferredRepressWaitReason = .audioDrain
+                deferredRepressAwaitingActivation = true
+                let shortID = String(sessionID.uuidString.prefix(4))
+                print(
+                    "[PRESS][\(shortID)] admission deferred reason=audio-drain "
+                        + "session=\(sessionID.uuidString)"
+                )
+                logAdmissionDecision(
+                    sessionID: sessionID,
+                    result: "deferred",
+                    reason: "audio_drain"
+                )
+            } else {
+                print("[PRESS] admission deferred; re-press already pending")
+                logAdmissionDecision(
+                    sessionID: sessionID,
+                    result: "deferred",
+                    reason: "audio_drain_already_pending"
+                )
+            }
+            lastRepressDecisionForTesting = "deferred-audio-drain"
+            return true
+        }
+        if pendingRepress != nil || deferredRepressAwaitingActivation {
+            logAdmissionDecision(
+                sessionID: sessionID,
+                result: "deferred",
+                reason: "repress_activation_pending"
+            )
             return true
         }
         if lastPhysicalUpAt != nil {
@@ -676,7 +753,7 @@ final class VoicePressCoordinator {
             lastRepressDecisionForTesting = nil
         }
 
-        return startAcceptedVoicePress(
+        let accepted = startAcceptedVoicePress(
             sessionID: sessionID,
             physicalDownAt: physicalDownAt,
             onShortTap: onShortTap,
@@ -686,6 +763,12 @@ final class VoicePressCoordinator {
             usesHardwareOption: usesHardwareOption,
             preparesRemoteTransport: preparesRemoteTransport
         )
+        logAdmissionDecision(
+            sessionID: sessionID,
+            result: accepted ? "admitted" : "rejected",
+            reason: accepted ? "ready" : "voice_session_start_failed"
+        )
+        return accepted
     }
 
     /// Enters the existing route/hold lifecycle after the voice-specific
@@ -999,6 +1082,7 @@ final class VoicePressCoordinator {
             deferredRepressAwaitingActivation = false
             deferredRepressActivationWorkItem?.cancel()
             deferredRepressActivationWorkItem = nil
+            deferredRepressWaitReason = nil
             let shortID = String(pendingRepress.sessionID.uuidString.prefix(4))
             print(
                 "[PRESS][\(shortID)] deferred re-press released before activation"
@@ -1432,6 +1516,41 @@ final class VoicePressCoordinator {
         stopCurrentVoiceState(preservingDeferredRepress: true)
     }
 
+    /// The BLE bridge calls this after the old AUDIO_STOP drain has fully
+    /// retired. Activate the retained physical press on the next main-queue
+    /// turn so Session A's callback stack cannot run into Session B.
+    func voiceSessionAdmissionBecameAvailable() {
+        guard deferredRepressAwaitingActivation,
+              deferredRepressWaitReason == .audioDrain,
+              pendingRepress != nil,
+              mode == .idle,
+              !remoteRouted,
+              !longInputStarted,
+              tailWorkItem == nil,
+              gestureID == nil,
+              remoteOutputDrainRequestedSessionID == nil,
+              isVoiceSessionAdmissionBlocked?() != true else {
+            return
+        }
+        deferredRepressAwaitingActivation = false
+        deferredRepressWaitReason = nil
+        deferredRepressActivationWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.deferredRepressActivationWorkItem = nil
+            guard let pendingRepress = self.pendingRepress else { return }
+            self.lastRepressDecisionForTesting = "admitted-after-audio-drain"
+            self.logAdmissionDecision(
+                sessionID: pendingRepress.sessionID,
+                result: "admitted",
+                reason: "audio_drain_cleared"
+            )
+            self.activatePendingRepressIfHeld()
+        }
+        deferredRepressActivationWorkItem = work
+        DispatchQueue.main.async(execute: work)
+    }
+
     /// End the current transport segment while retaining a persistent IME
     /// session. A transport loss is a segment boundary, never a session tap.
     func handleTransportLoss(deviceRemoved: Bool = false) {
@@ -1521,6 +1640,7 @@ final class VoicePressCoordinator {
             deferredRepressActivationWorkItem = nil
             deferredRepressAwaitingActivation = false
             pendingRepress = nil
+            deferredRepressWaitReason = nil
         }
         releaseBounceDebounceUntil = .distantPast
         lastPhysicalUpAt = nil
@@ -1708,6 +1828,7 @@ final class VoicePressCoordinator {
     private func activatePendingRepressIfHeld() {
         guard let pendingRepress else { return }
         self.pendingRepress = nil
+        deferredRepressWaitReason = nil
         guard pendingRepress.isStillHeld else { return }
 
         let heldDuration = max(
@@ -1742,6 +1863,7 @@ final class VoicePressCoordinator {
     private func scheduleDeferredRepressActivation() {
         guard pendingRepress != nil else { return }
         deferredRepressAwaitingActivation = true
+        deferredRepressWaitReason = .previousRoute
         deferredRepressActivationWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
@@ -2021,6 +2143,26 @@ final class VoicePressCoordinator {
                 fields: ["tail_pending": tailWorkItem != nil]
             )
         }
+    }
+
+    private func logAdmissionDecision(
+        sessionID: UUID,
+        result: String,
+        reason: String
+    ) {
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "VOICE_PRESS_ADMISSION",
+            gestureID: sessionID,
+            fields: [
+                "result": result,
+                "reason": reason,
+            ]
+        )
+        print(
+            "[PRESS][\(String(sessionID.uuidString.prefix(4)))] "
+                + "admission=\(result) reason=\(reason)"
+        )
     }
 }
 
@@ -3499,6 +3641,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         voicePress.onRemoteTransportPreparation = { [weak self] in
             self?.prepareVoiceTransport()
+        }
+        voicePress.isVoiceSessionAdmissionBlocked = { [weak self] in
+            self?.ble.isVoiceSessionAdmissionBlocked ?? false
+        }
+        ble.onVoiceSessionAdmissionAvailable = { [weak self] in
+            self?.voicePress.voiceSessionAdmissionBecameAvailable()
         }
         filter.onReplayedHardwareOptionUpPassAcknowledged = { [weak self] gestureID in
             self?.handleDualReceiverHardwareOutputDrainClosed(gestureID: gestureID)

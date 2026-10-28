@@ -118,6 +118,9 @@ final class BLEBridge: NSObject {
     var onConnectionChanged: ((Bool) -> Void)?
     /// Audio level meter update; arg is dBFS in [-60, 0].
     var onLevel: ((Double, Int /* peak */) -> Void)?
+    /// Called after the old stream's AUDIO_STOP drain has fully retired and a
+    /// deferred physical press may be admitted on a fresh lifecycle.
+    var onVoiceSessionAdmissionAvailable: (() -> Void)?
 
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
@@ -192,6 +195,13 @@ final class BLEBridge: NSObject {
     private static let diagnosticsEnabled =
         ProcessInfo.processInfo.environment["REMOTE_ORBIT_DIAGNOSTICS"] == "1"
     private var lastStartSearchAt = Date.distantPast
+
+    /// A new voice session must not request micOpen while the previous stream
+    /// still owns the AUDIO_STOP drain barrier. Otherwise its AUDIO_START can
+    /// be rejected as a late packet and the physical press disappears.
+    var isVoiceSessionAdmissionBlocked: Bool {
+        audioStopDrainWorkItem != nil
+    }
 
     override init() {
         super.init()
@@ -1536,6 +1546,9 @@ extension BLEBridge: CBPeripheralDelegate {
         if stopTransportAfterRemoteAudioStop {
             stopTransportAfterRemoteAudioStop = false
             scheduleTransportStopAfterVoiceClose(hadMicOpen: true)
+        }
+        if let onVoiceSessionAdmissionAvailable {
+            DispatchQueue.main.async(execute: onVoiceSessionAdmissionAvailable)
         }
     }
 
