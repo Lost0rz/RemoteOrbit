@@ -18,11 +18,11 @@ trap 'rm -rf "$X86_SCRATCH"' EXIT
 swift build \
   -c release \
   --scratch-path "$X86_SCRATCH" \
-  -Xswiftc -target \
-  -Xswiftc x86_64-apple-macos13.0
+  --triple x86_64-apple-macos13.0
 X86_BINARY="$(swift build \
   -c release \
   --scratch-path "$X86_SCRATCH" \
+  --triple x86_64-apple-macos13.0 \
   --show-bin-path)/RemoteOrbit"
 
 # Generate the native macOS icon as part of every reproducible app build.
