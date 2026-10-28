@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT — 038-A CORRECTIVE-1 COMPLETE.
+- Status: ACTIVE — 038-A CORRECTIVE-2.
 - Task class: RUNTIME RELIABILITY / CORRECTIVE EXECUTION.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -12,6 +12,7 @@
 - Draft PR #23: `https://github.com/Lost0rz/RemoteOrbit/pull/23`; base `main`, state OPEN/Draft, not merged.
 - Corrective card: `RO-RUNTIME-RELIABILITY-038-A-CORRECTIVE-1-20261028`; same Task 038-A and same PR/worktree, no new task.
 - Corrective product commit: `a9f1c242582f902a64a1edc3dc17e2c83e8c08d4`, pushed and verified on the authorized branch.
+- Corrective-2 card: `RO-RUNTIME-RELIABILITY-038-A-CORRECTIVE-2-20261028`; same Task 038-A and same PR/worktree, no new task, no merge authority, and no 038-B authority.
 
 ## Preserved Task 037 history and deferred acceptance debt
 
@@ -75,6 +76,15 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 - **FULL SWIFT TEST:** 409/409 PASS. **RELEASE BUILD:** PASS. **DIFF CHECK:** PASS.
 - **CORRECTIVE CHANGED FILES:** `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift` and `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift`.
 
+## 038-A corrective-2 delta — explicit stop lifecycle
+
+- Corrective-2 start HEAD: `4f7d32e6768a60a474c8b20f1afde7d45ddd4ec6`, verified as the live head of the authorized branch before this paired control transition.
+- Reproduce a RED regression through the production `BLEBridge.stop()` lifecycle while Session B waits on `.audioDrain`; do not satisfy this slice only through `resetTransportForTesting()`.
+- Audit every production transition of `audioStopDrainWorkItem` from non-nil to nil and classify normal drain retirement, reset/disconnect, explicit stop, stale/canceled replacement, and test-only setup/cleanup.
+- Implement the narrowest central lifecycle-owner correction so every production `BLOCKED → CLEAR` transition either retires through one authoritative mechanism or is proven unable to coexist with a deferred audio-drain repress.
+- Preserve exactly-once retirement notifications, release-before-retirement cancellation, stale Session-A isolation, and existing mic/Option ownership. If the production stop path cannot coexist with a deferred press, or centralization requires broader transport redesign, stop and report the exact proof/conflict.
+- Required verification: VoicePressCoordinator focused suite, BLEBridge focused suite, full `swift test`, `swift build -c release`, and `git diff --check`; then return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+
 ## Non-goals
 
 - Do not tune AudioPipe buffers.
@@ -108,4 +118,4 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 
 ## Next action
 
-Independent Web audit of Draft PR #23. Do not merge, install, package, release, change permissions, or retire branches/worktrees. `HUMAN_UI_ACCEPTANCE: PENDING`; Task 037 deferred human acceptance remains unchanged.
+Execute corrective-2 on the same authorized branch/worktree. Do not merge, install, package, release, change permissions, or retire branches/worktrees. `HUMAN_UI_ACCEPTANCE: PENDING`; Task 037 deferred human acceptance remains unchanged. Return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT` only after corrective-2 evidence is complete.
