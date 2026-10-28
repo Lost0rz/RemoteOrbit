@@ -2,114 +2,57 @@
 
 ## RO-SHORTCUT-RECORDER-EXCLUSIVE-CAPTURE-037 — Task 037
 
-- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT.
+- Status: MERGE AUTHORIZED — HUMAN ACCEPTANCE DEFERRED.
 - Task class: CORRECTIVE / EXECUTION.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
-- Audited activation parent: `ea41f4ca93674fd70b9730c272eb3e2abee4d768`.
 - Task 037 control head: `ef09f80813cd868ede8a63bf3e9724fe46b43b0f`.
+- Implementation commit: `24ad60d020c73cb306d6258c50575ba64571f01c`.
+- Pre-merge Web-audit handoff commit: `26f7a85b74af2a1be22438ce95c6042144da8ed2`.
+- Active PR: `https://github.com/Lost0rz/RemoteOrbit/pull/22`.
 
 ## Objective
 
-Fix the custom shortcut recorder so system/global shortcuts can be recorded without executing their existing macOS action during recording. The recorder must exclusively own one complete physical keyboard gesture from the first swallowed edge through final release.
+Fix the custom shortcut recorder so system/global shortcuts can be recorded without executing their existing macOS action during recording. The recorder exclusively owns one complete physical keyboard gesture from the first swallowed edge through final release.
 
-Required product examples:
+Required product examples remain:
 
 - Command-Space records Command-Space without opening Spotlight.
 - Command-Shift-4 records Command-Shift-4 without initiating screenshot capture.
 
-This is a shortcut-recorder event-ownership corrective. It is not a Voice corrective or a general keyboard-remapping redesign.
+## Scope and protected authorities
 
-## Scope
+- Dedicated `ShortcutCaptureMonitor` uses an active `CGEventTap` at `.cghidEventTap`, `.headInsertEventTap`, with `.defaultTap` and keyDown/keyUp/flagsChanged interest.
+- Neutral-start gating, complete physical suppression, synthetic-event pass-through, chord freeze, release-boundary commit, pure-modifier support, autorepeat suppression, cancellation drain, tap failure reporting, and state reset are in scope.
+- `SettingsView.swift` integrates the recorder monitor/controller.
+- No Voice behavior, BLE/audio, audio-driver, packaging/install/release, mapping-store/schema, or unrelated cleanup changes are authorized.
+- `EventSuppressor` and `KeyInjector` semantics remain protected and unchanged.
 
-- Dedicated `ShortcutCaptureMonitor` using an active `CGEventTap` at `.cghidEventTap`, `.headInsertEventTap`, with `.defaultTap` and keyDown/keyUp/flagsChanged interest.
-- Neutral-start gating, complete physical suppression, synthetic-event pass-through, chord freeze, release-boundary commit, pure-modifier support, autorepeat suppression, cancellation drain, tap failure reporting, and state reset.
-- Shortcut recorder UI/controller integration in `SettingsView.swift`; preview on chord freeze and `onRecord` only after complete release.
-- Focused state-machine tests and required regression/build/self-test verification.
+## Verification and audit
 
-## Non-goals and protected authorities
+- Focused `ShortcutCaptureMonitorTests`: PASS — 11/11.
+- Full `swift test`: PASS — 405/405.
+- Release build: PASS.
+- Self-tests: PASS — 3/3.
+- Independent Web CODE_DIFF audit of PR #22: PASS.
+- PR scope inspection confirmed only `CURRENT_STATUS.md`, `CURRENT_TASK.md`, `SettingsView.swift`, new `ShortcutCaptureMonitor.swift`, and new `ShortcutCaptureMonitorTests.swift` changed through the audited handoff.
 
-- No Voice behavior, BLE/audio, audio-driver, packaging/install/release, application-template, mapping-store/schema, or unrelated cleanup changes.
-- Do not extend or semantically redesign `EventSuppressor`.
-- Do not modify `KeyInjector` output/injection semantics or `KeyInjector.syntheticMarker`.
-- Do not modify `VoiceOptionTrigger.swift`, `VoiceTriggerKey.swift`, `BLEBridge.swift`, audio/driver code, or mapping persistence/schema.
-- Do not use NSEvent global/local monitoring as the suppression mechanism and do not add a local-monitor fallback.
-- Do not request or change TCC/privacy permissions.
+## Human acceptance deferral
 
-## Authorized identity and lifecycle
+- `HUMAN_UI_ACCEPTANCE: PENDING`.
+- The user explicitly authorized merge before human acceptance so Task 037 can be tested later together with subsequent changes.
+- Pending human acceptance must not be reported as PASS merely because automated tests or Web code audit passed.
+- Deferred acceptance still needs real macOS checks for Command-Space, Command-Shift-4, Option-A, pure modifier, and post-cancel/close restoration.
 
-- Authorized branch: `codex/shortcut-recorder-exclusive-capture-v1`.
-- Authorized worktree: `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1`.
-- Implementation start HEAD: `ef09f80813cd868ede8a63bf3e9724fe46b43b0f`.
-- The exact branch, worktree, start HEAD, canonical control head, and clean state are registered by this paired control commit before product mutation.
-- Push the authorized branch and open exactly one Draft PR against `main` only after required implementation verification passes.
-- Do not merge, install `/Applications/RemoteOrbit.app`, package/release a DMG, delete the branch, or delete the worktree.
-- Implementation commit: `24ad60d020c73cb306d6258c50575ba64571f01c`.
-- Active Draft PR: `https://github.com/Lost0rz/RemoteOrbit/pull/22` (PR #22, base `main`; implementation branch head was remotely verified at the implementation commit before handoff).
+## Authorized merge transition
 
-## Behavioral contract
-
-1. State flow conceptually supports `WAITING_FOR_NEUTRAL → ARMED → CHORD_FROZEN → DRAINING_RELEASE → COMMIT`.
-2. If Command/Control/Option/Shift/Fn is held when recording begins, install the boundary but wait for neutral; do not infer a half-existing chord.
-3. While armed/capturing, swallow all owned physical keyDown, autorepeat, keyUp, modifier down, and modifier-release edges by returning nil from the active tap.
-4. Events carrying `KeyInjector.syntheticMarker` pass through unchanged and never alter capture state.
-5. Freeze the first valid non-repeat primary keyDown into the existing `KeyChord` representation; update preview but do not call `onRecord` yet.
-6. Commit only after the primary key and every participating modifier have been released; then terminate capture and dismiss as existing flow requires.
-7. Preserve pure Command/Control/Option/Shift/Fn recording after a complete press/release gesture.
-8. Cancel/Clear/dismiss during an owned gesture enters drain-only termination and removes the tap only after neutral; no swallowed-down/leaked-up sequence.
-9. Tap creation/health failure reports a clear recorder error, records nothing, and never falls back to NSEvent local monitoring.
-
-## Expected files
-
-New:
-
-- `remote-orbit/Sources/RemoteOrbit/KeyMapping/ShortcutCaptureMonitor.swift`
-- `remote-orbit/Tests/RemoteOrbitTests/ShortcutCaptureMonitorTests.swift`
-
-Modified:
-
-- `remote-orbit/Sources/RemoteOrbit/KeyMapping/SettingsView.swift`
-
-Control files:
-
-- `CURRENT_STATUS.md`
-- `CURRENT_TASK.md`
-
-`AGENTS.md` must remain unchanged.
-
-## Verification contract
-
-From `remote-orbit` in the implementation worktree:
-
-```text
-swift test --filter ShortcutCaptureMonitorTests
-swift test
-swift build -c release
-./run-self-tests.sh
-```
-
-Record exact results/counts. Source-diff verification must prove `EventSuppressor.swift`, `KeyInjector.swift`, Voice sources, audio/driver sources, and mapping persistence/schema are unchanged. Synthetic injection is not proof of real macOS system-shortcut suppression.
-
-Required focused cases include plain key, Command-Space, Command-Shift-4 exact chord, Option-A, pure modifier, autorepeat, synthetic marker pass-through, pre-held modifier neutral wait, cancellation drain, and session reset; tap-factory failure must prove explicit failure without local-monitor fallback when that abstraction is used.
-
-## Acceptance and stop conditions
-
-- Local automated verification is implementation evidence only; `HUMAN_UI_ACCEPTANCE: PENDING` until the user explicitly reports PASS/FAIL for real Command-Space, Command-Shift-4, Option-A, pure modifier, and post-cancel restoration behavior.
-- Target final development state: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
-- Stop for stale/inconsistent control plane, unexpected local work, another active writer/branch/worktree/PR, scope expansion, inability to enforce the CGEventTap boundary, unrelated test failure that cannot be separated, or unverifiable remote delivery identity.
-- On any stop, preserve evidence and report the exact reason; do not reset, clean, stash, prune, overwrite, or improvise a broader fix.
+- User authorization supersedes the previous task-local rule that human acceptance must occur before merge.
+- Merge PR #22 only after this paired control transition is the exact live PR head and the PR remains mergeable against `main`.
+- Mark the Draft PR ready for review if GitHub requires it before merge.
+- Merge only PR #22; do not merge unrelated work.
+- After merge, update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together on `main` with the actual merge commit and state `MERGED — HUMAN ACCEPTANCE DEFERRED`.
+- Do not install, package, release, delete the worktree/branch, or start unrelated product mutation as part of the merge operation.
 
 ## Next action
 
-Independent Web audit of PR #22 is the next authorized engineering action. Keep `HUMAN_UI_ACCEPTANCE: PENDING` until the user explicitly reports real macOS acceptance for Command-Space, Command-Shift-4, Option-A, pure modifier, and post-cancel restoration behavior. Do not merge, install, package, release, delete the branch/worktree, or claim runtime acceptance from the automated tests.
-
-## Execution receipt
-
-- Changed product files: `remote-orbit/Sources/RemoteOrbit/KeyMapping/ShortcutCaptureMonitor.swift`; `remote-orbit/Sources/RemoteOrbit/KeyMapping/SettingsView.swift`.
-- Changed test file: `remote-orbit/Tests/RemoteOrbitTests/ShortcutCaptureMonitorTests.swift`.
-- Protected files and authorities remain unchanged: `EventSuppressor.swift`, `KeyInjector.swift`, Voice sources, `BLEBridge.swift`, audio/driver sources, and mapping persistence/schema.
-- Focused tests: PASS — 11 tests, 0 failures.
-- Full suite: PASS — 405 tests, 0 failures.
-- Release build: PASS.
-- Self-tests: PASS — 3/3.
-- `HUMAN_UI_ACCEPTANCE: PENDING`; actual macOS event-tap/system-shortcut behavior and independent Web audit remain outstanding.
+Publish this paired merge-authorization control commit to `codex/shortcut-recorder-exclusive-capture-v1`, verify it is the exact PR #22 head, mark the PR ready if necessary, merge it, then create the paired post-merge control transition on `main`. Preserve `HUMAN_UI_ACCEPTANCE: PENDING` for later combined manual acceptance.

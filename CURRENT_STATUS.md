@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: WAITING_FOR_INDEPENDENT_WEB_AUDIT — TASK 037 IMPLEMENTATION HANDOFF
+State: MERGE AUTHORIZED — TASK 037 HUMAN ACCEPTANCE DEFERRED
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -9,9 +9,10 @@ Repository: Lost0rz/RemoteOrbit
 - Canonical development repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
 - Canonical branch: `main`.
 - Verified origin: `https://github.com/Lost0rz/remoteorbit.git`.
-- Audited activation parent: `ea41f4ca93674fd70b9730c272eb3e2abee4d768`.
-- At activation, local `main`, `origin/main`, and live remote `main` matched the audited parent.
-- At activation, the canonical worktree was clean; one worktree and one local/remote branch existed; no open PR existed.
+- Audited Task 037 activation parent: `ea41f4ca93674fd70b9730c272eb3e2abee4d768`.
+- Task 037 control head: `ef09f80813cd868ede8a63bf3e9724fe46b43b0f`.
+- Authorized implementation branch: `codex/shortcut-recorder-exclusive-capture-v1`.
+- Authorized implementation worktree: `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1`.
 
 ## Historical accepted baseline
 
@@ -23,40 +24,23 @@ Repository: Lost0rz/RemoteOrbit
 
 - Task ID: `RO-SHORTCUT-RECORDER-EXCLUSIVE-CAPTURE-037`.
 - Objective: during shortcut recording, capture one complete physical keyboard gesture at the system event layer and prevent that gesture from reaching macOS/apps.
-- Product examples: Command-Space records without opening Spotlight; Command-Shift-4 records without initiating screenshot capture.
-- Task class: corrective execution; verification tier: V2 domain/integration boundary.
-- Task 037 control head: `ef09f80813cd868ede8a63bf3e9724fe46b43b0f`.
-- Control transition: paired `CURRENT_STATUS.md` / `CURRENT_TASK.md` activation commit, direct child of the audited parent above and pushed/verified on live `main`.
-- Authorized implementation branch: `codex/shortcut-recorder-exclusive-capture-v1`.
-- Authorized implementation worktree: `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1`.
-- Implementation worktree start HEAD: `ef09f80813cd868ede8a63bf3e9724fe46b43b0f`.
-- Implementation worktree registration: this paired control commit; worktree was clean before product mutation.
 - Implementation commit: `24ad60d020c73cb306d6258c50575ba64571f01c` (`fix: capture complete physical shortcut gestures`).
-- Active Draft PR: `https://github.com/Lost0rz/RemoteOrbit/pull/22` (PR #22, base `main`, branch head verified at the implementation commit before this handoff).
-- Target final development state: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
-- `HUMAN_UI_ACCEPTANCE: PENDING`.
+- Handoff commit before Web audit: `26f7a85b74af2a1be22438ce95c6042144da8ed2`.
+- Active PR: `https://github.com/Lost0rz/RemoteOrbit/pull/22`.
+- Independent Web code audit: PASS against PR #22.
+- Web audit found the implementation scope aligned, complete-gesture ownership present, release-boundary commit present, cancellation drain present, synthetic pass-through present, and protected Voice/EventSuppressor/KeyInjector/audio authorities unchanged.
+- Local verification recorded by the implementation handoff: focused tests 11/11 PASS; full `swift test` 405/405 PASS; release build PASS; self-tests 3/3 PASS.
+
+## User-authorized acceptance deferral
+
+- On 2026-10-28 the user explicitly authorized merging Task 037 now and deferring real macOS human acceptance so it can be performed together with subsequent changes.
+- `HUMAN_UI_ACCEPTANCE: PENDING` remains factual; it is not being promoted to PASS.
+- By explicit user authorization, pending human acceptance is no longer a merge blocker for PR #22.
+- Deferred human acceptance must still cover Command-Space, Command-Shift-4, Option-A, pure modifier recording, and restoration of normal macOS shortcut behavior after recorder close/cancel.
 
 ## Current phase and next action
 
-- Phase: IMPLEMENTATION COMPLETE; control-plane handoff is recorded in the paired commit following the implementation commit.
-- Next authorized action: independent Web audit of PR #22. Human UI acceptance remains user-owned and must separately cover the required real macOS shortcut cases.
-- Single writer: the authorized implementation worktree only after registration; no second product writer.
-
-## Task 037 implementation receipt
-
-- Product change: `ShortcutCaptureMonitor` now owns an active `.cghidEventTap` at `.headInsertEventTap` with `.defaultTap`, suppresses the complete physical gesture through release, freezes preview before release-boundary commit, preserves pure modifiers, ignores autorepeat duplicates, passes through `KeyInjector.syntheticMarker` events, waits for neutral starts, and drains cancellation before removing the tap.
-- Product paths changed: `remote-orbit/Sources/RemoteOrbit/KeyMapping/ShortcutCaptureMonitor.swift`; `remote-orbit/Sources/RemoteOrbit/KeyMapping/SettingsView.swift`.
-- Test path changed: `remote-orbit/Tests/RemoteOrbitTests/ShortcutCaptureMonitorTests.swift`.
-- Protected authorities verified unchanged: `EventSuppressor.swift`, `KeyInjector.swift`, Voice sources, BLE/audio/driver sources, and mapping persistence/schema.
-- `swift test --filter ShortcutCaptureMonitorTests`: PASS — 11 tests, 0 failures.
-- `swift test`: PASS — 405 tests, 0 failures.
-- `swift build -c release`: PASS.
-- `./run-self-tests.sh`: PASS — all 3 self-tests passed.
-- `git diff --check`: PASS.
-- No NSEvent local/global monitor fallback was added; no TCC, install, package, release, merge, or runtime mutation was performed.
-
-## Required closeout evidence
-
-- Focused `ShortcutCaptureMonitorTests`, full `swift test`, release build, and `run-self-tests.sh` results are recorded above against implementation identity `24ad60d020c73cb306d6258c50575ba64571f01c`.
-- Human UI acceptance remains user-owned and pending.
-- Final implementation handoff target is `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not merge, install, package, release, or delete the branch/worktree.
+- Phase: MERGE AUTHORIZED BY USER after independent Web code audit PASS.
+- Next authorized action: mark PR #22 ready for review if required, then merge only the exact authorized PR head with no additional product mutation.
+- After merge, perform one paired `CURRENT_STATUS.md` / `CURRENT_TASK.md` post-merge control transition on `main` recording the actual merge identity and preserving `HUMAN_UI_ACCEPTANCE: PENDING` for later batch acceptance.
+- Do not install, package, release, or claim human runtime acceptance in this transition.
