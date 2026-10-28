@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: RELEASE V0.2.15 — RELEASE BRANCH ACTIVE
+State: RELEASE V0.2.15 — REMOTE MACOS ACTIONS RELEASE ACTIVE
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -11,75 +11,73 @@ Repository: Lost0rz/RemoteOrbit
 - Verified origin: `https://github.com/Lost0rz/RemoteOrbit.git`.
 - Release-transition control head on `main`: `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9`.
 - Active release branch: `codex/release-v0.2.15`.
-- Release branch start head: `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9`.
-- PR #24 (`038-B Audio Continuity Evidence`) is merged at `b4dbd60d6c27c756bcf735eff050bd29a8324617`.
-- Durable 038-B closeout: `docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`.
-- Task 038-B product/evidence work is terminal. Its local historical worktree still has a local-host cleanup obligation but is frozen/read-only by authority and cannot resume overlapping product writes.
+- PR #25: `Release RemoteOrbit v0.2.15`.
+- Previous public release: `v0.2.14` / build `43`.
+- Target release: `v0.2.15` / build `44` / Universal 2.
+- Task 038-B product/evidence work is terminal; root-cause status remains `NARROWED_NOT_ESTABLISHED`.
 - `038-C/D/E/F` remain deferred.
 
-## Release target
+## Owner release decision
 
-- marketing version: `0.2.15`
-- build: `44`
-- architecture: Universal 2
-- release class: stability + diagnostics baseline
-- predecessor release: `v0.2.14` / build `43`
+The owner explicitly requested that release preparation and publication be completed remotely rather than on the local Mac.
 
-The release does **not** claim that the audio-continuity root cause is fixed. Final 038-B root-cause status remains `NARROWED_NOT_ESTABLISHED`.
+The repository previously had no `.github/workflows` release automation. A bounded release workflow is therefore authorized for this release so GitHub's hosted Apple-silicon macOS runner can execute the same repository-native Swift/driver/app/DMG packaging flow before merge and publication.
 
-## Release metadata prepared
+Authorized remote release workflow:
 
-The release branch is authorized to contain only release metadata/control changes unless local macOS packaging reproduces a concrete packaging-only blocker.
+`.github/workflows/release-v0.2.15.yml`
 
-Prepared release delta:
+Runner: `macos-15` (GitHub-hosted arm64 macOS).
+
+## Release scope
+
+Release metadata already prepared:
 
 - `remote-orbit/Packaging/Info.plist` -> `0.2.15 (44)`;
-- `RELEASE_NOTES_v0.2.15.md` added;
-- release control records aligned to the active release branch.
+- `RELEASE_NOTES_v0.2.15.md`;
+- `CURRENT_STATUS.md` / `CURRENT_TASK.md` lifecycle records.
 
-No product audio/BLE/HID/shortcut/Option semantics are changed by this metadata preparation.
+The remote-release transition additionally authorizes only the release workflow above and narrowly justified packaging-only corrections if fresh hosted-macOS evidence reproduces a packaging blocker.
+
+No product audio/BLE/HID/Option/shortcut corrective is authorized.
 
 ## Included accepted work since v0.2.14
 
-Repository comparison `v0.2.14...main` shows the release line is 73 commits ahead and includes:
-
-- rapid re-press admission / runtime reliability 038-A;
-- shortcut recorder exclusive-capture/restoration hardening;
+- Task 038-A rapid re-press reliability work;
+- shortcut-recorder exclusive-capture/restoration hardening;
 - opt-in BLE/decode/PCM/AudioPipe continuity correlation;
-- observer-effect corrections for the real-time diagnostic path;
-- stable AUDIO_START-before-HID continuity capture identity;
-- runtime evidence and durable 038-B conclusions.
+- real-time probe observer-effect corrections;
+- stable AUDIO_START-before-HID capture/session correlation;
+- durable 038-B evidence conclusions.
 
-## Diagnostic observation boundary
+## Diagnostic boundary
 
 The 038-B continuity ledger remains opt-in. Normal app launch does not enable it automatically.
 
-For the owner's post-release observation run, launch the installed v0.2.15 runtime with:
+Post-release observation must use:
 
 `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`
 
-Do not change the product default to always-on continuity capture solely for this release.
+The release does not claim the continuity root cause is fixed.
 
-## Release gate
+## Remote release gate
 
-Publication requires local macOS evidence for the exact release branch candidate:
+The GitHub-hosted macOS workflow must, in order:
 
-1. applicable Swift tests/self-tests;
-2. established audio-driver build when required by DMG packaging;
-3. `remote-orbit/package-app.sh` PASS;
-4. packaged app version/build `0.2.15 (44)`;
-5. universal arm64 + x86_64 executable;
-6. codesign/designated requirement verification;
-7. `RemoteOrbitDiagnosticSourceHead` equals the exact release candidate commit;
-8. `package-dmg.sh` PASS;
-9. DMG identity/name/SHA-256 verified;
-10. release PR merge;
-11. exact tag `v0.2.15` on the merged release commit;
-12. GitHub Release `RemoteOrbit v0.2.15` with `RemoteOrbit-0.2.15.dmg`;
-13. published tag/release/asset provenance re-fetched and verified.
+1. verify exact branch/version/build identity;
+2. run `swift test`;
+3. run `remote-orbit/run-self-tests.sh`;
+4. run repository-native `package-dmg.sh` on Apple-silicon macOS;
+5. verify candidate app bundle/version/build, arm64+x86_64 executable, codesign/designated requirement, embedded source head and DMG contents/SHA-256;
+6. only after candidate PASS, mark PR #25 ready and merge it;
+7. checkout the exact merge commit and rebuild the DMG so `RemoteOrbitDiagnosticSourceHead` equals the merged release commit;
+8. verify the merged artifact again;
+9. create annotated tag `v0.2.15` at that exact merge commit;
+10. publish GitHub Release `RemoteOrbit v0.2.15` with `RemoteOrbit-0.2.15.dmg`;
+11. re-fetch workflow/release/tag/asset evidence and then update the control plane with final provenance.
 
-If hosted CI is absent, report `NO_HOSTED_CI`; do not call absence a PASS.
+Any failed test/build/package/provenance/merge/tag/release step is a STOP. The workflow must not publish a release after an unresolved failure.
 
 ## Current next action
 
-Local macOS release executor must fetch `codex/release-v0.2.15`, build and verify the candidate, then complete PR merge/tag/GitHub Release only if all release gates pass.
+Push the remote-release workflow/control transition to `codex/release-v0.2.15`, observe the hosted macOS run, and only accept v0.2.15 as released after the published tag/release/DMG provenance is independently re-fetched.
