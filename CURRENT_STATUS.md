@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: WAITING_FOR_USER_RUNTIME_INPUT — TASK 038-B PROBE-HEALTH-INCOMPLETE
+State: EXECUTING_RUNTIME_CAPTURE_RESUME — TASK 038-B FIRST-SESSION-PROBE
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -16,7 +16,7 @@ Repository: Lost0rz/RemoteOrbit
 - Task 037 remains merged with `HUMAN_UI_ACCEPTANCE: PENDING` for Command-Space, Command-Shift-4, Option-A, pure modifier recording, and normal shortcut restoration after recorder close/cancel.
 - `AGENTS.md` durable rules were re-read for this transition and require no semantic change.
 - The prior 038-A worktree `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress` was verified clean, fully merged/reachable from current `main`, and without unique/unpushed commits; it was removed and its local branch was deleted. Its remote branch remains retained. Task 037's historical worktree remains untouched.
-- PR #24 is OPEN + DRAFT + UNMERGED; its live head is the current tip of the authorized branch and was remote-verified for this result. Current GitHub metadata reports `mergeable=false`, but merge remains prohibited. The independent Web CODE_DIFF audit was passed at the audited product head `6b5fde0b767933a89b8b7643dabe473e46040df8`; later commits are paired control-only runtime transition/result records. Corrective-2 delivery commit `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a` removes the remaining lifecycle observer-effect. Corrective-3 delivery commit `7d33e01cf94aa3685ccfdecc6df28207258cb1bb` closes only the AUDIO_START-before-HID continuity-correlation gap. Corrective-4 source/test delivery commit `652ea306dc4a22ee3c489b254d87becc6f9a4ed0` removes the remaining submission-path probe contention. The card authorizes only the diagnostic runtime build/install/run and evidence capture; merge, audio tuning, production correction, and 038-C/D/E/F work remain prohibited.
+- PR #24 is OPEN + DRAFT + UNMERGED; its live head is the current tip of the authorized branch and was remote-verified for this transition. Current GitHub metadata reports `mergeable=true`; this is only a repository fact and does not authorize merge. The independent Web CODE_DIFF audit was passed at the audited product head `6b5fde0b767933a89b8b7643dabe473e46040df8`; later commits are paired control-only runtime transition/result records. Corrective-2 delivery commit `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a` removes the remaining lifecycle observer-effect. Corrective-3 delivery commit `7d33e01cf94aa3685ccfdecc6df28207258cb1bb` closes only the AUDIO_START-before-HID continuity-correlation gap. Corrective-4 source/test delivery commit `652ea306dc4a22ee3c489b254d87becc6f9a4ed0` removes the remaining submission-path probe contention. The card authorizes only the diagnostic runtime build/install/run and evidence capture; merge, audio tuning, production correction, and 038-C/D/E/F work remain prohibited.
 
 ## Task 038-B writer identity
 
@@ -32,7 +32,7 @@ Repository: Lost0rz/RemoteOrbit
 ## Task 038 roadmap
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B WAITING_FOR_USER_RUNTIME_INPUT`: diagnostic build is running, but probe-health is incomplete because the product process reports missing Input Monitoring and Accessibility permission.
+- `038-B EXECUTING_RUNTIME_CAPTURE_RESUME`: the user-reported permission blocker is addressed; fresh-process permission health and exactly one first natural session are now required.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -52,7 +52,7 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 
 ## Current phase and next action
 
-- Phase: 038-B WAITING_FOR_USER_RUNTIME_INPUT — the evidence-only runtime build is installed/running, but no usable voice session has been emitted.
+- Phase: 038-B EXECUTING_RUNTIME_CAPTURE_RESUME — installed diagnostic identity matches; fresh process must verify permissions before the first session.
 - First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
 - Current conclusion: existing telemetry was insufficient for mid-stream temporal alignment; the minimum opt-in 100 ms monotonic/session bucket ledger remains in source/test commit `652ea30`, and buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior remain unchanged.
 - Audit property reproduced: the prior render-side probe acquired the shared logger lock and mutated its dictionary while `AudioPipe.stateLock` was held, creating probe self-contention risk.
@@ -64,13 +64,13 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 - Corrective-3 result: AUDIO_START now owns a stable opt-in capture identity even when no HID session exists; pre-session BLE/decode/render observations remain on that capture, and the matching later session can bind it once. Binding is exact-identity and one-shot; wrong or repeated session bindings are rejected. HID-before-AUDIO_START reuses the same bound capture identity.
 - Verification: focused `AudioDataPlaneDiagnosticsTests` 31/31 PASS; affected `AudioPipeTests` 4/4 PASS; `VoiceBoundaryOrderingTests` 3/3 PASS; `VoicePressCoordinatorTests` 39/39 PASS; full `swift test` 420/420 PASS; `swift build -c release` PASS; `git diff --check` PASS.
 - Product/runtime boundary: UNKNOWN — the authorized runtime capture has not yet produced evidence; root cause remains UNKNOWN.
-- Current next action: user-owned Input Monitoring and Accessibility authorization for `/Applications/RemoteOrbit.app`, followed by natural voice sessions; do not change TCC through the agent.
+- Current next action: relaunch `/Applications/RemoteOrbit.app` with only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`, verify `input=true` and `accessibility=true`, then execute exactly one natural voice interaction and stop for probe-health validation.
 
 ## Runtime-capture transition receipt
 
 - Transition authority: FACT — the current execution card records the independent Web CODE_DIFF audit PASS at observed PR head `6b5fde0` and explicitly authorizes an evidence-only runtime build/run/capture.
 - Scope: FACT — `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1` is the only required diagnostic mode; no buffer, queue target, pacing, resampling, codec, BLE timing, AUDIO_STOP, Adaptive Playout, text observer, merge, or release change is authorized.
-- Runtime status: UNKNOWN — exact build identity, installed diagnostic app identity, running process identity, log identity, probe health, and session evidence are pending capture.
+- Runtime status: FACT — installed diagnostic identity still matches the prior capture; fresh process permission health and first-session evidence are pending.
 - Root cause: UNKNOWN — no causal claim is made before fresh session-level evidence.
 
 ## Runtime-capture result receipt

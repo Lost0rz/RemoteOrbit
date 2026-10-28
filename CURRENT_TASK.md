@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: WAITING_FOR_USER_RUNTIME_INPUT — 038-B probe-health incomplete.
+- Status: EXECUTING_RUNTIME_CAPTURE_RESUME — 038-B first-session probe.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B WAITING_FOR_USER_RUNTIME_INPUT`: diagnostic runtime build is installed/running, but product permissions prevent probe-health and session capture.
+- `038-B EXECUTING_RUNTIME_CAPTURE_RESUME`: user reports permissions enabled; fresh process must verify both permission flags before exactly one first natural session.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -48,7 +48,7 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 - Registration: this paired control commit; the worktree was clean before source/test or diagnostic mutation.
 - The old 038-A worktree closeout was performed after proving clean state, merged reachability, and no unique/unpushed commits; its local branch was deleted and remote branch retained.
 - Current source/test HEAD: `652ea306dc4a22ee3c489b254d87becc6f9a4ed0`, pushed and verified equal to the remote 038-B branch before this paired closeout control update.
-- PR #24: OPEN + DRAFT + UNMERGED; its live head is the current tip of the authorized branch and was remote-verified for this result. Current GitHub metadata reports `mergeable=false`, but merge remains prohibited. The independent Web CODE_DIFF audit passed at the audited product head `6b5fde0b767933a89b8b7643dabe473e46040df8`; later commits are paired control-only runtime transition/result records. Corrective-1 reproduced and removed render-path probe self-contention; corrective-2 bounded lifecycle work; corrective-3 closed the AUDIO_START-before-HID correlation gap; corrective-4 removed submission-path probe contention.
+- PR #24: OPEN + DRAFT + UNMERGED; its live head is the current tip of the authorized branch and was remote-verified for this transition. Current GitHub metadata reports `mergeable=true`; this is only a repository fact and merge remains prohibited. The independent Web CODE_DIFF audit passed at the audited product head `6b5fde0b767933a89b8b7643dabe473e46040df8`; later commits are paired control-only runtime transition/result records. Corrective-1 reproduced and removed render-path probe self-contention; corrective-2 bounded lifecycle work; corrective-3 closed the AUDIO_START-before-HID correlation gap; corrective-4 removed submission-path probe contention.
 - Corrective-2 delivery source/test HEAD: `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a`; corrective-3 delivery source/test HEAD: `7d33e01cf94aa3685ccfdecc6df28207258cb1bb`, both verified as ancestors of the current branch.
 
 ## Authorized 038-B scope
@@ -81,7 +81,7 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 17. Corrective-4 verification must cover submission bucket/queue evidence, provisional and bound ordering, wrong/stale isolation, same-session submission-plus-render merge, disabled mode, consecutive sessions, focused diagnostics, affected AudioPipe/order/lifecycle tests, full Swift tests, release build, and diff check. After delivery, return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not install, release, merge, or capture runtime.
 18. Corrective-4 delivered in `652ea30`: `AudioPipe.schedule()` records submission evidence in the AudioPipe-owned fixed-capacity ledger, central merge includes submitted frames and queue depth, and `VoiceTimingLogger.recordContinuitySubmitted()` plus its shared-lock/dictionary path were removed. No voice semantics, audio scheduling, queue targets, BLE timing, or AUDIO_STOP interpretation changed.
 
-19. The runtime-capture card authorizes the diagnostic build/install/run and fresh session evidence only. The build is installed and running with only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`, but probe-health is incomplete: the product reports `input=false accessibility=false`, and no voice session has emitted continuity records. Do not change TCC, merge, release, tune audio, restart CoreAudio, change the driver, add text observation, or begin 038-C/D/E/F.
+19. The resume card authorizes only fresh-process permission verification and first-session probe, then natural session capture if probe health passes. The installed identity must remain `com.lost0rz.RemoteOrbit 0.2.14 (43)` with executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`; launch only with `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`. Do not change TCC, merge, release, tune audio, restart CoreAudio, change the driver, add text observation, or begin 038-C/D/E/F.
 
 ## Required output / evidence
 
@@ -142,7 +142,7 @@ The 038-B result must include:
 
 ## Current next action
 
-Probe-health is incomplete because the installed product reports `input=false accessibility=false` and produced zero continuity sessions. Wait for the user to manually grant Input Monitoring and Accessibility to `/Applications/RemoteOrbit.app`, then resume natural session capture; do not mutate TCC, synthesize sessions, tune, merge, release, or implement a corrective.
+Relaunch the already-authorized diagnostic identity with only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`; verify `input=true` and `accessibility=true` from the fresh product process, then perform exactly one natural voice interaction. Stop before additional sessions if any required probe field is missing; do not mutate TCC, synthesize sessions, tune, merge, release, or implement a corrective.
 
 ## Runtime-capture result receipt
 
