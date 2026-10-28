@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: EXISTING_EVIDENCE_BASE_RATE_AUDIT — 038-B AUDIT ACTIVE.
+- Status: BASE_RATE_AUDIT_COMPLETE — 038-B STOP.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B EXISTING_EVIDENCE_BASE_RATE_AUDIT`: the same 10 usable natural sessions are frozen; independently revalidate ACTIVE-STREAM base rates and lag relationships before retaining or downgrading the prior BLE/PCM contributor claims. No new runtime capture is authorized.
+- `038-B BASE_RATE_AUDIT_COMPLETE`: the same 10 usable natural sessions were reanalyzed with ACTIVE-STREAM denominators; BLE cadence remains a recurring contributor, PCM-supply causality is downgraded, and root cause remains NARROWED_NOT_ESTABLISHED. No new runtime capture is authorized.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -142,7 +142,7 @@ The 038-B result must include:
 
 ## Current next action
 
-The 10-session evidence set is frozen and the authorized 038-B causal analysis is complete. Stop here; do not request another session, mutate product behavior, change TCC, driver, or CoreAudio, or merge.
+The 10-session evidence set is frozen and the authorized 038-B base-rate/lag audit is complete. Stop here; do not request another session, mutate product behavior, change TCC, driver, or CoreAudio, or merge.
 
 ## 038-B BLE central-readiness diagnosis transition
 
@@ -377,3 +377,40 @@ The 10-session evidence set is frozen and the authorized 038-B causal analysis i
 - `SOURCE_CHANGED`: NO.
 - `CHANGED_FILES`: control records only; no product source changed.
 - `FINAL_TEXT_OMISSION_STATUS`: UNKNOWN.
+
+## 038-B active-bucket base-rate audit result
+
+- `CONTROL_TRANSITION`: FACT — `CAUSAL_ANALYSIS_COMPLETE` -> `EXISTING_EVIDENCE_BASE_RATE_AUDIT` was published at `a29b7c1b60581a2a58eb2238fef9ff6a9c31bddd`; this result returns 038-B to a stopped state.
+- `AUDIT_PROFILE`: FACT — `FORMAL_READ_ONLY_BASE_RATE_AND_LAG_AUDIT` over the frozen 10-session evidence set; no new runtime capture.
+- `AUDIT_INDEPENDENCE`: FACT — `SELF_CHECK` with fresh raw-log reanalysis and a separate ACTIVE-STREAM denominator; not separate-agent acceptance.
+- `EVIDENCE_SET_IDENTITY`: FACT — PID `21428`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, environment `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`; frozen window `2026-10-28 19:19:13.941–19:58:44.510 +0800`; sources `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log`, `/Users/ox_miles/Library/Logs/RemoteOrbit/voice-diagnostic-current.jsonl`, and `/Users/ox_miles/Library/Logs/RemoteOrbit/diagnostic-events-v1.jsonl`.
+- `BUCKET_CLASSIFICATION`: FACT — 482 total buckets: 18 startup/prestable, 391 ACTIVE, 73 tail; only ACTIVE buckets entered the base-rate denominators. `ACTIVE_UNDERRUN_BUCKET_COUNT=48`; `ACTIVE_NO_UNDERRUN_BUCKET_COUNT=343`; all 10 session joins remained exact and `render_capacity_dropped=0`.
+- `ACTIVE_UNDERRUN_METRICS`: FACT — 293 BLE notifications / 48 buckets (6.1042 per bucket), decoded samples `70,320`, submitted frames `210,960`, render requested/filled/unfilled `222,208/206,400/15,808`; mean max BLE gap `22.4250 ms`, mean submitted/requested ratio `0.961100`, mean queue min/max/end `0/1228/604.3333` frames.
+- `ACTIVE_NO_UNDERRUN_METRICS`: FACT — 2,260 BLE notifications / 343 buckets (6.5889 per bucket), decoded samples `542,400`, submitted frames `1,608,480`, render requested/filled/unfilled `1,622,528/1,622,528/0`; mean max BLE gap `16.9327 ms`, mean submitted/requested ratio `0.993964`, mean queue min/max/end `5432.0233/6595.2187/6006.5773` frames.
+- `BLE_GT20_RATE_UNDERRUN`: FACT — `19/48 = 39.5833%`.
+- `BLE_GT20_RATE_CONTROL`: FACT — `33/343 = 9.6210%`; effect `+29.9623 pp`, risk ratio `4.1143`.
+- `BLE_GT30_RATE_UNDERRUN`: FACT — `7/48 = 14.5833%`.
+- `BLE_GT30_RATE_CONTROL`: FACT — `6/343 = 1.7493%`; effect `+12.8341 pp`, risk ratio `8.3368`.
+- `SUPPLY_DEFICIT_RATE_UNDERRUN`: FACT — `33/48 = 68.7500%` for `submitted_frames < render_requested`.
+- `SUPPLY_DEFICIT_RATE_CONTROL`: FACT — `204/343 = 59.4752%`; effect `+9.2748 pp`, risk ratio `1.1559`; aggregate submitted/requested ratios were `0.949381` versus `0.991342`.
+- `LAG_MINUS_2_FINDING`: FACT — 43 eligible active neighbors; gap `>20 ms` `9.3023%`, `>30 ms` `0%`, supply deficit `67.4419%`; no consistent upstream relationship.
+- `LAG_MINUS_1_FINDING`: FACT — 44 eligible active neighbors; gap `>20 ms` `20.4545%`, `>30 ms` `6.8182%`, supply deficit `70.4545%`; supply deficit is present before the underrun but BLE-gap precedence is not consistent.
+- `LAG_ZERO_FINDING`: FACT/INFERENCE — 48 eligible active buckets; gap `>20 ms` `39.5833%`, `>30 ms` `14.5833%`, supply deficit `68.7500%`; BLE cadence is enriched and coincides with underrun, while supply deficit is only weakly enriched.
+- `LAG_PLUS_1_FINDING`: FACT — 47 eligible active neighbors; gap `>20 ms` `8.5106%`, `>30 ms` `8.5106%`, supply deficit `55.3191%`; no repeated downstream relationship.
+- `INTRA_BUCKET_ORDERING_STATUS`: UNKNOWN — `submitted_frames >= render_requested` is an aggregate 100 ms fact and does not establish that PCM arrived before each render demand within the bucket.
+- `DECODER_REJECTION_CAUSAL_STATUS`: DOWNGRADED — FACT: all 10 sessions had zero decode rejects and zero zero-sample decodes.
+- `OVERFLOW_CAUSAL_STATUS`: DOWNGRADED — FACT: all session summaries and buckets had zero overflow drops.
+- `BLE_CADENCE_CAUSAL_STATUS`: SUPPORTED_AS_RECURRING_CONTRIBUTOR — INFERENCE: gap thresholds are materially enriched in active underrun buckets and peak at lag zero; this is not an exclusive root-cause claim.
+- `PCM_SUPPLY_TO_UNDERRUN_CAUSAL_STATUS`: DOWNGRADED_FROM_SUPPORTED — INFERENCE: supply deficit is only weakly enriched versus active controls and has no consistent lagged precedence; same-bucket ordering remains UNKNOWN.
+- `ACTIVE_STREAM_UNDERRUN_STATUS`: FACT — 48 active underrun buckets across four of ten sessions; startup/prestable underrun was absent, and tail/teardown remains a separate boundary population.
+- `NORMAL_VS_WEAK_COMPARISON`: UNKNOWN — no human weak/normal quality labels were captured.
+- `FINAL_TEXT_OMISSION_STATUS`: UNKNOWN — no text-output observation was authorized or captured.
+- `ROOT_CAUSE_STATUS`: NARROWED_NOT_ESTABLISHED — FACT: decoder rejection and overflow are not supported; INFERENCE: BLE cadence recurs as a contributor; UNKNOWN: AudioPipe intra-bucket ordering/scheduling and final human/text impact.
+- `UNVERIFIED_REQUIRED_CLAIMS`: FACT — human-visible waveform/audio reception, normal-versus-weak quality, intra-bucket ordering, and final text omission remain unverified.
+- `AUDIT_VERDICT`: STOP — the required evidence boundary is complete, but it does not authorize a corrective product change or establish an exclusive root cause.
+- `SMALLEST_JUSTIFIED_NEXT_ACTION`: STOP. Any BLE/AudioPipe corrective proposal or finer-grained ordering probe requires a new governance transition; do not request another session in this pass.
+- `SOURCE_CHANGED`: NO.
+- `CHANGED_FILES`: `CURRENT_STATUS.md` and `CURRENT_TASK.md` control records only.
+- `PR_STATE`: OPEN / DRAFT / UNMERGED; no merge performed.
+- `WORKTREE_STATUS`: CLEAN after the control-only result commit.
+- `FINAL_STATE`: `BASE_RATE_AUDIT_COMPLETE — TASK 038-B STOP`.
