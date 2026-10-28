@@ -124,7 +124,7 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 - Authorized implementation branch: `codex/runtime-reliability-038-a-rapid-repress`.
 - Authorized implementation worktree: `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress`.
 - Implementation start HEAD: `b17194c498e8b7c31495e4a95de97a21a9e0893c`.
-- Product implementation commit: `6f2c47d8bfc906c55d71c78c67243004708dd80a`; corrective product commits: `a9f1c242582f902a64a1edc3dc17e2c83e8c08d4`, `68ed029c582c3befb12f4f9996277e96bd2ecf60`. Final corrective-2 closeout control commit: `0f653d63386e35fb5ce247ddcfca0ae6226fb355`; the worktree is clean and the remote branch is aligned with the final control record.
+- Product implementation commit: `6f2c47d8bfc906c55d71c78c67243004708dd80a`; corrective product commits: `a9f1c242582f902a64a1edc3dc17e2c83e8c08d4`, `68ed029c582c3befb12f4f9996277e96bd2ecf60`. Corrective-2 closeout control commits follow them; the worktree is clean and the remote branch is aligned with the final control record.
 - The exact branch, worktree, start HEAD, control head, and clean state are registered by this paired control commit before product mutation.
 - Preserve the retained Task 037 worktree/branch as historical delivery state; do not use it as the Task 038 writer.
 - Do not merge unless a later repository-governance transition explicitly authorizes merge. Do not install, package, release, change permissions, delete branches, or delete worktrees.

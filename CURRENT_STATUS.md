@@ -19,7 +19,7 @@ Repository: Lost0rz/RemoteOrbit
 - Corrective product commit is `a9f1c242582f902a64a1edc3dc17e2c83e8c08d4`, pushed and verified on the authorized branch.
 - Corrective-2 card `RO-RUNTIME-RELIABILITY-038-A-CORRECTIVE-2-20261028` explicitly reopens the same 038-A lifecycle slice on PR #23; it does not create a new product task, authorize merge, or begin 038-B.
 - Corrective-2 product commit is `68ed029c582c3befb12f4f9996277e96bd2ecf60`, pushed and verified on the authorized branch.
-- Corrective-2 closeout control commit is `0f653d63386e35fb5ce247ddcfca0ae6226fb355`, pushed and verified on the authorized branch.
+- Corrective-2 closeout control commits follow the product commit and are pushed and verified on the authorized branch.
 - The retained Task 037 implementation worktree `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1` is not an active Task 038 writer and is not modified by this task.
 
 ## Historical accepted baseline
@@ -96,4 +96,4 @@ Repository: Lost0rz/RemoteOrbit
 - `AUDIT_FINDING_REPRODUCED: YES`; the corrective invariant is covered by real BLEBridge reset/completion lifecycle seams, not only a coordinator Boolean mock.
 - Corrective-2 production stop boundary was reproduced and fixed without changing SHORT/LONG, mic/Option ownership, or persistent-session semantics.
 - Corrective-2 focused evidence: `BLEBridgeTests` 18/18 PASS; `VoicePressCoordinatorTests` 39/39 PASS. Full `swift test`: 410/410 PASS. `swift build -c release`: PASS. `git diff --check`: PASS.
-- Corrective-2 remote delivery: product commit `68ed029c582c3befb12f4f9996277e96bd2ecf60` and paired closeout control commit `0f653d63386e35fb5ce247ddcfca0ae6226fb355` are present on `origin/codex/runtime-reliability-038-a-rapid-repress`.
+- Corrective-2 remote delivery: product commit `68ed029c582c3befb12f4f9996277e96bd2ecf60` and paired closeout control commits are present on `origin/codex/runtime-reliability-038-a-rapid-repress`.
