@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: BASE_RATE_AUDIT_COMPLETE — TASK 038-B STOP
+State: TASK 038-B CLOSEOUT — MERGE AUTHORIZED
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -9,276 +9,136 @@ Repository: Lost0rz/RemoteOrbit
 - Canonical development repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
 - Canonical branch: `main`.
 - Verified origin: `https://github.com/Lost0rz/remoteorbit.git`.
-- Fresh local `main` and `origin/main` are aligned at `e80c8be50fa489c7f04c4ca5567aff7cc5d3af9b`, the 038-B activation/control head.
-- PR #23 is merged into `main` at merge commit `79f3db92024e8a901d3a0fcec2c1f194c7136753` from audited head `dab6ea1c6d2143a889bd22a91f6eb13d64050209`.
-- Task 038-A rapid re-press admission is merged and complete at the source/code boundary. Its final product commit is `68ed029c582c3befb12f4f9996277e96bd2ecf60`.
-- Recorded Task 038-A verification: `VoicePressCoordinatorTests` 39/39 PASS; `BLEBridgeTests` 18/18 PASS; full Swift 410/410 PASS; release build PASS; diff check PASS.
-- Task 037 remains merged with `HUMAN_UI_ACCEPTANCE: PENDING` for Command-Space, Command-Shift-4, Option-A, pure modifier recording, and normal shortcut restoration after recorder close/cancel.
-- `AGENTS.md` durable rules were re-read for this transition and require no semantic change.
-- The prior 038-A worktree `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress` was verified clean, fully merged/reachable from current `main`, and without unique/unpushed commits; it was removed and its local branch was deleted. Its remote branch remains retained. Task 037's historical worktree remains untouched.
-- PR #24 is OPEN + DRAFT + UNMERGED; its live head is the current tip of the authorized branch and was remote-verified for this transition. An earlier control observation recorded `mergeable=true`; the current GitHub metadata is `mergeable=false`; neither is task authority or merge authorization. The independent Web CODE_DIFF audit was passed at the audited product head `6b5fde0b767933a89b8b7643dabe473e46040df8`; later commits are paired control-only runtime transition/result records. Corrective-2 delivery commit `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a` removes the remaining lifecycle observer-effect. Corrective-3 delivery commit `7d33e01cf94aa3685ccfdecc6df28207258cb1bb` closes only the AUDIO_START-before-HID continuity-correlation gap. Corrective-4 source/test delivery commit `652ea306dc4a22ee3c489b254d87becc6f9a4ed0` removes the remaining submission-path probe contention. The card authorizes only the diagnostic runtime build/install/run and evidence capture; merge, audio tuning, production correction, and 038-C/D/E/F work remain prohibited.
-
-## Task 038-B writer identity
-
-- Authorized branch: `codex/runtime-reliability-038-b-continuity-evidence`.
-- Authorized worktree: `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence`.
-- Start HEAD: `e80c8be50fa489c7f04c4ca5567aff7cc5d3af9b`.
-- Worktree registration: this paired control commit; worktree was clean before any source/test or diagnostic mutation.
-- Current source/test HEAD: `652ea306dc4a22ee3c489b254d87becc6f9a4ed0`, pushed and verified equal to the authorized remote branch before this paired closeout control update.
-- Corrective-1 audit baseline: PR #24 head `59fa6a5f0a20f48b623d0edefd1863e6c9073460`; render-side continuity capture currently calls the shared `VoiceTimingLogger` lock and mutates its bucket dictionary while `AudioPipe.stateLock` is held.
-- Corrective-1 delivery: source/test commit `0c26c61c2a2ec1f147f6179b20a864f335af1dfb`; render-side capture now uses AudioPipe-owned fixed-capacity storage and merges a lifecycle snapshot outside the render path.
-- Corrective-2 delivery: source/test commit `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a`; enabled storage is prepared before the lock, end detaches under the lock, and snapshot/filter runs after unlock.
+- Task 038-A is merged and complete.
+- Task 038-B is at evidence/diagnostic closeout. Product correction is not authorized by this state.
+- Task 037 human UI acceptance debt remains separate and is not rewritten by Task 038.
+- `AGENTS.md` durable rules remain authoritative and require no semantic change for this closeout.
 
 ## Task 038 roadmap
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B CAUSAL_ANALYSIS_COMPLETE`: 10 usable natural sessions from the expected diagnostic runtime were frozen and analyzed. Decoder rejection and overflow are downgraded; BLE/PCM supply are supported as recurring contributors, while active AudioPipe underrun also occurs with same-bucket healthy submission. Root cause is NARROWED_NOT_ESTABLISHED.
-- `038-C DEFERRED`: Option-edge authority.
+- `038-B EVIDENCE COMPLETE / MERGE AUTHORIZED`: continuity observability, runtime evidence capture, multi-session analysis, and active-bucket base-rate audit are complete. The evidence narrows the problem but does not establish an exclusive root cause.
+- `038-C DEFERRED`: Option-edge authority. Not started by this closeout.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
 - `038-F DEFERRED`: privacy-preserving text-output observation.
 
-## 038-B evidence basis
+## 038-B delivered capability
 
-Historical runtime evidence motivating this slice shows repeated BLE delivery deficits and AudioPipe underruns while decoder rejects and overflow drops remained zero. This is not yet end-to-end proof of text omission and must not be promoted to root cause without fresh session-level correlation.
+PR #24 adds an opt-in diagnostic continuity chain for:
 
-The fresh safe log check used `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log`, from `2026-10-27 22:54:47 UTC` through `2026-10-28 04:47:40 UTC` (`21174` lines, `3493732` bytes). It contains only `AUDIO-METER` records; voice continuity lines and `diagnostic-events-v1.jsonl` are absent, so `SESSION_COUNT=0` for this evidence slice. The installed/running `/Applications/RemoteOrbit.app` is a separate old identity (`com.lost0rz.RemoteOrbit`, version `0.2.11`, build `40`, executable SHA-256 `4dcd1cc27d7b56bbf5c9b67240eb5fcef4a8c966fbc4a86e029a7877288fe66c`) and is not evidence for source HEAD `5b3003b`.
+`BLE notifications -> decode -> PCM submission -> AudioPipe queue/render -> underrun`
 
-038-B therefore investigates the continuity chain only:
+The diagnostic path is enabled only with `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1` and uses session identity plus 100 ms monotonic buckets.
 
-`BLE notification cadence -> decoded PCM supply -> AudioPipe queue/render underrun`
+The probe architecture was hardened before runtime use:
 
-The goal is to determine whether a reproducible, session-level causal relationship exists and which layer owns the deficit. No product tuning is authorized by this transition.
+- render-side observation no longer acquires the shared `VoiceTimingLogger` lock or mutates its central dictionary while `AudioPipe.stateLock` is held;
+- lifecycle begin/end no longer perform full fixed-capacity scans while holding the audio state lock;
+- AUDIO_START-before-HID observations retain a stable capture identity and bind once to the later gesture/session;
+- submission observation is stored in the AudioPipe-owned fixed-capacity ledger rather than the central shared logger;
+- default-off behavior remains unchanged;
+- no buffer size, queue target, pacing, codec, BLE timing, AUDIO_STOP, SHORT/LONG, Option, or production audio behavior was intentionally changed.
 
-## Current phase and next action
+Semantic source/test delivery head: `652ea306dc4a22ee3c489b254d87becc6f9a4ed0`.
+Independent Web CODE_DIFF audit passed at product/control head `6b5fde0b767933a89b8b7643dabe473e46040df8`; later branch changes through the evidence phase are control/evidence records unless explicitly documented otherwise.
 
-- Phase: 038-B BASE-RATE AUDIT COMPLETE — frozen natural-session set reanalyzed; stop at the evidence verdict.
-- First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
-- Current conclusion: FACT — the opt-in 100 ms monotonic/session bucket ledger aligned BLE, decode, submission, queue, and render evidence across 10 usable sessions; buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior remain unchanged.
-- Audit property reproduced: the prior render-side probe acquired the shared logger lock and mutated its dictionary while `AudioPipe.stateLock` was held, creating probe self-contention risk.
-- Corrective-1 result: render-side continuity capture now uses AudioPipe-owned preallocated fixed-capacity storage (8,192 buckets), with no new logger lock, dictionary/hash mutation, formatting/printing, synchronous dispatch, or unbounded allocation in the probe path; snapshot/filter/merge occur after capture ends.
-- Corrective-2 audit basis (before delivery): begin/end reset or filtered the full 8,192-bucket ledger while holding `AudioPipe.stateLock`; the default-off path also performed the full reset.
-- Corrective-2 boundary: preserve the fixed-capacity render ledger and evidence fields, but make disabled activation/deactivation cheap, keep lock-held transitions bounded metadata/state work, and detach snapshot creation without racing render writes.
-- Corrective-2 result: disabled begin/end keep the ledger nil; enabled begin allocates before `stateLock`, end detaches under `stateLock`, and snapshot/filter runs after unlock with no render race.
-- Verification: focused `AudioDataPlaneDiagnosticsTests` 28/28 PASS; affected `AudioPipeTests` 4/4 PASS; full `swift test` 417/417 PASS; `swift build -c release` PASS; `git diff --check` PASS.
-- Corrective-3 result: AUDIO_START now owns a stable opt-in capture identity even when no HID session exists; pre-session BLE/decode/render observations remain on that capture, and the matching later session can bind it once. Binding is exact-identity and one-shot; wrong or repeated session bindings are rejected. HID-before-AUDIO_START reuses the same bound capture identity.
-- Verification: focused `AudioDataPlaneDiagnosticsTests` 31/31 PASS; affected `AudioPipeTests` 4/4 PASS; `VoiceBoundaryOrderingTests` 3/3 PASS; `VoicePressCoordinatorTests` 39/39 PASS; full `swift test` 420/420 PASS; `swift build -c release` PASS; `git diff --check` PASS.
-- Product/runtime boundary: FACT — PID `21428` produced 10 usable sessions with exact session/bucket joins and `render_capacity_dropped=0`; final text omission and human-visible quality remain UNKNOWN/NOT_REPORTED.
-- Current next action: STOP. No additional sessions, corrective product change, 038-C/D/E/F work, TCC/driver/CoreAudio mutation, rebuild/reinstall, or merge is authorized. Any corrective implementation requires a separate governance transition.
+## 038-B frozen runtime evidence
 
-## BLE central-readiness diagnosis transition receipt
+Runtime identity:
 
-- Transition authority: FACT — the current 038-B BLE central-readiness card explicitly authorizes this control-only transition and bounded existing-evidence diagnosis.
-- Previous incident outcome: FACT — `OUTCOME_A_PRE_MICOPEN_FAILURE`; the session reached the long-activation route boundary but no ATVV-ready, `MIC_OPEN_TX`, `AUDIO_START`, or first remote audio packet evidence was observed.
-- Missing fact: FACT — the existing runtime evidence does not yet identify the exact CoreBluetooth central readiness/authorization state that prevented `.poweredOn` transport progress.
-- Scope: FACT — preserve the observed runtime; no product correction, reconnect/ATVV behavior change, TCC/driver/CoreAudio mutation, rebuild/reinstall, merge, or second user session is authorized.
+- `/Applications/RemoteOrbit.app`
+- bundle `com.lost0rz.RemoteOrbit`
+- version/build `0.2.14 (43)`
+- executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`
+- `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`
 
-## BLE central-readiness diagnosis result receipt
+Evidence window: `2026-10-28 19:19:13.941–19:58:44.510 +0800`.
 
-- Evidence interval: FACT — process launch `2026-10-28 15:37:55.792 +0800` through incident release `2026-10-28 15:45:44.685 +0800`; the selected incident is `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`.
-- Runtime identity: FACT — PID `59512`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, bundle `com.lost0rz.RemoteOrbit`, version `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, with `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
-- Central state: FACT — `bluetoothd` reported `state updated ... state "Unauthorized"` at `15:37:55.906 +0800` for the PID-59512 CoreBluetooth session; no later state update for that session was observed through the incident.
-- Central authorization: FACT — the central session was unauthorized; the numeric `CBManager.authorization` property was not separately emitted. Bluetooth power-only status remains UNKNOWN.
-- HID transport: FACT — HID compatibility input remained functional (`hid_connected=true`, HID down/hold/up evidence); HID health does not prove CoreBluetooth ATVV readiness.
-- ATVV/CoreBluetooth: FACT — no powered-on callback evidence, connection, service discovery, capabilities handshake, ATVV-ready marker, `MIC_OPEN_TX`, `AUDIO_START`, or remote audio packet was observed. The app emitted repeated `等待蓝牙就绪…` and CoreBluetooth recorded powered-on-state API misuse during the same process lifetime.
-- Source behavior: FACT — `start()` sets `isStarted` then returns when `central.state != .poweredOn`; `.poweredOn` would schedule immediate reconnect only when `voiceInputRequested` is true, while `.unauthorized` falls through without a recovery action. Release cleanup later clears the voice intent, so no powered-on callback/reconnect path was observed in this incident.
-- Earliest proven break: FACT — CoreBluetooth central readiness/authorization before ATVV connection and before `micOpen`; the BLE/decode/PCM/AudioPipe stages were never entered.
-- Evidence sufficiency: SUFFICIENT — exact minimum fault boundary is established; no diagnostic probe is required for this diagnosis.
-- Root cause: INFERENCE — the incident is blocked at an unauthorized CoreBluetooth central boundary. The underlying authorization/TCC cause and any product correction are not established or authorized here.
-- Smallest justified next action: STOP after diagnosis. Preserve the runtime and require a separate authority decision for any user-owned authorization review or product correction; do not request another voice session in this pass.
-- Source changed: FACT — NO; no probe, build, install, runtime restart, permission change, driver change, CoreAudio restart, or merge was performed.
+Frozen set:
 
-## BLE authorization-resume verification receipt
+- 10 usable natural LONG sessions from the same runtime;
+- one historical PID-18405 session excluded;
+- all usable sessions had exact timing/BLE/decode/submission/render/continuity joins;
+- `render_capacity_dropped=0` for all usable sessions.
 
-- Transition authority: FACT — the current 038-B VERIFY card explicitly authorizes cleanly replacing the prior diagnostic process, relaunching the same installed diagnostic app, and observing fresh CoreBluetooth readiness without a voice session.
-- Installed bundle: FACT — `/Applications/RemoteOrbit.app`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`; both `NSBluetoothAlwaysUsageDescription` and `NSBluetoothPeripheralUsageDescription` exist.
-- Prior runtime: FACT — PID `59512` was quit through the application-level quit path and its launcher exited before the new launch.
-- Fresh runtime: FACT — PID `56531`, `RUN_START=2026-10-28 17:22:48.532 +0800`, same installed executable, only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1` observed.
-- Bluetooth authorization: UNKNOWN — the fresh process did not emit a numeric `CBManager.authorization` value; the human Settings action is not substituted for process evidence.
-- Central state: FACT — `bluetoothd` sent the fresh PID-56531 central session `state updated ... state "Unauthorized"` at `17:22:48.758 +0800`; no `.poweredOn` transition or `[BLE] 蓝牙已就绪` marker followed.
-- Transport preparation: FACT — blocked before reconnect/scan/retrieve, peripheral connection, service discovery, characteristic discovery, capabilities handshake, and ATVV readiness; no synthetic `micOpen` was sent.
-- Final state: FACT — `BLOCKED_BLUETOOTH_AUTHORIZATION`; do not request a natural voice session until a separately authorized fresh runtime reaches `.poweredOn` and ATVV readiness.
-- Scope: FACT — no source change, TCC mutation, rebuild, reinstall, driver change, CoreAudio change, PR merge, or ten-session run occurred.
+## Final evidence verdict
 
-## BLE-start incident transition receipt
+### Established facts
 
-- Transition authority: FACT — the current 038-B BLE-start incident card explicitly authorizes this control-only transition and existing-evidence diagnosis.
-- Incident session: `AD04FCCB-020E-4071-BD90-B24EFB4B2ACE`.
-- Incident interval: `2026-10-28 15:45:41.216 +0800` through `2026-10-28 15:45:44.685 +0800`.
-- Last confirmed good stage: `INPUT/GESTURE + REMOTE_ROUTE_BEGIN`.
-- First failed or unconfirmed stage: `BLE AUDIO START / FIRST REMOTE AUDIO PACKET`.
-- Root cause: UNKNOWN — the existing capture does not yet establish whether `micOpen` was transmitted after ATVV readiness.
-- Scope: no second user session, no product source change, no BLE/audio behavior change, no rebuild/reinstall/TCC/driver/CoreAudio mutation, and no merge.
+- Active-stream underrun is real: 48 active underrun buckets across 4/10 sessions.
+- Startup/prestable render starvation was not observed in the frozen set.
+- Tail/teardown accounts for about 89.2% of total unfilled frames and must not be mixed with active-stream continuity defects.
+- Decoder rejects were `0` across all 10 usable sessions.
+- Zero-sample decodes were `0` across all 10 usable sessions.
+- AudioPipe overflow drops were `0` across the usable set.
 
-## Runtime-capture transition receipt
+### Active-bucket base-rate result
 
-- Transition authority: FACT — the current execution card records the independent Web CODE_DIFF audit PASS at observed PR head `6b5fde0` and explicitly authorizes an evidence-only runtime build/run/capture.
-- Scope: FACT — `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1` is the only required diagnostic mode; no buffer, queue target, pacing, resampling, codec, BLE timing, AUDIO_STOP, Adaptive Playout, text observer, merge, or release change is authorized.
-- Runtime status: FACT — installed diagnostic identity still matches the prior capture; fresh process permission health and first-session evidence are pending.
-- Root cause: UNKNOWN — no causal claim is made before fresh session-level evidence.
+Active buckets: 391 total = 48 underrun + 343 non-underrun controls.
 
-## Runtime-capture result receipt
+BLE cadence:
 
-- Audited/product identity: FACT — independent Web CODE_DIFF audit passed at PR head `6b5fde0b767933a89b8b7643dabe473e46040df8`; semantic source/test identity remains `652ea306dc4a22ee3c489b254d87becc6f9a4ed0`; current PR/control head is `54cdaf2a407d4d24ec6626725c9846bf2bbba80f`, with only paired control records after the audited product head.
-- Runtime build: FACT — diagnostic app `com.lost0rz.RemoteOrbit`, version `0.2.14`, build `43`, universal arm64+x86_64, installed at `/Applications/RemoteOrbit.app`; executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`; embedded build-control head `54cdaf2a407d4d24ec6626725c9846bf2bbba80f` and product tree unchanged from semantic source/test head.
-- Build note: FACT — `remote-orbit/package-app.sh` failed only in its legacy x86 stage under Swift 6.4/Xcode 27.1; native arm64 and disposable `--triple x86_64-apple-macos13.0` builds passed, and the same signed universal app structure was assembled in `/private/tmp/remoteorbit-038-b-runtime-capture.wWfAWx/diagnostic-build` without changing the repository script or product code.
-- Capture environment: FACT — the running product process inherited only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`; no unrelated experimental mode, TCC change, driver change, CoreAudio restart, or LaunchAgent change was made. Diagnostic stdout/PTY capture is `/private/tmp/remoteorbit-038-b-runtime-capture.wWfAWx/diagnostic.tty.log`; app logs are `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log` and `voice-diagnostic-current.jsonl`.
-- Capture interval: FACT — diagnostic launches at `2026-10-28 15:25:37 +0800`, `15:26:12 +0800`, and `15:26:33 +0800`; stable capture process observed as PID `46970` at `15:27:18 +0800`. The old `0.2.11 (40)` app and log were preserved under `/private/tmp/remoteorbit-038-b-runtime-capture.wWfAWx/preexisting/`.
-- Probe health: FACT — FAIL/INCOMPLETE. The product log reports `input=false accessibility=false`; no `CONTINUITY_SESSION` or `CONTINUITY_BUCKET` record was emitted.
-- Session/join integrity: UNKNOWN — `TOTAL_VOICE_SESSIONS=0`, `USABLE_SESSION_COUNT=0`, `EXCLUDED_SESSION_COUNT=0`; no session ID existed to join BLE/decode/AudioPipe evidence. No per-session metrics are available.
-- Render capacity drop: UNKNOWN — `render_capacity_dropped` was not observable because no continuity session ended.
-- Runtime boundary: FACT — installed system driver remains `audio.local.RemoteOrbitAudio2chXX`, version `0.7.1`; no RemoteOrbit LaunchAgent was found; the driver was not replaced and CoreAudio was not restarted.
-- Evidence conclusion: UNKNOWN — decoder rejection, overflow causality, BLE cadence causality, PCM-supply-to-underrun causality, active-stream underrun, and final-text omission are all unclassified because probe health and session evidence did not pass.
-- Smallest justified next action: user manually grants Input Monitoring and Accessibility to the installed diagnostic App, then performs natural voice sessions; after at least one healthy probe session, resume toward the card's preferred ten usable sessions. No agent TCC mutation or synthetic failure is authorized.
+- gap >20 ms: underrun `19/48 = 39.58%`; control `33/343 = 9.62%`; RR `4.11`;
+- gap >30 ms: underrun `7/48 = 14.58%`; control `6/343 = 1.75%`; RR `8.34`;
+- enrichment peaks at lag zero; consistent earlier BLE-gap precedence was not established.
 
-## Corrective-4 delivery receipt
+PCM/supply:
 
-- Audit finding: FACT — `AudioPipe.schedule()` held `stateLock` while `VoiceTimingLogger.recordContinuitySubmitted()` acquired the shared diagnostic lock and mutated the central dictionary ledger.
-- Selected architecture: FACT — submission evidence now records into the existing AudioPipe-owned fixed-capacity ledger under `stateLock`; the monotonic timestamp, submitted frames, queue depth, 100 ms bucket, capture identity, and provisional late-binding origin are preserved.
-- Merge boundary: FACT — submission and render fields are carried in the detached snapshot and merged into the central ledger once after capture detach; the old shared submission method and call are absent.
-- Preservation: FACT — corrective-1/2/3 render, lifecycle, default-off, capture identity, late binding, session isolation, ordering, overflow, and `render_capacity_dropped` invariants remain covered. No production audio redesign, voice semantic change, or runtime capture occurred.
-- Verification: FACT — diagnostics 32/32, AudioPipe 4/4, VoiceBoundaryOrdering 3/3, VoicePressCoordinator 39/39, full Swift 421/421, release build PASS, and diff check PASS.
+- `submitted < requested`: underrun `33/48 = 68.75%`; control `204/343 = 59.48%`; RR `1.16`;
+- supply deficit is only weakly enriched and has no consistent lagged precedence;
+- same-bucket `submitted >= requested` cannot establish intra-bucket arrival-before-render ordering.
 
-## Protected boundaries
+### Causal classification
 
-- Do not tune AudioPipe buffers or queue targets.
-- Do not introduce or re-enable Adaptive Playout.
-- Do not change BLE codec, packet timing, keep-alive, AUDIO_STOP interpretation, or stream semantics.
-- Do not change SHORT/LONG, rapid re-press, Option/noOptionEdge, shortcut mapping, or persistent-session behavior.
-- Do not add the final text-output Accessibility observer in 038-B.
-- Do not redesign DiagnosticAuthority or logging retention in this slice.
-- Do not bundle unrelated cleanup, packaging, release, permission, or driver work.
+- `DECODER_REJECTION_CAUSAL_STATUS = DOWNGRADED`
+- `OVERFLOW_CAUSAL_STATUS = DOWNGRADED`
+- `BLE_CADENCE_CAUSAL_STATUS = SUPPORTED_AS_RECURRING_CONTRIBUTOR`
+- `PCM_SUPPLY_TO_UNDERRUN_CAUSAL_STATUS = DOWNGRADED_FROM_SUPPORTED`
+- `ACTIVE_STREAM_UNDERRUN_STATUS = FACT`
+- `FINAL_TEXT_OMISSION_STATUS = UNKNOWN`
+- `ROOT_CAUSE_STATUS = NARROWED_NOT_ESTABLISHED`
 
-## Acceptance boundary
+BLE cadence is therefore evidence-backed as a recurring contributor, but it is not established as an exclusive root cause. PCM aggregate supply alone does not explain the observed active starvation.
 
-038-B is complete only when session-level evidence can classify the continuity path with explicit FACT / INFERENCE / UNKNOWN labels and distinguish at minimum:
+## Remaining unresolved problem
 
-- BLE notification gaps/cadence;
-- decoded frame/sample supply and delivery deficit;
-- AudioPipe queue depth and underrun behavior;
-- normal versus weak sessions;
-- boundary/tail artifacts versus active-stream continuity defects.
+The project still does not have a single corrective root cause for the continuity weakness.
 
-A finding may identify a likely layer, but no buffer or playback fix is authorized until a later governance transition explicitly opens corrective implementation.
+The principal unresolved technical boundary is finer-grained ordering inside the current 100 ms bucket:
 
-## 038-B Bluetooth app-identity reconciliation result
+- when exactly BLE packets arrive;
+- when decoded PCM is submitted;
+- instantaneous AudioPipe queue depth immediately before render demand;
+- whether render starvation occurs before late same-bucket supply arrives;
+- whether a separate AudioPipe queue/render scheduling effect remains after BLE cadence contribution is accounted for.
 
-- Transition authority: FACT — the current `RO-038-B-BLUETOOTH-APP-IDENTITY-RECONCILIATION` card explicitly authorizes this read-only identity inventory and requires the stale/unresolved stop state when no `Remote Orbital` application can be found while the current diagnostic runtime remains CoreBluetooth Unauthorized.
-- Evidence interval: FACT — read-only inventory completed on `2026-10-28 17:36:54 +0800`; the existing diagnostic process launched at `2026-10-28 17:22:48` and remained PID `56531`.
-- Current diagnostic identity: FACT — `/Applications/RemoteOrbit.app`, display/name `RemoteOrbit`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, designated requirement `identifier "com.lost0rz.RemoteOrbit"`, CDHash `7465273e606e288198cff206625bb46b46f8c819`, embedded `RemoteOrbitDiagnosticSourceHead=54cdaf2a407d4d24ec6626725c9846bf2bbba80f`.
-- Running-process identity: FACT — PID `56531` resolves through `lsof` to `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`; the executable hash, bundle ID, version/build, and designated requirement match the installed app.
-- Candidate inventory: FACT — 16 plausible on-disk `.app` bundles were found across the authorized application, project/archive, and disposable runtime/build roots. Fifteen use `com.lost0rz.RemoteOrbit`; one observer uses `com.lost0rz.RemoteOrbit.P1A5Observer`. All display as `RemoteOrbit` or `RemoteOrbit P1A5 Observer`; no on-disk `Remote Orbital.app` or `Remote Orbit.app` was found.
-- LaunchServices: FACT — 21 exact `com.lost0rz.RemoteOrbit` registration records were observed: the current `/Applications/RemoteOrbit.app` plus stale/nonexistent archive, Trash, backup, volume, and historical build paths. The stale records retain `RemoteOrbit` display names, not `Remote Orbital`.
-- Bluetooth UI mapping: FACT/UNKNOWN — `Remote Orbital` is the human-reported Bluetooth UI label; no independent path or bundle identity for that label was available. It cannot be conclusively mapped to the current app or to a different installed app.
-- Match: FACT — `STALE_OR_UNRESOLVED_ENTRY`; display name differs, no actual `Remote Orbital` bundle exists in the searched scopes, and the visible label alone does not prove TCC ownership.
-- Root-cause boundary: INFERENCE — the current diagnostic app's CoreBluetooth Unauthorized result is not identity-proven as belonging to the visible `Remote Orbital` entry. The underlying TCC/system reason remains UNKNOWN.
-- Final state: FACT — `BLUETOOTH_TCC_IDENTITY_STALE_OR_UNRESOLVED`.
-- Scope: FACT — no source, app bundle, TCC database, LaunchServices registry, driver, CoreAudio, runtime configuration, voice session, or PR lifecycle was changed.
-- Smallest justified next action: STOP. Do not reset TCC or ask for another voice session in this pass; a separately authorized identity-preserving Bluetooth authorization review is required.
+Human-visible waveform/audio quality and final text omission were not independently observed in 038-B and remain UNKNOWN. 038-F was not started.
 
-## 038-B Bluetooth authorization post-grant verification result
+## Phase lessons
 
-- Transition authority: FACT — the current `RO-038-B-BLUETOOTH-AUTH-POST-GRANT-VERIFY` card explicitly authorizes a clean diagnostic relaunch of the exact installed app and passive CoreBluetooth/ATVV preparation observation without a voice session.
-- Evidence interval: FACT — fresh LaunchServices launch `2026-10-28 17:44:08.779 +0800` through final observation; PID `21428` remained running at final inspection.
-- Runtime identity: FACT — `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, designated requirement `identifier "com.lost0rz.RemoteOrbit"`, with only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1` confirmed in the process environment.
-- Bluetooth authorization: UNKNOWN — the fresh runtime did not emit the numeric `CBManager.authorization` value; no `allowedAlways` claim is made from the UI grant alone.
-- CoreBluetooth state: FACT — the first fresh app readiness marker was `[BLE] 蓝牙已就绪` at `17:44:08`, proving the central reached `poweredOn`; no later contrary state was observed.
-- Startup health: FACT — HID permissions were `input=true accessibility=true`; the HID device was connected in compatibility/monitored mode and the RemoteOrbit audio IOProc started. HID connection is not substituted for ATVV peripheral connection.
-- ATVV preparation: FACT — no fresh-interval `[BLE] 已连接`, reconnect/retrieve/scan marker, ATVV service discovery, command/audio/control characteristic discovery, capabilities request/response, codec acceptance, or `ATVV 语音链路已就绪` marker was observed. No `VOICE_DOWN`, `MIC_OPEN_TX`, `AUDIO_START`, or synthetic micOpen occurred.
-- Earliest boundary: FACT — `LAST_CONFIRMED_GOOD_STAGE=COREBLUETOOTH CENTRAL READY / POWERED_ON`.
-- Earliest unconfirmed boundary: FACT — `FIRST_FAILED_OR_UNCONFIRMED_STAGE=ATVV TRANSPORT PREPARATION (RECONNECT/PREWARM PATH NOT OBSERVED)`.
-- Interpretation: INFERENCE — the app does not passively enter the ATVV preparation path while no voice intent exists, or that path did not execute; this is not yet proof of a transport protocol failure.
-- Final state: FACT — `BLOCKED_ATVV_PREPARATION`.
-- Scope: FACT — no source, TCC, app bundle, rebuild/reinstall, driver, CoreAudio, or voice session was changed or performed.
+1. Separate observability health from product health. A complete evidence chain can PASS while audio continuity remains defective.
+2. Do not diagnose from session aggregates alone. Normal active buckets are required as denominators before labeling a contributor.
+3. Separate startup, active-stream, tail/teardown, and idle render populations. Tail artifacts dominated total unfilled frames in this phase.
+4. Same-bucket totals do not prove event ordering. A 100 ms bucket can contain an early starvation followed by later PCM supply.
+5. Diagnostic instrumentation on a real-time path must itself be audited for observer effect. Shared locks/dictionaries on the render/submission path were removed before trusting runtime results.
+6. Runtime identity and macOS permissions are part of evidence provenance. The Bluetooth authorization detour demonstrated that a healthy HID path does not prove CoreBluetooth readiness.
+7. Root cause remains `UNKNOWN/NARROWED` until competing explanations are discriminated; evidence should not be converted into opportunistic buffer or timing changes.
 
-## 038-B post-Bluetooth first-natural-session authorization transition
+## Closeout / merge authority
 
-- Transition authority: FACT — the current `RO-038-B-POST-BLUETOOTH-FIRST-NATURAL-SESSION` card explicitly corrects the passive-readiness test assumption, authorizes a control-only transition, and authorizes exactly one natural voice session after publication.
-- Runtime authorization: FACT — the fresh installed process reached CoreBluetooth `.poweredOn` and emitted `[BLE] 蓝牙已就绪`; the Bluetooth authorization blocker is resolved at the runtime boundary.
-- Test-assumption correction: FACT — absence of ATVV connection/service/capabilities logs before a voice-key pending event was not a product failure. Source behavior makes ATVV preparation demand-triggered through `onRemoteTransportPreparation` → `prepareVoiceTransport()`.
-- Current state: FACT — `READY_FOR_ONE_NATURAL_SESSION`.
-- Runtime identity: FACT — preserve PID `21428`, `/Applications/RemoteOrbit.app`, `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, and only `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
-- Root cause: UNKNOWN — the original audio-continuity problem has not been classified.
-- Scope: FACT — no source change, rebuild, reinstall, TCC/driver/CoreAudio mutation, merge, or second session is authorized.
-- Next action: FACT — ask for exactly one natural long voice interaction, then stop and evaluate that single session before any further capture.
+The user explicitly authorized:
 
-## 038-B first natural session result
+- updating the relevant project documentation;
+- recording the unresolved problem, current conclusions, and phase lessons;
+- merging PR #24 after the live merge gate is rechecked.
 
-- Transition authority: FACT — the current card authorizes exactly one natural voice interaction and requires stopping after this session before any retry or second capture.
-- Runtime identity: FACT — PID `21428`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, diagnostic environment `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
-- Session: FACT — `F406982F-E2F8-4EE6-A228-C12A37B20BE7`, `2026-10-28 19:19:13.941 +0800` through `19:19:23.822 +0800`.
-- HID trigger: FACT — HID down, `VOICE_DOWN`, `HOLD_CONFIRMED` at +311.5 ms, physical up at +8185.9 ms; no retry or second session was performed.
-- ATVV chain: FACT — transport prewarm, saved-UUID connect, peripheral connection, ATVV service discovery, command/audio/control characteristic discovery, capabilities response, codec `ADPCM 16 kHz`, ATVV ready, and `MIC_OPEN_TX` all occurred.
-- Remote audio/decode: FACT — `AUDIO_START` at +370.3 ms, first audio at +370.6 ms / +16.0 ms from AUDIO_START, 516 notifications / 61,920 bytes, 516 decoded frames / 123,840 samples, delivery ratio `0.991`, deficit `1,173 samples / 73.3 ms`, decode rejects `0`, zero-sample decodes `0`, max notification gap `46.8 ms`.
-- PCM/render: FACT — 371,520 submitted frames; AudioPipe requested 393,216, filled 371,520, unfilled 21,696; active remote underrun 21,696 frames / 62 callbacks / 452.0 ms; queue depth max 56.0 ms; overflow drops `0`.
-- Continuity: FACT — `CONTINUITY_SESSION` present with the same session ID; 83 100-ms `CONTINUITY_BUCKET` records present; submission/render/session join is exact; `render_capacity_dropped=0`.
-- Probe result: FACT — `PROBE_HEALTH=PASS` for complete observability-chain coverage. This does not mean audio quality was healthy.
-- Human boundary: UNKNOWN — remote PCM and WAV evidence exist, but no independent target input-method waveform observation was captured.
-- Earliest stage: FACT — no required stage failed to execute. The first observed quality deficits are BLE supply cadence/expected-sample deficit and correlated AudioPipe active underrun; causality remains unproven from one session.
-- Root cause: UNKNOWN — no corrective action is justified by this single session.
-- Scope: FACT — no source, TCC, driver, CoreAudio, protocol, buffer, or merge change; no second session.
+This closeout does **not** authorize:
 
-## 038-B multi-session causal analysis result
+- AudioPipe/BLE corrective implementation;
+- finer-grained probe implementation;
+- additional runtime sessions;
+- 038-C/D/E/F execution;
+- TCC, driver, CoreAudio, or release mutation beyond the PR merge itself.
 
-- Transition authority: FACT — `RO-038-B-MULTI-SESSION-CAUSAL-ANALYSIS-20261028` authorizes freezing the completed capture set, performing cross-session/bucket analysis, and updating only control records.
-- Runtime identity: FACT — `/Applications/RemoteOrbit.app`, PID `21428`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
-- Evidence sources: FACT — `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log`, `voice-diagnostic-current.jsonl`, and `diagnostic-events-v1.jsonl`; current runtime `RUN_START` is `2026-10-28 17:44:08.779 +0800`.
-- Evidence window: FACT — `2026-10-28 19:19:13.941` through `19:58:44.510 +0800`, from `F406982F-E2F8-4EE6-A228-C12A37B20BE7` through `CD939D47-F114-48E3-998C-1B49527C4A74`.
-- Frozen set: FACT — 10 usable current-runtime natural LONG sessions; every session has one BLE summary, one AudioPipe summary, one continuity session, declared bucket count equal to observed bucket records, exact JSONL gesture/session identity, and `render_capacity_dropped=0`.
-- Excluded set: FACT — one complete historical candidate, `A2B3B6DA-524C-4882-BD0C-C718D839B07E`, excluded because `diagnostic-events-v1.jsonl` identifies PID `18405` outside the current runtime/evidence window. Earlier pre-window/pre-authorization records remain historical and are not mixed into this set.
-- Aggregate evidence: FACT — 2,734 BLE notifications / 328,080 bytes; 656,160 decoded samples; expected 664,363; deficit 8,203 samples / 512.9 ms; mean delivery ratio 0.9873; decode rejects 0; zero-sample decodes 0; overflow drops 0; total render unfilled 145,776 frames.
-- Duration comparison: INFERENCE — post-hoc groups are SHORTER `3813.9–3991.2 ms` (3), MID `4007.3–4457.8 ms` (6), and LONGER `8195.5 ms` (1). Active underrun occurred in 0/3 SHORTER, 3/6 MID, and 1/1 LONGER sessions; no monotonic duration rule is established.
-- Boundary comparison: FACT — strict active-stream unfilled frames were `15,808` across 4/10 sessions and 129,968 frames (about 89.2% of all unfilled frames) occurred after `AUDIO_STOP` in tail/teardown buckets. Startup/prestable buckets had no render unfilled frames; six sessions had pre-`AUDIO_START` audio capture with no render demand.
-- Bucket correlation: INFERENCE — 48 active unfilled buckets existed: 15 had same-bucket submitted frames at least equal to requested frames, 33 had submitted frames below requested, 19 had BLE gap maxima over 20 ms, and 7 over 30 ms. Repeated BLE/PCM degradation coincided with some active starvation, but active starvation also occurred with healthy aggregate same-bucket submission.
-- Causal verdict: FACT/INFERENCE — decoder rejection `DOWNGRADED`; overflow `DOWNGRADED`; BLE cadence `SUPPORTED` as a recurring contributor, not an exclusive cause; PCM supply to underrun `SUPPORTED` as a recurring contributor, not an exclusive cause; active-stream underrun `FACT`; final text omission `UNKNOWN`.
-- Root cause: FACT — `NARROWED_NOT_ESTABLISHED`. The evidence rules out decoder rejection and overflow as supported primary explanations, but does not distinguish BLE/PCM contribution from AudioPipe intra-bucket queue/render timing or establish a single owner.
-- Human boundary: FACT — `HUMAN_QUALITY=NOT_REPORTED` for all 10 sessions; no 038-F text-output observation was added; `FINAL_TEXT_OMISSION_STATUS=UNKNOWN`.
-- Scope: FACT — no source, runtime, TCC, driver, CoreAudio, BLE, buffer, protocol, probe, or PR merge mutation.
-
-## 038-B multi-session capture activation
-
-- Transition authority: FACT — the current `RO-038-B-MULTI-SESSION-CONTINUITY-CAPTURE-20261028` card explicitly authorizes the control-only activation and at least 9 additional natural LONG sessions after the first usable session.
-- Prior probe: FACT — first natural session `F406982F-E2F8-4EE6-A228-C12A37B20BE7` passed the complete BLE → decode → PCM submission → AudioPipe render → continuity observability chain.
-- Runtime/probe health: FACT — installed diagnostic PID `21428` remains `/Applications/RemoteOrbit.app`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, with `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
-- Capture target: FACT — at least 10 usable natural LONG sessions total; 1 usable session already exists; at least 9 additional usable sessions are required.
-- Session conditions: FACT — use normal press-and-hold interactions with naturally varying utterance lengths and ordinary release; do not synthesize events, manufacture weak Bluetooth, add CPU load, or intentionally induce underruns.
-- Stop boundary: FACT — preserve naturally weak/broken sessions as evidence; stop on probe-health regression, identity/environment drift, unjoinable session identity, compromised continuity evidence, source-change requirement, out-of-scope evidence, or justified need for corrective work.
-- Scope: FACT — no corrective product change, audio tuning, protocol change, 038-C/D/E/F work, TCC/driver/CoreAudio mutation, rebuild/reinstall, or merge.
-
-## 038-B active-bucket base-rate audit result
-
-- `CONTROL_TRANSITION`: FACT — `CAUSAL_ANALYSIS_COMPLETE` -> `EXISTING_EVIDENCE_BASE_RATE_AUDIT` was published at `a29b7c1b60581a2a58eb2238fef9ff6a9c31bddd`; this result returns 038-B to a stopped state.
-- `AUDIT_PROFILE`: FACT — `FORMAL_READ_ONLY_BASE_RATE_AND_LAG_AUDIT` over the frozen 10-session evidence set; no new runtime capture.
-- `AUDIT_INDEPENDENCE`: FACT — `SELF_CHECK` with fresh raw-log reanalysis and a separate ACTIVE-STREAM denominator; not separate-agent acceptance.
-- `EVIDENCE_SET_IDENTITY`: FACT — PID `21428`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, environment `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`; frozen window `2026-10-28 19:19:13.941–19:58:44.510 +0800`; sources `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log`, `/Users/ox_miles/Library/Logs/RemoteOrbit/voice-diagnostic-current.jsonl`, and `/Users/ox_miles/Library/Logs/RemoteOrbit/diagnostic-events-v1.jsonl`.
-- `BUCKET_CLASSIFICATION`: FACT — 482 total buckets: 18 startup/prestable, 391 ACTIVE, 73 tail; only ACTIVE buckets entered the base-rate denominators. `ACTIVE_UNDERRUN_BUCKET_COUNT=48`; `ACTIVE_NO_UNDERRUN_BUCKET_COUNT=343`; all 10 session joins remained exact and `render_capacity_dropped=0`.
-- `ACTIVE_UNDERRUN_METRICS`: FACT — 293 BLE notifications / 48 buckets (6.1042 per bucket), decoded samples `70,320`, submitted frames `210,960`, render requested/filled/unfilled `222,208/206,400/15,808`; mean max BLE gap `22.4250 ms`, mean submitted/requested ratio `0.961100`, mean queue min/max/end `0/1228/604.3333` frames.
-- `ACTIVE_NO_UNDERRUN_METRICS`: FACT — 2,260 BLE notifications / 343 buckets (6.5889 per bucket), decoded samples `542,400`, submitted frames `1,608,480`, render requested/filled/unfilled `1,622,528/1,622,528/0`; mean max BLE gap `16.9327 ms`, mean submitted/requested ratio `0.993964`, mean queue min/max/end `5432.0233/6595.2187/6006.5773` frames.
-- `BLE_GT20_RATE_UNDERRUN`: FACT — `19/48 = 39.5833%`.
-- `BLE_GT20_RATE_CONTROL`: FACT — `33/343 = 9.6210%`; effect `+29.9623 pp`, risk ratio `4.1143`.
-- `BLE_GT30_RATE_UNDERRUN`: FACT — `7/48 = 14.5833%`.
-- `BLE_GT30_RATE_CONTROL`: FACT — `6/343 = 1.7493%`; effect `+12.8341 pp`, risk ratio `8.3368`.
-- `SUPPLY_DEFICIT_RATE_UNDERRUN`: FACT — `33/48 = 68.7500%` for `submitted_frames < render_requested`.
-- `SUPPLY_DEFICIT_RATE_CONTROL`: FACT — `204/343 = 59.4752%`; effect `+9.2748 pp`, risk ratio `1.1559`; aggregate submitted/requested ratios were `0.949381` versus `0.991342`.
-- `LAG_MINUS_2_FINDING`: FACT — 43 eligible active neighbors; gap `>20 ms` `9.3023%`, `>30 ms` `0%`, supply deficit `67.4419%`; no consistent upstream relationship.
-- `LAG_MINUS_1_FINDING`: FACT — 44 eligible active neighbors; gap `>20 ms` `20.4545%`, `>30 ms` `6.8182%`, supply deficit `70.4545%`; supply deficit is present before the underrun but BLE-gap precedence is not consistent.
-- `LAG_ZERO_FINDING`: FACT/INFERENCE — 48 eligible active buckets; gap `>20 ms` `39.5833%`, `>30 ms` `14.5833%`, supply deficit `68.7500%`; BLE cadence is enriched and coincides with underrun, while supply deficit is only weakly enriched.
-- `LAG_PLUS_1_FINDING`: FACT — 47 eligible active neighbors; gap `>20 ms` `8.5106%`, `>30 ms` `8.5106%`, supply deficit `55.3191%`; no repeated downstream relationship.
-- `INTRA_BUCKET_ORDERING_STATUS`: UNKNOWN — `submitted_frames >= render_requested` is an aggregate 100 ms fact and does not establish that PCM arrived before each render demand within the bucket.
-- `DECODER_REJECTION_CAUSAL_STATUS`: DOWNGRADED — FACT: all 10 sessions had zero decode rejects and zero zero-sample decodes.
-- `OVERFLOW_CAUSAL_STATUS`: DOWNGRADED — FACT: all session summaries and buckets had zero overflow drops.
-- `BLE_CADENCE_CAUSAL_STATUS`: SUPPORTED_AS_RECURRING_CONTRIBUTOR — INFERENCE: gap thresholds are materially enriched in active underrun buckets and peak at lag zero; this is not an exclusive root-cause claim.
-- `PCM_SUPPLY_TO_UNDERRUN_CAUSAL_STATUS`: DOWNGRADED_FROM_SUPPORTED — INFERENCE: supply deficit is only weakly enriched versus active controls and has no consistent lagged precedence; same-bucket ordering remains UNKNOWN.
-- `ACTIVE_STREAM_UNDERRUN_STATUS`: FACT — 48 active underrun buckets across four of ten sessions; startup/prestable underrun was absent, and tail/teardown remains a separate boundary population.
-- `NORMAL_VS_WEAK_COMPARISON`: UNKNOWN — no human weak/normal quality labels were captured.
-- `FINAL_TEXT_OMISSION_STATUS`: UNKNOWN — no text-output observation was authorized or captured.
-- `ROOT_CAUSE_STATUS`: NARROWED_NOT_ESTABLISHED — FACT: decoder rejection and overflow are not supported; INFERENCE: BLE cadence recurs as a contributor; UNKNOWN: AudioPipe intra-bucket ordering/scheduling and final human/text impact.
-- `UNVERIFIED_REQUIRED_CLAIMS`: FACT — human-visible waveform/audio reception, normal-versus-weak quality, intra-bucket ordering, and final text omission remain unverified.
-- `AUDIT_VERDICT`: STOP — the required evidence boundary is complete, but it does not authorize a corrective product change or establish an exclusive root cause.
-- `SMALLEST_JUSTIFIED_NEXT_ACTION`: STOP. Any BLE/AudioPipe corrective proposal or finer-grained ordering probe requires a new governance transition; do not request another session in this pass.
-- `SOURCE_CHANGED`: NO.
-- `CHANGED_FILES`: `CURRENT_STATUS.md` and `CURRENT_TASK.md` control records only.
-- `PR_STATE`: OPEN / DRAFT / UNMERGED; no merge performed.
-- `PR_LIVE_METADATA`: FACT — current GitHub observation reports head `d27e562a75726c3420aa2a13ab97483529a46100`, `mergeable=false`; this is repository evidence only and does not authorize merge.
-- `WORKTREE_STATUS`: CLEAN after the control-only result commit.
-- `FINAL_STATE`: `BASE_RATE_AUDIT_COMPLETE — TASK 038-B STOP`.
+After remote merge, local task-worktree cleanup remains a separate local-host lifecycle obligation and must be verified before claiming `CLOSED_CLEAN`.
