@@ -1,33 +1,45 @@
 # CURRENT_STATUS
 
-Last updated: 2026-10-09
-State: CLOSED — REPOSITORY LIFECYCLE CLOSEOUT WEB-ACCEPTED
+Last updated: 2026-10-28
+State: ACTIVE — TASK 037 CONTROL ACTIVATED
 Repository: Lost0rz/RemoteOrbit
 
-## Accepted release baseline
-- Task 035 remains CLOSED / v0.2.14 PUBLISHED AND WEB-ACCEPTED.
-- PR #21 is CLOSED / MERGED at 46dc94f58e67d5da38420047f009d3f311321108.
-- The accepted v0.2.14 release baseline remains unchanged.
-- Deferred Codex short Voice Chat microphone capture resumption after remote LONG remains outside Task 036 and is not resolved by lifecycle cleanup.
+## Repository authority
 
-## Final repository authority
-- Canonical development repository: /Volumes/Jack-Dev/Projects/remoteorbit.
-- Canonical branch: main.
-- Verified origin: https://github.com/Lost0rz/remoteorbit.git.
-- Final closeout parent: 62dd2affa15bfe27512b6ecade790280797c60ec.
-- Final closeout was committed as one paired CURRENT_STATUS.md and CURRENT_TASK.md transition and pushed fast-forward to main.
-- Final verification confirmed one registered worktree, one local branch (main), one live remote branch (main), zero open PRs, and a clean canonical worktree.
+- Canonical development repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
+- Canonical branch: `main`.
+- Verified origin: `https://github.com/Lost0rz/remoteorbit.git`.
+- Audited activation parent: `ea41f4ca93674fd70b9730c272eb3e2abee4d768`.
+- At activation, local `main`, `origin/main`, and live remote `main` matched the audited parent.
+- At activation, the canonical worktree was clean; one worktree and one local/remote branch existed; no open PR existed.
 
-## Task 036 — web-accepted closeout
-- Task ID: RO-REPOSITORY-LIFECYCLE-CLOSEOUT-036.
-- Gate A: PASS. Gate B: PASS. Gate C: PASS.
-- Independent Web Gate C closeout audit: PASS.
-- Final lifecycle state: zero specified historical Projects source roots and zero unexpected RemoteOrbit source checkout in the final reverse scan.
-- Accepted Gate C manifest SHA-256: 4f5e6d8e4aa3496989df7f0a84ce431da1b69d8ba21ff76fb8aca7cad12ff7d9.
-- Preservation bundle: /Volumes/Jack-Dev/Archives/RemoteOrbit/retirement-20261009/git/RemoteOrbit-pre-cleanup-all-refs.bundle.
-- Preservation bundle SHA-256: 1e5002ab72d90b6d531e2d69b0290ca0f26ad1802be9a4af8c79c2b029a23d50.
-- Gate C evidence directory: /Volumes/Jack-Dev/Archives/RemoteOrbit/retirement-20261009/manifests/GATE_C/.
-- Final checksum inventory SHA-256: 6fb8478dff6e46f2ea4a82a8f6d89726caa7ef9cc0d6dd944150100640964087.
-- P1A5 corrective: PASS; the failed AppleDouble tar remains preserved as failure evidence, and the exact corrected three-member tar passed member and extracted-hash verification.
-- MemoX-owned authority documents remain untouched and excluded by the owner boundary; they are not RemoteOrbit source or worktree lifecycle artifacts.
-- Task 036 is CLOSED — REPOSITORY LIFECYCLE CLOSEOUT WEB-ACCEPTED.
+## Historical accepted baseline
+
+- Task 036 remains CLOSED — REPOSITORY LIFECYCLE CLOSEOUT WEB-ACCEPTED.
+- Accepted release baseline and its preservation/evidence records remain unchanged.
+- No Task 036 source, test, runtime, packaging, or lifecycle work is reopened by Task 037.
+
+## Task 037 — exclusive shortcut capture
+
+- Task ID: `RO-SHORTCUT-RECORDER-EXCLUSIVE-CAPTURE-037`.
+- Objective: during shortcut recording, capture one complete physical keyboard gesture at the system event layer and prevent that gesture from reaching macOS/apps.
+- Product examples: Command-Space records without opening Spotlight; Command-Shift-4 records without initiating screenshot capture.
+- Task class: corrective execution; verification tier: V2 domain/integration boundary.
+- Control transition: paired `CURRENT_STATUS.md` / `CURRENT_TASK.md` activation commit, direct child of the audited parent above.
+- Authorized implementation branch: `codex/shortcut-recorder-exclusive-capture-v1`.
+- Authorized implementation worktree: `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1`.
+- Implementation worktree has not yet been created.
+- Target final development state: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+- `HUMAN_UI_ACCEPTANCE: PENDING`.
+
+## Current phase and next action
+
+- Phase: CONTROL_ACTIVATED; no product files have been changed for Task 037.
+- Next authorized action: create exactly the authorized implementation branch/worktree from the activation head, register its exact identity in a paired control commit, then implement the bounded shortcut-capture change.
+- Single writer: the authorized implementation worktree only after registration; no second product writer.
+
+## Required closeout evidence
+
+- Focused `ShortcutCaptureMonitorTests`, full `swift test`, release build, and `run-self-tests.sh` results must be recorded against the implementation identity.
+- Human UI acceptance remains user-owned and pending.
+- Final implementation handoff target is `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not merge, install, package, release, or delete the branch/worktree.
