@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: EXECUTING — TASK 038-B CORRECTIVE-3 ORDERING CORRELATION
+State: WAITING_FOR_INDEPENDENT_WEB_AUDIT — TASK 038-B CORRECTIVE-3 DELIVERED
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -16,7 +16,7 @@ Repository: Lost0rz/RemoteOrbit
 - Task 037 remains merged with `HUMAN_UI_ACCEPTANCE: PENDING` for Command-Space, Command-Shift-4, Option-A, pure modifier recording, and normal shortcut restoration after recorder close/cancel.
 - `AGENTS.md` durable rules were re-read for this transition and require no semantic change.
 - The prior 038-A worktree `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress` was verified clean, fully merged/reachable from current `main`, and without unique/unpushed commits; it was removed and its local branch was deleted. Its remote branch remains retained. Task 037's historical worktree remains untouched.
-- PR #24 is OPEN + DRAFT + UNMERGED; its live head is the current tip of the authorized branch and must be read directly for any future transition. Corrective-2 delivery commit `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a` removes the remaining lifecycle observer-effect. Corrective-3 is explicitly authorized by the current card to close only the AUDIO_START-before-HID continuity-correlation gap. No runtime capture, installation, merge, audio tuning, or 038-C/D/E/F work is authorized.
+- PR #24 is OPEN + DRAFT + UNMERGED; its live head is the current tip of the authorized branch and must be read directly for any future transition. Corrective-2 delivery commit `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a` removes the remaining lifecycle observer-effect. Corrective-3 delivery commit `7d33e01cf94aa3685ccfdecc6df28207258cb1bb` closes only the AUDIO_START-before-HID continuity-correlation gap. No runtime capture, installation, merge, audio tuning, or 038-C/D/E/F work is authorized.
 
 ## Task 038-B writer identity
 
@@ -24,7 +24,7 @@ Repository: Lost0rz/RemoteOrbit
 - Authorized worktree: `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence`.
 - Start HEAD: `e80c8be50fa489c7f04c4ca5567aff7cc5d3af9b`.
 - Worktree registration: this paired control commit; worktree was clean before any source/test or diagnostic mutation.
-- Current source/test HEAD: `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a`, pushed and verified equal to the authorized remote branch before this paired control update.
+- Current source/test HEAD: `7d33e01cf94aa3685ccfdecc6df28207258cb1bb`, pushed and verified equal to the authorized remote branch before this paired control update.
 - Corrective-1 audit baseline: PR #24 head `59fa6a5f0a20f48b623d0edefd1863e6c9073460`; render-side continuity capture currently calls the shared `VoiceTimingLogger` lock and mutates its bucket dictionary while `AudioPipe.stateLock` is held.
 - Corrective-1 delivery: source/test commit `0c26c61c2a2ec1f147f6179b20a864f335af1dfb`; render-side capture now uses AudioPipe-owned fixed-capacity storage and merges a lifecycle snapshot outside the render path.
 - Corrective-2 delivery: source/test commit `ebd6f1daa6a15f4790ec0faa342dc80a1a0c518a`; enabled storage is prepared before the lock, end detaches under the lock, and snapshot/filter runs after unlock.
@@ -32,7 +32,7 @@ Repository: Lost0rz/RemoteOrbit
 ## Task 038 roadmap
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B EXECUTING`: corrective-3 ordering correlation is authorized; no runtime capture is authorized.
+- `038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT`: corrective-3 ordering correlation delivered; no runtime capture is authorized.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -52,7 +52,7 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 
 ## Current phase and next action
 
-- Phase: 038-B EXECUTING — corrective-3 ordering correlation.
+- Phase: 038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT — corrective-3 ordering correlation delivered.
 - First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
 - Current conclusion: existing telemetry was insufficient for mid-stream temporal alignment; the minimum opt-in 100 ms monotonic/session bucket ledger remains in source/test commit `ebd6f1d`, and buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior remain unchanged.
 - Audit property reproduced: the prior render-side probe acquired the shared logger lock and mutated its dictionary while `AudioPipe.stateLock` was held, creating probe self-contention risk.
@@ -61,7 +61,10 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 - Corrective-2 boundary: preserve the fixed-capacity render ledger and evidence fields, but make disabled activation/deactivation cheap, keep lock-held transitions bounded metadata/state work, and detach snapshot creation without racing render writes.
 - Corrective-2 result: disabled begin/end keep the ledger nil; enabled begin allocates before `stateLock`, end detaches under `stateLock`, and snapshot/filter runs after unlock with no render race.
 - Verification: focused `AudioDataPlaneDiagnosticsTests` 28/28 PASS; affected `AudioPipeTests` 4/4 PASS; full `swift test` 417/417 PASS; `swift build -c release` PASS; `git diff --check` PASS.
-- Current next action: add the deterministic AUDIO_START-before-HID RED regression, then implement the narrowest bounded late-binding model and verify both event orderings. Return to independent Web audit only after fresh source/test delivery evidence is complete.
+- Corrective-3 result: AUDIO_START now owns a stable opt-in capture identity even when no HID session exists; pre-session BLE/decode/render observations remain on that capture, and the matching later session can bind it once. Binding is exact-identity and one-shot; wrong or repeated session bindings are rejected. HID-before-AUDIO_START reuses the same bound capture identity.
+- Verification: focused `AudioDataPlaneDiagnosticsTests` 31/31 PASS; affected `AudioPipeTests` 4/4 PASS; `VoiceBoundaryOrderingTests` 3/3 PASS; `VoicePressCoordinatorTests` 39/39 PASS; full `swift test` 420/420 PASS; `swift build -c release` PASS; `git diff --check` PASS.
+- Product/runtime boundary: UNKNOWN — no installed/runtime capture was performed, so this delivery does not establish runtime underrun behavior or an audio root cause.
+- Current next action: independent Web audit of PR #24. Do not install, release, or run a new runtime capture.
 
 ## Protected boundaries
 

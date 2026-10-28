@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: EXECUTING — 038-B corrective-3 ordering correlation.
+- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT — 038-B corrective-3 ordering correlation delivered.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B EXECUTING`: corrective-3 is authorized to close only the AUDIO_START-before-HID continuity-correlation gap; no runtime capture is authorized.
+- `038-B WAITING_FOR_INDEPENDENT_WEB_AUDIT`: corrective-3 closes only the AUDIO_START-before-HID continuity-correlation gap; no runtime capture is authorized.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -76,6 +76,7 @@ If those checks pass, remove the old local 038-A worktree and prune its registra
 12. Corrective-1 completed: the audit property was reproduced, and the smallest architecture change was made so continuity capture inside CoreAudio IOProc uses no shared logger lock, cross-thread blocking synchronization, dictionary/hash mutation, string formatting/printing, synchronous dispatch, or unbounded allocation. The existing clock, session identity, 100 ms buckets, fields, active/tail/idle accounting, and default-off behavior were preserved.
 13. Corrective-2 completed in `ebd6f1d`: the fixed-capacity render-side evidence model is preserved while disabled begin/end are cheap, lock-held begin/end are bounded, and snapshot creation is safely detached from render writes. The clock, session identity, 100 ms buckets, BLE/decode/submission correlation, active/tail/idle accounting, overflow evidence, `render_capacity_dropped`, and default-off behavior are preserved.
 14. Corrective-3 authorized in the current execution card: add a deterministic RED regression for AUDIO_START before HID/session creation, then close only the late session-correlation gap. Preserve pre-session observations, reject stale/wrong-session binding, preserve session isolation, and keep corrective-1/2 render and lifecycle invariants unchanged. Stop if this requires a material AudioPipe redesign or changes product voice semantics.
+15. Corrective-3 delivered in `7d33e01`: AUDIO_START owns a stable capture identity when the gesture UUID is absent; pre-session observations are retained and bound once to the later HID session. The HID-before-AUDIO_START path remains bound to the same capture identity, while wrong/repeated capture bindings are rejected. No voice semantics, rapid re-press behavior, audio scheduling, queue targets, BLE timing, or AUDIO_STOP interpretation changed.
 
 ## Required output / evidence
 
@@ -136,4 +137,13 @@ The 038-B result must include:
 
 ## Current next action
 
-Add the AUDIO_START-before-HID RED regression, implement the narrowest bounded correlation architecture, run focused/full/release/diff verification, push the same branch, and return PR #24 to independent Web audit. Do not tune, install, release, capture runtime, or fix audio behavior.
+Independent Web audit of PR #24. Corrective-3 source/test delivery, focused/full/release/diff verification, and remote branch delivery are complete. Do not tune, install, release, capture runtime, or fix audio behavior.
+
+## Corrective-3 delivery receipt
+
+- Audit finding reproduced: FACT — when AUDIO_START arrived before HID, `currentContinuityContext()` was nil, AudioPipe created no render ledger, and later HID session creation had no binding path.
+- Correlation architecture: FACT — opt-in AUDIO_START creates a stable `captureID`; the AudioPipe render ledger stores the capture start and can bind exactly once to the later gesture UUID. HID-before-AUDIO_START creates the same bound capture through the existing logger session.
+- Pre-session evidence: FACT — BLE/decode records are accepted while the provisional capture awaits its session, and pre-session render buckets remain in fixed storage until late binding; the bucket origin stays the AUDIO_START monotonic timestamp so the snapshot joins the central ledger.
+- Stale/wrong-session protection: FACT — AudioPipe binding requires the exact captureID and an unbound active ledger; wrong and repeated bindings are rejected, and captureID is checked again during snapshot merge.
+- Render/lifecycle preservation: FACT — render remains AudioPipe-owned fixed-capacity mutation only; late binding is bounded metadata under `stateLock`; construction remains outside the lock; snapshot remains after safe detach; default-off keeps the ledger nil.
+- Product/runtime boundary: UNKNOWN — no installed/runtime capture was performed, so no runtime underrun or audio root-cause claim is made.
