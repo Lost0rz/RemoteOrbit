@@ -2,12 +2,14 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: ACTIVE — 038-A RAPID REPRESS ADMISSION.
+- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT — 038-A RAPID REPRESS ADMISSION.
 - Task class: RUNTIME RELIABILITY / CORRECTIVE EXECUTION.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
 - Task 038 is a new task. Task 037 is merged and has no further product-code mutation authority.
 - Task 038 control head: `b17194c498e8b7c31495e4a95de97a21a9e0893c`.
+- Implementation commit: `6f2c47d8bfc906c55d71c78c67243004708dd80a`, verified as the live head of `codex/runtime-reliability-038-a-rapid-repress`.
+- Draft PR #23: `https://github.com/Lost0rz/RemoteOrbit/pull/23`; base `main`, state OPEN/Draft, not merged.
 
 ## Preserved Task 037 history and deferred acceptance debt
 
@@ -41,6 +43,17 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 - Add focused tests for ordinary single LONG behavior, rapid press during audio drain, output drain/cleanup if distinct, stale Session-A callback isolation, and no duplicate Option-down/up or micOpen/micClose from handoff.
 - Run focused tests, full Swift tests, and release build.
 
+## 038-A execution receipt
+
+- **REGRESSION_REPRODUCED: YES.** `testRapidRepressDuringBLEAudioDrainIsDeferredAndReplayed` deterministically places Session A across release/stream cleanup, blocks the BLE admission boundary, delivers the Session B physical down, and verifies retention/replay rather than silent disappearance.
+- **ROOT_CAUSE: INFERENCE.** The coordinator could start Session B while `BLEBridge.audioStopDrainWorkItem` still blocked admission; the existing late-AUDIO_START guard could then reject the new start. This is not claimed as independent hardware/runtime causal proof.
+- **POLICY:** explicit defer/replay at the audio-drain admission boundary. The new physical press remains a `PendingRepress` with its session/down metadata, and replay is scheduled only after drain retirement on a fresh main-queue turn. A release before replay cancels it.
+- **STALE SESSION ISOLATION:** Session A's late tail completion cannot terminate Session B in the regression; session IDs and existing tail/output guards remain authoritative, and the new replay is separated from old cleanup callback stack execution.
+- **ADMISSION OBSERVABILITY:** physical voice-key paths now emit `VOICE_PRESS_ADMISSION` with `admitted`, `deferred`, or `rejected` and a concrete reason.
+- **TESTS:** VoicePressCoordinatorTests 39/39 PASS; BLEBridgeTests 14/14 PASS; full `swift test` 406/406 PASS; `swift build -c release` PASS; `git diff --check` PASS.
+- **CHANGED FILES:** `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`, `remote-orbit/Sources/RemoteOrbit/main.swift`, and `remote-orbit/Tests/RemoteOrbitTests/VoicePressCoordinatorTests.swift` only.
+- **PROTECTED BOUNDARIES:** no AudioPipe, Adaptive Playout, BLE codec/timing, AUDIO_STOP reason interpretation, Option/noOptionEdge, text Accessibility, DiagnosticAuthority, logging retention/cadence, unrelated mappings, driver, packaging, installation, permission, or release changes.
+
 ## Non-goals
 
 - Do not tune AudioPipe buffers.
@@ -60,6 +73,7 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 - Authorized implementation branch: `codex/runtime-reliability-038-a-rapid-repress`.
 - Authorized implementation worktree: `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress`.
 - Implementation start HEAD: `b17194c498e8b7c31495e4a95de97a21a9e0893c`.
+- Final implementation HEAD: `6f2c47d8bfc906c55d71c78c67243004708dd80a`; worktree is clean and remote branch is exact-head aligned.
 - The exact branch, worktree, start HEAD, control head, and clean state are registered by this paired control commit before product mutation.
 - Preserve the retained Task 037 worktree/branch as historical delivery state; do not use it as the Task 038 writer.
 - Do not merge unless a later repository-governance transition explicitly authorizes merge. Do not install, package, release, change permissions, delete branches, or delete worktrees.
@@ -73,4 +87,4 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 
 ## Next action
 
-Add the deterministic regression as the first product-boundary change in the registered Task 038-A worktree. Do not predeclare PASS, CLOSED, merge readiness, or root cause.
+Independent Web audit of Draft PR #23. Do not merge, install, package, release, change permissions, or retire branches/worktrees. `HUMAN_UI_ACCEPTANCE: PENDING`; no human UI/runtime acceptance was performed in this task.
