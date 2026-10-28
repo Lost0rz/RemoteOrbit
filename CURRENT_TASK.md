@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-Status: `038-B CLOSEOUT / MERGE AUTHORIZED`
+Status: `038-B MERGED / LOCAL WORKTREE CLOSEOUT PENDING`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -12,17 +12,16 @@ Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`
 
 `038-B — Audio Continuity Evidence`
 
-The evidence phase is complete. The task has narrowed the continuity problem but has not established an exclusive corrective root cause.
+The evidence phase is complete and PR #24 has been merged to `main`.
 
-This closeout is authorized only to:
+Remote merge identity:
 
-1. align the control plane with the final evidence verdict;
-2. preserve a durable 038-B diagnostic closeout record;
-3. verify the live PR #24 merge gate;
-4. merge PR #24 when the live gate permits;
-5. record the remote merge result.
+- PR: `#24 — [038-B] Add opt-in audio continuity correlation evidence`
+- merged head: `617fb1239c35acef44dd29b5ed115e0f30fcadcb`
+- merge commit: `b4dbd60d6c27c756bcf735eff050bd29a8324617`
+- merged at: `2026-10-28T12:48:04Z`
 
-No product correction is authorized in this task state.
+This merge delivers the diagnostic/observability capability and durable phase findings. It does not establish or implement an exclusive product audio root-cause correction.
 
 ## Final 038-B verdict
 
@@ -64,17 +63,15 @@ Boundary evidence:
 - no startup/prestable unfilled render buckets were observed;
 - about 89.2% of total unfilled frames occurred in tail/teardown and must remain separate from active-stream continuity analysis.
 
-## What this phase accomplished
+## Delivered capability
 
-038-B delivered a diagnostic/observability capability, not a product audio fix.
-
-The chain now correlates:
+038-B delivered an opt-in diagnostic chain:
 
 `BLE notifications -> decode -> PCM submission -> AudioPipe queue/render -> underrun`
 
 by session and 100 ms monotonic buckets.
 
-Before trusting runtime evidence, the diagnostic path itself was corrected to remove observer-effect risks:
+Before runtime use, the diagnostic path itself was corrected to remove observer-effect risks:
 
 - no shared central diagnostic lock/dictionary mutation from render observation under `AudioPipe.stateLock`;
 - no full fixed-capacity lifecycle scan under the audio state lock;
@@ -84,11 +81,15 @@ Before trusting runtime evidence, the diagnostic path itself was corrected to re
 
 Semantic source/test delivery head: `652ea306dc4a22ee3c489b254d87becc6f9a4ed0`.
 
-Independent Web CODE_DIFF audit passed at `6b5fde0b767933a89b8b7643dabe473e46040df8`. Later evidence/control commits do not authorize product behavior changes.
+Independent Web CODE_DIFF audit passed at `6b5fde0b767933a89b8b7643dabe473e46040df8`.
+
+Durable closeout record:
+
+`docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`
 
 ## Unresolved problem record
 
-The continuity defect does not yet have a single corrective owner.
+The continuity defect still does not have a single corrective owner.
 
 Evidence currently supports:
 
@@ -100,7 +101,7 @@ The main unresolved technical boundary is finer-grained intra-bucket ordering am
 
 `BLE arrival -> decode -> PCM submission -> instantaneous queue depth -> render callback`
 
-A future investigation, if explicitly authorized, should discriminate whether active starvation is primarily caused by late BLE arrival, late PCM availability within the bucket, or a distinct AudioPipe queue/render scheduling behavior. Do not infer this from same-bucket aggregates.
+A future investigation, only if separately authorized, should discriminate whether active starvation is primarily caused by late BLE arrival, late PCM availability within the bucket, or a distinct AudioPipe queue/render scheduling behavior.
 
 Human waveform/audio quality and final text omission remain unverified. 038-F remains deferred.
 
@@ -114,18 +115,20 @@ Human waveform/audio quality and final text omission remain unverified. 038-F re
 - Runtime app identity and OS permission state are part of evidence provenance.
 - Do not convert a recurring contributor into an exclusive root cause without a discriminating temporal observation.
 
-## Merge authority
+## Remaining authorization
 
-The user explicitly authorized documentation closeout and merge of PR #24.
+No further 038-B product or diagnostic mutation is authorized.
 
-Before merge:
+The only remaining task-038-B lifecycle action is local workspace closeout:
 
-- verify live PR head/state/mergeability;
-- verify any applicable hosted status/check evidence;
-- ensure the closeout documentation and control records are on the PR branch;
-- stop if the PR head materially drifts or merge is blocked by a required gate.
+1. verify `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence` exists/identity if still registered;
+2. verify staged/unstaged/untracked state is clean;
+3. verify all local commits are merged/reachable from current `main` and no unique/unpushed work exists;
+4. remove/prune the obsolete worktree;
+5. remove the local task branch only when safe under repository policy;
+6. report the final workspace disposition.
 
-If the live gate permits, merge PR #24 using normal repository merge semantics.
+This local lifecycle evidence cannot be inferred from the GitHub merge. Until it is supplied, the task state is `MERGED / LOCAL WORKTREE CLOSEOUT PENDING`, not `CLOSED_CLEAN`.
 
 ## Prohibited mutation
 
@@ -134,23 +137,12 @@ If the live gate permits, merge PR #24 using normal repository merge semantics.
 - No Adaptive Playout production change.
 - No SHORT/LONG, rapid re-press, Option, or shortcut behavior change.
 - No new continuity probe or runtime session.
-- No 038-C/D/E/F execution.
-- No TCC, driver, CoreAudio, installer, or release mutation outside the explicitly authorized PR merge.
+- No 038-C/D/E/F execution under this task state.
+- No TCC, driver, CoreAudio, installer, or release mutation.
 - No opportunistic refactor.
-
-## Closeout acceptance
-
-Remote merge closeout is satisfied when:
-
-- final evidence/conclusions/lessons are durably documented;
-- `CURRENT_STATUS.md` and `CURRENT_TASK.md` agree on the final 038-B evidence classification;
-- PR #24 is verified merged into `main` from the live authorized head;
-- the merge identity is recorded in the control plane.
-
-A remote merge does not by itself prove local workspace closure. The local task worktree `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence` must later be verified clean, merged/reachable, without unique/unpushed work, and removed/pruned according to workspace lifecycle rules before claiming `CLOSED_CLEAN`.
 
 ## Next task boundary
 
-No successor task is activated by this closeout.
+No successor task is activated by the 038-B merge.
 
-`038-C — Option-edge authority` remains deferred until separately authorized after 038-B merge/closeout.
+`038-C — Option-edge authority` remains deferred until separately authorized after local 038-B workspace closeout or an explicit owner decision that permits overlap.
