@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: MULTI_SESSION_CAPTURE_ACTIVE — TASK 038-B EXECUTE
+State: CAUSAL_ANALYSIS_COMPLETE — TASK 038-B STOP
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -32,7 +32,7 @@ Repository: Lost0rz/RemoteOrbit
 ## Task 038 roadmap
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B MULTI_SESSION_CAPTURE_ACTIVE`: the first natural probe passed as an observability/chain-health result; one usable session exists and at least 9 additional usable natural LONG sessions are required to reach the 10-session comparison target. Active AudioPipe underrun remains observed and the audio-continuity root cause remains UNKNOWN.
+- `038-B CAUSAL_ANALYSIS_COMPLETE`: 10 usable natural sessions from the expected diagnostic runtime were frozen and analyzed. Decoder rejection and overflow are downgraded; BLE/PCM supply are supported as recurring contributors, while active AudioPipe underrun also occurs with same-bucket healthy submission. Root cause is NARROWED_NOT_ESTABLISHED.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -52,9 +52,9 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 
 ## Current phase and next action
 
-- Phase: 038-B EXECUTE — first natural probe passed; representative multi-session continuity capture is active.
+- Phase: 038-B ANALYSIS COMPLETE — frozen natural-session set analyzed; stop at the evidence verdict.
 - First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
-- Current conclusion: existing telemetry was insufficient for mid-stream temporal alignment; the minimum opt-in 100 ms monotonic/session bucket ledger remains in source/test commit `652ea30`, and buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior remain unchanged.
+- Current conclusion: FACT — the opt-in 100 ms monotonic/session bucket ledger aligned BLE, decode, submission, queue, and render evidence across 10 usable sessions; buffer sizing, pacing, codec behavior, gesture semantics, Option handling, and text-output behavior remain unchanged.
 - Audit property reproduced: the prior render-side probe acquired the shared logger lock and mutated its dictionary while `AudioPipe.stateLock` was held, creating probe self-contention risk.
 - Corrective-1 result: render-side continuity capture now uses AudioPipe-owned preallocated fixed-capacity storage (8,192 buckets), with no new logger lock, dictionary/hash mutation, formatting/printing, synchronous dispatch, or unbounded allocation in the probe path; snapshot/filter/merge occur after capture ends.
 - Corrective-2 audit basis (before delivery): begin/end reset or filtered the full 8,192-bucket ledger while holding `AudioPipe.stateLock`; the default-off path also performed the full reset.
@@ -63,8 +63,8 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 - Verification: focused `AudioDataPlaneDiagnosticsTests` 28/28 PASS; affected `AudioPipeTests` 4/4 PASS; full `swift test` 417/417 PASS; `swift build -c release` PASS; `git diff --check` PASS.
 - Corrective-3 result: AUDIO_START now owns a stable opt-in capture identity even when no HID session exists; pre-session BLE/decode/render observations remain on that capture, and the matching later session can bind it once. Binding is exact-identity and one-shot; wrong or repeated session bindings are rejected. HID-before-AUDIO_START reuses the same bound capture identity.
 - Verification: focused `AudioDataPlaneDiagnosticsTests` 31/31 PASS; affected `AudioPipeTests` 4/4 PASS; `VoiceBoundaryOrderingTests` 3/3 PASS; `VoicePressCoordinatorTests` 39/39 PASS; full `swift test` 420/420 PASS; `swift build -c release` PASS; `git diff --check` PASS.
-- Product/runtime boundary: UNKNOWN — the authorized runtime capture has not yet produced evidence; root cause remains UNKNOWN.
-- Current next action: collect at least 9 additional usable natural LONG sessions with the preserved diagnostic runtime, stopping only at 10 usable total or an authorized STOP condition; then perform the required 038-B correlation analysis. No corrective product change, 038-C/D/E/F work, TCC/driver/CoreAudio mutation, or merge is authorized.
+- Product/runtime boundary: FACT — PID `21428` produced 10 usable sessions with exact session/bucket joins and `render_capacity_dropped=0`; final text omission and human-visible quality remain UNKNOWN/NOT_REPORTED.
+- Current next action: STOP. No additional sessions, corrective product change, 038-C/D/E/F work, TCC/driver/CoreAudio mutation, rebuild/reinstall, or merge is authorized. Any corrective implementation requires a separate governance transition.
 
 ## BLE central-readiness diagnosis transition receipt
 
@@ -217,6 +217,23 @@ A finding may identify a likely layer, but no buffer or playback fix is authoriz
 - Earliest stage: FACT — no required stage failed to execute. The first observed quality deficits are BLE supply cadence/expected-sample deficit and correlated AudioPipe active underrun; causality remains unproven from one session.
 - Root cause: UNKNOWN — no corrective action is justified by this single session.
 - Scope: FACT — no source, TCC, driver, CoreAudio, protocol, buffer, or merge change; no second session.
+
+## 038-B multi-session causal analysis result
+
+- Transition authority: FACT — `RO-038-B-MULTI-SESSION-CAUSAL-ANALYSIS-20261028` authorizes freezing the completed capture set, performing cross-session/bucket analysis, and updating only control records.
+- Runtime identity: FACT — `/Applications/RemoteOrbit.app`, PID `21428`, bundle `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
+- Evidence sources: FACT — `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log`, `voice-diagnostic-current.jsonl`, and `diagnostic-events-v1.jsonl`; current runtime `RUN_START` is `2026-10-28 17:44:08.779 +0800`.
+- Evidence window: FACT — `2026-10-28 19:19:13.941` through `19:58:44.510 +0800`, from `F406982F-E2F8-4EE6-A228-C12A37B20BE7` through `CD939D47-F114-48E3-998C-1B49527C4A74`.
+- Frozen set: FACT — 10 usable current-runtime natural LONG sessions; every session has one BLE summary, one AudioPipe summary, one continuity session, declared bucket count equal to observed bucket records, exact JSONL gesture/session identity, and `render_capacity_dropped=0`.
+- Excluded set: FACT — one complete historical candidate, `A2B3B6DA-524C-4882-BD0C-C718D839B07E`, excluded because `diagnostic-events-v1.jsonl` identifies PID `18405` outside the current runtime/evidence window. Earlier pre-window/pre-authorization records remain historical and are not mixed into this set.
+- Aggregate evidence: FACT — 2,734 BLE notifications / 328,080 bytes; 656,160 decoded samples; expected 664,363; deficit 8,203 samples / 512.9 ms; mean delivery ratio 0.9873; decode rejects 0; zero-sample decodes 0; overflow drops 0; total render unfilled 145,776 frames.
+- Duration comparison: INFERENCE — post-hoc groups are SHORTER `3813.9–3991.2 ms` (3), MID `4007.3–4457.8 ms` (6), and LONGER `8195.5 ms` (1). Active underrun occurred in 0/3 SHORTER, 3/6 MID, and 1/1 LONGER sessions; no monotonic duration rule is established.
+- Boundary comparison: FACT — strict active-stream unfilled frames were `15,808` across 4/10 sessions and 129,968 frames (about 89.2% of all unfilled frames) occurred after `AUDIO_STOP` in tail/teardown buckets. Startup/prestable buckets had no render unfilled frames; six sessions had pre-`AUDIO_START` audio capture with no render demand.
+- Bucket correlation: INFERENCE — 48 active unfilled buckets existed: 15 had same-bucket submitted frames at least equal to requested frames, 33 had submitted frames below requested, 19 had BLE gap maxima over 20 ms, and 7 over 30 ms. Repeated BLE/PCM degradation coincided with some active starvation, but active starvation also occurred with healthy aggregate same-bucket submission.
+- Causal verdict: FACT/INFERENCE — decoder rejection `DOWNGRADED`; overflow `DOWNGRADED`; BLE cadence `SUPPORTED` as a recurring contributor, not an exclusive cause; PCM supply to underrun `SUPPORTED` as a recurring contributor, not an exclusive cause; active-stream underrun `FACT`; final text omission `UNKNOWN`.
+- Root cause: FACT — `NARROWED_NOT_ESTABLISHED`. The evidence rules out decoder rejection and overflow as supported primary explanations, but does not distinguish BLE/PCM contribution from AudioPipe intra-bucket queue/render timing or establish a single owner.
+- Human boundary: FACT — `HUMAN_QUALITY=NOT_REPORTED` for all 10 sessions; no 038-F text-output observation was added; `FINAL_TEXT_OMISSION_STATUS=UNKNOWN`.
+- Scope: FACT — no source, runtime, TCC, driver, CoreAudio, BLE, buffer, protocol, probe, or PR merge mutation.
 
 ## 038-B multi-session capture activation
 

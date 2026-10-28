@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: MULTI_SESSION_CAPTURE_ACTIVE — 038-B EXECUTE.
+- Status: CAUSAL_ANALYSIS_COMPLETE — 038-B STOP.
 - Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,7 +13,7 @@
 ## Roadmap state
 
 - `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B MULTI_SESSION_CAPTURE_ACTIVE`: the first natural probe passed as an observability/chain-health result; one usable session exists and at least 9 additional usable natural LONG sessions are required to reach the 10-session comparison target. Active AudioPipe underrun remains observed and the audio-continuity root cause remains UNKNOWN.
+- `038-B CAUSAL_ANALYSIS_COMPLETE`: 10 usable natural sessions from the expected diagnostic runtime were frozen and analyzed. Decoder rejection and overflow are downgraded; BLE/PCM supply are supported as recurring contributors, while active AudioPipe underrun also occurs with same-bucket healthy submission. Root cause is NARROWED_NOT_ESTABLISHED.
 - `038-C DEFERRED`: Option-edge authority.
 - `038-D DEFERRED`: interaction latency.
 - `038-E DEFERRED`: runtime telemetry/log retention.
@@ -142,7 +142,7 @@ The 038-B result must include:
 
 ## Current next action
 
-The first natural session established a healthy continuity observability chain. The authorized next step is representative natural multi-session capture; do not create another runtime incident, mutate product behavior, change TCC, driver, or CoreAudio, or merge.
+The 10-session evidence set is frozen and the authorized 038-B causal analysis is complete. Stop here; do not request another session, mutate product behavior, change TCC, driver, or CoreAudio, or merge.
 
 ## 038-B BLE central-readiness diagnosis transition
 
@@ -323,3 +323,57 @@ The first natural session established a healthy continuity observability chain. 
 - `SOURCE_CHANGED`: NO.
 - `CHANGED_FILES`: control records only; no product source changed.
 - `NEXT_ACTION`: collect at least 9 additional usable natural LONG sessions, then perform the required 038-B correlation analysis; do not fix or merge.
+
+## 038-B multi-session causal analysis result
+
+- `CONTROL_TRANSITION`: FACT — `MULTI_SESSION_CAPTURE_ACTIVE` → `CAUSAL_ANALYSIS_COMPLETE`, authorized by `RO-038-B-MULTI-SESSION-CAUSAL-ANALYSIS-20261028`.
+- `RUNTIME_PROCESS_IDENTITY`: FACT — PID `21428`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, `com.lost0rz.RemoteOrbit`, version/build `0.2.14 (43)`, executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`, `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
+- `EVIDENCE_WINDOW`: FACT — `2026-10-28 19:19:13.941–19:58:44.510 +0800`; source files were `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log`, `voice-diagnostic-current.jsonl`, and `diagnostic-events-v1.jsonl`.
+- `TOTAL_CAPTURED_SESSIONS`: FACT — 10 current-runtime sessions in the frozen window.
+- `USABLE_SESSION_COUNT`: FACT — 10.
+- `EXCLUDED_SESSION_COUNT`: FACT — 1 complete historical candidate excluded; earlier pre-window records are not part of the candidate set.
+- `EXCLUDED_SESSION_REASONS`: FACT — `A2B3B6DA-524C-4882-BD0C-C718D839B07E` belonged to PID `18405`, not PID `21428`, and preceded the frozen window.
+- `SESSION_JOIN_INTEGRITY`: FACT — all 10 have matching BLE/decode, PCM submission, AudioPipe render, continuity session, exact bucket counts, and JSONL gesture identity; all `render_capacity_dropped=0`.
+
+### Per-session metrics
+
+| Session | Duration ms / class | BLE notif / bytes | Max/p95 gap ms | >20/>30/>50/>100 | Decode frames / samples | Reject / zero | Deficit ms / ratio | Submitted | Render req / filled / unfilled | Unfilled ratio | Buckets |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `F406982F-E2F8-4EE6-A228-C12A37B20BE7` | 8195.5 / LONGER | 516 / 61920 | 46.8 / 20.0 | 10/3/0/0 | 516 / 123840 | 0 / 0 | 73.3 / .991 | 371520 | 393216 / 371520 / 21696 | .0552 | 83 |
+| `D79D6B0C-8CFF-454A-A564-7005FEA87657` | 4350.7 / MID | 260 / 31200 | 43.8 / 20.0 | 4/2/0/0 | 260 / 62400 | 0 / 0 | 71.8 / .982 | 187200 | 208896 / 187200 / 21696 | .1039 | 44 |
+| `0D51AF58-FA64-4257-9685-E853A65D197F` | 4248.1 / MID | 256 / 30720 | 30.1 / 20.0 | 6/2/0/0 | 256 / 61440 | 0 / 0 | 27.2 / .993 | 184320 | 203776 / 194304 / 9472 | .0465 | 47 |
+| `BA456267-CF2B-4232-BAD9-4233247DCED9` | 4007.3 / MID | 238 / 28560 | 43.6 / 20.0 | 5/2/0/0 | 238 / 57120 | 0 / 0 | 56.8 / .984 | 171360 | 192000 / 171360 / 20640 | .1075 | 41 |
+| `71E09B69-3CEE-44E2-972B-B9341685FA7E` | 4375.1 / MID | 263 / 31560 | 29.0 / 20.0 | 4/0/0/0 | 263 / 63120 | 0 / 0 | 42.4 / .989 | 189360 | 209920 / 199856 / 10064 | .0479 | 48 |
+| `F7DEE325-89C4-44F4-9EE8-C7D5E5D5A58B` | 4457.8 / MID | 268 / 32160 | 43.1 / 20.0 | 4/1/0/0 | 268 / 64320 | 0 / 0 | 56.4 / .986 | 192960 | 214528 / 192960 / 21568 | .1005 | 45 |
+| `7F3C5863-CB0A-4551-9B43-B005F4E3C81F` | 3858.6 / SHORTER | 230 / 27600 | 29.2 / 20.0 | 3/0/0/0 | 230 / 55200 | 0 / 0 | 25.6 / .993 | 165600 | 185344 / 178256 / 7088 | .0382 | 43 |
+| `1E93CE1D-92FC-4278-833D-9EF5702717F2` | 4040.7 / MID | 240 / 28800 | 42.4 / 20.0 | 5/1/0/0 | 240 / 57600 | 0 / 0 | 58.1 / .984 | 172800 | 194560 / 182368 / 12192 | .0627 | 45 |
+| `AECDBF50-CBDE-406F-A755-9D449051D710` | 3991.2 / SHORTER | 238 / 28560 | 29.0 / 20.0 | 4/0/0/0 | 238 / 57120 | 0 / 0 | 44.5 / .988 | 171360 | 192000 / 182368 / 9632 | .0502 | 44 |
+| `CD939D47-F114-48E3-998C-1B49527C4A74` | 3813.9 / SHORTER | 225 / 27000 | 43.6 / 20.0 | 4/1/0/0 | 225 / 54000 | 0 / 0 | 56.8 / .983 | 162000 | 182784 / 171056 / 11728 | .0642 | 42 |
+
+- Per-session render/lifecycle facts: `max_underrun_frames=512` for all; total underrun callbacks/ms are respectively `62/452.0`, `53/452.0`, `19/197.3`, `48/430.0`, `20/209.7`, `51/449.3`, `14/147.7`, `24/254.0`, `19/200.7`, `23/244.3`. `tail_rendered_frames=0`, `idle_render_callbacks=0`, `queue_depth_min=0`, `queue_depth_end=0`, and `overflow_dropped_frames=0` for every session. Queue maxima in row order are `2688, 1568, 11264, 1680, 11632, 1424, 13632, 10368, 11872, 10320` frames; tail-empty callbacks are `1,1,0,1,1,0,0,0,0,1`; compaction counts are `81,41,42,37,43,42,39,39,39,37`. `HUMAN_QUALITY=NOT_REPORTED` for all.
+
+### Cross-session and bucket findings
+
+- `SHORTER_VS_LONGER_COMPARISON`: INFERENCE — active underrun occurred in 0/3 SHORTER, 3/6 MID, and 1/1 LONGER sessions. The longer session has more absolute audio/tail volume, but no monotonic duration effect is established.
+- `NORMAL_VS_WEAK_COMPARISON`: UNKNOWN — no human weak/normal quality report was captured; telemetry alone is not promoted to human quality.
+- `SESSION_LEVEL_CORRELATIONS`: INFERENCE — all sessions had p95 gap `20.0 ms`; max gaps were `29.0–46.8 ms`, with no >50 or >100 ms summary gaps. The four active-underrun sessions had max gaps `43.1–46.8 ms`, but a no-active session also had `43.6 ms`; delivery ratios/deficits overlap, so session aggregates are not sufficient.
+- `BUCKET_LEVEL_TEMPORAL_FINDINGS`: INFERENCE — 48 active unfilled buckets were observed across four sessions. Fifteen had same-bucket submitted frames ≥ requested frames, while 33 were below; 19 had gap maxima >20 ms and 7 >30 ms. Example: F406 `300–500 ms` had BLE 11 / max gap 46.8 ms / decoded 2640 / submitted 7920 versus render requested 6656, yet 912 frames were unfilled. Conversely D79 `3800–3900 ms` had gap 43.1 ms / submitted 3600 versus requested 5120 / 1312 unfilled, and BA `2700–2800 ms` had gap 43.6 ms / submitted 3600 versus requested 4608 / 1440 unfilled. This supports a recurring upstream contribution but also shows starvation with healthy aggregate submission.
+- `STARTUP_UNDERRUN_ANALYSIS`: FACT — no startup/prestable bucket had render unfilled frames. Six sessions had `AUDIO_FIRST` before `AUDIO_START` by `199.7–247.8 ms`; those provisional buckets had no render demand and were not counted as active underrun.
+- `ACTIVE_STREAM_UNDERRUN_ANALYSIS`: FACT — active unfilled frames were `15808` across four sessions with 73 active underrun callbacks; active unfilled ratio over all active render requests was about `0.86%`. Same-bucket healthy submission in 15 buckets is evidence against a purely upstream-supply explanation.
+- `TAIL_UNDERRUN_ANALYSIS`: FACT — tail/teardown unfilled frames were `129968` (about `89.2%` of all unfilled frames), beginning at/after `AUDIO_STOP`; they are kept separate from active-stream continuity.
+
+### Causal verdict
+
+- `DECODER_REJECTION_CAUSAL_STATUS`: `DOWNGRADED` — FACT: zero rejects and zero-sample decodes in all 10 sessions.
+- `OVERFLOW_CAUSAL_STATUS`: `DOWNGRADED` — FACT: zero overflow drops in summaries and buckets.
+- `BLE_CADENCE_CAUSAL_STATUS`: `SUPPORTED` — INFERENCE: repeated active buckets show cadence gaps coinciding with reduced submission and unfilled render, but this is a contributor verdict, not an exclusive root cause.
+- `PCM_SUPPLY_TO_UNDERRUN_CAUSAL_STATUS`: `SUPPORTED` — INFERENCE: 33 active unfilled buckets had submitted frames below requested; 15 active unfilled buckets had submitted frames at least equal to requested.
+- `ACTIVE_STREAM_UNDERRUN_STATUS`: `FACT` — four of ten sessions contain active-stream unfilled frames; the other six show only boundary/tail unfilled frames.
+- `FINAL_TEXT_OMISSION_STATUS`: `UNKNOWN` — no 038-F observation was added.
+- `ROOT_CAUSE_STATUS`: `NARROWED_NOT_ESTABLISHED`.
+- `ROOT_CAUSE_EVIDENCE`: FACT — decoder rejection and overflow are not supported; INFERENCE — BLE/PCM supply contributes to some active starvation; FACT — active starvation also occurs with healthy same-bucket submitted supply and tail dominates aggregate unfilled frames.
+- `COMPETING_EXPLANATIONS_REMAINING`: AudioPipe intra-bucket queue/render scheduling or demand timing; BLE/PCM cadence contribution; boundary/teardown behavior; no evidence for final text omission; no human quality classification.
+- `SMALLEST_JUSTIFIED_NEXT_ACTION`: STOP for 038-B evidence capture. Any AudioPipe/BLE corrective proposal requires a separate governance transition and must not be implemented from this receipt.
+- `SOURCE_CHANGED`: NO.
+- `CHANGED_FILES`: control records only; no product source changed.
+- `FINAL_TEXT_OMISSION_STATUS`: UNKNOWN.
