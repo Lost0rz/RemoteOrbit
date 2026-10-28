@@ -9,12 +9,21 @@ Repository: Lost0rz/RemoteOrbit
 - Canonical development repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
 - Canonical branch: `main`.
 - Verified origin: `https://github.com/Lost0rz/remoteorbit.git`.
+- Fresh local `main` and `origin/main` are aligned at `e80c8be50fa489c7f04c4ca5567aff7cc5d3af9b`, the 038-B activation/control head.
 - PR #23 is merged into `main` at merge commit `79f3db92024e8a901d3a0fcec2c1f194c7136753` from audited head `dab6ea1c6d2143a889bd22a91f6eb13d64050209`.
 - Task 038-A rapid re-press admission is merged and complete at the source/code boundary. Its final product commit is `68ed029c582c3befb12f4f9996277e96bd2ecf60`.
 - Recorded Task 038-A verification: `VoicePressCoordinatorTests` 39/39 PASS; `BLEBridgeTests` 18/18 PASS; full Swift 410/410 PASS; release build PASS; diff check PASS.
 - Task 037 remains merged with `HUMAN_UI_ACCEPTANCE: PENDING` for Command-Space, Command-Shift-4, Option-A, pure modifier recording, and normal shortcut restoration after recorder close/cancel.
 - `AGENTS.md` durable rules were re-read for this transition and require no semantic change.
-- The prior 038-A local worktree cannot be verified from this remote-only control transition. The next local executor is explicitly authorized to retire that worktree only after proving it is clean, fully merged, and contains no unique/unpushed work.
+- The prior 038-A worktree `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress` was verified clean, fully merged/reachable from current `main`, and without unique/unpushed commits; it was removed and its local branch was deleted. Its remote branch remains retained. Task 037's historical worktree remains untouched.
+- No open PR currently exists for 038-B; create a bounded PR only if source/test instrumentation changes are required.
+
+## Task 038-B writer identity
+
+- Authorized branch: `codex/runtime-reliability-038-b-continuity-evidence`.
+- Authorized worktree: `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence`.
+- Start HEAD: `e80c8be50fa489c7f04c4ca5567aff7cc5d3af9b`.
+- Worktree registration: this paired control commit; worktree was clean before any source/test or diagnostic mutation.
 
 ## Task 038 roadmap
 
@@ -38,8 +47,8 @@ The goal is to determine whether a reproducible, session-level causal relationsh
 ## Current phase and next action
 
 - Phase: 038-B ACTIVE — evidence/correlation only.
-- First local action: reconcile `main`, then safely retire the merged 038-A worktree if and only if clean/merged/no-unique-work proof passes. Do not count already-absent paths as cleanup performed.
-- After 038-A workspace closeout, create one bounded 038-B worktree/branch from the current activation control head, audit existing continuity probes, and establish whether current telemetry is sufficient for session-level correlation.
+- First local action completed: reconciled fresh `main`, proved and retired the merged 038-A worktree, and fast-forwarded canonical `main` to the activation head.
+- Current next action: audit existing continuity probes in the registered 038-B worktree and establish whether current telemetry is sufficient for session-level correlation before adding any observation-only instrumentation.
 - If current telemetry is sufficient, produce the analysis without production behavior changes.
 - If a material evidence gap remains, only minimal observation instrumentation may be added; it must not alter buffer sizing, pacing, codec behavior, gesture semantics, Option handling, or text-output behavior.
 - Any observation-instrumentation change must return to independent Web audit before install/release/runtime acceptance.

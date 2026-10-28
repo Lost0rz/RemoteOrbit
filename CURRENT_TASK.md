@@ -40,6 +40,14 @@ The previous 038-A implementation worktree may be retired locally before creatin
 
 If those checks pass, remove the old local 038-A worktree and prune its registration. A local 038-A branch may also be removed if fully merged and non-unique. Remote branch deletion is not required by this transition. If the path is already absent, classify that as reconciliation rather than claiming a deletion.
 
+## 038-B authorized writer identity
+
+- Branch: `codex/runtime-reliability-038-b-continuity-evidence`.
+- Worktree: `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence`.
+- Start HEAD: `e80c8be50fa489c7f04c4ca5567aff7cc5d3af9b`.
+- Registration: this paired control commit; the worktree was clean before source/test or diagnostic mutation.
+- The old 038-A worktree closeout was performed after proving clean state, merged reachability, and no unique/unpushed commits; its local branch was deleted and remote branch retained.
+
 ## Authorized 038-B scope
 
 1. Reconcile fresh `main`, open PRs/worktrees, and existing diagnostic authorities before mutation.
@@ -100,4 +108,4 @@ The 038-B result must include:
 
 ## Current next action
 
-Reconcile current `main`; safely close out the merged 038-A local worktree if eligible; create/register the 038-B diagnostic worktree; then perform the continuity telemetry inventory and correlation audit. Do not tune or fix audio behavior in this phase.
+Perform the existing continuity telemetry inventory and correlation audit in the registered 038-B worktree. Do not tune or fix audio behavior in this phase.
