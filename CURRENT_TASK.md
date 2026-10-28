@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT — 038-A RAPID REPRESS ADMISSION.
+- Status: ACTIVE — 038-A CORRECTIVE-1 RAPID REPRESS ADMISSION LIFECYCLE.
 - Task class: RUNTIME RELIABILITY / CORRECTIVE EXECUTION.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -10,6 +10,7 @@
 - Task 038 control head: `b17194c498e8b7c31495e4a95de97a21a9e0893c`.
 - Implementation commit: `6f2c47d8bfc906c55d71c78c67243004708dd80a`, verified as the live head of `codex/runtime-reliability-038-a-rapid-repress`.
 - Draft PR #23: `https://github.com/Lost0rz/RemoteOrbit/pull/23`; base `main`, state OPEN/Draft, not merged.
+- Corrective card: `RO-RUNTIME-RELIABILITY-038-A-CORRECTIVE-1-20261028`; same Task 038-A and same PR/worktree, no new task.
 
 ## Preserved Task 037 history and deferred acceptance debt
 
@@ -54,6 +55,14 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 - **CHANGED FILES:** `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`, `remote-orbit/Sources/RemoteOrbit/main.swift`, and `remote-orbit/Tests/RemoteOrbitTests/VoicePressCoordinatorTests.swift` only.
 - **PROTECTED BOUNDARIES:** no AudioPipe, Adaptive Playout, BLE codec/timing, AUDIO_STOP reason interpretation, Option/noOptionEdge, text Accessibility, DiagnosticAuthority, logging retention/cadence, unrelated mappings, driver, packaging, installation, permission, or release changes.
 
+## 038-A corrective delta — lifecycle completion
+
+- The independent Web audit reports a possible stranded state: Session B waits on `audioDrain`, while a BLE transport reset/disconnect cancels and clears `audioStopDrainWorkItem` before normal drain completion, potentially bypassing the admission-available callback.
+- This same-task corrective authorizes only deterministic reproduction of that lifecycle and the narrowest fix if reproduced.
+- Required invariant: every transition of the BLE admission barrier from BLOCKED to CLEAR must resolve every retained press waiting specifically on that barrier as admitted/replayed or explicitly cancelled/rejected with a concrete reason.
+- Required evidence: normal drain replay exactly once; cancelled/reset drain reaches a terminal B state; physical-up before retirement prevents replay; stale/cancelled Session A completion cannot mutate B; ordinary LONG remains unchanged; no duplicate mic or Option edges.
+- Corrective next action: reproduce the cancellation/reset path before changing production behavior. If an existing path already guarantees resolution, stop with `ROOT_CAUSE_NOT_REPRODUCED` for this delta and record that source/test proof.
+
 ## Non-goals
 
 - Do not tune AudioPipe buffers.
@@ -87,4 +96,4 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 
 ## Next action
 
-Independent Web audit of Draft PR #23. Do not merge, install, package, release, change permissions, or retire branches/worktrees. `HUMAN_UI_ACCEPTANCE: PENDING`; no human UI/runtime acceptance was performed in this task.
+Reproduce the corrective cancellation/reset lifecycle in the registered PR #23 worktree before product mutation. If reproduced, make the narrowest lifecycle-safe correction, run the required focused/full/release checks, update both control files in one handoff commit, and return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge, install, package, release, change permissions, or retire branches/worktrees.

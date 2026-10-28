@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: WAITING_FOR_INDEPENDENT_WEB_AUDIT — TASK 038-A RAPID REPRESS ADMISSION
+State: ACTIVE — TASK 038-A CORRECTIVE-1 RAPID REPRESS ADMISSION LIFECYCLE
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -15,6 +15,7 @@ Repository: Lost0rz/RemoteOrbit
 - Task 037 PR #22 is merged at `326b56911ef883d62f1f0fda0c38fc40c06ab648`; its human acceptance debt remains pending and is carried forward below.
 - Task 038-A product implementation commit is `6f2c47d8bfc906c55d71c78c67243004708dd80a`, pushed and verified in the authorized branch history; later commits are control-plane handoff records.
 - Draft PR #23 is open at `https://github.com/Lost0rz/RemoteOrbit/pull/23`, base `main`; it is not merged.
+- Corrective card `RO-RUNTIME-RELIABILITY-038-A-CORRECTIVE-1-20261028` explicitly reopens only the 038-A lifecycle-completion slice on PR #23; it does not create a new product task or authorize merge.
 - The retained Task 037 implementation worktree `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1` is not an active Task 038 writer and is not modified by this task.
 
 ## Historical accepted baseline
@@ -48,12 +49,13 @@ Repository: Lost0rz/RemoteOrbit
 - Focused evidence: `VoicePressCoordinatorTests` 39/39 PASS; `BLEBridgeTests` 14/14 PASS. Full `swift test`: 406/406 PASS. `swift build -c release`: PASS. `git diff --check`: PASS.
 - Changed files are limited to `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`, `remote-orbit/Sources/RemoteOrbit/main.swift`, and `remote-orbit/Tests/RemoteOrbitTests/VoicePressCoordinatorTests.swift`; no AudioPipe, codec/timing, Option-edge, Accessibility, DiagnosticAuthority, retention, driver, packaging, install, or release boundary changed.
 - Target final development state is now `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not merge unless a later governance transition authorizes it.
+- Corrective audit delta: independently reported possibility that transport reset/disconnect can clear `audioStopDrainWorkItem` without emitting the normal admission-available callback, stranding a retained audio-drain `PendingRepress`. This finding must be reproduced before product mutation.
 - `HUMAN_UI_ACCEPTANCE: PENDING`; no UI change is expected in 038-A.
 
 ## Current phase and next action
 
-- Phase: IMPLEMENTATION COMPLETE — WAITING FOR INDEPENDENT WEB AUDIT; 038-A only.
-- Next action: independent Web audit of Draft PR #23. No product mutation, merge, install, package, release, permission change, or worktree/branch retirement is authorized by this handoff.
+- Phase: CORRECTIVE REPRODUCTION ACTIVE — 038-A lifecycle completion only.
+- Next action: reproduce the cancellation/reset path in the registered worktree, then implement the narrowest lifecycle-owner correction only if the deferred press can remain unresolved.
 - Single active Task 038-A product writer: `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress`. The retained Task 037 worktree is historical and non-authoritative for 038.
 
 ## Task 038-A boundaries
@@ -69,3 +71,4 @@ Repository: Lost0rz/RemoteOrbit
 - Focused Task 038-A tests, full `swift test`, and `swift build -c release` are recorded against implementation commit `6f2c47d8bfc906c55d71c78c67243004708dd80a`.
 - `HUMAN_UI_ACCEPTANCE: PENDING`; 038-A has no intended UI change, and the deferred Task 037 human acceptance debt remains unchanged.
 - `MERGE_STATUS: NOT_MERGED`; independent Web audit remains outstanding. Do not install, package, release, change permissions, or retire branches/worktrees.
+- Corrective stop boundary: if the audit scenario is already resolved by an existing lifecycle path, stop without product mutation and record the exact source/test evidence; do not redesign rapid-repress policy.
