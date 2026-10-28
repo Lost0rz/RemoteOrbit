@@ -2,102 +2,155 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: ACTIVE — 038-B AUDIO CONTINUITY EVIDENCE.
-- Task class: RUNTIME RELIABILITY / DIAGNOSTIC EVIDENCE.
-- Repository: `Lost0rz/RemoteOrbit`.
-- Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
-- Control baseline: `main` after PR #23 merge commit `79f3db92024e8a901d3a0fcec2c1f194c7136753` and the paired 038-B activation transition.
-- 038-A is merged and closed to further product mutation unless a new regression specifically reopens it.
-- Task 037 human acceptance debt remains pending and is not rewritten by Task 038.
+Status: `038-B CLOSEOUT / MERGE AUTHORIZED`
 
-## Roadmap state
+Repository: `Lost0rz/RemoteOrbit`
 
-- `038-A MERGED / COMPLETE`: rapid re-press admission.
-- `038-B ACTIVE`: audio continuity evidence — only active product/diagnostic slice.
-- `038-C DEFERRED`: Option-edge authority.
-- `038-D DEFERRED`: interaction latency.
-- `038-E DEFERRED`: runtime telemetry/log retention.
-- `038-F DEFERRED`: privacy-preserving text-output observation.
+Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`
 
-## Objective
+## Current slice
 
-Determine, with session-level evidence, whether the observed voice continuity weakness is caused by BLE notification cadence, decoded PCM supply, AudioPipe queue/render behavior, or an interaction between those layers.
+`038-B — Audio Continuity Evidence`
 
-The evidence chain under study is:
+The evidence phase is complete. The task has narrowed the continuity problem but has not established an exclusive corrective root cause.
 
-`BLE notifications -> decode -> PCM submission -> AudioPipe queue -> render/underrun`
+This closeout is authorized only to:
 
-Historical logs indicate decoder rejects and overflow drops were zero while delivery deficit and underrun recurred. Treat that as task input, not a predeclared root-cause verdict.
+1. align the control plane with the final evidence verdict;
+2. preserve a durable 038-B diagnostic closeout record;
+3. verify the live PR #24 merge gate;
+4. merge PR #24 when the live gate permits;
+5. record the remote merge result.
 
-## Authorized lifecycle closeout before 038-B writing
+No product correction is authorized in this task state.
 
-The previous 038-A implementation worktree may be retired locally before creating the 038-B writer. This is explicitly authorized only when the local executor proves:
+## Final 038-B verdict
 
-- the worktree/branch identity is the merged 038-A lineage;
-- the worktree is clean;
-- all commits are reachable from current `main` or otherwise intentionally retained;
-- there is no unique or unpushed work.
+Frozen runtime evidence:
 
-If those checks pass, remove the old local 038-A worktree and prune its registration. A local 038-A branch may also be removed if fully merged and non-unique. Remote branch deletion is not required by this transition. If the path is already absent, classify that as reconciliation rather than claiming a deletion.
+- runtime PID `21428`;
+- `/Applications/RemoteOrbit.app`;
+- bundle `com.lost0rz.RemoteOrbit`;
+- version/build `0.2.14 (43)`;
+- executable SHA-256 `926d5ddf4b8796303ec07fe051b1da36cd539fc045973bb8bb24c0bea9a588fc`;
+- diagnostic mode `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`;
+- evidence window `2026-10-28 19:19:13.941–19:58:44.510 +0800`;
+- 10 usable natural LONG sessions; one historical session excluded.
 
-## Authorized 038-B scope
+Final classification:
 
-1. Reconcile fresh `main`, open PRs/worktrees, and existing diagnostic authorities before mutation.
-2. Perform the authorized 038-A local workspace closeout above before creating the new writer.
-3. Create one 038-B branch/worktree from the activation control head and register it before any source/test change.
-4. Inventory existing continuity telemetry and tests before adding probes.
-5. Build a per-session correlation model using existing fields where possible, including:
-   - notification count and gap distribution (`max`, `p95`, `>20/30/50/100ms`);
-   - decoded frame/sample counts;
-   - expected samples, deficit samples/ms, delivery ratio;
-   - stream lifecycle and AUDIO_STOP/drain timing;
-   - AudioPipe render requested/filled/unfilled frames;
-   - underrun callbacks/duration/max underrun;
-   - queue depth min/current/max;
-   - overflow/drop counters;
-   - active-stream versus tail/boundary classification.
-6. Compare representative normal, weak, short, and long sessions rather than relying on one aggregate statistic.
-7. Determine whether current telemetry can directly align a BLE supply gap with the corresponding PCM/AudioPipe starvation interval.
-8. If the evidence chain is incomplete, add only the smallest observation instrumentation required to correlate those layers by session/time. Instrumentation must be diagnostic-only and must not change production behavior.
-9. Add focused tests for any new accounting/probe logic.
-10. Run proportional verification: focused tests, full Swift tests when source changes, release build for source changes, and diff check.
-11. Return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT` if source/test instrumentation changes are delivered. If no source change is required, return a read-only evidence report with explicit classifications and next-governance recommendation.
+- `DECODER_REJECTION_CAUSAL_STATUS = DOWNGRADED`
+- `OVERFLOW_CAUSAL_STATUS = DOWNGRADED`
+- `BLE_CADENCE_CAUSAL_STATUS = SUPPORTED_AS_RECURRING_CONTRIBUTOR`
+- `PCM_SUPPLY_TO_UNDERRUN_CAUSAL_STATUS = DOWNGRADED_FROM_SUPPORTED`
+- `ACTIVE_STREAM_UNDERRUN_STATUS = FACT`
+- `FINAL_TEXT_OMISSION_STATUS = UNKNOWN`
+- `ROOT_CAUSE_STATUS = NARROWED_NOT_ESTABLISHED`
 
-## Required output / evidence
+Active-stream base-rate evidence:
 
-The 038-B result must include:
+- ACTIVE buckets: `391` total;
+- ACTIVE underrun buckets: `48`;
+- ACTIVE non-underrun controls: `343`;
+- BLE gap >20 ms: `39.58%` underrun vs `9.62%` control, RR `4.11`;
+- BLE gap >30 ms: `14.58%` underrun vs `1.75%` control, RR `8.34`;
+- supply deficit: `68.75%` underrun vs `59.48%` control, RR `1.16`;
+- lag analysis supports BLE cadence as a recurring coincident contributor but does not establish consistent earlier BLE precedence;
+- 100 ms aggregation cannot establish intra-bucket arrival/render ordering.
 
-- exact source/runtime/log identities used;
-- number and duration of sessions analyzed;
-- per-session continuity metrics;
-- normal-versus-weak comparison;
-- whether decoder rejection is supported or downgraded as a cause;
-- whether AudioPipe overflow is supported or downgraded as a cause;
-- whether BLE cadence deficit temporally precedes or coincides with AudioPipe underrun;
-- whether underrun occurs predominantly during active speech supply or only at startup/tail boundaries;
-- FACT / INFERENCE / UNKNOWN classification for each causal step;
-- the smallest next action justified by evidence.
+Boundary evidence:
 
-## Non-goals / prohibited mutation
+- active-stream underrun is real across 4/10 sessions;
+- no startup/prestable unfilled render buckets were observed;
+- about 89.2% of total unfilled frames occurred in tail/teardown and must remain separate from active-stream continuity analysis.
 
-- No AudioPipe buffer-size, target-depth, scheduling, pacing, resampling, or playback tuning.
-- No Adaptive Playout production changes.
-- No BLE codec, notification, packet timing, keep-alive, micOpen/micClose, or AUDIO_STOP semantic changes.
-- No SHORT/LONG or rapid re-press behavior changes.
-- No Option/noOptionEdge fix.
-- No text-output Accessibility observer.
-- No DiagnosticAuthority redesign or log-retention cleanup.
-- No mapping/config backup cleanup.
-- No package/install/release/driver/TCC mutation unless a later control transition explicitly authorizes a runtime-capture step.
+## What this phase accomplished
+
+038-B delivered a diagnostic/observability capability, not a product audio fix.
+
+The chain now correlates:
+
+`BLE notifications -> decode -> PCM submission -> AudioPipe queue/render -> underrun`
+
+by session and 100 ms monotonic buckets.
+
+Before trusting runtime evidence, the diagnostic path itself was corrected to remove observer-effect risks:
+
+- no shared central diagnostic lock/dictionary mutation from render observation under `AudioPipe.stateLock`;
+- no full fixed-capacity lifecycle scan under the audio state lock;
+- stable capture identity for AUDIO_START-before-HID ordering;
+- submission observation moved into the AudioPipe-owned fixed-capacity ledger;
+- exact session/capture isolation and `render_capacity_dropped` accounting preserved.
+
+Semantic source/test delivery head: `652ea306dc4a22ee3c489b254d87becc6f9a4ed0`.
+
+Independent Web CODE_DIFF audit passed at `6b5fde0b767933a89b8b7643dabe473e46040df8`. Later evidence/control commits do not authorize product behavior changes.
+
+## Unresolved problem record
+
+The continuity defect does not yet have a single corrective owner.
+
+Evidence currently supports:
+
+- BLE cadence degradation as a recurring contributor;
+- decoder rejection and overflow as downgraded explanations;
+- aggregate PCM supply deficit as insufficient to explain the active underrun population by itself.
+
+The main unresolved technical boundary is finer-grained intra-bucket ordering among:
+
+`BLE arrival -> decode -> PCM submission -> instantaneous queue depth -> render callback`
+
+A future investigation, if explicitly authorized, should discriminate whether active starvation is primarily caused by late BLE arrival, late PCM availability within the bucket, or a distinct AudioPipe queue/render scheduling behavior. Do not infer this from same-bucket aggregates.
+
+Human waveform/audio quality and final text omission remain unverified. 038-F remains deferred.
+
+## Phase lessons
+
+- Observability PASS is not product-quality PASS.
+- Causal claims need a control population/base rate, not only properties of failing buckets.
+- Startup, active, tail/teardown, and idle render populations must remain separate.
+- Same-bucket aggregate sufficiency does not prove event ordering.
+- Real-time diagnostic probes require explicit observer-effect review.
+- Runtime app identity and OS permission state are part of evidence provenance.
+- Do not convert a recurring contributor into an exclusive root cause without a discriminating temporal observation.
+
+## Merge authority
+
+The user explicitly authorized documentation closeout and merge of PR #24.
+
+Before merge:
+
+- verify live PR head/state/mergeability;
+- verify any applicable hosted status/check evidence;
+- ensure the closeout documentation and control records are on the PR branch;
+- stop if the PR head materially drifts or merge is blocked by a required gate.
+
+If the live gate permits, merge PR #24 using normal repository merge semantics.
+
+## Prohibited mutation
+
+- No AudioPipe buffer, target-depth, scheduling, pacing, resampling, or playback correction.
+- No BLE codec, packet timing, keep-alive, micOpen/micClose, or AUDIO_STOP correction.
+- No Adaptive Playout production change.
+- No SHORT/LONG, rapid re-press, Option, or shortcut behavior change.
+- No new continuity probe or runtime session.
+- No 038-C/D/E/F execution.
+- No TCC, driver, CoreAudio, installer, or release mutation outside the explicitly authorized PR merge.
 - No opportunistic refactor.
 
-## Stop conditions
+## Closeout acceptance
 
-- Stop for material authority drift, unexpected active writer/PR, unique unpushed work, or scope conflict.
-- If existing telemetry cannot establish time correlation and instrumentation would materially affect the audio path, stop instead of adding an intrusive probe.
-- If evidence points to a different layer outside 038-B, report it and stop; do not silently expand into 038-C/D/E/F.
-- If a corrective production change becomes justified, stop after the evidence verdict and request a new governance transition before implementing it.
+Remote merge closeout is satisfied when:
 
-## Current next action
+- final evidence/conclusions/lessons are durably documented;
+- `CURRENT_STATUS.md` and `CURRENT_TASK.md` agree on the final 038-B evidence classification;
+- PR #24 is verified merged into `main` from the live authorized head;
+- the merge identity is recorded in the control plane.
 
-Reconcile current `main`; safely close out the merged 038-A local worktree if eligible; create/register the 038-B diagnostic worktree; then perform the continuity telemetry inventory and correlation audit. Do not tune or fix audio behavior in this phase.
+A remote merge does not by itself prove local workspace closure. The local task worktree `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence` must later be verified clean, merged/reachable, without unique/unpushed work, and removed/pruned according to workspace lifecycle rules before claiming `CLOSED_CLEAN`.
+
+## Next task boundary
+
+No successor task is activated by this closeout.
+
+`038-C — Option-edge authority` remains deferred until separately authorized after 038-B merge/closeout.

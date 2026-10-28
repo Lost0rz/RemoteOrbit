@@ -62,6 +62,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var diagnosticsTimer: Timer?
     private var remoteDiagnosticsActive = false
     private var remoteDiagnosticsSawActiveRoute = false
+    private var continuityRenderLedger: AudioContinuityRenderLedger?
     private var lastRemoteSubmittedMonotonicNanoseconds: UInt64?
     private var lastRemoteRenderedMonotonicNanoseconds: UInt64?
     private var p1A5StableRenderIntervals = 0
@@ -109,7 +110,12 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         return max(0, pendingOutput.count - pendingOutputIndex)
     }
 
-    func beginRemoteAudioDiagnostics() {
+    func beginRemoteAudioDiagnostics(
+        continuityContext: AudioContinuityCaptureContext? = nil
+    ) {
+        let nextContinuityLedger = continuityContext.map {
+            AudioContinuityRenderLedger(capture: $0)
+        }
         stateLock.lock()
         let totalDepth = max(0, pendingOutput.count - pendingOutputIndex)
         let currentDepth = AudioRemoteQueueAttribution.remoteQueueDepth(
@@ -118,16 +124,37 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         )
         remoteDiagnosticsActive = true
         remoteDiagnosticsSawActiveRoute = remoteActive
+        continuityRenderLedger = nextContinuityLedger
         diagnosticsCumulative.reset(currentQueueDepthFrames: currentDepth)
         diagnosticsWindow.reset(currentQueueDepthFrames: currentDepth)
         stateLock.unlock()
     }
 
-    func endRemoteAudioDiagnostics() {
+    /// Bind a live AUDIO_START capture to the matching HID session without
+    /// scanning or reallocating its fixed-capacity render storage. A capture
+    /// can be bound only once and only by its exact transport identity.
+    @discardableResult
+    func bindRemoteAudioDiagnostics(
+        captureID: UUID,
+        session: AudioContinuitySessionContext
+    ) -> Bool {
         stateLock.lock()
+        defer { stateLock.unlock() }
+        guard remoteDiagnosticsActive else { return false }
+        return continuityRenderLedger?.bind(
+            captureID: captureID,
+            session: session
+        ) ?? false
+    }
+
+    func endRemoteAudioDiagnostics() -> AudioContinuityRenderSnapshot? {
+        stateLock.lock()
+        let detachedContinuityLedger = continuityRenderLedger
+        continuityRenderLedger = nil
         remoteDiagnosticsActive = false
         remoteDiagnosticsSawActiveRoute = false
         stateLock.unlock()
+        return detachedContinuityLedger?.snapshot()
     }
 
     func takeAudioDiagnosticsSnapshot(
@@ -663,6 +690,13 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                     )
                 }
             }
+            if VoiceTimingLogger.continuityEvidenceEnabled {
+                continuityRenderLedger?.recordSubmitted(
+                    timestampNanoseconds: submissionTimestamp,
+                    frames: resampled.count,
+                    queueDepthFrames: pendingRemoteOutputFrames
+                )
+            }
         } else {
             scheduledMacBuffers += 1
         }
@@ -809,6 +843,15 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             totalQueueFrames: remaining,
             pendingRemoteFrames: pendingRemoteOutputFrames
         )
+        if remoteDiagnosticsActive,
+           VoiceTimingLogger.continuityEvidenceEnabled {
+            continuityRenderLedger?.recordRender(
+                timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds(),
+                accounting: renderAccounting,
+                queueDepthBefore: availableRemoteFrames,
+                queueDepthAfter: queuedRemoteFramesAfter
+            )
+        }
         if VoiceTimingLogger.p1A5Enabled,
            remoteActive,
            remoteDiagnosticsActive {
@@ -913,6 +956,12 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             if remoteDiagnosticsActive, remoteDroppedFrames > 0 {
                 diagnosticsCumulative.recordOverflow(remoteDroppedFrames)
                 diagnosticsWindow.recordOverflow(remoteDroppedFrames)
+                if VoiceTimingLogger.continuityEvidenceEnabled {
+                    continuityRenderLedger?.recordOverflow(
+                        timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds(),
+                        frames: remoteDroppedFrames
+                    )
+                }
             }
         }
         recordQueueDepthLocked(pendingRemoteOutputFrames)

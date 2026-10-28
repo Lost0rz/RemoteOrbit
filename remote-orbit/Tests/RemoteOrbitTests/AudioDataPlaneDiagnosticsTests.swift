@@ -100,6 +100,477 @@ final class AudioDataPlaneDiagnosticsTests: XCTestCase {
         XCTAssertEqual(sessionAfterWindowReset.renderedRemoteFrames, 2_400)
     }
 
+    func testContinuityLedgerCorrelatesMonotonicSupplyAndActiveUnderrunBuckets() {
+        let sessionID = UUID()
+        let start: UInt64 = 1_000_000_000
+        var ledger = AudioContinuityBucketLedger(sessionStartNanoseconds: start)
+
+        ledger.recordBLE(timestampNanoseconds: start + 10_000_000, bytes: 120)
+        ledger.recordBLE(timestampNanoseconds: start + 90_000_000, bytes: 120)
+        ledger.recordDecoded(
+            timestampNanoseconds: start + 95_000_000,
+            frameCount: 1,
+            sampleCount: 160
+        )
+        ledger.recordSubmitted(
+            timestampNanoseconds: start + 98_000_000,
+            frames: 480,
+            queueDepthFrames: 480
+        )
+        ledger.recordRender(
+            timestampNanoseconds: start + 105_000_000,
+            accounting: AudioPipeRenderAccounting(
+                state: .activeRemote,
+                accounted: true,
+                activeRequestedFrames: 480,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 480,
+                activeUnderrunCallbacks: 1,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 0,
+                idleRenderCallbacks: 0
+            ),
+            queueDepthBefore: 480,
+            queueDepthAfter: 0
+        )
+
+        XCTAssertEqual(ledger.bucketCount, 2)
+        XCTAssertEqual(ledger.bucket(at: 0)?.bleGapOver50Milliseconds, 1)
+        XCTAssertEqual(ledger.bucket(at: 0)?.decodedSampleCount, 160)
+        XCTAssertEqual(ledger.bucket(at: 0)?.submittedRemoteFrames, 480)
+        XCTAssertEqual(ledger.bucket(at: 1)?.activeUnderrunFrames, 480)
+        XCTAssertEqual(ledger.bucket(at: 1)?.queueEndFrames, 0)
+
+        let lines = ledger.reportLines(sessionID: sessionID)
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertTrue(lines[0].contains("bucket_ms=100"))
+        XCTAssertTrue(lines[1].contains("start_ms=0 end_ms=100"))
+        XCTAssertTrue(lines[1].contains("ble_gap_gt50=1"))
+        XCTAssertTrue(lines[2].contains("start_ms=100 end_ms=200"))
+        XCTAssertTrue(lines[2].contains("active_underrun_frames=480"))
+    }
+
+    func testContinuityLedgerKeepsTailUnderrunSeparateFromActiveUnderrun() {
+        let start: UInt64 = 2_000_000_000
+        var ledger = AudioContinuityBucketLedger(sessionStartNanoseconds: start)
+
+        ledger.recordRender(
+            timestampNanoseconds: start + 20_000_000,
+            accounting: AudioPipeRenderAccounting(
+                state: .tailDrain,
+                accounted: true,
+                activeRequestedFrames: 0,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 0,
+                activeUnderrunCallbacks: 0,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 1,
+                idleRenderCallbacks: 0
+            ),
+            queueDepthBefore: 0,
+            queueDepthAfter: 0
+        )
+
+        XCTAssertEqual(ledger.bucket(at: 0)?.tailEmptyCallbacks, 1)
+        XCTAssertEqual(ledger.bucket(at: 0)?.activeUnderrunFrames, 0)
+    }
+
+    func testAudioStartBeforeHIDPreservesPreSessionRenderUntilLateBinding() {
+        let captureID = UUID()
+        let audioStart: UInt64 = 2_500_000_000
+        let capture = AudioContinuityCaptureContext(
+            captureID: captureID,
+            sessionID: nil,
+            startNanoseconds: audioStart
+        )
+        var renderLedger = AudioContinuityRenderLedger(capture: capture)
+
+        renderLedger.recordRender(
+            timestampNanoseconds: audioStart + 50_000_000,
+            accounting: AudioPipeRenderAccounting(
+                state: .activeRemote,
+                accounted: true,
+                activeRequestedFrames: 480,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 480,
+                activeUnderrunCallbacks: 1,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 0,
+                idleRenderCallbacks: 0
+            ),
+            queueDepthBefore: 0,
+            queueDepthAfter: 0
+        )
+
+        let sessionID = UUID()
+        let session = AudioContinuitySessionContext(
+            sessionID: sessionID,
+            startNanoseconds: audioStart + 80_000_000
+        )
+        XCTAssertFalse(
+            renderLedger.bind(
+                captureID: UUID(),
+                session: session
+            )
+        )
+        XCTAssertTrue(
+            renderLedger.bind(
+                captureID: captureID,
+                session: session
+            )
+        )
+
+        let snapshot = renderLedger.snapshot()
+        XCTAssertEqual(snapshot?.captureID, captureID)
+        XCTAssertEqual(snapshot?.session.sessionID, sessionID)
+        XCTAssertEqual(snapshot?.session.startNanoseconds, audioStart)
+        XCTAssertEqual(snapshot?.buckets.first?.activeUnderrunFrames, 480)
+        var joinedLedger = AudioContinuityBucketLedger(
+            sessionStartNanoseconds: audioStart,
+            captureID: captureID
+        )
+        joinedLedger.mergeRenderSnapshot(snapshot!)
+        XCTAssertEqual(joinedLedger.bucket(at: 0)?.activeUnderrunFrames, 480)
+        XCTAssertFalse(
+            renderLedger.bind(
+                captureID: captureID,
+                session: AudioContinuitySessionContext(
+                    sessionID: UUID(),
+                    startNanoseconds: audioStart + 90_000_000
+                )
+            )
+        )
+    }
+
+    func testAudioStartBeforeHIDPreservesPreSessionSubmissionUntilLateBinding() {
+        let captureID = UUID()
+        let audioStart: UInt64 = 2_550_000_000
+        let capture = AudioContinuityCaptureContext(
+            captureID: captureID,
+            sessionID: nil,
+            startNanoseconds: audioStart
+        )
+        var renderLedger = AudioContinuityRenderLedger(capture: capture)
+
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: audioStart + 25_000_000,
+            frames: 480,
+            queueDepthFrames: 960
+        )
+
+        let sessionID = UUID()
+        XCTAssertTrue(
+            renderLedger.bind(
+                captureID: captureID,
+                session: AudioContinuitySessionContext(
+                    sessionID: sessionID,
+                    startNanoseconds: audioStart + 40_000_000
+                )
+            )
+        )
+
+        let snapshot = renderLedger.snapshot()
+        XCTAssertEqual(snapshot?.captureID, captureID)
+        XCTAssertEqual(snapshot?.session.sessionID, sessionID)
+        XCTAssertEqual(snapshot?.session.startNanoseconds, audioStart)
+        XCTAssertEqual(snapshot?.buckets.first?.submittedRemoteFrames, 480)
+        XCTAssertEqual(snapshot?.buckets.first?.queueMinFrames, 960)
+        XCTAssertEqual(snapshot?.buckets.first?.queueMaxFrames, 960)
+        XCTAssertEqual(snapshot?.buckets.first?.queueEndFrames, 960)
+    }
+
+    func testHIDBeforeAudioStartKeepsBoundSessionIdentity() {
+        let sessionID = UUID()
+        let sessionStart: UInt64 = 2_800_000_000
+        let capture = AudioContinuityCaptureContext(
+            captureID: UUID(),
+            sessionID: sessionID,
+            startNanoseconds: sessionStart
+        )
+        var renderLedger = AudioContinuityRenderLedger(capture: capture)
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: sessionStart + 105_000_000,
+            frames: 240,
+            queueDepthFrames: 240
+        )
+        renderLedger.recordOverflow(
+            timestampNanoseconds: sessionStart + 105_000_000,
+            frames: 12
+        )
+
+        let snapshot = renderLedger.snapshot()
+        XCTAssertEqual(snapshot?.captureID, capture.captureID)
+        XCTAssertEqual(snapshot?.session.sessionID, sessionID)
+        XCTAssertEqual(snapshot?.buckets.first?.submittedRemoteFrames, 240)
+        XCTAssertEqual(snapshot?.buckets.first?.overflowDroppedFrames, 12)
+    }
+
+    func testRenderSnapshotRequiresMatchingCaptureIdentityForSessionJoin() {
+        let session = AudioContinuitySessionContext(
+            sessionID: UUID(),
+            startNanoseconds: 2_900_000_000
+        )
+        let capture = AudioContinuityCaptureContext(
+            captureID: UUID(),
+            sessionID: session.sessionID,
+            startNanoseconds: session.startNanoseconds
+        )
+        var renderLedger = AudioContinuityRenderLedger(capture: capture)
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: session.startNanoseconds + 105_000_000,
+            frames: 160,
+            queueDepthFrames: 320
+        )
+        renderLedger.recordOverflow(
+            timestampNanoseconds: session.startNanoseconds + 105_000_000,
+            frames: 8
+        )
+        let snapshot = renderLedger.snapshot()!
+
+        var wrongCaptureLedger = AudioContinuityBucketLedger(
+            sessionStartNanoseconds: session.startNanoseconds,
+            captureID: UUID()
+        )
+        wrongCaptureLedger.mergeRenderSnapshot(snapshot)
+        XCTAssertNil(wrongCaptureLedger.bucket(at: 1))
+
+        var matchingLedger = AudioContinuityBucketLedger(
+            sessionStartNanoseconds: session.startNanoseconds,
+            captureID: capture.captureID
+        )
+        matchingLedger.mergeRenderSnapshot(snapshot)
+        XCTAssertEqual(
+            matchingLedger.bucket(at: 1)?.overflowDroppedFrames,
+            8
+        )
+        XCTAssertEqual(matchingLedger.bucket(at: 1)?.submittedRemoteFrames, 160)
+        XCTAssertEqual(matchingLedger.bucket(at: 1)?.queueEndFrames, 320)
+    }
+
+    func testRenderLedgerUsesFixedSessionOwnedStorageAndResetsBetweenSessions() {
+        let firstSession = AudioContinuitySessionContext(
+            sessionID: UUID(),
+            startNanoseconds: 3_000_000_000
+        )
+        var renderLedger = AudioContinuityRenderLedger()
+        renderLedger.reset(session: firstSession)
+
+        renderLedger.recordRender(
+            timestampNanoseconds: firstSession.startNanoseconds + 105_000_000,
+            accounting: AudioPipeRenderAccounting(
+                state: .activeRemote,
+                accounted: true,
+                activeRequestedFrames: 480,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 480,
+                activeUnderrunCallbacks: 1,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 0,
+                idleRenderCallbacks: 0
+            ),
+            queueDepthBefore: 480,
+            queueDepthAfter: 0
+        )
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: firstSession.startNanoseconds + 105_000_000,
+            frames: 480,
+            queueDepthFrames: 480
+        )
+
+        let firstSnapshot = renderLedger.snapshot()
+        XCTAssertEqual(firstSnapshot?.session, firstSession)
+        XCTAssertEqual(firstSnapshot?.buckets.count, 1)
+        XCTAssertEqual(firstSnapshot?.buckets.first?.index, 1)
+        XCTAssertEqual(firstSnapshot?.buckets.first?.activeUnderrunFrames, 480)
+        XCTAssertEqual(firstSnapshot?.buckets.first?.submittedRemoteFrames, 480)
+
+        let secondSession = AudioContinuitySessionContext(
+            sessionID: UUID(),
+            startNanoseconds: 4_000_000_000
+        )
+        renderLedger.reset(session: secondSession)
+        XCTAssertNil(renderLedger.snapshot())
+
+        renderLedger.recordRender(
+            timestampNanoseconds: firstSession.startNanoseconds + 105_000_000,
+            accounting: AudioPipeRenderAccounting(
+                state: .activeRemote,
+                accounted: true,
+                activeRequestedFrames: 480,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 480,
+                activeUnderrunCallbacks: 1,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 0,
+                idleRenderCallbacks: 0
+            ),
+            queueDepthBefore: 480,
+            queueDepthAfter: 0
+        )
+        XCTAssertNil(renderLedger.snapshot())
+
+        renderLedger.recordOverflow(
+            timestampNanoseconds: secondSession.startNanoseconds + 205_000_000,
+            frames: 32
+        )
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: secondSession.startNanoseconds + 205_000_000,
+            frames: 240,
+            queueDepthFrames: 240
+        )
+        XCTAssertEqual(renderLedger.snapshot()?.session, secondSession)
+        XCTAssertEqual(renderLedger.snapshot()?.buckets.first?.overflowDroppedFrames, 32)
+        XCTAssertEqual(renderLedger.snapshot()?.buckets.first?.submittedRemoteFrames, 240)
+    }
+
+    func testRenderLedgerDisabledContextDoesNotCollect() {
+        var renderLedger = AudioContinuityRenderLedger()
+        XCTAssertEqual(renderLedger.storageCount, 0)
+        renderLedger.reset(session: nil)
+        XCTAssertEqual(renderLedger.storageCount, 0)
+        renderLedger.recordRender(
+            timestampNanoseconds: 1_000_000_000,
+            accounting: AudioPipeRenderAccounting(
+                state: .activeRemote,
+                accounted: true,
+                activeRequestedFrames: 480,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 480,
+                activeUnderrunCallbacks: 1,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 0,
+                idleRenderCallbacks: 0
+            ),
+            queueDepthBefore: 480,
+            queueDepthAfter: 0
+        )
+        renderLedger.recordOverflow(
+            timestampNanoseconds: 1_000_000_000,
+            frames: 32
+        )
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: 1_000_000_000,
+            frames: 480,
+            queueDepthFrames: 480
+        )
+
+        XCTAssertNil(renderLedger.snapshot())
+    }
+
+    func testRenderLedgerSnapshotRemainsStableAfterCaptureIsDetached() {
+        let session = AudioContinuitySessionContext(
+            sessionID: UUID(),
+            startNanoseconds: 7_000_000_000
+        )
+        var activeLedger = AudioContinuityRenderLedger(session: session)
+        activeLedger.recordOverflow(
+            timestampNanoseconds: session.startNanoseconds + 105_000_000,
+            frames: 24
+        )
+
+        let detachedLedger = activeLedger
+        activeLedger = AudioContinuityRenderLedger()
+
+        let snapshot = detachedLedger.snapshot()
+        XCTAssertEqual(snapshot?.session, session)
+        XCTAssertEqual(snapshot?.buckets.first?.overflowDroppedFrames, 24)
+        XCTAssertEqual(activeLedger.storageCount, 0)
+    }
+
+    func testRenderLedgerReportsBoundedCapacityDrops() {
+        let session = AudioContinuitySessionContext(
+            sessionID: UUID(),
+            startNanoseconds: 6_000_000_000
+        )
+        var renderLedger = AudioContinuityRenderLedger()
+        renderLedger.reset(session: session)
+        renderLedger.recordOverflow(
+            timestampNanoseconds: session.startNanoseconds
+                + UInt64(AudioContinuityRenderLedger.maxBucketCount)
+                    * AudioContinuityBucketLedger.bucketWidthNanoseconds,
+            frames: 32
+        )
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: session.startNanoseconds
+                + UInt64(AudioContinuityRenderLedger.maxBucketCount)
+                    * AudioContinuityBucketLedger.bucketWidthNanoseconds,
+            frames: 480,
+            queueDepthFrames: 480
+        )
+
+        let snapshot = renderLedger.snapshot()
+        XCTAssertEqual(snapshot?.droppedObservationCount, 2)
+        XCTAssertTrue(snapshot?.buckets.isEmpty == true)
+    }
+
+    func testRenderSnapshotMergesSubmissionActiveTailAndOverflowIntoCentralLedger() {
+        let session = AudioContinuitySessionContext(
+            sessionID: UUID(),
+            startNanoseconds: 5_000_000_000
+        )
+        var renderLedger = AudioContinuityRenderLedger()
+        renderLedger.reset(session: session)
+        renderLedger.recordSubmitted(
+            timestampNanoseconds: session.startNanoseconds + 105_000_000,
+            frames: 480,
+            queueDepthFrames: 480
+        )
+        renderLedger.recordRender(
+            timestampNanoseconds: session.startNanoseconds + 105_000_000,
+            accounting: AudioPipeRenderAccounting(
+                state: .activeRemote,
+                accounted: true,
+                activeRequestedFrames: 480,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 480,
+                activeUnderrunCallbacks: 1,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 0,
+                idleRenderCallbacks: 0
+            ),
+            queueDepthBefore: 480,
+            queueDepthAfter: 0
+        )
+        renderLedger.recordRender(
+            timestampNanoseconds: session.startNanoseconds + 205_000_000,
+            accounting: AudioPipeRenderAccounting(
+                state: .tailDrain,
+                accounted: true,
+                activeRequestedFrames: 0,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 0,
+                activeUnderrunCallbacks: 0,
+                tailRenderedFrames: 240,
+                tailEmptyCallbacks: 1,
+                idleRenderCallbacks: 0
+            ),
+            queueDepthBefore: 0,
+            queueDepthAfter: 0
+        )
+        renderLedger.recordOverflow(
+            timestampNanoseconds: session.startNanoseconds + 205_000_000,
+            frames: 16
+        )
+
+        var centralLedger = AudioContinuityBucketLedger(
+            sessionStartNanoseconds: session.startNanoseconds
+        )
+        centralLedger.mergeRenderSnapshot(renderLedger.snapshot()!)
+
+        XCTAssertEqual(centralLedger.bucket(at: 1)?.activeUnderrunFrames, 480)
+        XCTAssertEqual(centralLedger.bucket(at: 1)?.submittedRemoteFrames, 480)
+        XCTAssertEqual(centralLedger.bucket(at: 1)?.queueMinFrames, 0)
+        XCTAssertEqual(centralLedger.bucket(at: 1)?.queueMaxFrames, 480)
+        XCTAssertEqual(centralLedger.bucket(at: 1)?.queueEndFrames, 0)
+        XCTAssertEqual(centralLedger.bucket(at: 2)?.tailRenderedFrames, 240)
+        XCTAssertEqual(centralLedger.bucket(at: 2)?.tailEmptyCallbacks, 1)
+        XCTAssertEqual(centralLedger.bucket(at: 2)?.overflowDroppedFrames, 16)
+        XCTAssertTrue(
+            centralLedger.reportLines(sessionID: session.sessionID)[0]
+                .contains("render_capacity_dropped=0")
+        )
+    }
+
     func testDeliveryRatioAtFullRateHasNoDeficit() {
         let result = AudioDeliveryAccounting.measure(
             decodedSamples: 80_000,

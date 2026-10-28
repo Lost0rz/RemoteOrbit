@@ -8,6 +8,9 @@ enum VoiceTimingLogger {
     private static var startedAt: TimeInterval = 0
     private static var timeline: [String: UInt64] = [:]
     private static var frontEdgeUnderrunStats = P1A5FrontEdgeUnderrunStats()
+    private static var continuityLedger = AudioContinuityBucketLedger()
+    private static var continuityCaptureID: UUID?
+    private static var continuityCaptureAwaitingSession = false
     private static var lastEndedSessionID: UUID?
     private static var lastEndedStartedAt: TimeInterval = 0
 
@@ -15,14 +18,95 @@ enum VoiceTimingLogger {
         ProcessInfo.processInfo.environment["REMOTE_ORBIT_P1A5_FRONT_EDGE"] == "1"
     }
 
+    static let continuityEvidenceEnabled =
+        ProcessInfo.processInfo.environment["REMOTE_ORBIT_CONTINUITY_EVIDENCE"] == "1"
+
     static var currentSessionID: UUID? {
         lock.lock()
         defer { lock.unlock() }
         return activeSessionID
     }
 
-    static func begin(sessionID: UUID) {
+    static func currentContinuityContext() -> AudioContinuitySessionContext? {
+        guard continuityEvidenceEnabled else { return nil }
         lock.lock()
+        defer { lock.unlock() }
+        guard let activeSessionID,
+              let startNanoseconds = continuityLedger.sessionStartNanoseconds else {
+            return nil
+        }
+        return AudioContinuitySessionContext(
+            sessionID: activeSessionID,
+            startNanoseconds: startNanoseconds
+        )
+    }
+
+    /// Start or reuse the opt-in continuity capture for AUDIO_START. A
+    /// transport capture may begin before HID creates its gesture UUID, so it
+    /// gets a stable capture identity and can be bound later without losing
+    /// pre-session BLE/decode observations.
+    static func continuityCaptureContextForAudioStart() -> AudioContinuityCaptureContext? {
+        guard continuityEvidenceEnabled else { return nil }
+        let timestamp = P1A4MonotonicClock.nowNanoseconds()
+        lock.lock()
+        if let continuityCaptureID,
+           let startNanoseconds = continuityLedger.sessionStartNanoseconds,
+           continuityCaptureAwaitingSession || activeSessionID != nil {
+            let context = AudioContinuityCaptureContext(
+                captureID: continuityCaptureID,
+                sessionID: activeSessionID,
+                startNanoseconds: startNanoseconds
+            )
+            lock.unlock()
+            return context
+        }
+
+        let captureID = UUID()
+        continuityCaptureID = captureID
+        continuityCaptureAwaitingSession = activeSessionID == nil
+        continuityLedger.reset(
+            sessionStartNanoseconds: timestamp,
+            captureID: captureID
+        )
+        let context = AudioContinuityCaptureContext(
+            captureID: captureID,
+            sessionID: activeSessionID,
+            startNanoseconds: timestamp
+        )
+        lock.unlock()
+        return context
+    }
+
+    static func begin(sessionID: UUID) {
+        let timestamp = P1A4MonotonicClock.nowNanoseconds()
+        var captureToBind: AudioContinuityCaptureContext?
+        lock.lock()
+        if continuityEvidenceEnabled {
+            if activeSessionID == nil,
+               continuityCaptureAwaitingSession,
+               let continuityCaptureID,
+               let startNanoseconds = continuityLedger.sessionStartNanoseconds {
+                continuityCaptureAwaitingSession = false
+                captureToBind = AudioContinuityCaptureContext(
+                    captureID: continuityCaptureID,
+                    sessionID: sessionID,
+                    startNanoseconds: startNanoseconds
+                )
+            } else {
+                let captureID = UUID()
+                continuityCaptureID = captureID
+                continuityCaptureAwaitingSession = false
+                continuityLedger.reset(
+                    sessionStartNanoseconds: timestamp,
+                    captureID: captureID
+                )
+                captureToBind = AudioContinuityCaptureContext(
+                    captureID: captureID,
+                    sessionID: sessionID,
+                    startNanoseconds: timestamp
+                )
+            }
+        }
         activeSessionID = sessionID
         startedAt = ProcessInfo.processInfo.systemUptime
         timeline = [:]
@@ -30,10 +114,68 @@ enum VoiceTimingLogger {
         lastEndedSessionID = nil
         lastEndedStartedAt = 0
         lock.unlock()
-        let timestamp = P1A4MonotonicClock.nowNanoseconds()
+        if let captureToBind {
+            _ = AudioPipe.shared.bindRemoteAudioDiagnostics(
+                captureID: captureToBind.captureID,
+                session: AudioContinuitySessionContext(
+                    sessionID: sessionID,
+                    startNanoseconds: captureToBind.startNanoseconds
+                )
+            )
+        }
         record("T0_voice_trigger_down", timestampNanoseconds: timestamp)
         recordIfAbsent("F0_trigger_down", timestampNanoseconds: timestamp)
         mark("VOICE_DOWN", sessionID: sessionID)
+    }
+
+    static func recordContinuityBLE(
+        timestampNanoseconds: UInt64,
+        bytes: Int
+    ) {
+        guard continuityEvidenceEnabled else { return }
+        lock.lock()
+        guard activeSessionID != nil || continuityCaptureAwaitingSession else {
+            lock.unlock()
+            return
+        }
+        continuityLedger.recordBLE(
+            timestampNanoseconds: timestampNanoseconds,
+            bytes: bytes
+        )
+        lock.unlock()
+    }
+
+    static func recordContinuityDecoded(
+        timestampNanoseconds: UInt64,
+        frameCount: Int,
+        sampleCount: Int
+    ) {
+        guard continuityEvidenceEnabled else { return }
+        lock.lock()
+        guard activeSessionID != nil || continuityCaptureAwaitingSession else {
+            lock.unlock()
+            return
+        }
+        continuityLedger.recordDecoded(
+            timestampNanoseconds: timestampNanoseconds,
+            frameCount: frameCount,
+            sampleCount: sampleCount
+        )
+        lock.unlock()
+    }
+
+    static func mergeContinuityRenderSnapshot(
+        _ snapshot: AudioContinuityRenderSnapshot?
+    ) {
+        guard continuityEvidenceEnabled, let snapshot else { return }
+        lock.lock()
+        guard activeSessionID == snapshot.session.sessionID,
+              continuityCaptureID == snapshot.captureID else {
+            lock.unlock()
+            return
+        }
+        continuityLedger.mergeRenderSnapshot(snapshot)
+        lock.unlock()
     }
 
     /// Records a correlation timestamp without emitting a high-frequency log.
@@ -193,14 +335,23 @@ enum VoiceTimingLogger {
 
     static func end(sessionID: UUID) {
         lock.lock()
+        let continuityLines: [String]
         if activeSessionID == sessionID {
             lastEndedSessionID = sessionID
             lastEndedStartedAt = startedAt
             activeSessionID = nil
+            continuityLines = continuityEvidenceEnabled
+                ? continuityLedger.reportLines(sessionID: sessionID)
+                : []
+        } else {
+            continuityLines = []
         }
         let snapshot = timeline
         let underrunSnapshot = frontEdgeUnderrunStats
         timeline = [:]
+        continuityLedger.reset(sessionStartNanoseconds: nil)
+        continuityCaptureID = nil
+        continuityCaptureAwaitingSession = false
         lock.unlock()
         let orderedEvents = [
             "T0_voice_trigger_down",
@@ -226,6 +377,9 @@ enum VoiceTimingLogger {
             "[P1-A4] AUDIO_TIMELINE session_id=\(sessionID.uuidString) "
                 + values
         )
+        for line in continuityLines {
+            print(line)
+        }
         guard p1A5Enabled else { return }
 
         let frontEdgeEvents = [

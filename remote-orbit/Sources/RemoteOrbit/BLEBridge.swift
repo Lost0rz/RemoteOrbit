@@ -682,7 +682,8 @@ final class BLEBridge: NSObject {
         connectTimeoutWorkItem = nil
         handshakeTimeoutWorkItem?.cancel()
         handshakeTimeoutWorkItem = nil
-        AudioPipe.shared.endRemoteAudioDiagnostics()
+        let continuitySnapshot = AudioPipe.shared.endRemoteAudioDiagnostics()
+        VoiceTimingLogger.mergeContinuityRenderSnapshot(continuitySnapshot)
         keepAliveTimer?.invalidate()
         keepAliveTimer = nil
         if let recorder = wavRecorder {
@@ -1154,7 +1155,10 @@ extension BLEBridge: CBPeripheralDelegate {
                     timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
                 )
             }
-            AudioPipe.shared.beginRemoteAudioDiagnostics()
+            let continuityContext = VoiceTimingLogger.continuityCaptureContextForAudioStart()
+            AudioPipe.shared.beginRemoteAudioDiagnostics(
+                continuityContext: continuityContext
+            )
             streamAudioSyncCount = pendingAudioSyncCount
             pendingAudioSyncCount = 0
             streamStartedAt = Date()
@@ -1300,6 +1304,12 @@ extension BLEBridge: CBPeripheralDelegate {
             frameSize: protocolHandler.capabilities?.frameSize ?? 0,
             at: now.timeIntervalSinceReferenceDate
         )
+        if VoiceTimingLogger.continuityEvidenceEnabled {
+            VoiceTimingLogger.recordContinuityBLE(
+                timestampNanoseconds: packetTimestamp,
+                bytes: data.count
+            )
+        }
         wavRecorder?.appendRawBytes(data)
 
         switch protocolHandler.decodeAudioFrames(data) {
@@ -1328,6 +1338,13 @@ extension BLEBridge: CBPeripheralDelegate {
             "T3_last_decoded_pcm_frame",
             timestampNanoseconds: decodedTimestamp
         )
+        if VoiceTimingLogger.continuityEvidenceEnabled {
+            VoiceTimingLogger.recordContinuityDecoded(
+                timestampNanoseconds: decodedTimestamp,
+                frameCount: 1,
+                sampleCount: frame.samples.count
+            )
+        }
         if VoiceTimingLogger.p1A5Enabled {
             VoiceTimingLogger.recordIfAbsent(
                 "F3_first_pcm_decoded",
@@ -1460,7 +1477,7 @@ extension BLEBridge: CBPeripheralDelegate {
         } ?? "n/a"
         let maxGapMS = String(format: "%.1f", maxAudioFrameGap * 1_000)
         let summary = [
-            "[BLE] AUDIO_SUMMARY streamID=\(streamID)",
+            "[BLE] AUDIO_SUMMARY streamID=\(streamID) session_id=\(streamSessionID)",
             "frames=\(streamFrameCount)",
             "samples=\(streamSampleCount)",
             "peak=\(streamPeak)",
@@ -1497,8 +1514,9 @@ extension BLEBridge: CBPeripheralDelegate {
         let queueDepthMaxMS = Double(pipe.maxQueueDepthFrames) / 48_000 * 1_000
         let queueDepthCurrentMS = Double(pipe.currentQueueDepthFrames) / 48_000 * 1_000
         print(String(
-            format: "[AUDIO-PATH] BLE_DECODE_SUMMARY stream=%d codec=%@ sample_rate=%d frame_size=%d measurement_elapsed_ms=%.1f lifecycle_elapsed_ms=%.1f audio_stop_at_ms=%@ last_audio_at_ms=%@ stop_to_last_audio_ms=%@ drain_finish_ms=%@ post_last_audio_drain_ms=%@ notifications=%d notification_bytes=%d notification_size_min=%d notification_size_max=%d notification_size_distribution=%@ frame_size_distribution=%@ decoded_frames=%d decoded_samples=%d decoded_audio_ms=%.1f delivery_ratio=%.3f expected_samples=%d deficit_samples=%d deficit_ms=%.1f decode_rejects=%d zero_sample_decodes=%d max_notification_gap_ms=%.1f p95_notification_gap_ms=%.1f gap_gt20ms=%d gap_gt30ms=%d gap_gt50ms=%d gap_gt100ms=%d",
+            format: "[AUDIO-PATH] BLE_DECODE_SUMMARY stream=%d session_id=%@ codec=%@ sample_rate=%d frame_size=%d measurement_elapsed_ms=%.1f lifecycle_elapsed_ms=%.1f audio_stop_at_ms=%@ last_audio_at_ms=%@ stop_to_last_audio_ms=%@ drain_finish_ms=%@ post_last_audio_drain_ms=%@ notifications=%d notification_bytes=%d notification_size_min=%d notification_size_max=%d notification_size_distribution=%@ frame_size_distribution=%@ decoded_frames=%d decoded_samples=%d decoded_audio_ms=%.1f delivery_ratio=%.3f expected_samples=%d deficit_samples=%d deficit_ms=%.1f decode_rejects=%d zero_sample_decodes=%d max_notification_gap_ms=%.1f p95_notification_gap_ms=%.1f gap_gt20ms=%d gap_gt30ms=%d gap_gt50ms=%d gap_gt100ms=%d",
             streamID,
+            streamSessionID,
             protocolHandler.codec?.description ?? "unknown",
             sampleRate,
             protocolHandler.capabilities?.frameSize ?? 0,
@@ -1532,8 +1550,9 @@ extension BLEBridge: CBPeripheralDelegate {
             streamNotificationTelemetry.gapOver100Milliseconds
         ))
         print(String(
-            format: "[AUDIO-PATH] AUDIOPIPE_SUMMARY stream=%d render_callback_count=%d render_requested_frames=%d render_filled_frames=%d render_unfilled_frames=%d underrun_callbacks=%d underrun_duration_ms=%.1f max_underrun_frames=%d active_remote_underrun_frames=%d active_remote_underrun_callbacks=%d tail_rendered_frames=%d tail_empty_callbacks=%d idle_render_callbacks=%d queue_depth_current_ms=%.1f queue_depth_min_ms=%.1f queue_depth_max_ms=%.1f overflow_dropped_frames=%d overflow_dropped_ms=%.1f compaction_count=%d",
+            format: "[AUDIO-PATH] AUDIOPIPE_SUMMARY stream=%d session_id=%@ render_callback_count=%d render_requested_frames=%d render_filled_frames=%d render_unfilled_frames=%d underrun_callbacks=%d underrun_duration_ms=%.1f max_underrun_frames=%d active_remote_underrun_frames=%d active_remote_underrun_callbacks=%d tail_rendered_frames=%d tail_empty_callbacks=%d idle_render_callbacks=%d queue_depth_current_ms=%.1f queue_depth_min_ms=%.1f queue_depth_max_ms=%.1f overflow_dropped_frames=%d overflow_dropped_ms=%.1f compaction_count=%d",
             streamID,
+            streamSessionID,
             pipe.renderCallbackCount,
             pipe.renderRequestedFrames,
             pipe.renderFilledFrames,
@@ -1553,7 +1572,8 @@ extension BLEBridge: CBPeripheralDelegate {
             pipe.overflowDroppedMilliseconds,
             pipe.compactionCount
         ))
-        AudioPipe.shared.endRemoteAudioDiagnostics()
+        let continuitySnapshot = AudioPipe.shared.endRemoteAudioDiagnostics()
+        VoiceTimingLogger.mergeContinuityRenderSnapshot(continuitySnapshot)
         let reason = pendingAudioStopReason ?? 0
         pendingAudioStopReason = nil
         print("[BLE] AUDIO_STOP drained reason=0x\(String(format: "%02x", reason))")

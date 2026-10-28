@@ -352,6 +352,490 @@ struct BLENotificationTelemetry {
     }
 }
 
+struct AudioContinuityBucket: Equatable {
+    let index: Int
+    var bleNotificationCount = 0
+    var bleBytes = 0
+    var bleGapMaxMilliseconds: Double = 0
+    var bleGapOver20Milliseconds = 0
+    var bleGapOver30Milliseconds = 0
+    var bleGapOver50Milliseconds = 0
+    var bleGapOver100Milliseconds = 0
+    var decodedFrameCount = 0
+    var decodedSampleCount = 0
+    var submittedRemoteFrames = 0
+    var renderRequestedFrames = 0
+    var renderFilledFrames = 0
+    var renderUnfilledFrames = 0
+    var activeUnderrunFrames = 0
+    var activeUnderrunCallbacks = 0
+    var tailRenderedFrames = 0
+    var tailEmptyCallbacks = 0
+    var idleRenderCallbacks = 0
+    var queueMinFrames: Int?
+    var queueMaxFrames: Int?
+    var queueEndFrames: Int?
+    var overflowDroppedFrames = 0
+
+    var hasObservation: Bool {
+        bleNotificationCount > 0
+            || decodedFrameCount > 0
+            || submittedRemoteFrames > 0
+            || renderRequestedFrames > 0
+            || renderUnfilledFrames > 0
+            || tailRenderedFrames > 0
+            || tailEmptyCallbacks > 0
+            || idleRenderCallbacks > 0
+            || overflowDroppedFrames > 0
+    }
+
+    mutating func recordQueueDepth(_ frames: Int) {
+        let safeFrames = max(0, frames)
+        queueMinFrames = min(queueMinFrames ?? safeFrames, safeFrames)
+        queueMaxFrames = max(queueMaxFrames ?? safeFrames, safeFrames)
+        queueEndFrames = safeFrames
+    }
+
+    mutating func recordRender(
+        accounting: AudioPipeRenderAccounting,
+        queueDepthBefore: Int,
+        queueDepthAfter: Int
+    ) {
+        renderRequestedFrames += accounting.activeRequestedFrames
+        renderFilledFrames += accounting.activeFilledFrames
+        renderUnfilledFrames += accounting.activeUnderrunFrames
+        activeUnderrunFrames += accounting.activeUnderrunFrames
+        activeUnderrunCallbacks += accounting.activeUnderrunCallbacks
+        tailRenderedFrames += accounting.tailRenderedFrames
+        tailEmptyCallbacks += accounting.tailEmptyCallbacks
+        idleRenderCallbacks += accounting.idleRenderCallbacks
+        recordQueueDepth(queueDepthBefore)
+        recordQueueDepth(queueDepthAfter)
+    }
+
+    mutating func recordOverflow(_ frames: Int) {
+        overflowDroppedFrames += max(0, frames)
+    }
+}
+
+struct AudioContinuitySessionContext: Equatable {
+    let sessionID: UUID
+    let startNanoseconds: UInt64
+}
+
+/// Identity for one transport/audio continuity capture. The gesture session
+/// may be unavailable when AUDIO_START arrives, so the capture has its own
+/// stable identity and can be bound exactly once when HID creates the session.
+struct AudioContinuityCaptureContext: Equatable {
+    let captureID: UUID
+    let sessionID: UUID?
+    let startNanoseconds: UInt64
+}
+
+struct AudioContinuityRenderSnapshot: Equatable {
+    let captureID: UUID
+    let session: AudioContinuitySessionContext
+    let buckets: [AudioContinuityBucket]
+    let droppedObservationCount: Int
+}
+
+/// Coarse, session-relative correlation for the BLE-to-render continuity path.
+/// It is deliberately observation-only and uses the same monotonic clock as
+/// the existing P1-A4 timeline. The ledger is enabled only for an explicitly
+/// requested evidence capture so normal runtime logging and callback work are
+/// unchanged.
+struct AudioContinuityBucketLedger {
+    static let bucketWidthMilliseconds = 100
+    static let bucketWidthNanoseconds: UInt64 = 100_000_000
+
+    private(set) var sessionStartNanoseconds: UInt64?
+    private(set) var captureID: UUID?
+    private var lastBLETimestampNanoseconds: UInt64?
+    private var buckets: [Int: AudioContinuityBucket] = [:]
+    private var renderCapacityDroppedObservationCount = 0
+
+    init(
+        sessionStartNanoseconds: UInt64? = nil,
+        captureID: UUID? = nil
+    ) {
+        self.sessionStartNanoseconds = sessionStartNanoseconds
+        self.captureID = captureID
+    }
+
+    mutating func reset(
+        sessionStartNanoseconds: UInt64?,
+        captureID: UUID? = nil
+    ) {
+        self.sessionStartNanoseconds = sessionStartNanoseconds
+        self.captureID = captureID
+        lastBLETimestampNanoseconds = nil
+        buckets.removeAll(keepingCapacity: true)
+        renderCapacityDroppedObservationCount = 0
+    }
+
+    var bucketCount: Int { buckets.count }
+
+    func bucket(at index: Int) -> AudioContinuityBucket? {
+        buckets[index]
+    }
+
+    mutating func recordBLE(timestampNanoseconds: UInt64, bytes: Int) {
+        guard let bucketIndex = bucketIndex(for: timestampNanoseconds) else { return }
+        var bucket = bucket(for: bucketIndex)
+        bucket.bleNotificationCount += 1
+        bucket.bleBytes += max(0, bytes)
+        if let lastBLETimestampNanoseconds,
+           timestampNanoseconds >= lastBLETimestampNanoseconds {
+            let gapMilliseconds = Double(
+                timestampNanoseconds - lastBLETimestampNanoseconds
+            ) / 1_000_000
+            bucket.bleGapMaxMilliseconds = max(
+                bucket.bleGapMaxMilliseconds,
+                gapMilliseconds
+            )
+            if gapMilliseconds > 20 { bucket.bleGapOver20Milliseconds += 1 }
+            if gapMilliseconds > 30 { bucket.bleGapOver30Milliseconds += 1 }
+            if gapMilliseconds > 50 { bucket.bleGapOver50Milliseconds += 1 }
+            if gapMilliseconds > 100 { bucket.bleGapOver100Milliseconds += 1 }
+        }
+        buckets[bucketIndex] = bucket
+        lastBLETimestampNanoseconds = timestampNanoseconds
+    }
+
+    mutating func recordDecoded(
+        timestampNanoseconds: UInt64,
+        frameCount: Int,
+        sampleCount: Int
+    ) {
+        guard let bucketIndex = bucketIndex(for: timestampNanoseconds) else { return }
+        var bucket = bucket(for: bucketIndex)
+        bucket.decodedFrameCount += max(0, frameCount)
+        bucket.decodedSampleCount += max(0, sampleCount)
+        buckets[bucketIndex] = bucket
+    }
+
+    mutating func recordSubmitted(
+        timestampNanoseconds: UInt64,
+        frames: Int,
+        queueDepthFrames: Int
+    ) {
+        guard let bucketIndex = bucketIndex(for: timestampNanoseconds) else { return }
+        var bucket = bucket(for: bucketIndex)
+        bucket.submittedRemoteFrames += max(0, frames)
+        bucket.recordQueueDepth(queueDepthFrames)
+        buckets[bucketIndex] = bucket
+    }
+
+    mutating func recordRender(
+        timestampNanoseconds: UInt64,
+        accounting: AudioPipeRenderAccounting,
+        queueDepthBefore: Int,
+        queueDepthAfter: Int
+    ) {
+        guard let bucketIndex = bucketIndex(for: timestampNanoseconds) else { return }
+        var bucket = bucket(for: bucketIndex)
+        bucket.recordRender(
+            accounting: accounting,
+            queueDepthBefore: queueDepthBefore,
+            queueDepthAfter: queueDepthAfter
+        )
+        buckets[bucketIndex] = bucket
+    }
+
+    mutating func recordOverflow(timestampNanoseconds: UInt64, frames: Int) {
+        guard let bucketIndex = bucketIndex(for: timestampNanoseconds) else { return }
+        var bucket = bucket(for: bucketIndex)
+        bucket.recordOverflow(frames)
+        buckets[bucketIndex] = bucket
+    }
+
+    mutating func mergeRenderSnapshot(_ snapshot: AudioContinuityRenderSnapshot) {
+        guard sessionStartNanoseconds == snapshot.session.startNanoseconds else {
+            return
+        }
+        if let captureID, captureID != snapshot.captureID {
+            return
+        }
+        renderCapacityDroppedObservationCount += snapshot.droppedObservationCount
+        for source in snapshot.buckets where source.hasObservation {
+            var target = bucket(for: source.index)
+            target.submittedRemoteFrames += source.submittedRemoteFrames
+            target.renderRequestedFrames += source.renderRequestedFrames
+            target.renderFilledFrames += source.renderFilledFrames
+            target.renderUnfilledFrames += source.renderUnfilledFrames
+            target.activeUnderrunFrames += source.activeUnderrunFrames
+            target.activeUnderrunCallbacks += source.activeUnderrunCallbacks
+            target.tailRenderedFrames += source.tailRenderedFrames
+            target.tailEmptyCallbacks += source.tailEmptyCallbacks
+            target.idleRenderCallbacks += source.idleRenderCallbacks
+            if let queueMinFrames = source.queueMinFrames {
+                target.queueMinFrames = min(
+                    target.queueMinFrames ?? queueMinFrames,
+                    queueMinFrames
+                )
+            }
+            if let queueMaxFrames = source.queueMaxFrames {
+                target.queueMaxFrames = max(
+                    target.queueMaxFrames ?? queueMaxFrames,
+                    queueMaxFrames
+                )
+            }
+            if let queueEndFrames = source.queueEndFrames {
+                target.queueEndFrames = queueEndFrames
+            }
+            target.overflowDroppedFrames += source.overflowDroppedFrames
+            buckets[source.index] = target
+        }
+    }
+
+    func reportLines(sessionID: UUID) -> [String] {
+        guard !buckets.isEmpty || renderCapacityDroppedObservationCount > 0 else {
+            return []
+        }
+        var lines = [
+            "[AUDIO-PATH] CONTINUITY_SESSION "
+                + "session_id=\(sessionID.uuidString) "
+                + "clock=P1A4MonotonicClock "
+                + "bucket_ms=\(Self.bucketWidthMilliseconds) "
+                + "bucket_count=\(buckets.count) "
+                + "render_capacity_dropped=\(renderCapacityDroppedObservationCount)"
+        ]
+        for bucket in buckets.values.sorted(by: { $0.index < $1.index }) {
+            guard bucket.hasObservation else { continue }
+            let startMilliseconds = bucket.index * Self.bucketWidthMilliseconds
+            let endMilliseconds = startMilliseconds + Self.bucketWidthMilliseconds
+            lines.append(
+                String(format: "[AUDIO-PATH] CONTINUITY_BUCKET session_id=%@ start_ms=%d end_ms=%d ble_notifications=%d ble_bytes=%d ble_gap_max_ms=%.1f ble_gap_gt20=%d ble_gap_gt30=%d ble_gap_gt50=%d ble_gap_gt100=%d decoded_frames=%d decoded_samples=%d submitted_frames=%d render_requested=%d render_filled=%d render_unfilled=%d active_underrun_frames=%d active_underrun_callbacks=%d tail_rendered_frames=%d tail_empty_callbacks=%d idle_render_callbacks=%d queue_min_frames=%@ queue_max_frames=%@ queue_end_frames=%@ overflow_dropped_frames=%d",
+                       sessionID.uuidString,
+                       startMilliseconds,
+                       endMilliseconds,
+                       bucket.bleNotificationCount,
+                       bucket.bleBytes,
+                       bucket.bleGapMaxMilliseconds,
+                       bucket.bleGapOver20Milliseconds,
+                       bucket.bleGapOver30Milliseconds,
+                       bucket.bleGapOver50Milliseconds,
+                       bucket.bleGapOver100Milliseconds,
+                       bucket.decodedFrameCount,
+                       bucket.decodedSampleCount,
+                       bucket.submittedRemoteFrames,
+                       bucket.renderRequestedFrames,
+                       bucket.renderFilledFrames,
+                       bucket.renderUnfilledFrames,
+                       bucket.activeUnderrunFrames,
+                       bucket.activeUnderrunCallbacks,
+                       bucket.tailRenderedFrames,
+                       bucket.tailEmptyCallbacks,
+                       bucket.idleRenderCallbacks,
+                       bucket.queueMinFrames.map(String.init) ?? "NA",
+                       bucket.queueMaxFrames.map(String.init) ?? "NA",
+                       bucket.queueEndFrames.map(String.init) ?? "NA",
+                       bucket.overflowDroppedFrames
+                )
+            )
+        }
+        return lines
+    }
+
+    private func bucketIndex(for timestampNanoseconds: UInt64) -> Int? {
+        guard let sessionStartNanoseconds,
+              timestampNanoseconds >= sessionStartNanoseconds else {
+            return nil
+        }
+        let bucketIndex =
+            (timestampNanoseconds - sessionStartNanoseconds)
+                / Self.bucketWidthNanoseconds
+        guard bucketIndex <= UInt64(Int.max) else { return nil }
+        return Int(bucketIndex)
+    }
+
+    private func bucket(for index: Int) -> AudioContinuityBucket {
+        buckets[index] ?? AudioContinuityBucket(index: index)
+    }
+}
+
+/// Fixed-capacity submission/render storage. The live ledger is owned by AudioPipe
+/// and accessed while AudioPipe's existing stateLock is held. When capture
+/// ends, ownership is detached under that lock; the detached ledger can then
+/// be scanned without racing the render callback. The render callback never
+/// calls VoiceTimingLogger, takes a new lock, mutates a dictionary, or formats
+/// output.
+struct AudioContinuityRenderLedger {
+    static let maxBucketCount = 8_192
+
+    private var captureID: UUID?
+    private var session: AudioContinuitySessionContext?
+    private var captureStartNanoseconds: UInt64?
+    private var buckets: [AudioContinuityBucket]
+    private var droppedObservationCount = 0
+
+    init() {
+        captureID = nil
+        session = nil
+        captureStartNanoseconds = nil
+        buckets = []
+    }
+
+    init(session: AudioContinuitySessionContext) {
+        captureID = UUID()
+        self.session = session
+        captureStartNanoseconds = session.startNanoseconds
+        buckets = Self.makeBuckets()
+    }
+
+    init(capture: AudioContinuityCaptureContext) {
+        captureID = capture.captureID
+        session = capture.sessionID.map {
+            AudioContinuitySessionContext(
+                sessionID: $0,
+                startNanoseconds: capture.startNanoseconds
+            )
+        }
+        captureStartNanoseconds = capture.startNanoseconds
+        buckets = Self.makeBuckets()
+    }
+
+    var storageCount: Int { buckets.count }
+    var activeCaptureID: UUID? { captureID }
+
+    mutating func reset(session: AudioContinuitySessionContext?) {
+        captureID = session.map { _ in UUID() }
+        self.session = session
+        captureStartNanoseconds = session?.startNanoseconds
+        droppedObservationCount = 0
+        guard session != nil else {
+            buckets.removeAll(keepingCapacity: false)
+            return
+        }
+        if buckets.count != Self.maxBucketCount {
+            buckets = Self.makeBuckets()
+            return
+        }
+        for index in buckets.indices {
+            buckets[index] = AudioContinuityBucket(index: index)
+        }
+    }
+
+    /// Bind an AUDIO_START-owned capture to exactly one later HID session.
+    /// The capture identity prevents a stale or unrelated session from
+    /// claiming a newer stream, and a bound ledger cannot be rebound.
+    @discardableResult
+    mutating func bind(
+        captureID: UUID,
+        session: AudioContinuitySessionContext
+    ) -> Bool {
+        guard self.captureID == captureID,
+              self.session == nil,
+              let captureStartNanoseconds else {
+            return false
+        }
+        // The capture start is the single bucket origin. Preserve it when the
+        // later HID event supplies the gesture UUID so pre-session buckets and
+        // the central BLE/decode ledger remain joinable.
+        self.session = AudioContinuitySessionContext(
+            sessionID: session.sessionID,
+            startNanoseconds: captureStartNanoseconds
+        )
+        return true
+    }
+
+    mutating func recordRender(
+        timestampNanoseconds: UInt64,
+        accounting: AudioPipeRenderAccounting,
+        queueDepthBefore: Int,
+        queueDepthAfter: Int
+    ) {
+        guard let startNanoseconds = captureStartNanoseconds,
+              let index = bucketIndex(
+                  timestampNanoseconds: timestampNanoseconds,
+                  sessionStartNanoseconds: startNanoseconds
+              ) else {
+            return
+        }
+        guard buckets.indices.contains(index) else {
+            droppedObservationCount += 1
+            return
+        }
+        buckets[index].recordRender(
+            accounting: accounting,
+            queueDepthBefore: queueDepthBefore,
+            queueDepthAfter: queueDepthAfter
+        )
+    }
+
+    mutating func recordSubmitted(
+        timestampNanoseconds: UInt64,
+        frames: Int,
+        queueDepthFrames: Int
+    ) {
+        guard let startNanoseconds = captureStartNanoseconds,
+              let index = bucketIndex(
+                  timestampNanoseconds: timestampNanoseconds,
+                  sessionStartNanoseconds: startNanoseconds
+              ) else {
+            return
+        }
+        guard buckets.indices.contains(index) else {
+            droppedObservationCount += 1
+            return
+        }
+        buckets[index].submittedRemoteFrames += max(0, frames)
+        buckets[index].recordQueueDepth(queueDepthFrames)
+    }
+
+    mutating func recordOverflow(
+        timestampNanoseconds: UInt64,
+        frames: Int
+    ) {
+        guard let startNanoseconds = captureStartNanoseconds,
+              let index = bucketIndex(
+                  timestampNanoseconds: timestampNanoseconds,
+                  sessionStartNanoseconds: startNanoseconds
+              ) else {
+            return
+        }
+        guard buckets.indices.contains(index) else {
+            droppedObservationCount += 1
+            return
+        }
+        buckets[index].recordOverflow(frames)
+    }
+
+    func snapshot() -> AudioContinuityRenderSnapshot? {
+        guard let captureID, let session else { return nil }
+        let observedBuckets = buckets.filter(\.hasObservation)
+        guard !observedBuckets.isEmpty || droppedObservationCount > 0 else {
+            return nil
+        }
+        return AudioContinuityRenderSnapshot(
+            captureID: captureID,
+            session: session,
+            buckets: observedBuckets,
+            droppedObservationCount: droppedObservationCount
+        )
+    }
+
+    private func bucketIndex(
+        timestampNanoseconds: UInt64,
+        sessionStartNanoseconds: UInt64
+    ) -> Int? {
+        guard timestampNanoseconds >= sessionStartNanoseconds else {
+            return nil
+        }
+        let bucketIndex =
+            (timestampNanoseconds - sessionStartNanoseconds)
+                / AudioContinuityBucketLedger.bucketWidthNanoseconds
+        guard bucketIndex < UInt64(Self.maxBucketCount) else {
+            return Self.maxBucketCount
+        }
+        return Int(bucketIndex)
+    }
+
+    private static func makeBuckets() -> [AudioContinuityBucket] {
+        (0..<Self.maxBucketCount).map { AudioContinuityBucket(index: $0) }
+    }
+}
+
 struct AudioPipeDiagnosticsSnapshot {
     let renderCallbackCount: Int
     let renderRequestedFrames: Int
