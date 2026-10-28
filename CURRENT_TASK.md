@@ -1,64 +1,74 @@
 # RemoteOrbit Current Task
 
-## RO-SHORTCUT-RECORDER-EXCLUSIVE-CAPTURE-037 — Task 037
+## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: MERGED — HUMAN ACCEPTANCE DEFERRED.
-- Task class: CORRECTIVE / EXECUTION.
+- Status: ACTIVE — 038-A RAPID REPRESS ADMISSION.
+- Task class: RUNTIME RELIABILITY / CORRECTIVE EXECUTION.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
-- Task 037 activation control head: `ef09f80813cd868ede8a63bf3e9724fe46b43b0f`.
-- Implementation commit: `24ad60d020c73cb306d6258c50575ba64571f01c`.
-- Merge-authorization control commit: `c08c70526882e95e2ad42a149d315fd28a4775f7`.
-- Merged PR: `https://github.com/Lost0rz/RemoteOrbit/pull/22`.
-- Merge commit: `326b56911ef883d62f1f0fda0c38fc40c06ab648`.
+- Task 038 is a new task. Task 037 is merged and has no further product-code mutation authority.
+- Task 038 control head: this paired activation transition; its exact SHA is recorded by Git/receipt after commit.
 
-## Delivered objective
+## Preserved Task 037 history and deferred acceptance debt
 
-The custom shortcut recorder now uses a dedicated active CGEventTap capture owner so supported system/global shortcuts can be recorded without intentionally forwarding the owned physical gesture to macOS/apps. The implementation owns the complete physical gesture through release rather than committing on primary keyDown.
+- Task 037 PR #22 merged into `main` at `326b56911ef883d62f1f0fda0c38fc40c06ab648` after independent Web CODE_DIFF audit PASS.
+- Task 037 recorded focused tests 11/11 PASS, full `swift test` 405/405 PASS, release build PASS, and self-tests 3/3 PASS; its protected Voice/EventSuppressor/KeyInjector/BLE/audio/mapping-schema authorities remained unchanged.
+- `HUMAN_UI_ACCEPTANCE: PENDING` remains intentionally deferred. The later combined human acceptance must cover Command-Space without Spotlight, Command-Shift-4 without screenshot capture, Option-A, pure modifier recording, and restoration of normal macOS shortcuts after recorder close/cancel.
+- Task 038 does not rewrite that debt as PASS and does not reopen Task 037.
 
-The delivered code includes:
+## Objective
 
-- active `.cghidEventTap` / `.headInsertEventTap` / `.defaultTap` capture;
-- keyDown/keyUp/flagsChanged ownership;
-- neutral-start gating;
-- synthetic-event pass-through;
-- chord freeze plus release-boundary commit;
-- pure-modifier support;
-- autorepeat suppression;
-- cancellation drain;
-- tap failure reporting;
-- recorder UI/controller integration;
-- focused state-machine regression tests.
+Fix the confirmed rapid voice re-press admission failure with the smallest behavior change. Preserve existing SHORT/LONG semantics and all currently accepted voice behavior.
 
-## Verification and audit
+Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new physical `HID button down: 语音键` arrives before A cleanup fully retires; `late AUDIO_START ignored during drain` is recorded; the new physical press does not establish an independent new voice session/lifecycle. This is sufficient task input for a deterministic reconstruction, not a predeclared root-cause verdict.
 
-- Focused `ShortcutCaptureMonitorTests`: PASS — 11/11.
-- Full `swift test`: PASS — 405/405.
-- Release build: PASS.
-- Self-tests: PASS — 3/3.
-- Independent Web CODE_DIFF audit of PR #22: PASS.
-- Protected authorities remained unchanged: `EventSuppressor.swift`, `KeyInjector.swift`, Voice sources, `BLEBridge.swift`, audio/driver sources, and mapping persistence/schema.
+## Staged roadmap
 
-## User-authorized acceptance deferral
+- `038-A ACTIVE`: rapid re-press admission — the only implementation slice authorized now.
+- `038-B DEFERRED`: audio continuity evidence.
+- `038-C DEFERRED`: Option-edge authority.
+- `038-D DEFERRED`: interaction latency.
+- `038-E DEFERRED`: runtime telemetry/log retention.
+- `038-F DEFERRED`: privacy-preserving text-output observation.
 
-- `HUMAN_UI_ACCEPTANCE: PENDING`.
-- The user explicitly authorized merge before human acceptance and requested that this behavior be tested later together with subsequent changes.
-- This deferral superseded the prior task-local merge gate requiring human acceptance before merge.
-- The later combined human acceptance must still cover:
-  - Command-Space records without opening Spotlight during recording;
-  - Command-Shift-4 records without invoking screenshot during recording;
-  - Option-A records correctly;
-  - pure modifier records correctly;
-  - after recorder close/cancel, normal macOS shortcuts work again.
+## 038-A scope and contract
 
-## Lifecycle / boundary
+- Reconstruct the represented state transition from existing runtime/state-machine code and tests.
+- Add a deterministic regression where Session A is in release/drain/cleanup and a new physical voice-key down arrives before A cleanup fully retires; the new interaction must not disappear silently.
+- Select the narrowest architecture-consistent admission policy: safe handoff/cancellation of stale cleanup, explicit defer/replay, or independent admission after the conflicting resource boundary clears.
+- Every physical voice-key down must have an observable terminal admission result: admitted, explicitly deferred, or explicitly rejected with a concrete reason.
+- Keep old-session late BLE/audio packets isolated from a newly admitted session. Stale AUDIO_START/AUDIO_STOP, drain callbacks, timers, and micClose cleanup must not terminate or corrupt the new session.
+- Add focused tests for ordinary single LONG behavior, rapid press during audio drain, output drain/cleanup if distinct, stale Session-A callback isolation, and no duplicate Option-down/up or micOpen/micClose from handoff.
+- Run focused tests, full Swift tests, and release build.
 
-- PR #22 has been merged to `main` at `326b56911ef883d62f1f0fda0c38fc40c06ab648`.
-- No install, package, release, or runtime-acceptance claim was performed.
-- The implementation branch/worktree were intentionally not retired in this merge operation.
-- Task 037 has no further product-code mutation authority. A subsequent product change requires a new user-authorized task/control transition.
-- When the next task is activated, preserve the Task 037 human-acceptance debt for the later combined acceptance round.
+## Non-goals
+
+- Do not tune AudioPipe buffers.
+- Do not introduce Adaptive Playout changes.
+- Do not change BLE codec or packet timing.
+- Do not reinterpret `AUDIO_STOP reason=0x02`.
+- Do not repair the Option/noOptionEdge path.
+- Do not add text-output Accessibility observers.
+- Do not redesign DiagnosticAuthority.
+- Do not change logging retention or AUDIO-METER cadence.
+- Do not modify unrelated button mappings or gesture semantics.
+- Do not bundle automatic mapping-backup cleanup.
+- Do not perform opportunistic refactors.
+
+## Authorized identity and lifecycle
+
+- Authorized implementation branch/worktree: not yet created.
+- Create one implementation worktree from the Task 038 control head, then register exact branch, worktree, start HEAD, and clean state in a paired control commit before product mutation.
+- Preserve the retained Task 037 worktree/branch as historical delivery state; do not use it as the Task 038 writer.
+- Do not merge unless a later repository-governance transition explicitly authorizes merge. Do not install, package, release, change permissions, delete branches, or delete worktrees.
+
+## Stop conditions
+
+- If the deterministic regression cannot reproduce the state-machine failure represented by the runtime evidence, stop with `ROOT_CAUSE_NOT_REPRODUCED`; do not invent a fix.
+- If the fix requires changing established SHORT/LONG semantics, stop and return the conflict.
+- If fresh repository authority contradicts this card, repository authority wins; report the mismatch rather than overriding it.
+- Stop for unexpected local work, another active writer/PR, scope expansion, unrelated test failure that cannot be separated, or unverifiable remote delivery identity.
 
 ## Next action
 
-Wait for the user's next product-change request. Do not claim `HUMAN_UI_ACCEPTANCE: PASS` until the user explicitly completes the deferred real macOS acceptance cases.
+Create and register the Task 038-A implementation worktree from the fresh `main` control head, then add the deterministic regression as the first product-boundary change. Do not predeclare PASS, CLOSED, merge readiness, or root cause.
