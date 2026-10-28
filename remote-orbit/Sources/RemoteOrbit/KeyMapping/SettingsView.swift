@@ -3181,13 +3181,15 @@ struct ShortcutRecorderSheet: View {
 
     @State private var triggerMode: ShortcutTriggerMode
 
-    @State private var keyMonitor: Any?
-    @State private var flagsMonitor: Any?
-    @State private var heldModifiers: KeyChord.Modifiers = []
-    @State private var heldModifierKeyCodes = Set<UInt16>()
-    @State private var didCapture = false
+    @State private var captureMonitor: ShortcutCaptureMonitor?
+    @State private var pendingTermination: RecorderTermination?
     @State private var preview = "请按下快捷键"
     @State private var errorText = ""
+
+    private enum RecorderTermination {
+        case cancel
+        case clear
+    }
 
     init(
         button: RemoteButton,
@@ -3255,9 +3257,9 @@ struct ShortcutRecorderSheet: View {
                 .foregroundColor(.secondary)
 
             HStack {
-                Button(clearButtonTitle, action: onClear)
+                Button(clearButtonTitle) { requestTermination(.clear) }
                 Spacer()
-                Button("取消", action: onCancel)
+                Button("取消") { requestTermination(.cancel) }
             }
         }
         .padding(24)
@@ -3266,138 +3268,59 @@ struct ShortcutRecorderSheet: View {
         .onDisappear { stopMonitoring() }
     }
 
-    private static let modifierKeyCodeMap: [UInt16: (String, KeyChord.Modifiers, NSEvent.ModifierFlags)] = [
-        54: ("⌘", .command, .command), 55: ("⌘", .command, .command),
-        59: ("⌃", .control, .control), 62: ("⌃", .control, .control),
-        58: ("⌥", .option, .option),   61: ("⌥", .option, .option),
-        56: ("⇧", .shift, .shift),     60: ("⇧", .shift, .shift),
-        63: ("Fn",  [], .function),
-    ]
-
     private func startMonitoring() {
         stopMonitoring()
-        heldModifiers = []
-        heldModifierKeyCodes.removeAll()
-        didCapture = false
+        preview = "请按下快捷键"
+        errorText = ""
 
-        // 监听普通按键（过滤自动重复）
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard !event.isARepeat else { return nil }
-            if let cgEvent = event.cgEvent,
-               cgEvent.getIntegerValueField(.eventSourceUserData) == KeyInjector.syntheticMarker {
-                return event
-            }
-            guard let chord = KeyChord.from(event: event, extraModifiers: heldModifiers) else {
-                errorText = "这个键暂时无法安全注入，请换一个普通键或功能键。"
-                return nil
-            }
-            preview = chord.displayName
+        let initialFlags = CGEventSource.flagsState(.combinedSessionState)
+        let monitor = ShortcutCaptureMonitor(
+            initiallyHeldFlags: initialFlags,
+            triggerModeProvider: { triggerMode }
+        )
+        monitor.onPreview = { value in
+            preview = value
             errorText = ""
-            didCapture = true
-            DispatchQueue.main.async { onRecord(chord, triggerMode) }
-            return nil
         }
-
-        // 监听修饰键按下/松开（flagsChanged）
-        // 按下时只追踪状态，松开时才捕获（这样可以按 Option+A 等组合键）
-        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
-            if let cgEvent = event.cgEvent,
-               cgEvent.getIntegerValueField(.eventSourceUserData) == KeyInjector.syntheticMarker {
-                return event
-            }
-            let keyCode = event.keyCode
-            guard let (_, mod, nsFlag) = Self.modifierKeyCodeMap[keyCode] else { return event }
-
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            let isDown = flags.contains(nsFlag)
-
-            if isDown {
-                // 修饰键按下 → 只追踪，不捕获
-                heldModifierKeyCodes.insert(keyCode)
-                heldModifiers.insert(mod)
-                if let chord = KeyChord.fromModifierKeyCode(keyCode, extraModifiers: heldModifiers) {
-                    preview = chord.displayName
-                }
-                errorText = ""
-                return nil
-            } else {
-                // 修饰键松开
-                heldModifierKeyCodes.remove(keyCode)
-                heldModifiers.remove(mod)
-                // 如果没有捕获过组合键，且没有其他修饰键按住 → 捕获为纯修饰键
-                if !didCapture && heldModifierKeyCodes.isEmpty {
-                    if let chord = KeyChord.fromModifierKeyCode(keyCode) {
-                        preview = chord.displayName
-                        didCapture = true
-                        DispatchQueue.main.async { onRecord(chord, triggerMode) }
-                    }
-                }
-                return nil
-            }
+        monitor.onError = { value in
+            errorText = value
+        }
+        monitor.onRecord = { chord, trigger in
+            preview = chord.displayName
+            onRecord(chord, trigger)
+        }
+        monitor.onStopped = {
+            finishPendingTermination()
+        }
+        captureMonitor = monitor
+        if !monitor.start() {
+            captureMonitor = nil
         }
     }
 
     private func stopMonitoring() {
-        if let m = keyMonitor { NSEvent.removeMonitor(m) }
-        if let m = flagsMonitor { NSEvent.removeMonitor(m) }
-        keyMonitor = nil
-        flagsMonitor = nil
-        heldModifiers = []
-        heldModifierKeyCodes.removeAll()
-        didCapture = false
-    }
-}
-
-// MARK: - KeyChord from NSEvent
-
-extension KeyChord {
-    static func from(event: NSEvent, extraModifiers: KeyChord.Modifiers = []) -> KeyChord? {
-        guard event.type == .keyDown,
-              let label = Self.keyLabel(for: event)
-        else { return nil }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        var modifiers: Modifiers = extraModifiers
-        if flags.contains(.command) { modifiers.insert(.command) }
-        if flags.contains(.control) { modifiers.insert(.control) }
-        if flags.contains(.option)  { modifiers.insert(.option) }
-        if flags.contains(.shift)   { modifiers.insert(.shift) }
-        return KeyChord(keyCode: event.keyCode, keyLabel: label, modifiers: modifiers)
+        if captureMonitor?.stop() == true {
+            captureMonitor = nil
+            pendingTermination = nil
+        }
     }
 
-    /// 从修饰键 keyCode 构建 KeyChord（纯修饰键松开时调用）。
-    static func fromModifierKeyCode(_ keyCode: UInt16, extraModifiers: KeyChord.Modifiers = []) -> KeyChord? {
-        let modifierKeyCodeMap: [UInt16: (String, Modifiers)] = [
-            54: ("⌘", .command), 55: ("⌘", .command),
-            59: ("⌃", .control), 62: ("⌃", .control),
-            58: ("⌥", .option),  61: ("⌥", .option),
-            56: ("⇧", .shift),   60: ("⇧", .shift),
-            63: ("Fn",  []),
-        ]
-        guard let (label, mod) = modifierKeyCodeMap[keyCode] else { return nil }
-        var combined = mod.union(extraModifiers)
-        // 移除自身（避免重复）
-        combined.remove(mod)
-        return KeyChord(keyCode: keyCode, keyLabel: label, modifiers: combined)
+    private func requestTermination(_ termination: RecorderTermination) {
+        pendingTermination = termination
+        if captureMonitor == nil || captureMonitor?.requestCancel() == true {
+            finishPendingTermination()
+        }
     }
 
-    private static func keyLabel(for event: NSEvent) -> String? {
-        let fixed: [UInt16: String] = [
-            36: "Return", 48: "Tab", 49: "Space", 51: "Delete", 53: "Escape",
-            76: "Enter", 115: "Home", 116: "Page Up", 117: "Forward Delete",
-            119: "End", 121: "Page Down", 123: "←", 124: "→", 125: "↓", 126: "↑",
-            122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6",
-            98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12",
-            105: "F13", 107: "F14", 113: "F15", 106: "F16", 64: "F17", 79: "F18",
-            80: "F19", 90: "F20", 63: "Fn",
-            54: "⌘", 55: "⌘", 59: "⌃", 62: "⌃",
-            58: "⌥", 61: "⌥", 56: "⇧", 60: "⇧",
-        ]
-        if let label = fixed[event.keyCode] { return label }
-        guard let characters = event.charactersIgnoringModifiers,
-              characters.count == 1,
-              let scalar = characters.unicodeScalars.first,
-              !CharacterSet.controlCharacters.contains(scalar)
-        else { return nil }
-        return characters.uppercased()
+    private func finishPendingTermination() {
+        guard let termination = pendingTermination else { return }
+        pendingTermination = nil
+        captureMonitor = nil
+        switch termination {
+        case .cancel:
+            onCancel()
+        case .clear:
+            onClear()
+        }
     }
 }
