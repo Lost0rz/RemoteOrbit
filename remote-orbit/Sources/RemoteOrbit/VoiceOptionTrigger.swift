@@ -9,6 +9,8 @@ enum VoiceTimingLogger {
     private static var timeline: [String: UInt64] = [:]
     private static var frontEdgeUnderrunStats = P1A5FrontEdgeUnderrunStats()
     private static var continuityLedger = AudioContinuityBucketLedger()
+    private static var continuityCaptureID: UUID?
+    private static var continuityCaptureAwaitingSession = false
     private static var lastEndedSessionID: UUID?
     private static var lastEndedStartedAt: TimeInterval = 0
 
@@ -39,19 +41,88 @@ enum VoiceTimingLogger {
         )
     }
 
-    static func begin(sessionID: UUID) {
+    /// Start or reuse the opt-in continuity capture for AUDIO_START. A
+    /// transport capture may begin before HID creates its gesture UUID, so it
+    /// gets a stable capture identity and can be bound later without losing
+    /// pre-session BLE/decode observations.
+    static func continuityCaptureContextForAudioStart() -> AudioContinuityCaptureContext? {
+        guard continuityEvidenceEnabled else { return nil }
         let timestamp = P1A4MonotonicClock.nowNanoseconds()
         lock.lock()
+        if let continuityCaptureID,
+           let startNanoseconds = continuityLedger.sessionStartNanoseconds,
+           continuityCaptureAwaitingSession || activeSessionID != nil {
+            let context = AudioContinuityCaptureContext(
+                captureID: continuityCaptureID,
+                sessionID: activeSessionID,
+                startNanoseconds: startNanoseconds
+            )
+            lock.unlock()
+            return context
+        }
+
+        let captureID = UUID()
+        continuityCaptureID = captureID
+        continuityCaptureAwaitingSession = activeSessionID == nil
+        continuityLedger.reset(
+            sessionStartNanoseconds: timestamp,
+            captureID: captureID
+        )
+        let context = AudioContinuityCaptureContext(
+            captureID: captureID,
+            sessionID: activeSessionID,
+            startNanoseconds: timestamp
+        )
+        lock.unlock()
+        return context
+    }
+
+    static func begin(sessionID: UUID) {
+        let timestamp = P1A4MonotonicClock.nowNanoseconds()
+        var captureToBind: AudioContinuityCaptureContext?
+        lock.lock()
+        if continuityEvidenceEnabled {
+            if activeSessionID == nil,
+               continuityCaptureAwaitingSession,
+               let continuityCaptureID,
+               let startNanoseconds = continuityLedger.sessionStartNanoseconds {
+                continuityCaptureAwaitingSession = false
+                captureToBind = AudioContinuityCaptureContext(
+                    captureID: continuityCaptureID,
+                    sessionID: sessionID,
+                    startNanoseconds: startNanoseconds
+                )
+            } else {
+                let captureID = UUID()
+                continuityCaptureID = captureID
+                continuityCaptureAwaitingSession = false
+                continuityLedger.reset(
+                    sessionStartNanoseconds: timestamp,
+                    captureID: captureID
+                )
+                captureToBind = AudioContinuityCaptureContext(
+                    captureID: captureID,
+                    sessionID: sessionID,
+                    startNanoseconds: timestamp
+                )
+            }
+        }
         activeSessionID = sessionID
         startedAt = ProcessInfo.processInfo.systemUptime
         timeline = [:]
         frontEdgeUnderrunStats = P1A5FrontEdgeUnderrunStats()
-        continuityLedger.reset(
-            sessionStartNanoseconds: continuityEvidenceEnabled ? timestamp : nil
-        )
         lastEndedSessionID = nil
         lastEndedStartedAt = 0
         lock.unlock()
+        if let captureToBind {
+            _ = AudioPipe.shared.bindRemoteAudioDiagnostics(
+                captureID: captureToBind.captureID,
+                session: AudioContinuitySessionContext(
+                    sessionID: sessionID,
+                    startNanoseconds: captureToBind.startNanoseconds
+                )
+            )
+        }
         record("T0_voice_trigger_down", timestampNanoseconds: timestamp)
         recordIfAbsent("F0_trigger_down", timestampNanoseconds: timestamp)
         mark("VOICE_DOWN", sessionID: sessionID)
@@ -63,7 +134,7 @@ enum VoiceTimingLogger {
     ) {
         guard continuityEvidenceEnabled else { return }
         lock.lock()
-        guard activeSessionID != nil else {
+        guard activeSessionID != nil || continuityCaptureAwaitingSession else {
             lock.unlock()
             return
         }
@@ -81,7 +152,7 @@ enum VoiceTimingLogger {
     ) {
         guard continuityEvidenceEnabled else { return }
         lock.lock()
-        guard activeSessionID != nil else {
+        guard activeSessionID != nil || continuityCaptureAwaitingSession else {
             lock.unlock()
             return
         }
@@ -100,7 +171,7 @@ enum VoiceTimingLogger {
     ) {
         guard continuityEvidenceEnabled else { return }
         lock.lock()
-        guard activeSessionID != nil else {
+        guard activeSessionID != nil || continuityCaptureAwaitingSession else {
             lock.unlock()
             return
         }
@@ -117,7 +188,8 @@ enum VoiceTimingLogger {
     ) {
         guard continuityEvidenceEnabled, let snapshot else { return }
         lock.lock()
-        guard activeSessionID == snapshot.session.sessionID else {
+        guard activeSessionID == snapshot.session.sessionID,
+              continuityCaptureID == snapshot.captureID else {
             lock.unlock()
             return
         }
@@ -297,6 +369,8 @@ enum VoiceTimingLogger {
         let underrunSnapshot = frontEdgeUnderrunStats
         timeline = [:]
         continuityLedger.reset(sessionStartNanoseconds: nil)
+        continuityCaptureID = nil
+        continuityCaptureAwaitingSession = false
         lock.unlock()
         let orderedEvents = [
             "T0_voice_trigger_down",

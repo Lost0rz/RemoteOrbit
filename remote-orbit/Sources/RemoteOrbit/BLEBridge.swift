@@ -1155,7 +1155,7 @@ extension BLEBridge: CBPeripheralDelegate {
                     timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
                 )
             }
-            let continuityContext = VoiceTimingLogger.currentContinuityContext()
+            let continuityContext = VoiceTimingLogger.continuityCaptureContextForAudioStart()
             AudioPipe.shared.beginRemoteAudioDiagnostics(
                 continuityContext: continuityContext
             )

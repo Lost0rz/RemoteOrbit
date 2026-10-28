@@ -423,7 +423,17 @@ struct AudioContinuitySessionContext: Equatable {
     let startNanoseconds: UInt64
 }
 
+/// Identity for one transport/audio continuity capture. The gesture session
+/// may be unavailable when AUDIO_START arrives, so the capture has its own
+/// stable identity and can be bound exactly once when HID creates the session.
+struct AudioContinuityCaptureContext: Equatable {
+    let captureID: UUID
+    let sessionID: UUID?
+    let startNanoseconds: UInt64
+}
+
 struct AudioContinuityRenderSnapshot: Equatable {
+    let captureID: UUID
     let session: AudioContinuitySessionContext
     let buckets: [AudioContinuityBucket]
     let droppedObservationCount: Int
@@ -439,16 +449,25 @@ struct AudioContinuityBucketLedger {
     static let bucketWidthNanoseconds: UInt64 = 100_000_000
 
     private(set) var sessionStartNanoseconds: UInt64?
+    private(set) var captureID: UUID?
     private var lastBLETimestampNanoseconds: UInt64?
     private var buckets: [Int: AudioContinuityBucket] = [:]
     private var renderCapacityDroppedObservationCount = 0
 
-    init(sessionStartNanoseconds: UInt64? = nil) {
+    init(
+        sessionStartNanoseconds: UInt64? = nil,
+        captureID: UUID? = nil
+    ) {
         self.sessionStartNanoseconds = sessionStartNanoseconds
+        self.captureID = captureID
     }
 
-    mutating func reset(sessionStartNanoseconds: UInt64?) {
+    mutating func reset(
+        sessionStartNanoseconds: UInt64?,
+        captureID: UUID? = nil
+    ) {
         self.sessionStartNanoseconds = sessionStartNanoseconds
+        self.captureID = captureID
         lastBLETimestampNanoseconds = nil
         buckets.removeAll(keepingCapacity: true)
         renderCapacityDroppedObservationCount = 0
@@ -532,6 +551,9 @@ struct AudioContinuityBucketLedger {
 
     mutating func mergeRenderSnapshot(_ snapshot: AudioContinuityRenderSnapshot) {
         guard sessionStartNanoseconds == snapshot.session.startNanoseconds else {
+            return
+        }
+        if let captureID, captureID != snapshot.captureID {
             return
         }
         renderCapacityDroppedObservationCount += snapshot.droppedObservationCount
@@ -640,24 +662,45 @@ struct AudioContinuityBucketLedger {
 struct AudioContinuityRenderLedger {
     static let maxBucketCount = 8_192
 
+    private var captureID: UUID?
     private var session: AudioContinuitySessionContext?
+    private var captureStartNanoseconds: UInt64?
     private var buckets: [AudioContinuityBucket]
     private var droppedObservationCount = 0
 
     init() {
+        captureID = nil
         session = nil
+        captureStartNanoseconds = nil
         buckets = []
     }
 
     init(session: AudioContinuitySessionContext) {
+        captureID = UUID()
         self.session = session
+        captureStartNanoseconds = session.startNanoseconds
+        buckets = Self.makeBuckets()
+    }
+
+    init(capture: AudioContinuityCaptureContext) {
+        captureID = capture.captureID
+        session = capture.sessionID.map {
+            AudioContinuitySessionContext(
+                sessionID: $0,
+                startNanoseconds: capture.startNanoseconds
+            )
+        }
+        captureStartNanoseconds = capture.startNanoseconds
         buckets = Self.makeBuckets()
     }
 
     var storageCount: Int { buckets.count }
+    var activeCaptureID: UUID? { captureID }
 
     mutating func reset(session: AudioContinuitySessionContext?) {
+        captureID = session.map { _ in UUID() }
         self.session = session
+        captureStartNanoseconds = session?.startNanoseconds
         droppedObservationCount = 0
         guard session != nil else {
             buckets.removeAll(keepingCapacity: false)
@@ -672,16 +715,39 @@ struct AudioContinuityRenderLedger {
         }
     }
 
+    /// Bind an AUDIO_START-owned capture to exactly one later HID session.
+    /// The capture identity prevents a stale or unrelated session from
+    /// claiming a newer stream, and a bound ledger cannot be rebound.
+    @discardableResult
+    mutating func bind(
+        captureID: UUID,
+        session: AudioContinuitySessionContext
+    ) -> Bool {
+        guard self.captureID == captureID,
+              self.session == nil,
+              let captureStartNanoseconds else {
+            return false
+        }
+        // The capture start is the single bucket origin. Preserve it when the
+        // later HID event supplies the gesture UUID so pre-session buckets and
+        // the central BLE/decode ledger remain joinable.
+        self.session = AudioContinuitySessionContext(
+            sessionID: session.sessionID,
+            startNanoseconds: captureStartNanoseconds
+        )
+        return true
+    }
+
     mutating func recordRender(
         timestampNanoseconds: UInt64,
         accounting: AudioPipeRenderAccounting,
         queueDepthBefore: Int,
         queueDepthAfter: Int
     ) {
-        guard let session,
+        guard let startNanoseconds = captureStartNanoseconds,
               let index = bucketIndex(
                   timestampNanoseconds: timestampNanoseconds,
-                  sessionStartNanoseconds: session.startNanoseconds
+                  sessionStartNanoseconds: startNanoseconds
               ) else {
             return
         }
@@ -700,10 +766,10 @@ struct AudioContinuityRenderLedger {
         timestampNanoseconds: UInt64,
         frames: Int
     ) {
-        guard let session,
+        guard let startNanoseconds = captureStartNanoseconds,
               let index = bucketIndex(
                   timestampNanoseconds: timestampNanoseconds,
-                  sessionStartNanoseconds: session.startNanoseconds
+                  sessionStartNanoseconds: startNanoseconds
               ) else {
             return
         }
@@ -715,12 +781,13 @@ struct AudioContinuityRenderLedger {
     }
 
     func snapshot() -> AudioContinuityRenderSnapshot? {
-        guard let session else { return nil }
+        guard let captureID, let session else { return nil }
         let observedBuckets = buckets.filter(\.hasObservation)
         guard !observedBuckets.isEmpty || droppedObservationCount > 0 else {
             return nil
         }
         return AudioContinuityRenderSnapshot(
+            captureID: captureID,
             session: session,
             buckets: observedBuckets,
             droppedObservationCount: droppedObservationCount

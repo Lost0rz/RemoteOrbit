@@ -111,10 +111,10 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 
     func beginRemoteAudioDiagnostics(
-        continuityContext: AudioContinuitySessionContext? = nil
+        continuityContext: AudioContinuityCaptureContext? = nil
     ) {
         let nextContinuityLedger = continuityContext.map {
-            AudioContinuityRenderLedger(session: $0)
+            AudioContinuityRenderLedger(capture: $0)
         }
         stateLock.lock()
         let totalDepth = max(0, pendingOutput.count - pendingOutputIndex)
@@ -128,6 +128,23 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         diagnosticsCumulative.reset(currentQueueDepthFrames: currentDepth)
         diagnosticsWindow.reset(currentQueueDepthFrames: currentDepth)
         stateLock.unlock()
+    }
+
+    /// Bind a live AUDIO_START capture to the matching HID session without
+    /// scanning or reallocating its fixed-capacity render storage. A capture
+    /// can be bound only once and only by its exact transport identity.
+    @discardableResult
+    func bindRemoteAudioDiagnostics(
+        captureID: UUID,
+        session: AudioContinuitySessionContext
+    ) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard remoteDiagnosticsActive else { return false }
+        return continuityRenderLedger?.bind(
+            captureID: captureID,
+            session: session
+        ) ?? false
     }
 
     func endRemoteAudioDiagnostics() -> AudioContinuityRenderSnapshot? {
