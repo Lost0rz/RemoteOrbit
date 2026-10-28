@@ -72,6 +72,26 @@ final class DiagnosticCLITests: XCTestCase {
         XCTAssertEqual(authority.queryCallCount, 0)
     }
 
+    func testQueryParsesWallClockWindow() throws {
+        let authority = RecordingDiagnosticAuthority()
+        let code = DiagnosticCLI.run(
+            arguments: [
+                "query",
+                "--since-unix-ms", "100",
+                "--until-unix-ms", "200",
+            ],
+            authority: authority,
+            journalURL: URL(fileURLWithPath: "/tmp/unused"),
+            output: { _ in },
+            errorOutput: { _ in }
+        )
+
+        XCTAssertEqual(code, 0)
+        let filter = try XCTUnwrap(authority.lastSnapshotFilter)
+        XCTAssertEqual(filter.startWallTimestampUnixMilliseconds, 100)
+        XCTAssertEqual(filter.endWallTimestampUnixMilliseconds, 200)
+    }
+
     func testUnknownControlCommandFailsClosedWithoutAuthorityAccess() {
         let authority = RecordingDiagnosticAuthority()
         var stderr: [String] = []

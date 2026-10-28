@@ -124,6 +124,100 @@ final class DiagnosticAuthorityTests: XCTestCase {
         ))
     }
 
+    func testLongTermObservationPayloadsAreRegisteredAndMachineReadable() throws {
+        let summary = try DiagnosticEventInput(
+            eventType: "voice.session.summary",
+            subsystem: "voice.session",
+            category: "summary",
+            severity: .info,
+            sourceComponent: "long_term_observability",
+            sessionID: "session-1",
+            payload: [
+                "summary": .object([
+                    "observation_schema_version": .unsignedInteger(1),
+                    "anomaly_flags": .array([]),
+                ]),
+            ]
+        )
+        let trace = try DiagnosticEventInput(
+            eventType: "voice.session.trace",
+            subsystem: "voice.session",
+            category: "trace",
+            severity: .warning,
+            sourceComponent: "long_term_observability",
+            sessionID: "session-1",
+            incidentID: "incident-1",
+            payload: [
+                "capture_id": .string("capture-1"),
+                "chunk_index": .unsignedInteger(0),
+                "chunk_count": .unsignedInteger(1),
+                "observations": .array([
+                    .object(["kind": .string("render"), "timestamp_nanoseconds": .unsignedInteger(10)])
+                ]),
+                "dropped_observations": .unsignedInteger(0),
+            ]
+        )
+
+        XCTAssertEqual(summary.eventType, "voice.session.summary")
+        XCTAssertEqual(trace.eventType, "voice.session.trace")
+    }
+
+    func testQueryFiltersByWallClockWindow() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("events.jsonl")
+        let journal = JSONLinesDiagnosticJournal(fileURL: fileURL)
+
+        try journal.append(makeEvent(wallMilliseconds: 100, sequence: 1))
+        try journal.append(makeEvent(wallMilliseconds: 200, sequence: 2))
+        try journal.append(makeEvent(wallMilliseconds: 300, sequence: 3))
+
+        let filter = try DiagnosticQueryFilter(
+            startWallTimestampUnixMilliseconds: 150,
+            endWallTimestampUnixMilliseconds: 250,
+            limit: 10
+        )
+        let page = try journal.query(filter)
+        XCTAssertEqual(page.events.map(\.sequenceNumber), [2])
+    }
+
+    func testRotatesRetainsAndQueriesAcrossBoundedSegments() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("events.jsonl")
+        let journal = JSONLinesDiagnosticJournal(
+            fileURL: fileURL,
+            retentionPolicy: .init(maxSegmentBytes: 1, maxSegmentCount: 3)
+        )
+
+        for sequence in UInt64(1)...4 {
+            try journal.append(makeEvent(wallMilliseconds: Int64(sequence), sequence: sequence))
+        }
+
+        XCTAssertEqual(journal.segmentURLs().count, 3)
+        let page = try journal.query(DiagnosticQueryFilter(limit: 10))
+        XCTAssertEqual(page.events.map(\.sequenceNumber), [2, 3, 4])
+
+        let firstPage = try journal.query(DiagnosticQueryFilter(limit: 1))
+        let cursor = try XCTUnwrap(firstPage.nextCursor)
+        let secondPage = try journal.query(DiagnosticQueryFilter(cursor: cursor, limit: 1))
+        XCTAssertEqual(secondPage.events.map(\.sequenceNumber), [3])
+    }
+
+    func testPartialTrailingRecordFailsClosed() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("events.jsonl")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("{\"schema_version\":1".utf8).write(to: fileURL)
+
+        XCTAssertThrowsError(try JSONLinesDiagnosticJournal(fileURL: fileURL).query(
+            DiagnosticQueryFilter()
+        )) { error in
+            XCTAssertEqual(error as? DiagnosticQueryError, .corruptJournal(1))
+        }
+    }
+
     func testUnknownSchemaVersionStopsTheWholeQuery() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -364,6 +458,31 @@ final class DiagnosticAuthorityTests: XCTestCase {
             sourceComponent: "wav_recorder",
             correlationID: "recording-1",
             payload: payload
+        )
+    }
+
+    private func makeEvent(wallMilliseconds: Int64, sequence: UInt64) -> DiagnosticEvent {
+        DiagnosticEvent(
+            input: try! makeInput(),
+            context: DiagnosticRuntimeContext(
+                processInstanceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                processID: 77,
+                binaryPath: "/tmp/RemoteOrbit-test",
+                appVersion: "1.2.3",
+                buildVersion: "45",
+                sourceRevision: "abc123"
+            ),
+            timestamp: DiagnosticClockStamp(
+                wallTimestampUnixMilliseconds: wallMilliseconds,
+                monotonic: DiagnosticMonotonicTimestamp(
+                    valueNanoseconds: UInt64(max(0, wallMilliseconds)) * 1_000_000,
+                    clockDomain: "mach_continuous_time",
+                rawTicks: UInt64(max(0, wallMilliseconds)) * 1_000_000,
+                    timebaseNumerator: 1,
+                    timebaseDenominator: 1
+                )
+            ),
+            sequenceNumber: sequence
         )
     }
 

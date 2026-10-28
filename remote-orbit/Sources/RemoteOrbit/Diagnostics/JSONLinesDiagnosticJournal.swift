@@ -1,13 +1,34 @@
 import Foundation
 
 final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
+    struct RetentionPolicy: Equatable, Sendable {
+        let maxSegmentBytes: UInt64
+        let maxSegmentCount: Int
+
+        static let `default` = RetentionPolicy(
+            maxSegmentBytes: 2 * 1024 * 1024,
+            maxSegmentCount: 5
+        )
+
+        init(maxSegmentBytes: UInt64, maxSegmentCount: Int) {
+            precondition(maxSegmentBytes > 0)
+            precondition(maxSegmentCount > 0)
+            self.maxSegmentBytes = maxSegmentBytes
+            self.maxSegmentCount = maxSegmentCount
+        }
+    }
+
     private let fileURL: URL
+    private let retentionPolicy: RetentionPolicy
     private let lock = NSLock()
     private var fileHandle: FileHandle?
-    private var cachedEvents: [DiagnosticEvent]?
 
-    init(fileURL: URL) {
+    init(
+        fileURL: URL,
+        retentionPolicy: RetentionPolicy = .default
+    ) {
         self.fileURL = fileURL
+        self.retentionPolicy = retentionPolicy
     }
 
     deinit {
@@ -24,9 +45,10 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
         defer { lock.unlock() }
         do {
             try openForAppendIfNeeded()
+            try rotateIfNeeded(incomingBytes: UInt64(data.count))
             guard let fileHandle else { throw DiagnosticQueryError.storageUnavailable }
             try fileHandle.write(contentsOf: data)
-            cachedEvents?.append(event)
+            try fileHandle.synchronize()
         } catch {
             throw DiagnosticQueryError.storageUnavailable
         }
@@ -36,29 +58,56 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        let events = try readEventsIfNeeded()
-        let cursorIndex: Int
-        if let cursor = filter.cursor {
-            guard let cursorID = UUID(uuidString: cursor),
-                  let index = events.firstIndex(where: { $0.eventID == cursorID }) else {
-                throw DiagnosticQueryError.invalidCursor
+        let cursorID = filter.cursor.flatMap(UUID.init(uuidString:))
+        var cursorFound = cursorID == nil
+        var started = cursorID == nil
+        var pageEvents: [DiagnosticEvent] = []
+        var hasMore = false
+
+        for segmentURL in segmentURLs() {
+            for event in try readEvents(from: segmentURL) {
+                if !started {
+                    if event.eventID == cursorID {
+                        cursorFound = true
+                        started = true
+                    }
+                    continue
+                }
+
+                guard filter.matches(event) else { continue }
+                if pageEvents.count < filter.limit {
+                    pageEvents.append(event)
+                } else {
+                    hasMore = true
+                    break
+                }
             }
-            cursorIndex = index + 1
-        } else {
-            cursorIndex = 0
+            if hasMore { break }
         }
 
-        let matches = events.dropFirst(cursorIndex).filter(filter.matches)
-        let pageEvents = Array(matches.prefix(filter.limit))
-        let nextCursor = matches.count > filter.limit
-            ? pageEvents.last?.eventID.uuidString
-            : nil
-
+        guard cursorFound else { throw DiagnosticQueryError.invalidCursor }
         return DiagnosticQueryPage(
             schemaVersion: DiagnosticEvent.currentSchemaVersion,
             events: pageEvents,
-            nextCursor: nextCursor
+            nextCursor: hasMore ? pageEvents.last?.eventID.uuidString : nil
         )
+    }
+
+    func segmentURLs() -> [URL] {
+        let fileManager = FileManager.default
+        var urls: [URL] = []
+        if retentionPolicy.maxSegmentCount > 1 {
+            for index in stride(from: retentionPolicy.maxSegmentCount - 1, through: 1, by: -1) {
+                let url = segmentURL(index: index)
+                if fileManager.fileExists(atPath: url.path) {
+                    urls.append(url)
+                }
+            }
+        }
+        if fileManager.fileExists(atPath: fileURL.path) {
+            urls.append(fileURL)
+        }
+        return urls
     }
 
     private func openForAppendIfNeeded() throws {
@@ -81,34 +130,64 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
         }
     }
 
-    private func readEventsIfNeeded() throws -> [DiagnosticEvent] {
-        if let cachedEvents {
-            return cachedEvents
-        }
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            cachedEvents = []
-            return []
+    private func rotateIfNeeded(incomingBytes: UInt64) throws {
+        guard let fileHandle else { throw DiagnosticQueryError.storageUnavailable }
+        let currentSize = try fileHandle.seekToEnd()
+        guard currentSize > 0,
+              currentSize &+ incomingBytes > retentionPolicy.maxSegmentBytes else {
+            return
         }
 
+        try fileHandle.close()
+        self.fileHandle = nil
+
+        let fileManager = FileManager.default
+        if retentionPolicy.maxSegmentCount > 1 {
+            let oldestIndex = retentionPolicy.maxSegmentCount - 1
+            try? fileManager.removeItem(at: segmentURL(index: oldestIndex))
+            if oldestIndex > 1 {
+                for index in stride(from: oldestIndex - 1, through: 1, by: -1) {
+                    let source = segmentURL(index: index)
+                    guard fileManager.fileExists(atPath: source.path) else { continue }
+                    try? fileManager.removeItem(at: segmentURL(index: index + 1))
+                    try fileManager.moveItem(at: source, to: segmentURL(index: index + 1))
+                }
+            }
+            try? fileManager.removeItem(at: segmentURL(index: 1))
+            guard fileManager.fileExists(atPath: fileURL.path) else {
+                throw DiagnosticQueryError.storageUnavailable
+            }
+            try fileManager.moveItem(at: fileURL, to: segmentURL(index: 1))
+        } else {
+            try? fileManager.removeItem(at: fileURL)
+        }
+
+        try openForAppendIfNeeded()
+    }
+
+    private func segmentURL(index: Int) -> URL {
+        fileURL.appendingPathExtension(String(index))
+    }
+
+    private func readEvents(from url: URL) throws -> [DiagnosticEvent] {
         let data: Data
         do {
-            data = try Data(contentsOf: fileURL)
+            data = try Data(contentsOf: url)
         } catch {
             throw DiagnosticQueryError.storageUnavailable
         }
-
-        guard !data.isEmpty else {
-            cachedEvents = []
-            return []
+        guard !data.isEmpty else { return [] }
+        guard data.last == 0x0A else {
+            let line = data.split(omittingEmptySubsequences: false, whereSeparator: { $0 == 0x0A }).count
+            throw DiagnosticQueryError.corruptJournal(line)
         }
 
-        let decoder = JSONDecoder()
-        let lines = data.split(omittingEmptySubsequences: false, whereSeparator: { $0 == 0x0A })
-        let recordCount = lines.count - (data.last == 0x0A ? 1 : 0)
+        var lines = data.split(omittingEmptySubsequences: false, whereSeparator: { $0 == 0x0A })
+        _ = lines.popLast()
         var events: [DiagnosticEvent] = []
-        events.reserveCapacity(recordCount)
-        for index in 0..<recordCount {
-            let line = lines[index]
+        events.reserveCapacity(lines.count)
+        let decoder = JSONDecoder()
+        for (index, line) in lines.enumerated() {
             guard !line.isEmpty else {
                 throw DiagnosticQueryError.corruptJournal(index + 1)
             }
@@ -120,7 +199,6 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
                 throw DiagnosticQueryError.corruptJournal(index + 1)
             }
         }
-        cachedEvents = events
         return events
     }
 }

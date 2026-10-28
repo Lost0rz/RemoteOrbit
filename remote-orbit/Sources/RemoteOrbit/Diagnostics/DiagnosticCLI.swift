@@ -111,6 +111,8 @@ enum DiagnosticCLI {
         var incidentID: String?
         var correlationID: String?
         var cursor: String?
+        var startWallTimestampUnixMilliseconds: Int64?
+        var endWallTimestampUnixMilliseconds: Int64?
         var limit = 100
 
         var index = 0
@@ -145,6 +147,16 @@ enum DiagnosticCLI {
                 correlationID = value
             case "--cursor":
                 cursor = value
+            case "--since-unix-ms":
+                guard let parsed = Int64(value) else {
+                    throw DiagnosticCLIError.usage("since timestamp must be an integer")
+                }
+                startWallTimestampUnixMilliseconds = parsed
+            case "--until-unix-ms":
+                guard let parsed = Int64(value) else {
+                    throw DiagnosticCLIError.usage("until timestamp must be an integer")
+                }
+                endWallTimestampUnixMilliseconds = parsed
             case "--limit":
                 guard let parsed = Int(value) else {
                     throw DiagnosticCLIError.usage("limit must be an integer")
@@ -166,6 +178,8 @@ enum DiagnosticCLI {
             incidentID: incidentID,
             correlationID: correlationID,
             cursor: cursor,
+            startWallTimestampUnixMilliseconds: startWallTimestampUnixMilliseconds,
+            endWallTimestampUnixMilliseconds: endWallTimestampUnixMilliseconds,
             limit: limit
         )
     }
@@ -232,6 +246,8 @@ enum DiagnosticCLI {
       --incident <id>
       --correlation <id>
       --cursor <event-id>
+      --since-unix-ms <timestamp>
+      --until-unix-ms <timestamp>
       --limit <1...500>
 
     The CLI is read-only. It exposes the existing DiagnosticAuthority query/snapshot

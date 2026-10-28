@@ -18,6 +18,8 @@ struct DiagnosticQueryFilter: Equatable, Sendable {
     let incidentID: String?
     let correlationID: String?
     let cursor: String?
+    let startWallTimestampUnixMilliseconds: Int64?
+    let endWallTimestampUnixMilliseconds: Int64?
     let limit: Int
 
     init(
@@ -30,6 +32,8 @@ struct DiagnosticQueryFilter: Equatable, Sendable {
         incidentID: String? = nil,
         correlationID: String? = nil,
         cursor: String? = nil,
+        startWallTimestampUnixMilliseconds: Int64? = nil,
+        endWallTimestampUnixMilliseconds: Int64? = nil,
         limit: Int = 100
     ) throws {
         guard (1...500).contains(limit) else {
@@ -49,6 +53,11 @@ struct DiagnosticQueryFilter: Equatable, Sendable {
         if let cursor, UUID(uuidString: cursor) == nil {
             throw DiagnosticQueryError.invalidFilter("cursor must be an event id")
         }
+        if let startWallTimestampUnixMilliseconds,
+           let endWallTimestampUnixMilliseconds,
+           startWallTimestampUnixMilliseconds > endWallTimestampUnixMilliseconds {
+            throw DiagnosticQueryError.invalidFilter("start wall timestamp must not exceed end")
+        }
 
         self.eventTypes = eventTypes
         self.subsystems = subsystems
@@ -59,6 +68,8 @@ struct DiagnosticQueryFilter: Equatable, Sendable {
         self.incidentID = incidentID
         self.correlationID = correlationID
         self.cursor = cursor
+        self.startWallTimestampUnixMilliseconds = startWallTimestampUnixMilliseconds
+        self.endWallTimestampUnixMilliseconds = endWallTimestampUnixMilliseconds
         self.limit = limit
     }
 
@@ -71,6 +82,10 @@ struct DiagnosticQueryFilter: Equatable, Sendable {
             && (sessionID == nil || sessionID == event.sessionID)
             && (incidentID == nil || incidentID == event.incidentID)
             && (correlationID == nil || correlationID == event.correlationID)
+            && (startWallTimestampUnixMilliseconds == nil
+                || event.timestamp.wallTimestampUnixMilliseconds >= startWallTimestampUnixMilliseconds!)
+            && (endWallTimestampUnixMilliseconds == nil
+                || event.timestamp.wallTimestampUnixMilliseconds <= endWallTimestampUnixMilliseconds!)
     }
 
     private static func isToken(_ value: String) -> Bool {
@@ -107,9 +122,14 @@ protocol DiagnosticJournal: Sendable {
 /// serialization format. Emit is non-blocking and best-effort.
 protocol DiagnosticAuthority: AnyObject {
     var droppedEventCount: UInt64 { get }
+    var writeFailureCount: UInt64 { get }
     func emit(_ input: DiagnosticEventInput)
     func query(_ filter: DiagnosticQueryFilter) throws -> DiagnosticQueryPage
     func snapshot(_ filter: DiagnosticQueryFilter) throws -> Data
+}
+
+extension DiagnosticAuthority {
+    var writeFailureCount: UInt64 { 0 }
 }
 
 enum DiagnosticStorage {
@@ -134,6 +154,7 @@ final class DiagnosticAuthorityService: DiagnosticAuthority, @unchecked Sendable
     private let stateLock = NSLock()
     private var nextSequenceNumber: UInt64 = 1
     private var droppedCount: UInt64 = 0
+    private var writeFailureCountValue: UInt64 = 0
 
     init(
         journal: any DiagnosticJournal,
@@ -156,6 +177,12 @@ final class DiagnosticAuthorityService: DiagnosticAuthority, @unchecked Sendable
         return droppedCount
     }
 
+    var writeFailureCount: UInt64 {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return writeFailureCountValue
+    }
+
     func emit(_ input: DiagnosticEventInput) {
         guard pendingCapacity.wait(timeout: .now()) == .success else {
             incrementDroppedCount()
@@ -175,6 +202,7 @@ final class DiagnosticAuthorityService: DiagnosticAuthority, @unchecked Sendable
             do {
                 try self.journal.append(event)
             } catch {
+                self.incrementWriteFailureCount()
                 self.incrementDroppedCount()
             }
         }
@@ -204,6 +232,12 @@ final class DiagnosticAuthorityService: DiagnosticAuthority, @unchecked Sendable
     private func incrementDroppedCount() {
         stateLock.lock()
         droppedCount &+= 1
+        stateLock.unlock()
+    }
+
+    private func incrementWriteFailureCount() {
+        stateLock.lock()
+        writeFailureCountValue &+= 1
         stateLock.unlock()
     }
 }

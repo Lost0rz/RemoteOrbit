@@ -446,6 +446,8 @@ private enum DiagnosticPayloadValueKind {
     case unsignedInteger
     case number
     case string
+    case array
+    case object
 }
 
 private struct DiagnosticEventDefinition {
@@ -468,6 +470,8 @@ private struct DiagnosticEventDefinition {
             case (.number, .integer), (.number, .unsignedInteger), (.number, .double):
                 return true
             case (.string, .string):
+                return true
+            case (.array, .array), (.object, .object):
                 return true
             default:
                 return false
@@ -509,6 +513,28 @@ enum DiagnosticEventCatalog {
                 "previous_process_id": .unsignedInteger,
                 "current_bundle_identifier": .string,
                 "current_process_id": .unsignedInteger,
+            ]
+        ),
+        "voice.session.summary": DiagnosticEventDefinition(
+            subsystem: "voice.session",
+            category: "summary",
+            severity: .info,
+            sourceComponent: "long_term_observability",
+            payloadFields: [
+                "summary": .object,
+            ]
+        ),
+        "voice.session.trace": DiagnosticEventDefinition(
+            subsystem: "voice.session",
+            category: "trace",
+            severity: .warning,
+            sourceComponent: "long_term_observability",
+            payloadFields: [
+                "capture_id": .string,
+                "chunk_index": .unsignedInteger,
+                "chunk_count": .unsignedInteger,
+                "observations": .array,
+                "dropped_observations": .unsignedInteger,
             ]
         ),
     ]
