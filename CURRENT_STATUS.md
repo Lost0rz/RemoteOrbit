@@ -96,9 +96,9 @@ Later analysis must bind logs to:
 - Packaged/installed identity: `com.lost0rz.RemoteOrbit`, `0.2.15 (44)`, `x86_64 arm64`, designated requirement `identifier "com.lost0rz.RemoteOrbit"`.
 - Packaged/installed executable SHA-256: `8d274e6fb2c896965891a974907f9e104dcd565379570ad2748020c6b6d88a6d`.
 - Embedded `RemoteOrbitDiagnosticSourceHead`: `38a3bfd8d5a5de47c31d2fed00edf7d7f7d7f2a7`.
-- Installed runtime: PID `56028`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`.
+- Installed runtime: PID `56828`, `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`, `REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`, held by the persistent soak terminal session.
 - Soak log: `/Users/ox_miles/Library/Logs/RemoteOrbit/v0.2.15-local-soak-20261028.log`.
-- Observation start: `2026-10-28T22:03:59+0800`.
+- Observation start: `2026-10-28T22:05:32+0800`.
 - No natural voice-session result is claimed yet; owner observation remains pending.
 
 ## Current next action
