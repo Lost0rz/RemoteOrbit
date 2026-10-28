@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-28
-State: ACTIVE — TASK 038-A CORRECTIVE-2
+State: WAITING_FOR_INDEPENDENT_WEB_AUDIT — TASK 038-A CORRECTIVE-2 COMPLETE
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -18,6 +18,7 @@ Repository: Lost0rz/RemoteOrbit
 - Corrective card `RO-RUNTIME-RELIABILITY-038-A-CORRECTIVE-1-20261028` explicitly reopens only the 038-A lifecycle-completion slice on PR #23; it does not create a new product task or authorize merge.
 - Corrective product commit is `a9f1c242582f902a64a1edc3dc17e2c83e8c08d4`, pushed and verified on the authorized branch.
 - Corrective-2 card `RO-RUNTIME-RELIABILITY-038-A-CORRECTIVE-2-20261028` explicitly reopens the same 038-A lifecycle slice on PR #23; it does not create a new product task, authorize merge, or begin 038-B.
+- Corrective-2 product commit is `68ed029c582c3befb12f4f9996277e96bd2ecf60`, pushed and verified on the authorized branch.
 - The retained Task 037 implementation worktree `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1` is not an active Task 038 writer and is not modified by this task.
 
 ## Historical accepted baseline
@@ -64,11 +65,18 @@ Repository: Lost0rz/RemoteOrbit
 - Corrective-2 start HEAD: `4f7d32e6768a60a474c8b20f1afde7d45ddd4ec6`, the verified live head of the authorized branch before this control transition.
 - Corrective-2 scope: reproduce the real production `BLEBridge.stop()` path while a deferred `.audioDrain` press exists, audit every production non-nil-to-nil `audioStopDrainWorkItem` transition, and centralize barrier-retirement notification without changing established press semantics.
 - Corrective-2 required closeout: normal drain, reset/disconnect, explicit stop, stale completion, repeated stop/reset, release-before-retirement, and mic/Option ownership evidence; focused tests, full Swift tests, release build, and diff check; then return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+- **AUDIT_FINDING_REPRODUCED: YES.** The new RED regression through production `BLEBridge.stop()` showed the barrier cleared while Session B remained pending with zero admission notification, zero replay, and zero transport preparation.
+- **ROOT_CAUSE: FACT.** `BLEBridge.stop()` independently canceled and nilled `audioStopDrainWorkItem` before `clearTransportState(notify: true)`, so the shared reset path observed no active barrier and emitted no admission-retirement callback.
+- **SELECTED_LIFECYCLE_OWNER:** `BLEBridge.retireAudioStopDrainBarrier()`. `stop()` delegates through `clearTransportState`; reset/disconnect and normal drain completion call the same helper; stale/repeated completion and repeated stop/reset are no-ops after the barrier is clear.
+- **ALL_BARRIER_CLEAR_SITES:** production non-nil-to-nil clearing now exists only in `retireAudioStopDrainBarrier()`; `audioStopDrainWorkItem = work` is barrier creation, and `beginAudioStopDrainForTesting()` is test-only setup. The accepted `AUDIO_START` path no longer contains a bypass clear because its disposition requires no pending drain.
+- **BARRIER_RETIREMENT_INVARIANT:** every production `BLOCKED → CLEAR` transition emits one queued admission notification, after transport/streaming reset callbacks where applicable; the coordinator replays a held B once or cancels a released B.
+- **CORRECTIVE-2 EVIDENCE:** normal drain replay once; reset/disconnect replay once; production `stop()` replay once; repeated stop/reset and stale canceled completion produce zero additional notifications; release-before-retirement produces no replay; no duplicate transport preparation or Option pair.
+- **CORRECTIVE-2 CHANGED FILES:** `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift` and `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift` only.
 
 ## Current phase and next action
 
-- Phase: ACTIVE — 038-A CORRECTIVE-2.
-- Next action: add the deterministic production-stop RED, implement the narrowest shared barrier-retirement correction if reproduced, run the required evidence, and return to independent Web audit. No merge, install, package, release, permission change, or worktree/branch retirement is authorized.
+- Phase: CORRECTIVE-2 COMPLETE — WAITING_FOR_INDEPENDENT_WEB_AUDIT; 038-A lifecycle completion only.
+- Next action: independent Web audit of Draft PR #23. No further product mutation, merge, install, package, release, permission change, or worktree/branch retirement is authorized by this handoff.
 - Single active Task 038-A product writer: `/private/tmp/remoteorbit-runtime-reliability-038-a-rapid-repress`. The retained Task 037 worktree is historical and non-authoritative for 038.
 
 ## Task 038-A boundaries
@@ -85,5 +93,6 @@ Repository: Lost0rz/RemoteOrbit
 - `HUMAN_UI_ACCEPTANCE: PENDING`; 038-A has no intended UI change, and the deferred Task 037 human acceptance debt remains unchanged.
 - `MERGE_STATUS: NOT_MERGED`; independent Web audit remains outstanding. Do not install, package, release, change permissions, or retire branches/worktrees.
 - `AUDIT_FINDING_REPRODUCED: YES`; the corrective invariant is covered by real BLEBridge reset/completion lifecycle seams, not only a coordinator Boolean mock.
-- Corrective stop boundary was not invoked; the missing reset-path notification was reproduced and fixed without changing SHORT/LONG or persistent-session semantics.
-- Corrective-2 production-stop boundary is not yet validated; do not predeclare reproduction, root cause, or completion.
+- Corrective-2 production stop boundary was reproduced and fixed without changing SHORT/LONG, mic/Option ownership, or persistent-session semantics.
+- Corrective-2 focused evidence: `BLEBridgeTests` 18/18 PASS; `VoicePressCoordinatorTests` 39/39 PASS. Full `swift test`: 410/410 PASS. `swift build -c release`: PASS. `git diff --check`: PASS.
+- Corrective-2 remote delivery: product commit `68ed029c582c3befb12f4f9996277e96bd2ecf60` is present on `origin/codex/runtime-reliability-038-a-rapid-repress`; the paired closeout control commit follows it and must be pushed/verified before final receipt.

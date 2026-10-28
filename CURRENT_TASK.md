@@ -2,7 +2,7 @@
 
 ## RO-RUNTIME-RELIABILITY-038 — Task 038
 
-- Status: ACTIVE — 038-A CORRECTIVE-2.
+- Status: WAITING_FOR_INDEPENDENT_WEB_AUDIT — 038-A CORRECTIVE-2 COMPLETE.
 - Task class: RUNTIME RELIABILITY / CORRECTIVE EXECUTION.
 - Repository: `Lost0rz/RemoteOrbit`.
 - Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
@@ -13,6 +13,7 @@
 - Corrective card: `RO-RUNTIME-RELIABILITY-038-A-CORRECTIVE-1-20261028`; same Task 038-A and same PR/worktree, no new task.
 - Corrective product commit: `a9f1c242582f902a64a1edc3dc17e2c83e8c08d4`, pushed and verified on the authorized branch.
 - Corrective-2 card: `RO-RUNTIME-RELIABILITY-038-A-CORRECTIVE-2-20261028`; same Task 038-A and same PR/worktree, no new task, no merge authority, and no 038-B authority.
+- Corrective-2 product commit: `68ed029c582c3befb12f4f9996277e96bd2ecf60`, pushed and verified on the authorized branch.
 
 ## Preserved Task 037 history and deferred acceptance debt
 
@@ -85,6 +86,25 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 - Preserve exactly-once retirement notifications, release-before-retirement cancellation, stale Session-A isolation, and existing mic/Option ownership. If the production stop path cannot coexist with a deferred press, or centralization requires broader transport redesign, stop and report the exact proof/conflict.
 - Required verification: VoicePressCoordinator focused suite, BLEBridge focused suite, full `swift test`, `swift build -c release`, and `git diff --check`; then return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
+## 038-A corrective-2 execution receipt
+
+- **AUDIT_FINDING_REPRODUCED: YES.** The production-stop RED used `BLEBridge.stop()` itself while Session B waited on `.audioDrain`; before the fix, the barrier cleared with no admission notification, replay, or transport preparation.
+- **PRODUCTION_STOP_PATH_REPRODUCTION: YES.** The new `testExplicitTransportStopRetiresAudioDrainBarrierAndReplaysDeferredRepressExactlyOnce` fails on the pre-fix implementation and passes after the correction.
+- **ALL_BARRIER_CLEAR_SITES:** production clearing is centralized in `retireAudioStopDrainBarrier()`. `stop()` no longer clears independently; `clearTransportState()` and `finishAudioStopAfterDrain()` delegate to the helper; the accepted `AUDIO_START` path has no bypass clear; test setup remains explicitly test-only.
+- **ROOT_CAUSE: FACT.** `stop()` cleared `audioStopDrainWorkItem` before `clearTransportState()` could observe and retire it, bypassing the only admission callback.
+- **SELECTED_LIFECYCLE_OWNER:** `BLEBridge.retireAudioStopDrainBarrier()`; it cancels/nils only an active barrier and queues exactly one admission-available callback for that transition.
+- **BARRIER_RETIREMENT_INVARIANT:** every production `BLOCKED → CLEAR` path resolves a retained `.audioDrain` press exactly once as replay/admit when still held, or cancellation when released; stale completion after clear is a no-op.
+- **NORMAL_DRAIN_EVIDENCE:** `testNormalAudioDrainCompletionReplaysDeferredRepressExactlyOnce` PASS; one notification and one preparation, stale completion adds zero.
+- **RESET_DISCONNECT_EVIDENCE:** `testCanceledAudioDrainCompletionAfterResetCannotReplayResolvedPressTwice` PASS; reset clears and replays once, canceled completion adds zero.
+- **PRODUCTION_STOP_EVIDENCE:** `testExplicitTransportStopRetiresAudioDrainBarrierAndReplaysDeferredRepressExactlyOnce` PASS; real `stop()` clears and replays once, repeated stop adds zero.
+- **STALE_COMPLETION_EVIDENCE:** normal, reset, and production-stop tests invoke the stale completion after retirement; notification and preparation counts remain unchanged.
+- **RELEASE_BEFORE_RETIREMENT_EVIDENCE:** `testPhysicalUpBeforeAudioDrainRetirementDoesNotReplayDeferredRepress` PASS; the retained B is cleared without replay or preparation.
+- **EXACTLY_ONCE_EVIDENCE:** normal, reset, stop, repeated stop/reset, and stale completion paths retain one notification and one preparation at most; no duplicate Option pair is observed in the lifecycle harness.
+- **MIC_OPTION_OWNERSHIP_EVIDENCE:** replay path preparation count is one and the lifecycle harness preserves `[Option-down, Option-up]`; all existing mic/Option and ordinary LONG tests remain green. No coordinator, micOpen/micClose, Option-edge, or SHORT/LONG code changed.
+- **FOCUSED TESTS:** `VoicePressCoordinatorTests` 39/39 PASS; `BLEBridgeTests` 18/18 PASS.
+- **FULL SWIFT TEST:** 410/410 PASS. **RELEASE BUILD:** PASS. **DIFF CHECK:** PASS.
+- **CHANGED FILES:** `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift` and `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift` only.
+
 ## Non-goals
 
 - Do not tune AudioPipe buffers.
@@ -118,4 +138,4 @@ Reported incident basis: Session A receives `AUDIO_STOP` and enters drain; a new
 
 ## Next action
 
-Execute corrective-2 on the same authorized branch/worktree. Do not merge, install, package, release, change permissions, or retire branches/worktrees. `HUMAN_UI_ACCEPTANCE: PENDING`; Task 037 deferred human acceptance remains unchanged. Return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT` only after corrective-2 evidence is complete.
+Independent Web audit of Draft PR #23. Do not merge, install, package, release, change permissions, or retire branches/worktrees. `HUMAN_UI_ACCEPTANCE: PENDING`; Task 037 deferred human acceptance remains unchanged.
