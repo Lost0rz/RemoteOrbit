@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-29
-State: CORRECTIVE_ACTIVE — RO-OBSERVABILITY-039 PRE-HID INCIDENT LIFECYCLE CORRECTIVE
+State: WAITING_FOR_INDEPENDENT_WEB_AUDIT — RO-OBSERVABILITY-039 PRE-HID LIFECYCLE CORRECTIVE CANDIDATE
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -16,6 +16,7 @@ Repository: Lost0rz/RemoteOrbit
 - Corrected implementation candidate HEAD: `ad223e4b5f35653abe1014697cb50a87d3db05ad` (`diagnostics: correct observability audit findings`).
 - Second corrective implementation HEAD: `447b3b9` (`diagnostics: coordinate cross-layer incident windows`).
 - Pre-HID lifecycle corrective start HEAD: `c6cc2918ab9314507ad85f8e82fac58c74f26674`.
+- Pre-HID lifecycle corrective implementation HEAD: `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d` (`diagnostics: preserve pre-HID incident generation`).
 - Remote-delivery verification before this corrective: `origin/codex/observability-039` matched `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
 - Remote-delivery verification for this corrective: `origin/codex/observability-039` matched `e703e16554e98e69ed6fb4e84ccce542c4169b20` before this receipt.
 - PR #25 (`Release RemoteOrbit v0.2.15`) is Draft/Open/Unmerged; public release is blocked and no merge, tag, or release is authorized by this task.
@@ -34,7 +35,7 @@ Repository: Lost0rz/RemoteOrbit
 - The independent Web audit of the pushed candidate failed with findings covering anomaly/ring semantics, incident freezing, BLE/decode trace completeness, main-queue correlation, delivery-deficit classification, crash-tolerant journal recovery, export pagination/log source, receiver evidence, and late lifecycle correlation. The corrective scope remains observability-only.
 - Corrective implementation baseline for this second corrective was `ad223e4b5f35653abe1014697cb50a87d3db05ad`; the completed implementation is `447b3b9`, and this handoff is its direct child.
 - The second independent-audit corrective is bounded to one shared incident identity/anchor across the existing service and AudioPipe traces, production-path material-trigger alignment, exact export-limit semantics, and ADR capacity accuracy. It must not change product/audio behavior.
-- The next independent Web audit found one remaining lifecycle boundary: HID `begin(sessionID:)` can reset a material incident created during a valid pre-HID transport capture. This corrective is bounded to establishing one shared coordinator generation at the earliest authoritative gesture/transport capture boundary, preserving it when HID later binds the session, and resetting it only for a genuinely new logical capture. It must not change product/audio behavior.
+- The next independent Web audit found one remaining lifecycle boundary: HID `begin(sessionID:)` can reset a material incident created during a valid pre-HID transport capture. The completed corrective establishes one shared coordinator generation at the earliest authoritative gesture/transport capture boundary, preserves it when HID later binds the session, and resets it only for a genuinely new logical capture. It does not change product/audio behavior.
 
 ## Product and runtime boundaries
 
@@ -52,7 +53,7 @@ Repository: Lost0rz/RemoteOrbit
 
 ## Current next action
 
-Implement and verify the pre-HID incident lifecycle corrective from `c6cc2918ab9314507ad85f8e82fac58c74f26674`, then push `codex/observability-039` and return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
+Push the verified pre-HID lifecycle corrective `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d` on `codex/observability-039`, verify the remote ref, and await another independent Web audit. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
 
 ## Stop conditions
 
