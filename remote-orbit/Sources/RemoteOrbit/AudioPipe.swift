@@ -238,6 +238,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         )
         let counters = resettingWindow ? diagnosticsWindow : diagnosticsCumulative
         let snapshot = counters.snapshot(
+            remoteActive: remoteActive,
             currentQueueDepthFrames: currentDepth,
             audioQueueDepthFrames: totalDepth,
             pendingRemoteFrames: pendingRemoteOutputFrames,
@@ -383,6 +384,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             // Option-down opens the speech UI. This does not change the
             // user's saved preferred input and is restored for short input.
             _ = SystemAudioDeviceManager.selectRemoteOrbitInputForVoice()
+            DiagnosticRuntimeHealthRegistry.shared.recordSelectedInputIdentity(
+                SystemAudioDeviceManager.defaultInputDevice?.stableIdentifier
+            )
             // The remote-only path must not leave the physical microphone
             // open. `captureOutput` also rejects late callbacks, but stopping
             // the session is required to release the device privacy claim.
@@ -740,6 +744,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         compactOutputBufferIfNeeded(
             recordRemoteDiagnostics: expectedRemoteMode
         )
+        let remoteQueueBeforeSubmission = pendingRemoteOutputFrames
         pendingOutput.append(contentsOf: resampled)
         if expectedRemoteMode {
             scheduledRemoteBuffers += 1
@@ -760,7 +765,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                         unfilledFrames: 0,
                         queueDepthFrames: UInt64(max(0, pendingRemoteOutputFrames)),
                         byteOrSampleCount: UInt64(resampled.count),
-                        marker: .active
+                        marker: .active,
+                        queueDepthBeforeFrames: UInt64(max(0, remoteQueueBeforeSubmission))
                     )
                 )
             }
@@ -920,7 +926,11 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             }
             let callbackPeak = pendingOutput[start..<end].reduce(0) { max($0, abs($1)) }
             renderedPeak = max(renderedPeak, callbackPeak)
-            if remoteDiagnosticsActive, renderedRemoteFrames > 0, callbackPeak > 0 {
+            let remoteEnd = min(start + renderedRemoteFrames, end)
+            let remoteCallbackPeak = renderedRemoteFrames > 0
+                ? pendingOutput[start..<remoteEnd].reduce(0) { max($0, abs($1)) }
+                : 0
+            if remoteDiagnosticsActive, renderedRemoteFrames > 0, remoteCallbackPeak > 0 {
                 DiagnosticOutputBoundaryClock.shared.record(
                     timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
                 )
@@ -951,7 +961,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                     unfilledFrames: UInt64(fill.unfilledFrames),
                     queueDepthFrames: UInt64(max(0, queuedRemoteFramesAfter)),
                     byteOrSampleCount: UInt64(max(0, fill.filledFrames)),
-                    marker: marker
+                    marker: marker,
+                    queueDepthBeforeFrames: UInt64(max(0, availableRemoteFrames))
                 )
             )
             if renderAccounting.activeUnderrunFrames > 0 || renderAccounting.tailEmptyCallbacks > 0 {
@@ -964,7 +975,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                         unfilledFrames: UInt64(fill.unfilledFrames),
                         queueDepthFrames: UInt64(max(0, queuedRemoteFramesAfter)),
                         byteOrSampleCount: UInt64(max(0, renderAccounting.activeUnderrunFrames)),
-                        marker: marker
+                        marker: marker,
+                        queueDepthBeforeFrames: UInt64(max(0, availableRemoteFrames))
                     )
                 )
             }
@@ -1118,13 +1130,15 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             requestedFrames: point.requestedFrames,
             filledFrames: point.filledFrames,
             unfilledFrames: point.unfilledFrames,
-            queueDepthFrames: point.queueDepthFrames,
+            queueDepthFrames: point.queueDepthAfterFrames,
             byteOrSampleCount: point.byteOrSampleCount,
             marker: point.marker,
             streamIdentity: point.streamIdentity == 0
                 ? diagnosticStreamIdentity
                 : point.streamIdentity,
-            sequence: diagnosticObservationSequence
+            sequence: diagnosticObservationSequence,
+            queueDepthBeforeFrames: point.queueDepthBeforeFrames,
+            source: "audio_pipe"
         )
         let appended: Bool
         if longTermPrimaryTraceIsActive {
@@ -1179,6 +1193,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         filledFrames: UInt64,
         unfilledFrames: UInt64,
         queueDepthFrames: UInt64,
+        queueDepthBeforeFrames: UInt64? = nil,
         marker: LongTermObservationSemanticMarker = .active
     ) {
         stateLock.lock()
@@ -1195,7 +1210,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 unfilledFrames: unfilledFrames,
                 queueDepthFrames: queueDepthFrames,
                 byteOrSampleCount: filledFrames,
-                marker: marker
+                marker: marker,
+                queueDepthBeforeFrames: queueDepthBeforeFrames
             )
         )
         if unfilledFrames > 0 {
@@ -1208,7 +1224,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                     unfilledFrames: unfilledFrames,
                     queueDepthFrames: queueDepthFrames,
                     byteOrSampleCount: unfilledFrames,
-                    marker: marker
+                    marker: marker,
+                    queueDepthBeforeFrames: queueDepthBeforeFrames
                 )
             )
             markLongTermMaterialAnomalyLocked(

@@ -51,20 +51,26 @@ final class DiagnosticRuntimeHealthRegistry: @unchecked Sendable {
     private var values: [String: DiagnosticJSONValue] = [
         "hid_manager_running": .bool(false),
         "hid_device_active": .bool(false),
-        "mapping_enabled": .bool(false),
-        "mapping_verified": .bool(false),
+        "mapping_enabled": .string("unknown"),
+        "mapping_verified": .string("unknown"),
         "physical_voice_key_down": .bool(false),
         "gesture_state": .string("idle"),
         "ble_connected": .bool(false),
+        "ble_peripheral_state": .string("unknown"),
+        "ble_transport_state": .string("unknown"),
+        "transport_prepared": .bool(false),
+        "atvv_ready": .bool(false),
         "atvv_streaming": .bool(false),
         "mic_open_state": .string("unavailable"),
         "audio_drain_state": .string("idle"),
         "audio_pipe_remote_active": .bool(false),
         "audio_pipe_output_ready": .bool(false),
         "audio_pipe_queue_depth_frames": .unsignedInteger(0),
+        "audio_pipe_queue_has_remote_frames": .bool(false),
         "output_device_identity": .string("unavailable"),
         "selected_input_identity": .string("unavailable"),
         "last_hid_report_uptime_ms": .unsignedInteger(0),
+        "last_mic_transition_uptime_ms": .unsignedInteger(0),
     ]
 
     func set(_ key: String, _ value: DiagnosticJSONValue) {
@@ -76,6 +82,18 @@ final class DiagnosticRuntimeHealthRegistry: @unchecked Sendable {
     func setBool(_ key: String, _ value: Bool) { set(key, .bool(value)) }
     func setString(_ key: String, _ value: String) { set(key, .string(value)) }
     func setUnsigned(_ key: String, _ value: UInt64) { set(key, .unsignedInteger(value)) }
+
+    func recordHIDReport(at uptimeMilliseconds: UInt64) {
+        setUnsigned("last_hid_report_uptime_ms", uptimeMilliseconds)
+    }
+
+    func recordMicrophoneTransition(at uptimeMilliseconds: UInt64) {
+        setUnsigned("last_mic_transition_uptime_ms", uptimeMilliseconds)
+    }
+
+    func recordSelectedInputIdentity(_ identity: String?) {
+        setString("selected_input_identity", identity ?? "unavailable")
+    }
 
     func markOutputDevice(ready: Bool, identity: String?) {
         lock.lock()
@@ -89,7 +107,8 @@ final class DiagnosticRuntimeHealthRegistry: @unchecked Sendable {
         values["audio_pipe_queue_depth_frames"] = .unsignedInteger(
             UInt64(max(0, snapshot.currentQueueDepthFrames))
         )
-        values["audio_pipe_remote_active"] = .bool(snapshot.pendingRemoteFrames > 0)
+        values["audio_pipe_remote_active"] = .bool(snapshot.remoteActive)
+        values["audio_pipe_queue_has_remote_frames"] = .bool(snapshot.queueHasRemoteFrames)
         lock.unlock()
     }
 
@@ -97,6 +116,17 @@ final class DiagnosticRuntimeHealthRegistry: @unchecked Sendable {
         lock.lock()
         var result = values
         lock.unlock()
+        let now = UInt64(max(0, ProcessInfo.processInfo.systemUptime * 1_000))
+        for (timestampKey, ageKey) in [
+            ("last_hid_report_uptime_ms", "last_hid_report_age_ms"),
+            ("last_mic_transition_uptime_ms", "last_mic_transition_age_ms"),
+        ] {
+            if case .unsignedInteger(let timestamp) = result[timestampKey], timestamp > 0 {
+                result[ageKey] = .unsignedInteger(now >= timestamp ? now - timestamp : 0)
+            } else {
+                result[ageKey] = .string("unavailable")
+            }
+        }
         for (key, value) in extra {
             result[key] = value
         }
@@ -209,6 +239,9 @@ final class VoiceStartWatchdog: @unchecked Sendable {
         var startedAt: UInt64
         var lastStage: String
         var state: [String: DiagnosticJSONValue]
+        var armed = false
+        var audioStartSeen = false
+        var audioFirstSeen = false
         var stallEmitted = false
         var failureEmitted = false
     }
@@ -265,6 +298,7 @@ final class VoiceStartWatchdog: @unchecked Sendable {
         active.startedAt = timestampNanoseconds
         active.lastStage = "HOLD_CONFIRMED"
         active.state = state
+        active.armed = true
         self.active = active
         lock.unlock()
         if automaticallySchedule { startTimer() }
@@ -282,11 +316,29 @@ final class VoiceStartWatchdog: @unchecked Sendable {
         }
         active.lastStage = stage
         active.state = state
+        if stage == "AUDIO_START" {
+            active.audioStartSeen = true
+        } else if stage == "AUDIO_FIRST" {
+            active.audioFirstSeen = true
+        }
         self.active = active
         lock.unlock()
     }
 
-    func audioStarted(attemptID: String) {
+    func audioFirstArrived(attemptID: String) {
+        lock.lock()
+        guard active?.attemptID == attemptID, active?.audioFirstSeen == true else {
+            lock.unlock()
+            return
+        }
+        self.active = nil
+        let timer = self.timer
+        self.timer = nil
+        lock.unlock()
+        timer?.cancel()
+    }
+
+    func end(attemptID: String) {
         lock.lock()
         guard active?.attemptID == attemptID else {
             lock.unlock()
@@ -299,19 +351,17 @@ final class VoiceStartWatchdog: @unchecked Sendable {
         timer?.cancel()
     }
 
-    func end(attemptID: String) {
-        audioStarted(attemptID: attemptID)
-    }
-
     func evaluate(at timestampNanoseconds: UInt64) {
-        let emission: (stageEvent: String, attemptID: String, sessionID: String, lastStage: String, elapsedMS: Double, state: [String: DiagnosticJSONValue])?
+        let emission: (stageEvent: String, attemptID: String, sessionID: String, lastStage: String, missingStage: String, elapsedMS: Double, state: [String: DiagnosticJSONValue])?
         lock.lock()
         guard var active,
+              active.armed,
               timestampNanoseconds >= active.startedAt else {
             lock.unlock()
             return
         }
         let elapsed = timestampNanoseconds - active.startedAt
+        let missingStage = active.audioStartSeen ? "AUDIO_FIRST" : "AUDIO_START"
         if elapsed >= Self.failureAfterNanoseconds, !active.failureEmitted {
             active.failureEmitted = true
             emission = (
@@ -319,6 +369,7 @@ final class VoiceStartWatchdog: @unchecked Sendable {
                 active.attemptID,
                 active.sessionID,
                 active.lastStage,
+                missingStage,
                 Double(elapsed) / 1_000_000,
                 active.state
             )
@@ -330,6 +381,7 @@ final class VoiceStartWatchdog: @unchecked Sendable {
                 active.attemptID,
                 active.sessionID,
                 active.lastStage,
+                missingStage,
                 Double(elapsed) / 1_000_000,
                 active.state
             )
@@ -345,12 +397,14 @@ final class VoiceStartWatchdog: @unchecked Sendable {
             attemptID: emission.attemptID,
             sessionID: emission.sessionID,
             lastStage: emission.lastStage,
+            missingStage: emission.missingStage,
             elapsedMS: emission.elapsedMS,
             state: emission.state
         )
         if emission.stageEvent == "VOICE_START_FAILURE" {
             emitFailureClassification(
                 attemptID: emission.attemptID,
+                missingStage: emission.missingStage,
                 state: emission.state
             )
         }
@@ -380,6 +434,7 @@ final class VoiceStartWatchdog: @unchecked Sendable {
         attemptID: String,
         sessionID: String,
         lastStage: String,
+        missingStage: String,
         elapsedMS: Double,
         state: [String: DiagnosticJSONValue]
     ) {
@@ -395,6 +450,7 @@ final class VoiceStartWatchdog: @unchecked Sendable {
                 "voice_attempt_id": .string(attemptID),
                 "stage_event": .string(stageEvent),
                 "last_successful_stage": .string(lastStage),
+                "missing_stage": .string(missingStage),
                 "elapsed_ms": .double(elapsedMS),
                 "state": .object(state),
             ]
@@ -404,6 +460,7 @@ final class VoiceStartWatchdog: @unchecked Sendable {
 
     private func emitFailureClassification(
         attemptID: String,
+        missingStage: String,
         state: [String: DiagnosticJSONValue]
     ) {
         guard let input = try? DiagnosticEventInput(
@@ -418,7 +475,7 @@ final class VoiceStartWatchdog: @unchecked Sendable {
                 "layer": .string("start_path"),
                 "classification": .string("VOICE_START_FAILURE"),
                 "status": .string("observed"),
-                "reason": .string("AUDIO_START_OR_FIRST_FRAME_DEADLINE"),
+                "reason": .string(missingStage + "_MISSING"),
                 "state": .object(state),
             ]
         ) else { return }
@@ -580,8 +637,8 @@ final class VoiceAttemptDiagnostics: @unchecked Sendable {
                 timestampNanoseconds: timestamp,
                 state: snapshot.state
             )
-        } else if stage == "AUDIO_START" || stage == "AUDIO_FIRST" {
-            watchdog.audioStarted(attemptID: snapshot.id.uuidString)
+        } else if stage == "AUDIO_FIRST" {
+            watchdog.audioFirstArrived(attemptID: snapshot.id.uuidString)
         } else if stage == "PHYSICAL_UP" || stage == "AUDIO_PIPELINE_CLOSED" {
             registry.setString("gesture_state", "idle")
         }
@@ -609,6 +666,10 @@ final class VoiceAttemptDiagnostics: @unchecked Sendable {
         self.current = nil
         lock.unlock()
         watchdog.end(attemptID: current.id.uuidString)
+    }
+
+    func evaluateWatchdogForTesting(at timestampNanoseconds: UInt64) {
+        watchdog.evaluate(at: timestampNanoseconds)
     }
 
     private func mergedState(extra: [String: DiagnosticJSONValue]) -> [String: DiagnosticJSONValue] {
@@ -673,28 +734,35 @@ struct DiagnosticUnderrunEpisode: Equatable, Sendable {
     let beginTimestampNanoseconds: UInt64
     let endTimestampNanoseconds: UInt64
     let missingFrames: UInt64
-    let queueDepthBeforeFrames: UInt64
-    let minimumQueueDepthFrames: UInt64
+    let queueDepthBeforeFrames: UInt64?
+    let minimumQueueDepthAfterFrames: UInt64
     let previousBLEAgeNanoseconds: UInt64?
     let previousPCMSubmitAgeNanoseconds: UInt64?
     let nextBLEAgeNanoseconds: UInt64?
     let nextPCMSubmitAgeNanoseconds: UInt64?
     let lifecyclePhase: String
 
-    var durationNanoseconds: UInt64 {
+    var eventSpanDurationNanoseconds: UInt64 {
         endTimestampNanoseconds >= beginTimestampNanoseconds
             ? endTimestampNanoseconds - beginTimestampNanoseconds
             : 0
+    }
+
+    var estimatedMissingAudioDurationNanoseconds: UInt64 {
+        let numerator = missingFrames.multipliedReportingOverflow(by: DiagnosticAudioTimingAuthority.nanosecondsPerSecond)
+        guard !numerator.overflow else { return UInt64.max }
+        return numerator.partialValue / DiagnosticAudioTimingAuthority.outputSampleRateHz
     }
 
     func toDiagnosticJSONValue() -> DiagnosticJSONValue {
         .object([
             "begin_timestamp_nanoseconds": .unsignedInteger(beginTimestampNanoseconds),
             "end_timestamp_nanoseconds": .unsignedInteger(endTimestampNanoseconds),
-            "duration_nanoseconds": .unsignedInteger(durationNanoseconds),
+            "event_span_duration_nanoseconds": .unsignedInteger(eventSpanDurationNanoseconds),
+            "estimated_missing_audio_duration_nanoseconds": .unsignedInteger(estimatedMissingAudioDurationNanoseconds),
             "missing_frames": .unsignedInteger(missingFrames),
-            "queue_depth_before_frames": .unsignedInteger(queueDepthBeforeFrames),
-            "minimum_queue_depth_frames": .unsignedInteger(minimumQueueDepthFrames),
+            "queue_depth_before_frames": queueDepthBeforeFrames.map(DiagnosticJSONValue.unsignedInteger) ?? .null,
+            "minimum_queue_depth_after_frames": .unsignedInteger(minimumQueueDepthAfterFrames),
             "previous_ble_age_nanoseconds": previousBLEAgeNanoseconds.map(DiagnosticJSONValue.unsignedInteger) ?? .null,
             "previous_pcm_submit_age_nanoseconds": previousPCMSubmitAgeNanoseconds.map(DiagnosticJSONValue.unsignedInteger) ?? .null,
             "next_ble_age_nanoseconds": nextBLEAgeNanoseconds.map(DiagnosticJSONValue.unsignedInteger) ?? .null,
@@ -702,6 +770,13 @@ struct DiagnosticUnderrunEpisode: Equatable, Sendable {
             "lifecycle_phase": .string(lifecyclePhase),
         ])
     }
+}
+
+enum DiagnosticAudioTimingAuthority {
+    /// AudioPipe renders at 48 kHz. Missing-frame duration is an estimate
+    /// derived from this explicit output-clock authority, not from event span.
+    static let outputSampleRateHz: UInt64 = 48_000
+    static let nanosecondsPerSecond: UInt64 = 1_000_000_000
 }
 
 enum DiagnosticUnderrunEpisodeBuilder {
@@ -719,19 +794,19 @@ enum DiagnosticUnderrunEpisodeBuilder {
         var start = starvation[0]
         var end = starvation[0]
         var missing = end.unfilledFrames
-        var minimumQueue = end.queueDepthFrames
+        var minimumQueue = end.queueDepthAfterFrames
         for point in starvation.dropFirst() {
             let samePhase = phase(for: point, firstPCM: firstPCM) == phase(for: end, firstPCM: firstPCM)
             if samePhase && point.timestampNanoseconds - end.timestampNanoseconds <= 100_000_000 {
                 end = point
                 missing &+= point.unfilledFrames
-                minimumQueue = min(minimumQueue, point.queueDepthFrames)
+                minimumQueue = min(minimumQueue, point.queueDepthAfterFrames)
             } else {
                 episodes.append(makeEpisode(start: start, end: end, missing: missing, minimumQueue: minimumQueue, points: sorted, firstPCM: firstPCM))
                 start = point
                 end = point
                 missing = end.unfilledFrames
-                minimumQueue = end.queueDepthFrames
+                minimumQueue = end.queueDepthAfterFrames
             }
         }
         episodes.append(makeEpisode(start: start, end: end, missing: missing, minimumQueue: minimumQueue, points: sorted, firstPCM: firstPCM))
@@ -770,8 +845,8 @@ enum DiagnosticUnderrunEpisodeBuilder {
             beginTimestampNanoseconds: start.timestampNanoseconds,
             endTimestampNanoseconds: end.timestampNanoseconds,
             missingFrames: missing,
-            queueDepthBeforeFrames: start.queueDepthFrames,
-            minimumQueueDepthFrames: minimumQueue,
+            queueDepthBeforeFrames: start.queueDepthBeforeFrames,
+            minimumQueueDepthAfterFrames: minimumQueue,
             previousBLEAgeNanoseconds: age(before: .bleArrival),
             previousPCMSubmitAgeNanoseconds: age(before: .pcmSubmitted),
             nextBLEAgeNanoseconds: age(after: .bleArrival),
@@ -787,18 +862,17 @@ enum DiagnosticHardeningSessionEmitter {
         trace: FixedCapacityObservationTraceSnapshot,
         authority: any DiagnosticAuthority = DiagnosticAuthorityService.shared
     ) {
-        let points = trace.all
+        let points = trace.allIncludingIncident
         let rendered = points.filter { $0.kind == .render && $0.filledFrames > 0 }
         let callbackOutput = DiagnosticOutputBoundaryClock.shared.snapshot()
-        let firstOutput = callbackOutput.first > 0
-            ? callbackOutput.first
-            : rendered.first?.timestampNanoseconds ?? 0
-        let lastOutput = callbackOutput.last > 0
-            ? callbackOutput.last
-            : rendered.last?.timestampNanoseconds ?? 0
+        let firstRender = rendered.first?.timestampNanoseconds ?? 0
+        let lastRender = rendered.last?.timestampNanoseconds ?? 0
+        let firstOutput = callbackOutput.first
+        let lastOutput = callbackOutput.last
         let runtime = DiagnosticRuntimeHealthRegistry.shared.snapshot()
         let outputIdentity = stringValue(runtime["output_device_identity"]) ?? "unavailable"
-        let selectedInput = stringValue(runtime["selected_input_identity"]) ?? "unavailable"
+        let selectedInput = SystemAudioDeviceManager.defaultInputDevice?.stableIdentifier
+            ?? "unavailable"
         let outputReady = boolValue(runtime["audio_pipe_output_ready"]) ?? false
         let attemptID = VoiceAttemptDiagnostics.shared.attemptID(for: summary.sessionID) ?? "unavailable"
         let hasAudioPath = summary.audioStartTimestampNanoseconds != nil
@@ -819,6 +893,9 @@ enum DiagnosticHardeningSessionEmitter {
                 "voice_attempt_id": .string(attemptID),
                 "first_nonzero_output_timestamp_ns": .unsignedInteger(firstOutput),
                 "last_nonzero_output_timestamp_ns": .unsignedInteger(lastOutput),
+                "first_render_timestamp_ns": .unsignedInteger(firstRender),
+                "last_render_timestamp_ns": .unsignedInteger(lastRender),
+                "nonzero_output_observed": .bool(callbackOutput.first > 0),
                 "output_device_identity": .string(outputIdentity),
                 "output_ready": .bool(outputReady),
                 "selected_input_identity": .string(selectedInput),

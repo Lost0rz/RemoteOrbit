@@ -176,10 +176,16 @@ struct LongTermObservationPoint: Equatable, Sendable {
     let requestedFrames: UInt64
     let filledFrames: UInt64
     let unfilledFrames: UInt64
-    let queueDepthFrames: UInt64
+    /// Queue depth immediately before the observation, when the producer can
+    /// safely provide it. A nil value is explicit rather than inferred.
+    let queueDepthBeforeFrames: UInt64?
+    /// Queue depth after the observed operation/render callback.
+    let queueDepthAfterFrames: UInt64
     let byteOrSampleCount: UInt64
     let marker: LongTermObservationSemanticMarker
     let streamIdentity: UInt64
+    /// Producer identity for the per-producer `sequence` value.
+    let source: String
     let sequence: UInt64
 
     init(
@@ -192,18 +198,22 @@ struct LongTermObservationPoint: Equatable, Sendable {
         byteOrSampleCount: UInt64,
         marker: LongTermObservationSemanticMarker,
         streamIdentity: UInt64 = 0,
-        sequence: UInt64 = 0
+        sequence: UInt64 = 0,
+        queueDepthBeforeFrames: UInt64? = nil,
+        source: String = "unattributed"
     ) {
         self.timestampNanoseconds = timestampNanoseconds
         self.kind = kind
         self.requestedFrames = requestedFrames
         self.filledFrames = filledFrames
         self.unfilledFrames = unfilledFrames
-        self.queueDepthFrames = queueDepthFrames
+        self.queueDepthBeforeFrames = queueDepthBeforeFrames
+        self.queueDepthAfterFrames = queueDepthFrames
         self.byteOrSampleCount = byteOrSampleCount
         self.marker = marker
         self.streamIdentity = streamIdentity
         self.sequence = sequence
+        self.source = source
     }
 
     func toDiagnosticJSONValue() -> DiagnosticJSONValue {
@@ -213,11 +223,13 @@ struct LongTermObservationPoint: Equatable, Sendable {
             "requested_frames": .unsignedInteger(requestedFrames),
             "filled_frames": .unsignedInteger(filledFrames),
             "unfilled_frames": .unsignedInteger(unfilledFrames),
-            "queue_depth_frames": .unsignedInteger(queueDepthFrames),
+            "queue_depth_before_frames": queueDepthBeforeFrames.map(DiagnosticJSONValue.unsignedInteger) ?? .null,
+            "queue_depth_after_frames": .unsignedInteger(queueDepthAfterFrames),
             "byte_or_sample_count": .unsignedInteger(byteOrSampleCount),
             "marker": .string(marker.rawValue),
             "stream_identity": .unsignedInteger(streamIdentity),
-            "sequence": .unsignedInteger(sequence),
+            "source": .string(source),
+            "source_sequence": .unsignedInteger(sequence),
         ])
     }
 }
@@ -231,6 +243,24 @@ struct FixedCapacityObservationTraceSnapshot: Equatable, Sendable {
     let overwrittenObservationCount: UInt64
 
     var all: [LongTermObservationPoint] { front + recent }
+
+    /// Incident evidence is frozen independently of the recent ring. Use this
+    /// off-path union for summaries so a recent-ring overwrite cannot erase a
+    /// material observation. Exact duplicate points are removed once.
+    var allIncludingIncident: [LongTermObservationPoint] {
+        var result: [LongTermObservationPoint] = []
+        result.reserveCapacity(front.count + recent.count + incident.count)
+        for point in front + recent + incident where !result.contains(point) {
+            result.append(point)
+        }
+        return result.sorted {
+            if $0.timestampNanoseconds == $1.timestampNanoseconds {
+                if $0.source == $1.source { return $0.sequence < $1.sequence }
+                return $0.source < $1.source
+            }
+            return $0.timestampNanoseconds < $1.timestampNanoseconds
+        }
+    }
 
     func merged(with other: FixedCapacityObservationTraceSnapshot) -> FixedCapacityObservationTraceSnapshot {
         let mergedAll = (all + other.all).sorted {
@@ -1120,6 +1150,10 @@ final class LongTermObservabilityService: @unchecked Sendable {
     private let incidentCoordinator: LongTermIncidentCoordinator
     private let lock = NSLock()
     private var activeSession: ActiveSession?
+    /// Per-service-producer sequence. AudioPipe owns its own source sequence;
+    /// the source field makes the two streams unambiguous without a shared
+    /// hot-path lock.
+    private var serviceObservationSequence: UInt64 = 0
     /// Keep one bounded post-end identity so a transport close that arrives
     /// after the gesture can be emitted as a correlated follow-up event.
     private var finalizedSession: FinalizedSession?
@@ -1174,6 +1208,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
     ) {
         lock.lock()
         finalizedSession = nil
+        serviceObservationSequence = 0
         if activeSession == nil {
             incidentCoordinator.beginCaptureIfNeeded()
             activeSession = ActiveSession(
@@ -1254,7 +1289,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         activeSession?.summary.recordNotification(bytes: bytes, gapNanoseconds: gapNanoseconds)
         if let timestampNanoseconds {
             let streamIdentity = activeSession?.summary.audioStreamID ?? 0
-            activeSession?.trace.append(
+            if let point = activeSession.map({ _ in
                 LongTermObservationPoint(
                     timestampNanoseconds: timestampNanoseconds,
                     kind: .bleArrival,
@@ -1266,7 +1301,9 @@ final class LongTermObservabilityService: @unchecked Sendable {
                     marker: .unclassified,
                     streamIdentity: streamIdentity
                 )
-            )
+            }) {
+                activeSession?.trace.append(attributedServicePoint(point))
+            }
         }
         if let gapNanoseconds, gapNanoseconds > 100_000_000 {
             incidentCoordinator.trigger(
@@ -1343,7 +1380,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         activeSession?.summary.recordDecode(frameCount: frameCount, sampleCount: sampleCount)
         if let timestampNanoseconds {
             let streamIdentity = activeSession?.summary.audioStreamID ?? 0
-            activeSession?.trace.append(
+            if let point = activeSession.map({ _ in
                 LongTermObservationPoint(
                     timestampNanoseconds: timestampNanoseconds,
                     kind: .decodeComplete,
@@ -1355,7 +1392,9 @@ final class LongTermObservabilityService: @unchecked Sendable {
                     marker: .unclassified,
                     streamIdentity: streamIdentity
                 )
-            )
+            }) {
+                activeSession?.trace.append(attributedServicePoint(point))
+            }
             activeSession?.trace.synchronizeIncidentWithCoordinator()
         }
         lock.unlock()
@@ -1363,9 +1402,30 @@ final class LongTermObservabilityService: @unchecked Sendable {
 
     func observeTracePoint(_ point: LongTermObservationPoint) {
         lock.lock()
-        activeSession?.trace.append(point)
+        let attributed = point.source == "unattributed" || point.sequence == 0
+            ? attributedServicePoint(point)
+            : point
+        activeSession?.trace.append(attributed)
         activeSession?.trace.synchronizeIncidentWithCoordinator()
         lock.unlock()
+    }
+
+    private func attributedServicePoint(_ point: LongTermObservationPoint) -> LongTermObservationPoint {
+        serviceObservationSequence &+= 1
+        return LongTermObservationPoint(
+            timestampNanoseconds: point.timestampNanoseconds,
+            kind: point.kind,
+            requestedFrames: point.requestedFrames,
+            filledFrames: point.filledFrames,
+            unfilledFrames: point.unfilledFrames,
+            queueDepthFrames: point.queueDepthAfterFrames,
+            byteOrSampleCount: point.byteOrSampleCount,
+            marker: point.marker,
+            streamIdentity: point.streamIdentity,
+            sequence: serviceObservationSequence,
+            queueDepthBeforeFrames: point.queueDepthBeforeFrames,
+            source: "voice_service"
+        )
     }
 
     func markMaterialAnomaly(
@@ -1471,7 +1531,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
             traceSnapshot.droppedObservationCount
         activeSession.summary.traceOverwrittenObservationCount =
             traceSnapshot.overwrittenObservationCount
-        activeSession.summary.underrunEpisodes = DiagnosticUnderrunEpisodeBuilder.build(traceSnapshot.all)
+        activeSession.summary.underrunEpisodes = DiagnosticUnderrunEpisodeBuilder.build(traceSnapshot.allIncludingIncident)
         if let attemptID = VoiceAttemptDiagnostics.shared.attemptID(for: sessionID.uuidString) {
             activeSession.summary.voiceAttemptID = attemptID
         }
@@ -1509,9 +1569,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         )
         guard !summary.anomalyFlags.isEmpty else { return summary }
 
-        let observations = traceSnapshot.incident.isEmpty
-            ? traceSnapshot.all
-            : traceSnapshot.incident
+        let observations = traceSnapshot.allIncludingIncident
         let chunkSize = 128
         let chunkCount = max(1, (observations.count + chunkSize - 1) / chunkSize)
         for chunkIndex in 0..<chunkCount {

@@ -606,6 +606,7 @@ enum DiagnosticEventCatalog {
                 "voice_attempt_id": .string,
                 "stage_event": .string,
                 "last_successful_stage": .string,
+                "missing_stage": .string,
                 "elapsed_ms": .number,
                 "state": .object,
             ]
@@ -629,6 +630,9 @@ enum DiagnosticEventCatalog {
                 "voice_attempt_id": .string,
                 "first_nonzero_output_timestamp_ns": .unsignedInteger,
                 "last_nonzero_output_timestamp_ns": .unsignedInteger,
+                "first_render_timestamp_ns": .unsignedInteger,
+                "last_render_timestamp_ns": .unsignedInteger,
+                "nonzero_output_observed": .boolean,
                 "output_device_identity": .string,
                 "output_ready": .boolean,
                 "selected_input_identity": .string,

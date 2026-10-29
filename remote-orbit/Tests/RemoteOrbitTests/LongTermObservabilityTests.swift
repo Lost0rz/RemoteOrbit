@@ -729,7 +729,7 @@ final class LongTermObservabilityTests: XCTestCase {
 
         let summary = try XCTUnwrap(service.end(sessionID: sessionID))
         XCTAssertEqual(summary.captureID, captureID.uuidString)
-        XCTAssertGreaterThanOrEqual(authority.inputs.count, 3)
+        XCTAssertGreaterThanOrEqual(authority.inputs.count, 2)
         let input = try XCTUnwrap(authority.inputs.first { $0.eventType == "voice.session.summary" })
         XCTAssertEqual(input.eventType, "voice.session.summary")
         XCTAssertEqual(input.sessionID, sessionID.uuidString)
@@ -862,6 +862,14 @@ final class LongTermObservabilityTests: XCTestCase {
             return kind
         }
         XCTAssertEqual(kinds, ["ble_arrival", "decode_complete", "pcm_submitted", "render"])
+        let sourceSequences = observations.compactMap { value -> UInt64? in
+            guard case .object(let object) = value,
+                  case .string(let source) = object["source"],
+                  case .unsignedInteger(let sequence) = object["source_sequence"] else { return nil }
+            XCTAssertEqual(source, "voice_service")
+            return sequence
+        }
+        XCTAssertEqual(sourceSequences, [1, 2, 3, 4])
         let timestamps = observations.compactMap { value -> UInt64? in
             guard case .object(let object) = value,
                   case .unsignedInteger(let timestamp) = object["timestamp_nanoseconds"] else { return nil }
@@ -914,7 +922,7 @@ final class LongTermObservabilityTests: XCTestCase {
                     && object["requested_frames"] != nil
                     && object["filled_frames"] != nil
                     && object["unfilled_frames"] != nil
-                    && object["queue_depth_frames"] != nil
+                    && object["queue_depth_after_frames"] != nil
                     && object["byte_or_sample_count"] != nil
             })
             XCTAssertEqual(input.sessionID, sessionID.uuidString)

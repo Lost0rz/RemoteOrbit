@@ -837,6 +837,12 @@ struct AudioContinuityRenderLedger {
 }
 
 struct AudioPipeDiagnosticsSnapshot {
+    /// The actual AudioPipe lifecycle state, independent of queued frames.
+    let remoteActive: Bool
+    /// Whether the remote queue currently contains frames. This is separate
+    /// from `remoteActive` because an active route may legitimately be empty
+    /// during a starvation callback or before the first PCM submission.
+    let queueHasRemoteFrames: Bool
     let renderCallbackCount: Int
     let renderRequestedFrames: Int
     let renderFilledFrames: Int
@@ -861,6 +867,7 @@ struct AudioPipeDiagnosticsSnapshot {
     let lastRemoteRenderedMonotonicNanoseconds: UInt64?
 
     init(
+        remoteActive: Bool = false,
         renderCallbackCount: Int,
         renderRequestedFrames: Int,
         renderFilledFrames: Int,
@@ -883,6 +890,8 @@ struct AudioPipeDiagnosticsSnapshot {
         lastRemoteSubmittedMonotonicNanoseconds: UInt64? = nil,
         lastRemoteRenderedMonotonicNanoseconds: UInt64? = nil
     ) {
+        self.remoteActive = remoteActive
+        self.queueHasRemoteFrames = pendingRemoteFrames > 0
         self.renderCallbackCount = renderCallbackCount
         self.renderRequestedFrames = renderRequestedFrames
         self.renderFilledFrames = renderFilledFrames
@@ -996,6 +1005,7 @@ struct AudioPipeDiagnosticsCounters {
     }
 
     func snapshot(
+        remoteActive: Bool = false,
         currentQueueDepthFrames: Int,
         audioQueueDepthFrames: Int,
         pendingRemoteFrames: Int,
@@ -1004,6 +1014,7 @@ struct AudioPipeDiagnosticsCounters {
         lastRemoteRenderedMonotonicNanoseconds: UInt64? = nil
     ) -> AudioPipeDiagnosticsSnapshot {
         AudioPipeDiagnosticsSnapshot(
+            remoteActive: remoteActive,
             renderCallbackCount: renderCallbackCount,
             renderRequestedFrames: renderRequestedFrames,
             renderFilledFrames: renderFilledFrames,

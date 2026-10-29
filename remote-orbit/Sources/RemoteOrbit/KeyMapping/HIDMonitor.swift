@@ -334,9 +334,8 @@ final class HIDMonitor {
         hidReportSequence &+= 1
         let reportSequence = hidReportSequence
         let reportObservedUptime = ProcessInfo.processInfo.systemUptime
-        DiagnosticRuntimeHealthRegistry.shared.setUnsigned(
-            "last_hid_report_uptime_ms",
-            UInt64(max(0, reportObservedUptime * 1_000))
+        DiagnosticRuntimeHealthRegistry.shared.recordHIDReport(
+            at: UInt64(max(0, reportObservedUptime * 1_000))
         )
         guard let usages = Self.parseUsages(reportID: reportID, data: data) else { return }
 
@@ -473,8 +472,12 @@ final class HIDMonitor {
                pendingReconnectContainsMic: pendingReconnectContainsMic,
                deviceActive: deviceActive,
                sequence: reportSequence,
-               uptime: reportObservedUptime
+               uptime: reportObservedUptime,
+               voiceAttemptID: VoiceAttemptDiagnostics.shared.currentID?.uuidString
            ) {
+            DiagnosticRuntimeHealthRegistry.shared.recordMicrophoneTransition(
+                at: UInt64(max(0, reportObservedUptime * 1_000))
+            )
             diagnosticLogger.log(
                 category: "hid",
                 event: "RAW_HID_MIC_STATE",
@@ -511,7 +514,8 @@ final class HIDMonitor {
         pendingReconnectUsages: Set<UInt16>,
         deviceActive: Bool,
         sequence: UInt64,
-        uptime: TimeInterval
+        uptime: TimeInterval,
+        voiceAttemptID: String? = nil
     ) -> [String: Any]? {
         let microphoneUsage = RemoteButton.microphone.hidUsage
         return microphoneTransitionDiagnosticFields(
@@ -523,7 +527,8 @@ final class HIDMonitor {
             pendingReconnectContainsMic: pendingReconnectUsages.contains(microphoneUsage),
             deviceActive: deviceActive,
             sequence: sequence,
-            uptime: uptime
+            uptime: uptime,
+            voiceAttemptID: voiceAttemptID
         )
     }
 
@@ -535,7 +540,8 @@ final class HIDMonitor {
         pendingReconnectContainsMic: Bool,
         deviceActive: Bool,
         sequence: UInt64,
-        uptime: TimeInterval
+        uptime: TimeInterval,
+        voiceAttemptID: String? = nil
     ) -> [String: Any]? {
         let microphoneUsage = RemoteButton.microphone.hidUsage
         let currentMicDown = parsedUsages.contains(microphoneUsage)
@@ -553,6 +559,7 @@ final class HIDMonitor {
             "pending_reconnect_contains_mic": pendingReconnectContainsMic,
             "device_active": deviceActive,
             "hid_report_sequence": sequence,
+            "voice_attempt_id": voiceAttemptID ?? "unavailable",
             "source": "iohid_report",
         ]
     }
@@ -583,18 +590,35 @@ final class HIDMonitor {
             onButtonEdge?(button, isDown)
         }
         if button == .microphone {
+            DiagnosticRuntimeHealthRegistry.shared.recordMicrophoneTransition(
+                at: UInt64(max(0, timestamp * 1_000))
+            )
             diagnosticLogger?.log(
                 category: "hid",
                 event: "HID_MIC_EDGE_EMITTED",
-                fields: [
-                    "edge": isDown ? "down" : "up",
-                    "event_uptime": timestamp,
-                    "raw_report_sequence": rawReportSequence,
-                    "source": "hid_monitor",
-                    "voice_attempt_id": attemptID?.uuidString ?? "unavailable",
-                ]
+                fields: Self.microphoneEdgeDiagnosticFields(
+                    isDown: isDown,
+                    timestamp: timestamp,
+                    rawReportSequence: rawReportSequence,
+                    attemptID: attemptID
+                )
             )
         }
+    }
+
+    static func microphoneEdgeDiagnosticFields(
+        isDown: Bool,
+        timestamp: TimeInterval,
+        rawReportSequence: UInt64,
+        attemptID: UUID?
+    ) -> [String: Any] {
+        [
+            "edge": isDown ? "down" : "up",
+            "event_uptime": timestamp,
+            "raw_report_sequence": rawReportSequence,
+            "source": "hid_monitor",
+            "voice_attempt_id": attemptID?.uuidString ?? "unavailable",
+        ]
     }
 
     private func startRepeatIfNeeded(

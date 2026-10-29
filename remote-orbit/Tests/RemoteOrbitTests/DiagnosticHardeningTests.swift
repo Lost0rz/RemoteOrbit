@@ -50,6 +50,9 @@ final class DiagnosticHardeningTests: XCTestCase {
         now = 299_000_000
         watchdog.evaluate(at: now)
         XCTAssertTrue(authority.inputs.isEmpty)
+        now = 2_000_000_000
+        watchdog.evaluate(at: now)
+        XCTAssertTrue(authority.inputs.isEmpty)
 
         watchdog.holdConfirmed(
             attemptID: attemptID,
@@ -74,6 +77,80 @@ final class DiagnosticHardeningTests: XCTestCase {
         )
     }
 
+    func testAUDIO_START_MISSINGProductionPathEmitsBoundedFailure() throws {
+        let authority = HardeningCapturingAuthority()
+        let registry = DiagnosticRuntimeHealthRegistry()
+        let health = DiagnosticRuntimeHealthService(authority: authority, registry: registry)
+        var now: UInt64 = 1_000
+        let diagnostics = VoiceAttemptDiagnostics(
+            authority: authority,
+            registry: registry,
+            health: health,
+            clock: { now }
+        )
+        let sessionID = UUID()
+        let attemptID = diagnostics.ensureSession(sessionID)
+        diagnostics.stage("HOLD_CONFIRMED", sessionID: sessionID)
+        now += VoiceStartWatchdog.failureAfterNanoseconds
+        diagnostics.evaluateWatchdogForTesting(at: now)
+
+        let watchdog = try XCTUnwrap(authority.inputs.first { $0.eventType == "voice.start.watchdog" })
+        XCTAssertEqual(watchdog.payload["missing_stage"], .string("AUDIO_START"))
+        let failure = try XCTUnwrap(authority.inputs.first { $0.eventType == "voice.failure.classified" })
+        XCTAssertEqual(failure.payload["reason"], .string("AUDIO_START_MISSING"))
+        XCTAssertEqual(failure.correlationID, attemptID.uuidString)
+    }
+
+    func testAUDIO_FIRST_MISSINGAfterAUDIO_STARTEmitsDistinctFailure() throws {
+        let authority = HardeningCapturingAuthority()
+        let registry = DiagnosticRuntimeHealthRegistry()
+        let health = DiagnosticRuntimeHealthService(authority: authority, registry: registry)
+        var now: UInt64 = 2_000
+        let diagnostics = VoiceAttemptDiagnostics(
+            authority: authority,
+            registry: registry,
+            health: health,
+            clock: { now }
+        )
+        let sessionID = UUID()
+        _ = diagnostics.ensureSession(sessionID)
+        diagnostics.stage("HOLD_CONFIRMED", sessionID: sessionID)
+        diagnostics.stage("AUDIO_START", sessionID: sessionID)
+        now += VoiceStartWatchdog.stallAfterNanoseconds
+        diagnostics.evaluateWatchdogForTesting(at: now)
+        now += VoiceStartWatchdog.failureAfterNanoseconds
+        diagnostics.evaluateWatchdogForTesting(at: now)
+
+        let watchdogEvents = authority.inputs.filter { $0.eventType == "voice.start.watchdog" }
+        XCTAssertEqual(watchdogEvents.count, 2)
+        XCTAssertEqual(watchdogEvents.last?.payload["missing_stage"], .string("AUDIO_FIRST"))
+        let failure = try XCTUnwrap(authority.inputs.last { $0.eventType == "voice.failure.classified" })
+        XCTAssertEqual(failure.payload["reason"], .string("AUDIO_FIRST_MISSING"))
+    }
+
+    func testAUDIO_FIRSTArrivalCompletesWatchWithoutFailureOrRetry() throws {
+        let authority = HardeningCapturingAuthority()
+        let registry = DiagnosticRuntimeHealthRegistry()
+        let health = DiagnosticRuntimeHealthService(authority: authority, registry: registry)
+        var now: UInt64 = 3_000
+        let diagnostics = VoiceAttemptDiagnostics(
+            authority: authority,
+            registry: registry,
+            health: health,
+            clock: { now }
+        )
+        let sessionID = UUID()
+        _ = diagnostics.ensureSession(sessionID)
+        diagnostics.stage("HOLD_CONFIRMED", sessionID: sessionID)
+        diagnostics.stage("AUDIO_START", sessionID: sessionID)
+        diagnostics.stage("AUDIO_FIRST", sessionID: sessionID)
+        now += VoiceStartWatchdog.failureAfterNanoseconds * 2
+        diagnostics.evaluateWatchdogForTesting(at: now)
+
+        XCTAssertFalse(authority.inputs.contains { $0.eventType == "voice.failure.classified" })
+        XCTAssertFalse(authority.inputs.contains { $0.eventType == "voice.start.watchdog" })
+    }
+
     func testRuntimeHealthIsStructuredAndIndependentOfOrdinaryLogging() throws {
         let authority = HardeningCapturingAuthority()
         let registry = DiagnosticRuntimeHealthRegistry()
@@ -94,6 +171,82 @@ final class DiagnosticHardeningTests: XCTestCase {
         }
         XCTAssertEqual(state["hid_manager_running"], .bool(true))
         XCTAssertEqual(state["selected_input_identity"], .string("uid:test-input"))
+    }
+
+    func testRemoteActiveRemainsTrueWhenRemoteQueueIsEmpty() {
+        let registry = DiagnosticRuntimeHealthRegistry()
+        let snapshot = AudioPipeDiagnosticsSnapshot(
+            remoteActive: true,
+            renderCallbackCount: 1,
+            renderRequestedFrames: 480,
+            renderFilledFrames: 0,
+            renderUnfilledFrames: 480,
+            underrunCallbackCount: 1,
+            maxUnderrunFrames: 480,
+            currentQueueDepthFrames: 0,
+            audioQueueDepthFrames: 0,
+            pendingRemoteFrames: 0,
+            submittedRemoteFrames: 1,
+            renderedRemoteFrames: 0,
+            minQueueDepthFrames: 0,
+            maxQueueDepthFrames: 0,
+            overflowDroppedFrames: 0,
+            compactionCount: 0,
+            tailRenderedFrames: 0,
+            tailEmptyCallbackCount: 0,
+            idleRenderCallbackCount: 0,
+            sampleRate: 48_000
+        )
+        registry.updateAudioPipe(snapshot)
+        let state = registry.snapshot()
+        XCTAssertEqual(state["audio_pipe_remote_active"], .bool(true))
+        XCTAssertEqual(state["audio_pipe_queue_has_remote_frames"], .bool(false))
+    }
+
+    func testSelectedInputIdentityIsRefreshedAfterRemoteVoiceSelection() {
+        let registry = DiagnosticRuntimeHealthRegistry()
+        registry.recordSelectedInputIdentity("uid:remoteorbit-after-selection")
+        XCTAssertEqual(
+            registry.snapshot()["selected_input_identity"],
+            .string("uid:remoteorbit-after-selection")
+        )
+    }
+
+    func testOutputBoundaryUsesOnlyTruthfulNonzeroCallbackEvidence() throws {
+        let authority = HardeningCapturingAuthority()
+        var summary = LongTermVoiceSessionSummary(sessionID: "session-1", captureID: "capture-1")
+        summary.audioStartTimestampNanoseconds = 10
+        summary.renderedFrames = 480
+        let trace = FixedCapacityObservationTraceSnapshot(
+            front: [LongTermObservationPoint(
+                timestampNanoseconds: 20,
+                kind: .render,
+                requestedFrames: 480,
+                filledFrames: 480,
+                unfilledFrames: 0,
+                queueDepthFrames: 0,
+                byteOrSampleCount: 480,
+                marker: .active
+            )],
+            recent: [],
+            incident: [],
+            incidentAnchor: nil,
+            droppedObservationCount: 0,
+            overwrittenObservationCount: 0
+        )
+        DiagnosticOutputBoundaryClock.shared.reset()
+        DiagnosticHardeningSessionEmitter.emit(summary: summary, trace: trace, authority: authority)
+        var output = try XCTUnwrap(authority.inputs.first { $0.eventType == "voice.output.boundary" })
+        XCTAssertEqual(output.payload["first_render_timestamp_ns"], .unsignedInteger(20))
+        XCTAssertEqual(output.payload["first_nonzero_output_timestamp_ns"], .unsignedInteger(0))
+        XCTAssertEqual(output.payload["nonzero_output_observed"], .bool(false))
+
+        authority.inputs.removeAll()
+        DiagnosticOutputBoundaryClock.shared.record(timestampNanoseconds: 30)
+        DiagnosticHardeningSessionEmitter.emit(summary: summary, trace: trace, authority: authority)
+        output = try XCTUnwrap(authority.inputs.first { $0.eventType == "voice.output.boundary" })
+        XCTAssertEqual(output.payload["first_nonzero_output_timestamp_ns"], .unsignedInteger(30))
+        XCTAssertEqual(output.payload["nonzero_output_observed"], .bool(true))
     }
 
     func testDiagnosticMeterIsOneSecondActiveAndThirtySecondIdle() {
@@ -132,6 +285,63 @@ final class DiagnosticHardeningTests: XCTestCase {
 
         XCTAssertEqual(episodes.map(\.lifecyclePhase), ["startup", "active", "tail"])
         XCTAssertEqual(episodes.map(\.missingFrames), [10, 10, 10])
+        XCTAssertEqual(episodes[0].eventSpanDurationNanoseconds, 0)
+        XCTAssertEqual(episodes[0].estimatedMissingAudioDurationNanoseconds, 208_333)
+    }
+
+    func testFrozenIncidentRetainsEpisodeAfterRecentRingOverwrite() {
+        let coordinator = LongTermIncidentCoordinator()
+        var trace = FixedCapacityObservationTrace(
+            frontCapacity: 1,
+            recentCapacity: 2,
+            incidentCapacity: 8,
+            incidentCoordinator: coordinator,
+            incidentProducer: .service
+        )
+        coordinator.beginCaptureIfNeeded()
+        trace.append(LongTermObservationPoint(
+            timestampNanoseconds: 1,
+            kind: .pcmSubmitted,
+            requestedFrames: 10,
+            filledFrames: 10,
+            unfilledFrames: 0,
+            queueDepthFrames: 10,
+            byteOrSampleCount: 10,
+            marker: .active,
+            sequence: 1,
+            source: "voice_service"
+        ))
+        trace.append(LongTermObservationPoint(
+            timestampNanoseconds: 2,
+            kind: .queueStarvation,
+            requestedFrames: 10,
+            filledFrames: 0,
+            unfilledFrames: 10,
+            queueDepthFrames: 0,
+            byteOrSampleCount: 10,
+            marker: .active,
+            sequence: 2,
+            source: "voice_service"
+        ))
+        coordinator.trigger(producer: .service, kind: .renderStarvation, timestampNanoseconds: 2)
+        trace.synchronizeIncidentWithCoordinator()
+        for sequence in 3...8 {
+            trace.append(LongTermObservationPoint(
+                timestampNanoseconds: UInt64(sequence),
+                kind: .render,
+                requestedFrames: 10,
+                filledFrames: 10,
+                unfilledFrames: 0,
+                queueDepthFrames: 10,
+                byteOrSampleCount: 10,
+                marker: .active,
+                sequence: UInt64(sequence),
+                source: "voice_service"
+            ))
+        }
+        let episodes = DiagnosticUnderrunEpisodeBuilder.build(trace.snapshot().allIncludingIncident)
+        XCTAssertEqual(episodes.count, 1)
+        XCTAssertEqual(episodes.first?.missingFrames, 10)
     }
 
     func testStructuredHardeningPayloadsDoNotContainTextAudioOrPaths() throws {

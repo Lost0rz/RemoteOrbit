@@ -70,4 +70,32 @@ final class HIDMonitorDiagnosticsTests: XCTestCase {
             uptime: 125.0
         ))
     }
+
+    func testExistingRawHIDTransitionAndEdgeJoinOnReportSequenceAndAttempt() throws {
+        let usage = RemoteButton.microphone.hidUsage
+        let data = Data([UInt8(usage & 0xff), UInt8(usage >> 8)])
+        let parsed = try XCTUnwrap(HIDMonitor.parseUsages(reportID: 1, data: data))
+        let attemptID = UUID(uuidString: "00000000-0000-0000-0000-000000000041")!
+        let transition = try XCTUnwrap(HIDMonitor.microphoneTransitionDiagnosticFields(
+            reportID: 1,
+            data: data,
+            parsedUsages: parsed,
+            activeUsages: [],
+            pendingReconnectUsages: [],
+            deviceActive: true,
+            sequence: 99,
+            uptime: 200,
+            voiceAttemptID: attemptID.uuidString
+        ))
+        let edge = HIDMonitor.microphoneEdgeDiagnosticFields(
+            isDown: true,
+            timestamp: 200,
+            rawReportSequence: 99,
+            attemptID: attemptID
+        )
+
+        XCTAssertEqual(transition["hid_report_sequence"] as? UInt64, edge["raw_report_sequence"] as? UInt64)
+        XCTAssertEqual(transition["voice_attempt_id"] as? String, edge["voice_attempt_id"] as? String)
+        XCTAssertEqual(transition["voice_attempt_id"] as? String, attemptID.uuidString)
+    }
 }

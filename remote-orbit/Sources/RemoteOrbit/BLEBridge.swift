@@ -268,6 +268,7 @@ final class BLEBridge: NSObject {
             transportState.prepareTransport()
             reconnectAttempt = 0
         }
+        updateDiagnosticTransportState()
         guard central.state == .poweredOn else {
             print("[BLE] 等待蓝牙就绪…")
             return
@@ -301,6 +302,7 @@ final class BLEBridge: NSObject {
         }
         clearTransportState(notify: true)
         peripheral = nil
+        updateDiagnosticTransportState()
     }
 
     /// Prepare ATVV while the short-vs-long classifier is pending. This is
@@ -316,6 +318,7 @@ final class BLEBridge: NSObject {
         stopTransportAfterRemoteAudioStop = false
         prewarmVoiceInputActive = true
         transportState.requestPendingPreCapture()
+        updateDiagnosticTransportState()
         stopAfterVoiceWorkItem?.cancel()
         stopAfterVoiceWorkItem = nil
         start()
@@ -335,6 +338,7 @@ final class BLEBridge: NSObject {
         stopTransportAfterRemoteAudioStop = false
         prewarmVoiceInputActive = false
         transportState.requestVoiceInput()
+        updateDiagnosticTransportState()
         stopAfterVoiceWorkItem?.cancel()
         stopAfterVoiceWorkItem = nil
         start()
@@ -729,6 +733,7 @@ final class BLEBridge: NSObject {
         transportState.atvvReady = true
         transportState.transportPrepared = true
         reconnectAttempt = 0
+        updateDiagnosticTransportState()
         print("[BLE] ATVV 语音链路已就绪")
         onConnectionChanged?(true)
         requestMicOpenIfReady()
@@ -768,6 +773,7 @@ final class BLEBridge: NSObject {
         if wasReady {
             onConnectionChanged?(false)
         }
+        updateDiagnosticTransportState()
         retireAudioStopDrainBarrier()
     }
 
@@ -810,6 +816,7 @@ final class BLEBridge: NSObject {
             pendingAudioSyncCount = 0
             writeCommand(try protocolHandler.micOpenCommand())
             transportState.micOpenRequested = true
+            updateDiagnosticTransportState()
             print("[BLE] TX micOpen (voice hold)")
             VoiceTimingLogger.mark("MIC_OPEN_TX")
         } catch {
@@ -817,6 +824,7 @@ final class BLEBridge: NSObject {
                 "MIC_OPEN_WRITE_FAILED",
                 state: ["failure_category": .string("command_write")]
             )
+            updateDiagnosticTransportState()
             print("[BLE] micOpen error: \(error.localizedDescription)")
         }
     }
@@ -938,7 +946,49 @@ final class BLEBridge: NSObject {
 
     private func notifyStreaming(_ on: Bool) {
         let sr = (protocolHandler.codec == .adpcm16k) ? 16_000 : 8_000
+        updateDiagnosticTransportState()
         onStreamingChanged?(on, sr)
+    }
+
+    private func updateDiagnosticTransportState() {
+        let transportStateName: String
+        if isStreaming {
+            transportStateName = "streaming"
+        } else if transportState.micOpenRequested {
+            transportStateName = "mic_open_requested"
+        } else if transportState.voiceInputRequested {
+            transportStateName = "voice_requested"
+        } else if transportState.pendingPreCaptureRequested {
+            transportStateName = "prewarming"
+        } else if transportState.transportPrepared {
+            transportStateName = "prepared"
+        } else if transportState.isStarted {
+            transportStateName = "started"
+        } else {
+            transportStateName = "idle"
+        }
+        DiagnosticRuntimeHealthRegistry.shared.setString(
+            "ble_peripheral_state",
+            peripheral.map { String($0.state.rawValue) } ?? "unavailable"
+        )
+        DiagnosticRuntimeHealthRegistry.shared.setString(
+            "ble_transport_state",
+            transportStateName
+        )
+        DiagnosticRuntimeHealthRegistry.shared.setBool(
+            "transport_prepared",
+            transportState.transportPrepared
+        )
+        DiagnosticRuntimeHealthRegistry.shared.setBool(
+            "atvv_ready",
+            transportState.atvvReady
+        )
+        DiagnosticRuntimeHealthRegistry.shared.setString(
+            "mic_open_state",
+            transportState.micOpenRequested
+                ? (isStreaming ? "streaming" : "requested")
+                : "idle"
+        )
     }
 }
 
