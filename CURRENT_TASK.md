@@ -2,7 +2,7 @@
 
 ## RO-MAPPING-CONFIG-SIMPLIFY-040 — Settings bounded corrective
 
-Status: `IMPLEMENTING_BOUNDED_CORRECTIVE`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -14,7 +14,7 @@ Active writer worktree: `/private/tmp/remoteorbit-mapping-config-simplify-040`
 
 DESIGN_MODE: `DESIGN_IMPLEMENT`
 
-## Current authorized corrective
+## Current corrective (delivered)
 
 The owner has frozen the already accepted Settings / Control Center UI and manual JSON import/export behavior as PASS. This continuation is limited to two bounded corrections on the existing 040 implementation:
 
@@ -35,6 +35,10 @@ Trace and minimally correct the existing production chain:
 `Settings Toggle → onRecordingChanged → BLEBridge.setRecordingEnabled → AUDIO_START → WavRecorder.createNext → appendRawBytes / appendSamples → close → filesystem`.
 
 The implementation must establish observable evidence for the toggle value, enable propagation, AUDIO_START state, recorder creation, WAV/RAW URLs, file creation, raw/sample writes, close, and final WAV/data lengths. Creation or write failures must not disappear as silent nil/failure. Preserve existing BLE/ATVV protocol, AudioPipe, codec, gesture, persistence, import/export, Settings UI, and recording semantics. Add focused tests for disabled/no file, enabled WAV+RAW, observable creation failure, and valid finalization; ensure a second session creates independent files and existing recordings are not deleted.
+
+Delivered in `9669420ecfd65034ebeb61ade08386dd0ca20659`: mapping entry is deterministic and navigation-only; the recorder now uses unique non-destructive paths, throws observable creation errors, reports write/close evidence, and has focused production-chain test seams.
+
+The owner-reported live-session root cause remains `UNKNOWN` because no Air/hardware session was run here. Source evidence confirms the previous silent recorder creation/write boundary and same-millisecond filename collision/deletion risk; local tests now cover the corrected chain.
 
 ### Corrective non-goals and acceptance
 
@@ -192,6 +196,9 @@ After implementation and verification:
 - Retired mapping backup/history residue check is PASS; no retired production/test identifiers remain.
 - Remote delivery is `PUSHED_VERIFIED`; `origin/codex/mapping-config-simplify-040` contains the implementation commit and paired control records.
 - The task now stops at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+- Bounded corrective commit: `9669420ecfd65034ebeb61ade08386dd0ca20659`.
+- Corrective verification: focused mapping/recording 20/20, full `swift test` 430/430, release build PASS, and `git diff --check` PASS.
+- Corrective PR: `#26` Draft/Open/Unmerged — `https://github.com/Lost0rz/RemoteOrbit/pull/26`.
 - do not merge;
 - do not tag or release;
 - do not modify PR #25;
