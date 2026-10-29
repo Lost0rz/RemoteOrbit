@@ -14,6 +14,7 @@ Repository: Lost0rz/RemoteOrbit
 - Previous implementation candidate HEAD: `79406f17be3fbee77b4492687f63431434b23998` (`diagnostics: classify lifecycle inconsistencies`).
 - Current control HEAD before corrective work: `24d08c64abf5832a89957241713fb50cfd60da04`.
 - Corrected implementation candidate HEAD: `ad223e4b5f35653abe1014697cb50a87d3db05ad` (`diagnostics: correct observability audit findings`).
+- Remote-delivery verification before this receipt: `origin/codex/observability-039` matched `940fbee4681632b4d185697ce648d838d5bee333`.
 - PR #25 (`Release RemoteOrbit v0.2.15`) is Draft/Open/Unmerged; public release is blocked and no merge, tag, or release is authorized by this task.
 - The former release-control branch `codex/release-v0.2.15` remains at `f049e6eb7f0e5625b807fba1860d04c048b638ca` in `/private/tmp/remoteorbit-release-v0.2.15-local-soak`; it is retained for provenance and is not an active writer for this task.
 - The owner's MacBook Air natural-use observation reported substantial final-text omission. This records the release decision as `RELEASE_BLOCKED / SOAK_FAILED`; it does not claim a technical root cause.
@@ -46,7 +47,7 @@ Repository: Lost0rz/RemoteOrbit
 
 ## Current next action
 
-Push corrected implementation candidate `ad223e4b5f35653abe1014697cb50a87d3db05ad` on `codex/observability-039` and await another independent Web audit. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
+The corrected candidate has been pushed on `codex/observability-039`; await another independent Web audit. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
 
 ## Stop conditions
 

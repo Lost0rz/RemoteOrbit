@@ -45,7 +45,7 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 
 ## Corrective gate
 
-The independent Web audit of the pushed candidate failed. The bounded observability findings are corrected without changing product/audio behavior. Focused realistic tests, full Swift regression, release build, self-tests, `git diff --check`, and exact source/product-freeze review pass. The corrected candidate is now ready to push for another independent Web audit. The task remains subject to that audit and later owner-controlled Air installation/testing. It does not authorize merge, tag, release, or Air runtime validation.
+The independent Web audit of the pushed candidate failed. The bounded observability findings are corrected without changing product/audio behavior. Focused realistic tests, full Swift regression, release build, self-tests, `git diff --check`, and exact source/product-freeze review pass. The corrected candidate has been pushed for another independent Web audit. The task remains subject to that audit and later owner-controlled Air installation/testing. It does not authorize merge, tag, release, or Air runtime validation.
 
 ## Final verification receipt
 
