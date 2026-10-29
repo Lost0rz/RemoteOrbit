@@ -34,6 +34,74 @@ enum ReceiverEvidenceError: Error, Equatable {
     case evidenceTooLarge
 }
 
+private enum EvidenceStatus: String {
+    case available
+    case bounded
+    case unavailable
+    case failed
+}
+
+private struct BoundedEvidenceResult {
+    let status: EvidenceStatus
+    let originalBytes: Int
+    let exportedBytes: Int
+    let reason: String?
+}
+
+private struct LogTimestampParser {
+    private let fractionalISO8601: ISO8601DateFormatter
+    private let ISO8601: ISO8601DateFormatter
+    private let fractionalDate: DateFormatter
+    private let date: DateFormatter
+
+    init() {
+        let fractionalISO8601 = ISO8601DateFormatter()
+        fractionalISO8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        self.fractionalISO8601 = fractionalISO8601
+
+        let ISO8601 = ISO8601DateFormatter()
+        ISO8601.formatOptions = [.withInternetDateTime]
+        self.ISO8601 = ISO8601
+
+        let fractionalDate = DateFormatter()
+        fractionalDate.locale = Locale(identifier: "en_US_POSIX")
+        fractionalDate.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS Z"
+        self.fractionalDate = fractionalDate
+
+        let date = DateFormatter()
+        date.locale = Locale(identifier: "en_US_POSIX")
+        date.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
+        self.date = date
+    }
+
+    func milliseconds(from line: String) -> Int64? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var candidates: [String] = []
+        if trimmed.first == "[", let closing = trimmed.firstIndex(of: "]") {
+            candidates.append(String(trimmed[trimmed.index(after: trimmed.startIndex)..<closing]))
+        }
+        let prefix = trimmed.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
+        if !prefix.isEmpty {
+            candidates.append(String(prefix[0]))
+            if prefix.count >= 2 { candidates.append(String(prefix[0]) + " " + String(prefix[1])) }
+            if prefix.count >= 3 {
+                candidates.append(String(prefix[0]) + " " + String(prefix[1]) + " " + String(prefix[2]))
+            }
+        }
+
+        for candidate in candidates {
+            if let date = fractionalISO8601.date(from: candidate) ?? ISO8601.date(from: candidate) {
+                return Int64((date.timeIntervalSince1970 * 1_000).rounded())
+            }
+            if let date = fractionalDate.date(from: candidate) ?? self.date.date(from: candidate) {
+                return Int64((date.timeIntervalSince1970 * 1_000).rounded())
+            }
+        }
+        return nil
+    }
+}
+
 protocol ReceiverEvidenceProvider: Sendable {
     func evidence(
         sinceWallMilliseconds: Int64?,
@@ -97,6 +165,7 @@ struct UnifiedLogReceiverEvidenceProvider: ReceiverEvidenceProvider {
 
 final class DiagnosticExporter: @unchecked Sendable {
     static let maximumSessionEventCount = 10_000
+    private static let maximumEvidenceBytes = 2 * 1024 * 1024
 
     private let authority: any DiagnosticAuthority
     private let journalURL: URL
@@ -107,6 +176,7 @@ final class DiagnosticExporter: @unchecked Sendable {
     private let maximumSessionEventCount: Int
     private var sessionEventCount = 0
     private var sessionEventsTruncated = false
+    private var evidenceSources: [String: [String: Any]] = [:]
 
     init(
         authority: any DiagnosticAuthority = DiagnosticAuthorityService.shared,
@@ -138,6 +208,9 @@ final class DiagnosticExporter: @unchecked Sendable {
         }
 
         do {
+            sessionEventCount = 0
+            sessionEventsTruncated = false
+            evidenceSources.removeAll(keepingCapacity: true)
             try fileManager.createDirectory(
                 at: options.outputDirectory,
                 withIntermediateDirectories: true
@@ -152,10 +225,20 @@ final class DiagnosticExporter: @unchecked Sendable {
             try fileManager.createDirectory(at: stagingURL, withIntermediateDirectories: true)
             defer { try? fileManager.removeItem(at: stagingURL) }
 
-            try stageSessions(options: options, at: stagingURL)
+            do {
+                try stageSessions(options: options, at: stagingURL)
+            } catch {
+                evidenceSources["session_events"] = [
+                    "status": EvidenceStatus.failed.rawValue,
+                    "reason": "session diagnostic query failed",
+                    "original_bytes": 0,
+                    "exported_bytes": 0,
+                ]
+                try writeUnavailableSessionEvents(reason: "session diagnostic query failed", at: stagingURL)
+            }
             try stageRuntime(at: stagingURL)
             try stageJournal(at: stagingURL)
-            try stageLogs(at: stagingURL)
+            try stageLogs(options: options, at: stagingURL)
             try stageReceiver(options: options, at: stagingURL)
             try stageManifest(options: options, timestamp: timestamp, at: stagingURL)
             try stageChecksums(at: stagingURL)
@@ -214,6 +297,13 @@ final class DiagnosticExporter: @unchecked Sendable {
         )
         let data = try JSONEncoder().encode(page)
         try write(data: data, to: stagingURL.appendingPathComponent("sessions/diagnostic-events.json"))
+        evidenceSources["session_events"] = [
+            "status": EvidenceStatus.available.rawValue,
+            "original_bytes": data.count,
+            "exported_bytes": data.count,
+            "event_count": sessionEventCount,
+            "truncated": sessionEventsTruncated,
+        ]
     }
 
     private func stageRuntime(at stagingURL: URL) throws {
@@ -229,31 +319,94 @@ final class DiagnosticExporter: @unchecked Sendable {
         try write(data: data, to: stagingURL.appendingPathComponent("runtime/runtime-context.json"))
     }
 
+    private func writeUnavailableSessionEvents(reason: String, at stagingURL: URL) throws {
+        let object: [String: Any] = [
+            "evidence_status": "unavailable",
+            "reason": reason,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        try write(data: data, to: stagingURL.appendingPathComponent("sessions/evidence-unavailable.json"))
+    }
+
     private func stageJournal(at stagingURL: URL) throws {
         let destination = stagingURL.appendingPathComponent("journal", isDirectory: true)
         try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
         let journal = JSONLinesDiagnosticJournal(fileURL: journalURL)
+        var fileReceipts: [[String: Any]] = []
         for segment in journal.segmentURLs() {
-            try copyBounded(
-                from: segment,
-                to: destination.appendingPathComponent(segment.lastPathComponent)
-            )
+            let target = destination.appendingPathComponent(segment.lastPathComponent)
+            do {
+                let result = try copyBounded(from: segment, to: target)
+                fileReceipts.append(evidenceFileObject(
+                    path: segment.lastPathComponent,
+                    result: result
+                ))
+            } catch {
+                fileReceipts.append([
+                    "path": segment.lastPathComponent,
+                    "status": EvidenceStatus.failed.rawValue,
+                    "reason": "journal segment could not be read",
+                ])
+            }
         }
+        evidenceSources["journal"] = evidenceSourceObject(fileReceipts: fileReceipts)
     }
 
-    private func stageLogs(at stagingURL: URL) throws {
+    private func stageLogs(options: DiagnosticExportOptions, at stagingURL: URL) throws {
         let source = journalURL.deletingLastPathComponent()
-        guard fileManager.fileExists(atPath: source.path) else { return }
+        guard fileManager.fileExists(atPath: source.path) else {
+            evidenceSources["application_logs"] = [
+                "status": EvidenceStatus.unavailable.rawValue,
+                "reason": "logs directory unavailable",
+                "files": [],
+            ]
+            return
+        }
         let destination = stagingURL.appendingPathComponent("logs", isDirectory: true)
         try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
-        let files = try fileManager.contentsOfDirectory(
-            at: source,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        )
-        for file in files where Self.isApprovedLogFile(file, journalURL: journalURL) {
-            try copyBounded(from: file, to: destination.appendingPathComponent(file.lastPathComponent))
+        let files: [URL]
+        do {
+            files = try fileManager.contentsOfDirectory(
+                at: source,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            evidenceSources["application_logs"] = [
+                "status": EvidenceStatus.failed.rawValue,
+                "reason": "approved logs directory could not be read",
+                "files": [],
+            ]
+            return
         }
+        var fileReceipts: [[String: Any]] = []
+        for file in files where Self.isApprovedLogFile(file, journalURL: journalURL) {
+            let target = destination.appendingPathComponent(file.lastPathComponent)
+            do {
+                let result: BoundedEvidenceResult
+                if file.lastPathComponent == "RemoteOrbit.log" {
+                    result = try stageRemoteOrbitLog(
+                        from: file,
+                        to: target,
+                        startMilliseconds: options.startWallTimestampUnixMilliseconds,
+                        endMilliseconds: options.endWallTimestampUnixMilliseconds
+                    )
+                } else {
+                    result = try copyBounded(from: file, to: target)
+                }
+                fileReceipts.append(evidenceFileObject(
+                    path: file.lastPathComponent,
+                    result: result
+                ))
+            } catch {
+                fileReceipts.append([
+                    "path": file.lastPathComponent,
+                    "status": EvidenceStatus.failed.rawValue,
+                    "reason": "approved log could not be read",
+                ])
+            }
+        }
+        evidenceSources["application_logs"] = evidenceSourceObject(fileReceipts: fileReceipts)
     }
 
     private func stageReceiver(options: DiagnosticExportOptions, at stagingURL: URL) throws {
@@ -262,14 +415,44 @@ final class DiagnosticExporter: @unchecked Sendable {
                 sinceWallMilliseconds: options.startWallTimestampUnixMilliseconds,
                 untilWallMilliseconds: options.endWallTimestampUnixMilliseconds
             )
-            guard data.count <= 512 * 1024 else { throw DiagnosticExportError.evidenceTooLarge }
-            guard Self.hasUsefulReceiverTimingEvidence(data) else {
-                try writeUnavailableReceiver(reason: "no useful receiver timing records", at: stagingURL)
+            let result: BoundedEvidenceResult
+            let output: Data
+            if data.count > 512 * 1024 {
+                output = boundedLineData(data, maximumBytes: 512 * 1024)
+                result = BoundedEvidenceResult(
+                    status: .bounded,
+                    originalBytes: data.count,
+                    exportedBytes: output.count,
+                    reason: "receiver evidence exceeded export bound"
+                )
+            } else {
+                output = data
+                result = BoundedEvidenceResult(
+                    status: .available,
+                    originalBytes: data.count,
+                    exportedBytes: data.count,
+                    reason: nil
+                )
+            }
+            guard Self.hasUsefulReceiverTimingEvidence(output) else {
+                try writeUnavailableReceiver(
+                    reason: result.reason ?? "no useful receiver timing records",
+                    at: stagingURL
+                )
                 return
             }
-            try write(data: data, to: stagingURL.appendingPathComponent("receiver/unified-log-window.jsonl"))
+            try write(data: output, to: stagingURL.appendingPathComponent("receiver/unified-log-window.jsonl"))
+            evidenceSources["receiver"] = evidenceObject(
+                status: result.status,
+                originalBytes: result.originalBytes,
+                exportedBytes: result.exportedBytes,
+                reason: result.reason
+            )
         } catch ReceiverEvidenceError.evidenceTooLarge {
-            throw DiagnosticExportError.evidenceTooLarge
+            try writeUnavailableReceiver(
+                reason: "receiver evidence exceeded provider bound",
+                at: stagingURL
+            )
         } catch ReceiverEvidenceError.unavailable(let reason) {
             try writeUnavailableReceiver(reason: reason, at: stagingURL)
         } catch ReceiverEvidenceError.commandFailed(let status) {
@@ -289,6 +472,12 @@ final class DiagnosticExporter: @unchecked Sendable {
         ]
         let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         try write(data: data, to: stagingURL.appendingPathComponent("receiver/evidence-unavailable.json"))
+        evidenceSources["receiver"] = evidenceObject(
+            status: .unavailable,
+            originalBytes: nil,
+            exportedBytes: data.count,
+            reason: reason
+        )
     }
 
     private func stageManifest(
@@ -320,6 +509,7 @@ final class DiagnosticExporter: @unchecked Sendable {
             "observation_schema_version": LongTermVoiceSessionSummary.schemaVersion,
             "receiver_evidence_status": receiverEvidenceStatus(at: stagingURL),
             "evidence_errors": evidenceErrors,
+            "evidence_sources": evidenceSources,
             "session_event_count": sessionEventCount,
             "session_event_limit": maximumSessionEventCount,
             "session_events_truncated": sessionEventsTruncated,
@@ -370,10 +560,168 @@ final class DiagnosticExporter: @unchecked Sendable {
         try data.write(to: url, options: .atomic)
     }
 
-    private func copyBounded(from source: URL, to destination: URL) throws {
+    private func copyBounded(from source: URL, to destination: URL) throws -> BoundedEvidenceResult {
         let data = try Data(contentsOf: source)
-        guard data.count <= 2 * 1024 * 1024 else { throw DiagnosticExportError.evidenceTooLarge }
-        try write(data: data, to: destination)
+        guard data.count > Self.maximumEvidenceBytes else {
+            try write(data: data, to: destination)
+            return BoundedEvidenceResult(
+                status: .available,
+                originalBytes: data.count,
+                exportedBytes: data.count,
+                reason: nil
+            )
+        }
+
+        let bounded = boundedLineData(data, maximumBytes: Self.maximumEvidenceBytes)
+        try write(data: bounded, to: destination)
+        return BoundedEvidenceResult(
+            status: bounded.isEmpty ? .unavailable : .bounded,
+            originalBytes: data.count,
+            exportedBytes: bounded.count,
+            reason: bounded.isEmpty
+                ? "source contains no complete line within export bound"
+                : "source exceeded export bound"
+        )
+    }
+
+    private func stageRemoteOrbitLog(
+        from source: URL,
+        to destination: URL,
+        startMilliseconds: Int64?,
+        endMilliseconds: Int64?
+    ) throws -> BoundedEvidenceResult {
+        let data = try Data(contentsOf: source)
+        guard startMilliseconds != nil || endMilliseconds != nil else {
+            return try copyBounded(from: source, to: destination)
+        }
+
+        guard let text = String(data: data, encoding: .utf8) else {
+            let bounded = boundedLineData(data, maximumBytes: Self.maximumEvidenceBytes)
+            try write(data: bounded, to: destination)
+            return BoundedEvidenceResult(
+                status: .unavailable,
+                originalBytes: data.count,
+                exportedBytes: bounded.count,
+                reason: "log encoding is not UTF-8; time window could not be applied"
+            )
+        }
+
+        var selected = Data()
+        var parseableLineCount = 0
+        var unparseableLineCount = 0
+        let timestampParser = LogTimestampParser()
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        for line in lines {
+            let lineString = String(line)
+            guard let timestamp = timestampParser.milliseconds(from: lineString) else {
+                unparseableLineCount += 1
+                continue
+            }
+            parseableLineCount += 1
+            if let startMilliseconds, timestamp < startMilliseconds { continue }
+            if let endMilliseconds, timestamp > endMilliseconds { continue }
+            selected.append(contentsOf: Data((lineString + "\n").utf8))
+        }
+
+        if parseableLineCount == 0 {
+            let fallback = data.count <= Self.maximumEvidenceBytes
+                ? data
+                : boundedLineData(data, maximumBytes: Self.maximumEvidenceBytes)
+            try write(data: fallback, to: destination)
+            return BoundedEvidenceResult(
+                status: .bounded,
+                originalBytes: data.count,
+                exportedBytes: fallback.count,
+                reason: unparseableLineCount == 0
+                    ? "time window contained no log lines"
+                    : "log timestamps could not be parsed; bounded fallback exported"
+            )
+        }
+
+        let bounded = boundedLineData(selected, maximumBytes: Self.maximumEvidenceBytes)
+        try write(data: bounded, to: destination)
+        let reason: String
+        if bounded.count < selected.count {
+            reason = "time_window_applied_and_output_bounded"
+        } else if unparseableLineCount > 0 {
+            reason = "time_window_applied_unparseable_lines_excluded"
+        } else {
+            reason = "time_window_applied"
+        }
+        return BoundedEvidenceResult(
+            status: .bounded,
+            originalBytes: data.count,
+            exportedBytes: bounded.count,
+            reason: reason
+        )
+    }
+
+    private func boundedLineData(_ data: Data, maximumBytes: Int) -> Data {
+        guard data.count > maximumBytes else { return data }
+        var bounded = Data()
+        for line in data.split(omittingEmptySubsequences: false, whereSeparator: { $0 == 0x0A }) {
+            let requiredBytes = line.count + 1
+            guard requiredBytes <= maximumBytes,
+                  bounded.count + requiredBytes <= maximumBytes else { break }
+            bounded.append(contentsOf: line)
+            bounded.append(0x0A)
+        }
+        return bounded
+    }
+
+    private func evidenceObject(
+        status: EvidenceStatus,
+        originalBytes: Int?,
+        exportedBytes: Int?,
+        reason: String?
+    ) -> [String: Any] {
+        var object: [String: Any] = ["status": status.rawValue]
+        if let originalBytes { object["original_bytes"] = originalBytes }
+        if let exportedBytes { object["exported_bytes"] = exportedBytes }
+        if let reason { object["reason"] = reason }
+        return object
+    }
+
+    private func evidenceFileObject(
+        path: String,
+        result: BoundedEvidenceResult
+    ) -> [String: Any] {
+        var object = evidenceObject(
+            status: result.status,
+            originalBytes: result.originalBytes,
+            exportedBytes: result.exportedBytes,
+            reason: result.reason
+        )
+        object["path"] = path
+        return object
+    }
+
+    private func evidenceSourceObject(fileReceipts: [[String: Any]]) -> [String: Any] {
+        let statuses = fileReceipts.compactMap { $0["status"] as? String }
+        let status: EvidenceStatus
+        if statuses.contains(EvidenceStatus.failed.rawValue) {
+            status = .failed
+        } else if statuses.contains(EvidenceStatus.unavailable.rawValue) {
+            status = .unavailable
+        } else if statuses.contains(EvidenceStatus.bounded.rawValue) {
+            status = .bounded
+        } else if statuses.isEmpty {
+            status = .unavailable
+        } else {
+            status = .available
+        }
+        var object: [String: Any] = [
+            "status": status.rawValue,
+            "files": fileReceipts,
+        ]
+        let originalBytes = fileReceipts.compactMap { $0["original_bytes"] as? Int }.reduce(0, +)
+        let exportedBytes = fileReceipts.compactMap { $0["exported_bytes"] as? Int }.reduce(0, +)
+        object["original_bytes"] = originalBytes
+        object["exported_bytes"] = exportedBytes
+        if let reason = fileReceipts.compactMap({ $0["reason"] as? String }).first {
+            object["reason"] = reason
+        }
+        return object
     }
 
     private func allFiles(at root: URL) throws -> [URL] {

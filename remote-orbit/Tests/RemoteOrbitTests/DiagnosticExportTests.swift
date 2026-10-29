@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import XCTest
 @testable import RemoteOrbit
 
@@ -55,6 +56,23 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(manifest["diagnostic_dropped_event_count"] as? Int, 0)
         XCTAssertEqual(manifest["diagnostic_write_failure_count"] as? Int, 0)
         XCTAssertEqual(manifest["evidence_errors"] as? [String], ["receiver log unavailable"])
+        let evidenceSources = try XCTUnwrap(manifest["evidence_sources"] as? [String: Any])
+        XCTAssertEqual(
+            (evidenceSources["session_events"] as? [String: Any])?["status"] as? String,
+            "available"
+        )
+        XCTAssertEqual(
+            (evidenceSources["journal"] as? [String: Any])?["status"] as? String,
+            "available"
+        )
+        XCTAssertEqual(
+            (evidenceSources["application_logs"] as? [String: Any])?["status"] as? String,
+            "bounded"
+        )
+        XCTAssertEqual(
+            (evidenceSources["receiver"] as? [String: Any])?["status"] as? String,
+            "unavailable"
+        )
         let includedFiles = try XCTUnwrap(manifest["files_included"] as? [String])
         XCTAssertTrue(includedFiles.contains("manifest.json"))
         XCTAssertTrue(includedFiles.contains("SHA256SUMS"))
@@ -245,6 +263,143 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(manifest["evidence_errors"] as? [String], ["no useful receiver timing records"])
     }
 
+    func testOversizedRemoteOrbitLogWithTimeWindowProducesBoundedArchive() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logs = root.appendingPathComponent("logs", isDirectory: true)
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+
+        let before = "2026-10-29T09:59:59.000Z before-window\n"
+        let inside = String(repeating: "2026-10-29T10:00:00.000Z inside-window payload\n", count: 70_000)
+        let after = "2026-10-29T10:01:00.000Z after-window\n"
+        try Data((before + inside + after).utf8).write(to: logs.appendingPathComponent("RemoteOrbit.log"))
+
+        let exporter = DiagnosticExporter(
+            authority: ExportRecordingAuthority(),
+            journalURL: logs.appendingPathComponent("diagnostic-events-v1.jsonl"),
+            receiverEvidenceProvider: FixedReceiverEvidenceProvider(data: Data()),
+            clock: { Date(timeIntervalSince1970: 1_700_000_006) }
+        )
+
+        let archive = try exporter.export(options: DiagnosticExportOptions(
+            outputDirectory: root,
+            hostRole: "TEST_HOST",
+            startWallTimestampUnixMilliseconds: 1_793_268_000_000,
+            endWallTimestampUnixMilliseconds: 1_793_268_000_100
+        ))
+        let extracted = try extract(archive: archive, into: root.appendingPathComponent("extracted"))
+        let exportedLog = try Data(contentsOf: extracted.appendingPathComponent("logs/RemoteOrbit.log"))
+        let exportedText = try XCTUnwrap(String(data: exportedLog, encoding: .utf8))
+        let manifest = try manifest(at: extracted)
+
+        XCTAssertLessThanOrEqual(exportedLog.count, 2 * 1024 * 1024)
+        XCTAssertTrue(exportedText.contains("inside-window"))
+        XCTAssertFalse(exportedText.contains("before-window"))
+        XCTAssertFalse(exportedText.contains("after-window"))
+        let sources = try XCTUnwrap(manifest["evidence_sources"] as? [String: Any])
+        let logsSource = try XCTUnwrap(sources["application_logs"] as? [String: Any])
+        XCTAssertEqual(logsSource["status"] as? String, "bounded")
+        XCTAssertTrue((logsSource["reason"] as? String)?.hasPrefix("time_window_applied") == true)
+    }
+
+    func testOversizedJournalAndReceiverProducePartialArchiveWithManifestStatusesAndChecksums() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let journalURL = root.appendingPathComponent("diagnostic-events-v1.jsonl")
+        let journalData = Data(String(repeating: "{\"event\":\"journal\"}\n", count: 120_000).utf8)
+        try journalData.write(to: journalURL)
+        let receiverData = Data(String(repeating: "{\"event\":\"receiver_timing\"}\n", count: 30_000).utf8)
+
+        let exporter = DiagnosticExporter(
+            authority: ExportRecordingAuthority(),
+            journalURL: journalURL,
+            receiverEvidenceProvider: FixedReceiverEvidenceProvider(data: receiverData),
+            clock: { Date(timeIntervalSince1970: 1_700_000_007) }
+        )
+        let archive = try exporter.export(options: DiagnosticExportOptions(
+            outputDirectory: root,
+            hostRole: "TEST_HOST"
+        ))
+        let extracted = try extract(archive: archive, into: root.appendingPathComponent("extracted"))
+        let manifest = try manifest(at: extracted)
+        let sources = try XCTUnwrap(manifest["evidence_sources"] as? [String: Any])
+        let journalSource = try XCTUnwrap(sources["journal"] as? [String: Any])
+        let receiverSource = try XCTUnwrap(sources["receiver"] as? [String: Any])
+
+        XCTAssertEqual(journalSource["status"] as? String, "bounded")
+        XCTAssertEqual(receiverSource["status"] as? String, "bounded")
+        XCTAssertLessThanOrEqual(
+            try Data(contentsOf: extracted.appendingPathComponent("journal/diagnostic-events-v1.jsonl")).count,
+            2 * 1024 * 1024
+        )
+        XCTAssertLessThanOrEqual(
+            try Data(contentsOf: extracted.appendingPathComponent("receiver/unified-log-window.jsonl")).count,
+            512 * 1024
+        )
+
+        let checksumLines = try String(
+            contentsOf: extracted.appendingPathComponent("SHA256SUMS"),
+            encoding: .utf8
+        ).split(separator: "\n")
+        for line in checksumLines {
+            let parts = line.split(separator: "  ", maxSplits: 1)
+            XCTAssertEqual(parts.count, 2)
+            let expected = String(parts[0])
+            let path = String(parts[1])
+            let data = try Data(contentsOf: extracted.appendingPathComponent(path))
+            let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            XCTAssertEqual(actual, expected, path)
+        }
+    }
+
+    func testReceiverProviderOversizeFailureDoesNotDestroyArchive() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let exporter = DiagnosticExporter(
+            authority: ExportRecordingAuthority(),
+            journalURL: root.appendingPathComponent("diagnostic-events-v1.jsonl"),
+            receiverEvidenceProvider: OversizedReceiverEvidenceProvider(),
+            clock: { Date(timeIntervalSince1970: 1_700_000_008) }
+        )
+
+        let archive = try exporter.export(options: DiagnosticExportOptions(outputDirectory: root))
+        let extracted = try extract(archive: archive, into: root.appendingPathComponent("extracted"))
+        let manifest = try manifest(at: extracted)
+        XCTAssertEqual(manifest["receiver_evidence_status"] as? String, "unavailable")
+        let sources = try XCTUnwrap(manifest["evidence_sources"] as? [String: Any])
+        let receiverSource = try XCTUnwrap(sources["receiver"] as? [String: Any])
+        XCTAssertEqual(receiverSource["status"] as? String, "unavailable")
+        XCTAssertEqual(
+            receiverSource["reason"] as? String,
+            "receiver evidence exceeded provider bound"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: extracted.appendingPathComponent("sessions/diagnostic-events.json").path
+        ))
+    }
+
+    func testSessionQueryFailureIsRecordedWithoutDestroyingArchive() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let exporter = DiagnosticExporter(
+            authority: FailingExportAuthority(),
+            journalURL: root.appendingPathComponent("diagnostic-events-v1.jsonl"),
+            receiverEvidenceProvider: FixedReceiverEvidenceProvider(data: Data()),
+            clock: { Date(timeIntervalSince1970: 1_700_000_009) }
+        )
+
+        let archive = try exporter.export(options: DiagnosticExportOptions(outputDirectory: root))
+        let extracted = try extract(archive: archive, into: root.appendingPathComponent("extracted"))
+        let manifest = try manifest(at: extracted)
+        let sources = try XCTUnwrap(manifest["evidence_sources"] as? [String: Any])
+        let sessions = try XCTUnwrap(sources["session_events"] as? [String: Any])
+        XCTAssertEqual(sessions["status"] as? String, "failed")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: extracted.appendingPathComponent("sessions/evidence-unavailable.json").path
+        ))
+    }
+
     private func extract(archive: URL, into directory: URL) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let process = Process()
@@ -314,6 +469,27 @@ private struct FixedReceiverEvidenceProvider: ReceiverEvidenceProvider {
 
     func evidence(sinceWallMilliseconds: Int64?, untilWallMilliseconds: Int64?) throws -> Data {
         data
+    }
+}
+
+private struct OversizedReceiverEvidenceProvider: ReceiverEvidenceProvider {
+    func evidence(sinceWallMilliseconds: Int64?, untilWallMilliseconds: Int64?) throws -> Data {
+        throw ReceiverEvidenceError.evidenceTooLarge
+    }
+}
+
+private final class FailingExportAuthority: DiagnosticAuthority {
+    var droppedEventCount: UInt64 = 0
+    var writeFailureCount: UInt64 = 0
+
+    func emit(_ input: DiagnosticEventInput) {}
+
+    func query(_ filter: DiagnosticQueryFilter) throws -> DiagnosticQueryPage {
+        throw DiagnosticExportError.storageUnavailable
+    }
+
+    func snapshot(_ filter: DiagnosticQueryFilter) throws -> Data {
+        throw DiagnosticExportError.storageUnavailable
     }
 }
 
