@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `AIR_VALIDATION_PREP / READY_FOR_AIR_VALIDATION`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -25,6 +25,9 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 - Second corrective implementation HEAD: `447b3b9`.
 - Pre-HID lifecycle corrective start HEAD: `c6cc2918ab9314507ad85f8e82fac58c74f26674`.
 - Pre-HID lifecycle corrective implementation HEAD: `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d`.
+- Air-validation preparation source/control authority before this transition: `e524b636021b4af407dffae6b1b5c2c5baab718d`.
+- Independent Web audit: `PASS` for the exact pushed candidate, as authorized by the current Air-validation preparation card.
+- The prior natural-use omission remains an observed release-blocking result; this task makes no root-cause claim.
 - PR #25 remains Draft/Open/Unmerged and must not be merged, tagged, or released.
 
 ## Authorized scope
@@ -49,7 +52,15 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 
 ## Corrective gate
 
-The second independent Web audit was blocked by bounded cross-layer incident-window findings and then identified one remaining pre-HID lifecycle boundary. The completed corrective establishes the shared incident coordinator generation exactly once at the earliest authoritative gesture/transport capture boundary; a later HID session binding preserves incident identity, anchor, and producer synchronization state; a genuinely new capture receives a clean generation. It preserves first-writer-wins, pre-HID BLE/decode/PCM/render evidence, AudioPipe-first evidence, wrap survival, and all existing journal/export/receiver/late-lifecycle behavior. It preserves the product/audio freeze and adds no hot-path disk I/O, formatting, authority emission, or new contended diagnostic lock. Focused lifecycle tests, full Swift regression, release build, self-tests, `git diff --check`, and exact source/product-freeze review pass locally. The candidate is pushed on `codex/observability-039`; remote readback matched `593a488cad186d02485ea821fb41f966a135ac77` before the delivery receipt, and receipt `93f1b91ad06f9717251b09653557aebe4ff44910` was also pushed and read back before this factual control correction. Await another independent Web audit. This does not authorize merge, tag, release, or Air runtime validation.
+The second independent Web audit was blocked by bounded cross-layer incident-window findings and then identified one remaining pre-HID lifecycle boundary. The completed corrective establishes the shared incident coordinator generation exactly once at the earliest authoritative gesture/transport capture boundary; a later HID session binding preserves incident identity, anchor, and producer synchronization state; a genuinely new capture receives a clean generation. It preserves first-writer-wins, pre-HID BLE/decode/PCM/render evidence, AudioPipe-first evidence, wrap survival, and all existing journal/export/receiver/late-lifecycle behavior. It preserves the product/audio freeze and adds no hot-path disk I/O, formatting, authority emission, or new contended diagnostic lock. Focused lifecycle tests, full Swift regression, release build, self-tests, `git diff --check`, and exact source/product-freeze review pass locally. The candidate is pushed on `codex/observability-039`; remote readback matched `593a488cad186d02485ea821fb41f966a135ac77` before the delivery receipt, and receipt `93f1b91ad06f9717251b09653557aebe4ff44910` was also pushed and read back before this factual control correction. The independent Web audit is now PASS. This authorizes exact candidate packaging and owner-run Air validation preparation only; it does not authorize merge, tag, release, PR #25 mutation, or Mac mini/Air runtime installation.
+
+## Air-validation preparation gate
+
+- Reconcile `origin/codex/observability-039`, the active worktree, and these authority files before packaging.
+- Build the exact candidate from the current branch lineage without changing product/audio semantics.
+- Record source/control HEAD, semantic implementation HEAD, app version/build, architecture, code identity, executable/artifact SHA-256, and embedded source revision when supported.
+- Verify Swift tests, release build, protocol self-tests, packaging, artifact contents, signatures, checksums, `git diff --check`, and clean worktree.
+- Provide owner-run Finder/Login Item installation and natural-use instructions for the MacBook Air. Do not install or launch the Air candidate from the Mac mini. Do not upload evidence automatically.
 
 ## Corrective gate
 

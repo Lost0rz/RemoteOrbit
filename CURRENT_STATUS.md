@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-29
-State: WAITING_FOR_INDEPENDENT_WEB_AUDIT — RO-OBSERVABILITY-039 PRE-HID LIFECYCLE CORRECTIVE CANDIDATE
+State: AIR_VALIDATION_PREP — READY_FOR_AIR_VALIDATION — RO-OBSERVABILITY-039
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -17,6 +17,9 @@ Repository: Lost0rz/RemoteOrbit
 - Second corrective implementation HEAD: `447b3b9` (`diagnostics: coordinate cross-layer incident windows`).
 - Pre-HID lifecycle corrective start HEAD: `c6cc2918ab9314507ad85f8e82fac58c74f26674`.
 - Pre-HID lifecycle corrective implementation HEAD: `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d` (`diagnostics: preserve pre-HID incident generation`).
+- Air-validation preparation source/control authority before this transition: `e524b636021b4af407dffae6b1b5c2c5baab718d`.
+- Air-validation preparation semantic implementation authority: `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d`.
+- Independent Web audit: PASS, as authorized by the RO-OBSERVABILITY-039 Air-validation preparation card; this does not establish a root cause for the prior natural-use omission.
 - Remote-delivery verification before this corrective: `origin/codex/observability-039` matched `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
 - Remote-delivery verification for this corrective: `origin/codex/observability-039` matched `e703e16554e98e69ed6fb4e84ccce542c4169b20` before this receipt.
 - Remote-delivery verification for the pre-HID lifecycle corrective: `origin/codex/observability-039` matched `593a488cad186d02485ea821fb41f966a135ac77` before this delivery receipt.
@@ -30,7 +33,7 @@ Repository: Lost0rz/RemoteOrbit
 ## Task transition
 
 - Previous active task: `RO-RELEASE-V0.2.15`, state `LOCAL_SOAK_ACTIVE`.
-- Current active task: `RO-OBSERVABILITY-039`, state `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+- Current active task: `RO-OBSERVABILITY-039`, state `AIR_VALIDATION_PREP / READY_FOR_AIR_VALIDATION`.
 - Transition parent: `79406f17be3fbee77b4492687f63431434b23998`.
 - `CURRENT_STATUS.md` and `CURRENT_TASK.md` were updated together in the control-transition commit immediately following that parent.
 - Corrective transition start HEAD: `24d08c64abf5832a89957241713fb50cfd60da04`.
@@ -38,6 +41,7 @@ Repository: Lost0rz/RemoteOrbit
 - Corrective implementation baseline for this second corrective was `ad223e4b5f35653abe1014697cb50a87d3db05ad`; the completed implementation is `447b3b9`, and this handoff is its direct child.
 - The second independent-audit corrective is bounded to one shared incident identity/anchor across the existing service and AudioPipe traces, production-path material-trigger alignment, exact export-limit semantics, and ADR capacity accuracy. It must not change product/audio behavior.
 - The next independent Web audit found one remaining lifecycle boundary: HID `begin(sessionID:)` can reset a material incident created during a valid pre-HID transport capture. The completed corrective establishes one shared coordinator generation at the earliest authoritative gesture/transport capture boundary, preserves it when HID later binds the session, and resets it only for a genuinely new logical capture. It does not change product/audio behavior.
+- The independent Web audit is now recorded as PASS for the exact pushed candidate. This authorizes only Air-validation preparation: build and provenance verification of a candidate from the current branch lineage, followed by owner-run MacBook Air installation and natural-use validation. It does not authorize merge, tag, release, PR #25 mutation, or Mac mini installation.
 
 ## Product and runtime boundaries
 
@@ -55,8 +59,9 @@ Repository: Lost0rz/RemoteOrbit
 
 ## Current next action
 
-The verified pre-HID lifecycle corrective is pushed on `codex/observability-039` and the remote ref has been read back; await another independent Web audit. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
+The verified pre-HID lifecycle corrective is pushed on `codex/observability-039`; the independent Web audit is PASS. Build the exact candidate from the reconciled branch lineage, record artifact provenance, and hand off exact owner-run MacBook Air installation/natural-use instructions. Air installation and natural-use acceptance remain owner-controlled and are not performed by this task.
 
 ## Stop conditions
 
 Stop and report if the control plane drifts, a concurrent diagnostic writer appears, a unique local work conflicts, or the requested evidence cannot be implemented without changing product audio/gesture semantics, adding invasive text capture, or adding hot-path disk/lock/allocation behavior.
+Stop and report if the source/control or semantic implementation heads drift before packaging, if the artifact cannot be tied to an exact source revision, or if packaging would require changing product/audio semantics.
