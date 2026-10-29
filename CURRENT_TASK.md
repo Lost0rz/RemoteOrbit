@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `CORRECTIVE_ACTIVE_2`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -20,7 +20,8 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 - Active branch: `codex/observability-039`.
 - Active worktree: `/private/tmp/remoteorbit-longterm-observability-039`.
 - Corrective transition start HEAD: `24d08c64abf5832a89957241713fb50cfd60da04`.
-- Corrected implementation candidate HEAD: `ad223e4b5f35653abe1014697cb50a87d3db05ad`.
+- Corrected implementation baseline HEAD: `ad223e4b5f35653abe1014697cb50a87d3db05ad`.
+- Second corrective transition parent: `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
 - PR #25 remains Draft/Open/Unmerged and must not be merged, tagged, or released.
 
 ## Authorized scope
@@ -45,7 +46,7 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 
 ## Corrective gate
 
-The independent Web audit of the pushed candidate failed. The bounded observability findings are corrected without changing product/audio behavior. Focused realistic tests, full Swift regression, release build, self-tests, `git diff --check`, and exact source/product-freeze review pass. The corrected candidate has been pushed for another independent Web audit. The task remains subject to that audit and later owner-controlled Air installation/testing. It does not authorize merge, tag, release, or Air runtime validation.
+The second independent Web audit remains blocked by the bounded cross-layer incident-window findings. This corrective must establish one shared incident identity/anchor across the existing service and AudioPipe producer-owned traces, preserve relevant BLE/decode/PCM/render/starvation evidence when either producer triggers, align production material triggers with centralized classification, correct exact-limit export truncation, and make ADR capacities exact. It must preserve the product/audio freeze and add no hot-path disk I/O, formatting, authority emission, or new contended diagnostic lock. After implementation, focused realistic tests, full Swift regression, release build, self-tests, `git diff --check`, and exact source/product-freeze review are required before pushing and returning to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. This does not authorize merge, tag, release, or Air runtime validation.
 
 ## Final verification receipt
 

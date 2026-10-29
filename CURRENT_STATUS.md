@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-29
-State: WAITING_FOR_INDEPENDENT_WEB_AUDIT — RO-OBSERVABILITY-039 CORRECTIVE CANDIDATE
+State: CORRECTIVE_ACTIVE_2 — RO-OBSERVABILITY-039
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -12,9 +12,9 @@ Repository: Lost0rz/RemoteOrbit
 - Active implementation branch: `codex/observability-039`.
 - Active implementation worktree: `/private/tmp/remoteorbit-longterm-observability-039`.
 - Previous implementation candidate HEAD: `79406f17be3fbee77b4492687f63431434b23998` (`diagnostics: classify lifecycle inconsistencies`).
-- Current control HEAD before corrective work: `24d08c64abf5832a89957241713fb50cfd60da04`.
+- Current control HEAD before this corrective: `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
 - Corrected implementation candidate HEAD: `ad223e4b5f35653abe1014697cb50a87d3db05ad` (`diagnostics: correct observability audit findings`).
-- Remote-delivery verification before this receipt: `origin/codex/observability-039` matched `940fbee4681632b4d185697ce648d838d5bee333`.
+- Remote-delivery verification before this corrective: `origin/codex/observability-039` matched `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
 - PR #25 (`Release RemoteOrbit v0.2.15`) is Draft/Open/Unmerged; public release is blocked and no merge, tag, or release is authorized by this task.
 - The former release-control branch `codex/release-v0.2.15` remains at `f049e6eb7f0e5625b807fba1860d04c048b638ca` in `/private/tmp/remoteorbit-release-v0.2.15-local-soak`; it is retained for provenance and is not an active writer for this task.
 - The owner's MacBook Air natural-use observation reported substantial final-text omission. This records the release decision as `RELEASE_BLOCKED / SOAK_FAILED`; it does not claim a technical root cause.
@@ -29,7 +29,8 @@ Repository: Lost0rz/RemoteOrbit
 - `CURRENT_STATUS.md` and `CURRENT_TASK.md` were updated together in the control-transition commit immediately following that parent.
 - Corrective transition start HEAD: `24d08c64abf5832a89957241713fb50cfd60da04`.
 - The independent Web audit of the pushed candidate failed with findings covering anomaly/ring semantics, incident freezing, BLE/decode trace completeness, main-queue correlation, delivery-deficit classification, crash-tolerant journal recovery, export pagination/log source, receiver evidence, and late lifecycle correlation. The corrective scope remains observability-only.
-- Corrective implementation is complete at `ad223e4b5f35653abe1014697cb50a87d3db05ad`; this control update is the direct child that records the handoff back to independent Web audit.
+- Corrective implementation baseline for this second corrective is `ad223e4b5f35653abe1014697cb50a87d3db05ad`; this control transition is the direct child of the delivered receipt `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
+- The second independent-audit corrective is bounded to one shared incident identity/anchor across the existing service and AudioPipe traces, production-path material-trigger alignment, exact export-limit semantics, and ADR capacity accuracy. It must not change product/audio behavior.
 
 ## Product and runtime boundaries
 
@@ -47,7 +48,7 @@ Repository: Lost0rz/RemoteOrbit
 
 ## Current next action
 
-The corrected candidate has been pushed on `codex/observability-039`; await another independent Web audit. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
+Implement and verify the second corrective, then push `codex/observability-039` and return the task to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The implementation must preserve both producers' relevant evidence for one material incident, align the main-queue material threshold with classification, correct the exact export-limit flag, and make ADR capacities exact. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
 
 ## Stop conditions
 
