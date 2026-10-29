@@ -159,7 +159,7 @@ After implementation and verification:
 - Delivered implementation commit: `c3b8c74ee933f666bcc9688be9554d9b79416993`.
 - Local verification is complete: focused mapping 11/11, focused keymap presentation 10/10, full `swift test` 422/422, release build PASS, and `git diff --check` PASS.
 - Retired mapping backup/history residue check is PASS; no retired production/test identifiers remain.
-- Remote delivery is `PUSHED_VERIFIED`; `origin/codex/mapping-config-simplify-040` matches `c3b8c74ee933f666bcc9688be9554d9b79416993`.
+- Remote delivery is `PUSHED_VERIFIED`; `origin/codex/mapping-config-simplify-040` contains the implementation commit and paired control records.
 - The task now stops at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 - do not merge;
 - do not tag or release;

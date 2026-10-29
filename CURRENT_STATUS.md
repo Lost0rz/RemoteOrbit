@@ -10,7 +10,7 @@ Repository: Lost0rz/RemoteOrbit
 - Task baseline: `origin/main` at `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9`.
 - Active implementation branch: `codex/mapping-config-simplify-040`.
 - Delivered implementation commit: `c3b8c74ee933f666bcc9688be9554d9b79416993`.
-- Verified remote branch: `origin/codex/mapping-config-simplify-040` at `c3b8c74ee933f666bcc9688be9554d9b79416993`.
+- Verified remote delivery: `origin/codex/mapping-config-simplify-040` contains the delivered implementation and paired control alignment.
 - `AGENTS.md` remains the durable repository rule authority; `CURRENT_TASK.md` is the single active implementation authorization for this branch.
 - `RO-OBSERVABILITY-039` continues separately as owner-run Air natural-use observation on `codex/observability-039`; that branch is frozen for product writes while evidence is collected.
 - PR #25 / `codex/release-v0.2.15` remains Draft/Open/Unmerged and is not part of this task.
