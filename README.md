@@ -173,6 +173,25 @@ DMG 安装的应用位于：
 日志最大为 5 MB，到达上限后自动截断。调试录音会同时保存 16 kHz WAV 和原始 ATVV
 数据，仅在用户手动开启后生效。
 
+## 长期语音诊断（只读导出）
+
+普通语音会保留一条低开销的 L1 machine-readable session summary；只有集中阈值
+判定为异常时，才会把固定容量的 L2 front-edge/recent trace 冻结到诊断事件中。
+默认 JSONL 诊断日志按 2 MiB、5 个 segment 轮转，查询支持 session、process、event
+和 wall-clock window。异常标记只决定是否保留证据，不建立 root cause。
+
+自然使用后可手动导出一个 bounded archive（不上传、不修改设置）：
+
+```text
+RemoteOrbit diagnostics export --output ~/Desktop --host-role TEST_HOST \
+  --since-unix-ms <start> --until-unix-ms <end>
+```
+
+在 MacBook Air 上，`TEST_HOST` 表示 Air。导出包含 manifest、runtime identity、session
+events、保留的 journal segments、allowlisted JSON/JSONL logs、可用的 receiver unified-log
+window 或 `receiver/evidence-unavailable.json`，以及 `SHA256SUMS`。详见
+`docs/diagnostics/ADR-0003-long-term-observability.md`。
+
 ## 当前限制
 
 - App 和驱动目前使用本地 ad-hoc 签名，DMG 尚未提供 Developer ID 签名和 Apple 公证。

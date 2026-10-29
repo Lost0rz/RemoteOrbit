@@ -1190,9 +1190,13 @@ extension BLEBridge: CBPeripheralDelegate {
             )
             _ = VoiceTimingLogger.observeTransportStart(
                 protocolVersion: protocolHandler.capabilities?.version.description ?? "unknown",
-                mode: "remote",
+                mode: protocolHandler.capabilities?.version == .v10
+                    ? "playback_realtime"
+                    : "codec_selected",
                 codec: codec.description,
-                sampleRate: UInt64(max(0, codec.sampleRate))
+                sampleRate: UInt64(max(0, codec.sampleRate)),
+                reason: UInt64(reason),
+                streamID: UInt64(sid)
             )
             VoiceTimingLogger.mark("AUDIO_START")
         case .audioStop(let reason):
@@ -1511,6 +1515,32 @@ extension BLEBridge: CBPeripheralDelegate {
             decodedSamples: streamSampleCount,
             sampleRate: sampleRate,
             elapsedSeconds: timing.measurementElapsedSeconds
+        )
+        VoiceTimingLogger.observeTransportMetrics(
+            notificationCount: streamNotificationTelemetry.notificationCount,
+            notificationBytes: streamNotificationTelemetry.notificationBytesTotal,
+            notificationSizeMin: streamNotificationTelemetry.notificationSizeMin,
+            notificationSizeMax: streamNotificationTelemetry.notificationSizeMax,
+            notificationSizeDistribution: streamNotificationTelemetry.fixedSizeHistogramDescription,
+            notificationFrameSizeDistribution: streamNotificationTelemetry.frameSizeHistogramDescription,
+            notificationMaxGapMilliseconds: streamNotificationTelemetry.maxNotificationGapMilliseconds,
+            notificationP95GapMilliseconds: streamNotificationTelemetry.p95NotificationGapMilliseconds,
+            gapOver20Milliseconds: streamNotificationTelemetry.gapOver20Milliseconds,
+            gapOver30Milliseconds: streamNotificationTelemetry.gapOver30Milliseconds,
+            gapOver50Milliseconds: streamNotificationTelemetry.gapOver50Milliseconds,
+            gapOver100Milliseconds: streamNotificationTelemetry.gapOver100Milliseconds,
+            decodeRejectCount: streamDecodeRejectCount,
+            zeroSampleDecodeCount: streamZeroSampleDecodeCount,
+            audioSyncCount: streamAudioSyncCount,
+            decodedAudioDurationMilliseconds: sampleRate > 0
+                ? Double(streamSampleCount) / Double(sampleRate) * 1_000
+                : 0,
+            measurementElapsedMilliseconds: timing.measurementElapsedSeconds * 1_000,
+            expectedSamples: delivery.expectedSamples,
+            deliveredSamples: streamSampleCount,
+            deliveryRatio: delivery.deliveryRatio,
+            deficitSamples: delivery.deficitSamples,
+            deficitMilliseconds: delivery.deficitMilliseconds
         )
         let pipe = AudioPipe.shared.takeAudioDiagnosticsSnapshot()
         VoiceTimingLogger.observeAudioPipeSnapshot(pipe)

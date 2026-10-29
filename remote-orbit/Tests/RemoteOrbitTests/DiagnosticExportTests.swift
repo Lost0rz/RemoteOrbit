@@ -47,6 +47,17 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual((manifest["since_unix_ms"] as? NSNumber)?.int64Value, 100)
         XCTAssertEqual((manifest["until_unix_ms"] as? NSNumber)?.int64Value, 200)
         XCTAssertEqual(manifest["receiver_evidence_status"] as? String, "unavailable")
+        XCTAssertEqual(manifest["observation_schema_version"] as? Int, 1)
+        XCTAssertEqual(manifest["runtime_app_version"] as? String, "1.0")
+        XCTAssertEqual(manifest["runtime_build_version"] as? String, "7")
+        XCTAssertEqual(manifest["runtime_source_revision"] as? String, "abc123")
+        XCTAssertEqual(manifest["diagnostic_dropped_event_count"] as? Int, 0)
+        XCTAssertEqual(manifest["diagnostic_write_failure_count"] as? Int, 0)
+        XCTAssertEqual(manifest["evidence_errors"] as? [String], ["receiver log unavailable"])
+        let includedFiles = try XCTUnwrap(manifest["files_included"] as? [String])
+        XCTAssertTrue(includedFiles.contains("manifest.json"))
+        XCTAssertTrue(includedFiles.contains("SHA256SUMS"))
+        XCTAssertTrue(includedFiles.contains("receiver/evidence-unavailable.json"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("runtime/runtime-context.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("sessions/diagnostic-events.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("journal/events.jsonl").path))
@@ -77,8 +88,15 @@ final class DiagnosticExportTests: XCTestCase {
             receiverEvidenceProvider: provider,
             clock: { Date(timeIntervalSince1970: 1_700_000_001) }
         )
-        let archive = try exporter.export(options: DiagnosticExportOptions(outputDirectory: root))
+        let archive = try exporter.export(options: DiagnosticExportOptions(
+            outputDirectory: root,
+            hostRole: "TEST_HOST"
+        ))
         let extracted = try extract(archive: archive, into: root.appendingPathComponent("extracted"))
+
+        let manifestData = try Data(contentsOf: extracted.appendingPathComponent("manifest.json"))
+        let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: manifestData) as? [String: Any])
+        XCTAssertEqual(manifest["host_role"] as? String, "TEST_HOST")
 
         XCTAssertEqual(
             try String(contentsOf: extracted.appendingPathComponent("receiver/unified-log-window.jsonl"), encoding: .utf8),

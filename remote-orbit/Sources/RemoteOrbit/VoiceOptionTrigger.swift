@@ -425,12 +425,14 @@ enum VoiceTimingLogger {
     static func observeControlPolicy(
         policy: String,
         classification: String,
-        triggerSource: String
+        triggerSource: String,
+        triggerKey: String = "unavailable"
     ) {
         LongTermObservabilityService.shared.observeControl(
             policy: policy,
             classification: classification,
-            triggerSource: triggerSource
+            triggerSource: triggerSource,
+            triggerKey: triggerKey
         )
     }
 
@@ -440,6 +442,8 @@ enum VoiceTimingLogger {
         mode: String,
         codec: String,
         sampleRate: UInt64,
+        reason: UInt64? = nil,
+        streamID: UInt64? = nil,
         timestampNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()
     ) -> UUID {
         LongTermObservabilityService.shared.observeTransportStart(
@@ -447,7 +451,59 @@ enum VoiceTimingLogger {
             mode: mode,
             codec: codec,
             sampleRate: sampleRate,
+            reason: reason,
+            streamID: streamID,
             timestampNanoseconds: timestampNanoseconds
+        )
+    }
+
+    static func observeTransportMetrics(
+        notificationCount: Int,
+        notificationBytes: Int,
+        notificationSizeMin: Int,
+        notificationSizeMax: Int,
+        notificationSizeDistribution: String,
+        notificationFrameSizeDistribution: String,
+        notificationMaxGapMilliseconds: Double,
+        notificationP95GapMilliseconds: Double,
+        gapOver20Milliseconds: Int,
+        gapOver30Milliseconds: Int,
+        gapOver50Milliseconds: Int,
+        gapOver100Milliseconds: Int,
+        decodeRejectCount: Int,
+        zeroSampleDecodeCount: Int,
+        audioSyncCount: Int,
+        decodedAudioDurationMilliseconds: Double,
+        measurementElapsedMilliseconds: Double,
+        expectedSamples: Int,
+        deliveredSamples: Int,
+        deliveryRatio: Double,
+        deficitSamples: Int,
+        deficitMilliseconds: Double
+    ) {
+        LongTermObservabilityService.shared.observeTransportMetrics(
+            notificationCount: UInt64(max(0, notificationCount)),
+            notificationBytes: UInt64(max(0, notificationBytes)),
+            notificationSizeMin: notificationSizeMin > 0 ? UInt64(notificationSizeMin) : nil,
+            notificationSizeMax: notificationSizeMax > 0 ? UInt64(notificationSizeMax) : nil,
+            notificationSizeDistribution: notificationSizeDistribution,
+            notificationFrameSizeDistribution: notificationFrameSizeDistribution,
+            notificationMaxGapMilliseconds: max(0, notificationMaxGapMilliseconds),
+            notificationP95GapMilliseconds: max(0, notificationP95GapMilliseconds),
+            gapOver20Milliseconds: UInt64(max(0, gapOver20Milliseconds)),
+            gapOver30Milliseconds: UInt64(max(0, gapOver30Milliseconds)),
+            gapOver50Milliseconds: UInt64(max(0, gapOver50Milliseconds)),
+            gapOver100Milliseconds: UInt64(max(0, gapOver100Milliseconds)),
+            decodeRejectCount: UInt64(max(0, decodeRejectCount)),
+            zeroSampleDecodeCount: UInt64(max(0, zeroSampleDecodeCount)),
+            audioSyncCount: UInt64(max(0, audioSyncCount)),
+            decodedAudioDurationMilliseconds: max(0, decodedAudioDurationMilliseconds),
+            measurementElapsedMilliseconds: max(0, measurementElapsedMilliseconds),
+            expectedSamples: UInt64(max(0, expectedSamples)),
+            deliveredSamples: UInt64(max(0, deliveredSamples)),
+            deliveryRatio: max(0, deliveryRatio),
+            deficitSamples: UInt64(max(0, deficitSamples)),
+            deficitMilliseconds: max(0, deficitMilliseconds)
         )
     }
 

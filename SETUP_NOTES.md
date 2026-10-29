@@ -399,6 +399,25 @@ defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool true
 defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool false
 ```
 
+### 长期语音证据导出
+
+长期诊断默认记录每个真实 voice session 的 L1 summary；异常时才保留 L2 bounded
+trace。L1/L2 都通过 DiagnosticAuthority 查询，默认 retention 是 2 MiB × 5 segments。
+CoreAudio render 和 CoreBluetooth callback 不同步写 journal，也不默认收集 dictated text。
+
+MacBook Air 自然使用结束后，在 Air 上执行：
+
+```text
+RemoteOrbit diagnostics export --output <directory> --host-role TEST_HOST \
+  --since-unix-ms <start> --until-unix-ms <end>
+```
+
+检查 `manifest.json` 中的 app/build/source head、observation schema、window、drop/write
+计数和 receiver evidence status，再检查 `SHA256SUMS`。receiver unified-log 不可用时保留
+`receiver/evidence-unavailable.json`，不得把 unavailable 改写成成功或推测值。该诊断只建立
+RemoteOrbit 自身的时间和计数事实；它不建立 root cause。需要 A/B、HCI 或 PacketLogger
+验证的问题记录在 `docs/diagnostics/ADR-0003-long-term-observability.md`。
+
 ## 本次代码修改位置
 
 - `remote-orbit/Sources/RemoteOrbit/main.swift`：300ms short-vs-long classifier、pending transport preparation、long-confirmed voice route、first-PCM gated hardware Option-down，以及 output-drain 后的 Option-up 协调。

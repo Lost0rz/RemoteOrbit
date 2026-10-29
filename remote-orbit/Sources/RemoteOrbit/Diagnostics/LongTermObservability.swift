@@ -382,6 +382,8 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
     var physicalUpTimestampNanoseconds: UInt64?
     var micOpenTimestampNanoseconds: UInt64?
     var audioStartTimestampNanoseconds: UInt64?
+    var audioStartReason: UInt64?
+    var audioStreamID: UInt64?
     var audioFirstTimestampNanoseconds: UInt64?
     var micCloseTimestampNanoseconds: UInt64?
     var audioStopTimestampNanoseconds: UInt64?
@@ -391,17 +393,49 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
     var controlPolicy = "unavailable"
     var classification = "unavailable"
     var triggerSource = "unavailable"
+    var triggerKey = "unavailable"
     var atvvProtocolVersion = "unavailable"
     var atvvMode = "unavailable"
     var atvvCodec = "unavailable"
     var atvvSampleRate: UInt64?
     var notificationCount: UInt64 = 0
     var notificationBytes: UInt64 = 0
+    var notificationSizeMin: UInt64?
+    var notificationSizeMax: UInt64?
+    var notificationSizeDistribution = "unavailable"
+    var notificationFrameSizeDistribution = "unavailable"
+    var notificationMaxGapMilliseconds: Double?
+    var notificationP95GapMilliseconds: Double?
+    var notificationGapOver20Milliseconds: UInt64 = 0
+    var notificationGapOver30Milliseconds: UInt64 = 0
+    var notificationGapOver50Milliseconds: UInt64 = 0
+    var notificationGapOver100Milliseconds: UInt64 = 0
     var decodedFrameCount: UInt64 = 0
     var decodedSampleCount: UInt64 = 0
+    var decodedAudioDurationMilliseconds: Double?
+    var decodeRejectCount: UInt64 = 0
+    var zeroSampleDecodeCount: UInt64 = 0
+    var audioSyncCount: UInt64 = 0
+    var measurementElapsedMilliseconds: Double?
+    var expectedSamples: UInt64?
+    var deliveredSamples: UInt64?
+    var deliveryRatio: Double?
+    var deficitSamples: UInt64?
+    var deficitMilliseconds: Double?
     var submittedFrames: UInt64 = 0
     var renderedFrames: UInt64 = 0
     var queueStarvationFrames: UInt64 = 0
+    var activeRequestedFrames: UInt64 = 0
+    var activeFilledFrames: UInt64 = 0
+    var activeUnfilledFrames: UInt64 = 0
+    var activeUnderrunCallbackCount: UInt64 = 0
+    var activeUnderrunFrames: UInt64 = 0
+    var tailRenderedFrames: UInt64 = 0
+    var tailEmptyCallbackCount: UInt64 = 0
+    var queueDepthMinFrames: UInt64?
+    var queueDepthMaxFrames: UInt64?
+    var queueDepthEndFrames: UInt64?
+    var overflowDroppedFrames: UInt64 = 0
     var runtimeIdentity: LongTermRuntimeIdentity?
 
     init(sessionID: String, captureID: String) {
@@ -495,6 +529,8 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
             "physical_up_timestamp_nanoseconds": optionalUInt(physicalUpTimestampNanoseconds),
             "mic_open_timestamp_nanoseconds": optionalUInt(micOpenTimestampNanoseconds),
             "audio_start_timestamp_nanoseconds": optionalUInt(audioStartTimestampNanoseconds),
+            "audio_start_reason": optionalUInt(audioStartReason),
+            "audio_stream_id": optionalUInt(audioStreamID),
             "audio_first_timestamp_nanoseconds": optionalUInt(audioFirstTimestampNanoseconds),
             "mic_close_timestamp_nanoseconds": optionalUInt(micCloseTimestampNanoseconds),
             "audio_stop_timestamp_nanoseconds": optionalUInt(audioStopTimestampNanoseconds),
@@ -504,17 +540,49 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
             "control_policy": .string(controlPolicy),
             "classification": .string(classification),
             "trigger_source": .string(triggerSource),
+            "trigger_key": .string(triggerKey),
             "atvv_protocol_version": .string(atvvProtocolVersion),
             "atvv_mode": .string(atvvMode),
             "atvv_codec": .string(atvvCodec),
             "atvv_sample_rate": optionalUInt(atvvSampleRate),
             "notification_count": .unsignedInteger(notificationCount),
             "notification_bytes": .unsignedInteger(notificationBytes),
+            "notification_size_min": optionalUInt(notificationSizeMin),
+            "notification_size_max": optionalUInt(notificationSizeMax),
+            "notification_size_distribution": .string(notificationSizeDistribution),
+            "notification_frame_size_distribution": .string(notificationFrameSizeDistribution),
+            "notification_max_gap_milliseconds": optionalDouble(notificationMaxGapMilliseconds),
+            "notification_p95_gap_milliseconds": optionalDouble(notificationP95GapMilliseconds),
+            "notification_gap_over_20_milliseconds": .unsignedInteger(notificationGapOver20Milliseconds),
+            "notification_gap_over_30_milliseconds": .unsignedInteger(notificationGapOver30Milliseconds),
+            "notification_gap_over_50_milliseconds": .unsignedInteger(notificationGapOver50Milliseconds),
+            "notification_gap_over_100_milliseconds": .unsignedInteger(notificationGapOver100Milliseconds),
             "decoded_frame_count": .unsignedInteger(decodedFrameCount),
             "decoded_sample_count": .unsignedInteger(decodedSampleCount),
+            "decoded_audio_duration_milliseconds": optionalDouble(decodedAudioDurationMilliseconds),
+            "decode_reject_count": .unsignedInteger(decodeRejectCount),
+            "zero_sample_decode_count": .unsignedInteger(zeroSampleDecodeCount),
+            "audio_sync_count": .unsignedInteger(audioSyncCount),
+            "measurement_elapsed_milliseconds": optionalDouble(measurementElapsedMilliseconds),
+            "expected_samples": optionalUInt(expectedSamples),
+            "delivered_samples": optionalUInt(deliveredSamples),
+            "delivery_ratio": optionalDouble(deliveryRatio),
+            "deficit_samples": optionalUInt(deficitSamples),
+            "deficit_milliseconds": optionalDouble(deficitMilliseconds),
             "submitted_frames": .unsignedInteger(submittedFrames),
             "rendered_frames": .unsignedInteger(renderedFrames),
             "queue_starvation_frames": .unsignedInteger(queueStarvationFrames),
+            "active_requested_frames": .unsignedInteger(activeRequestedFrames),
+            "active_filled_frames": .unsignedInteger(activeFilledFrames),
+            "active_unfilled_frames": .unsignedInteger(activeUnfilledFrames),
+            "active_underrun_callback_count": .unsignedInteger(activeUnderrunCallbackCount),
+            "active_underrun_frames": .unsignedInteger(activeUnderrunFrames),
+            "tail_rendered_frames": .unsignedInteger(tailRenderedFrames),
+            "tail_empty_callback_count": .unsignedInteger(tailEmptyCallbackCount),
+            "queue_depth_min_frames": optionalUInt(queueDepthMinFrames),
+            "queue_depth_max_frames": optionalUInt(queueDepthMaxFrames),
+            "queue_depth_end_frames": optionalUInt(queueDepthEndFrames),
+            "overflow_dropped_frames": .unsignedInteger(overflowDroppedFrames),
             "runtime_process_instance_id": runtimeIdentity.map { .string($0.processInstanceID.uuidString) } ?? .null,
             "runtime_process_id": runtimeIdentity.map { .integer(Int64($0.processID)) } ?? .null,
             "runtime_binary_path": runtimeIdentity.map { .string($0.binaryPath) } ?? .null,
@@ -526,6 +594,10 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
 
     private func optionalUInt(_ value: UInt64?) -> DiagnosticJSONValue {
         value.map(DiagnosticJSONValue.unsignedInteger) ?? .null
+    }
+
+    private func optionalDouble(_ value: Double?) -> DiagnosticJSONValue {
+        value.map(DiagnosticJSONValue.double) ?? .null
     }
 }
 
@@ -614,6 +686,8 @@ final class LongTermObservabilityService: @unchecked Sendable {
         mode: String,
         codec: String,
         sampleRate: UInt64,
+        reason: UInt64? = nil,
+        streamID: UInt64? = nil,
         timestampNanoseconds: UInt64
     ) -> UUID {
         lock.lock()
@@ -629,6 +703,8 @@ final class LongTermObservabilityService: @unchecked Sendable {
         activeSession!.summary.atvvMode = mode
         activeSession!.summary.atvvCodec = codec
         activeSession!.summary.atvvSampleRate = sampleRate
+        activeSession!.summary.audioStartReason = reason
+        activeSession!.summary.audioStreamID = streamID
         lock.unlock()
         return captureID
     }
@@ -646,7 +722,12 @@ final class LongTermObservabilityService: @unchecked Sendable {
         lock.unlock()
     }
 
-    func observeControl(policy: String, classification: String, triggerSource: String) {
+    func observeControl(
+        policy: String,
+        classification: String,
+        triggerSource: String,
+        triggerKey: String = "unavailable"
+    ) {
         lock.lock()
         guard activeSession != nil else {
             lock.unlock()
@@ -655,6 +736,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         activeSession!.summary.controlPolicy = policy
         activeSession!.summary.classification = classification
         activeSession!.summary.triggerSource = triggerSource
+        activeSession!.summary.triggerKey = triggerKey
         lock.unlock()
     }
 
@@ -685,6 +767,61 @@ final class LongTermObservabilityService: @unchecked Sendable {
     func observeNotification(bytes: UInt64, gapNanoseconds: UInt64?) {
         lock.lock()
         activeSession?.summary.recordNotification(bytes: bytes, gapNanoseconds: gapNanoseconds)
+        lock.unlock()
+    }
+
+    func observeTransportMetrics(
+        notificationCount: UInt64,
+        notificationBytes: UInt64,
+        notificationSizeMin: UInt64?,
+        notificationSizeMax: UInt64?,
+        notificationSizeDistribution: String,
+        notificationFrameSizeDistribution: String,
+        notificationMaxGapMilliseconds: Double,
+        notificationP95GapMilliseconds: Double,
+        gapOver20Milliseconds: UInt64,
+        gapOver30Milliseconds: UInt64,
+        gapOver50Milliseconds: UInt64,
+        gapOver100Milliseconds: UInt64,
+        decodeRejectCount: UInt64,
+        zeroSampleDecodeCount: UInt64,
+        audioSyncCount: UInt64,
+        decodedAudioDurationMilliseconds: Double,
+        measurementElapsedMilliseconds: Double,
+        expectedSamples: UInt64,
+        deliveredSamples: UInt64,
+        deliveryRatio: Double,
+        deficitSamples: UInt64,
+        deficitMilliseconds: Double
+    ) {
+        lock.lock()
+        guard activeSession != nil else {
+            lock.unlock()
+            return
+        }
+        activeSession!.summary.notificationCount = notificationCount
+        activeSession!.summary.notificationBytes = notificationBytes
+        activeSession!.summary.notificationSizeMin = notificationSizeMin
+        activeSession!.summary.notificationSizeMax = notificationSizeMax
+        activeSession!.summary.notificationSizeDistribution = notificationSizeDistribution
+        activeSession!.summary.notificationFrameSizeDistribution = notificationFrameSizeDistribution
+        activeSession!.summary.notificationMaxGapMilliseconds = notificationMaxGapMilliseconds
+        activeSession!.summary.notificationP95GapMilliseconds = notificationP95GapMilliseconds
+        activeSession!.summary.notificationGapOver20Milliseconds = gapOver20Milliseconds
+        activeSession!.summary.notificationGapOver30Milliseconds = gapOver30Milliseconds
+        activeSession!.summary.notificationGapOver50Milliseconds = gapOver50Milliseconds
+        activeSession!.summary.notificationGapOver100Milliseconds = gapOver100Milliseconds
+        activeSession!.summary.decodeRejectCount = decodeRejectCount
+        activeSession!.summary.zeroSampleDecodeCount = zeroSampleDecodeCount
+        activeSession!.summary.decodeGapCount = decodeRejectCount &+ zeroSampleDecodeCount
+        activeSession!.summary.audioSyncCount = audioSyncCount
+        activeSession!.summary.decodedAudioDurationMilliseconds = decodedAudioDurationMilliseconds
+        activeSession!.summary.measurementElapsedMilliseconds = measurementElapsedMilliseconds
+        activeSession!.summary.expectedSamples = expectedSamples
+        activeSession!.summary.deliveredSamples = deliveredSamples
+        activeSession!.summary.deliveryRatio = deliveryRatio
+        activeSession!.summary.deficitSamples = deficitSamples
+        activeSession!.summary.deficitMilliseconds = deficitMilliseconds
         lock.unlock()
     }
 
@@ -723,13 +860,26 @@ final class LongTermObservabilityService: @unchecked Sendable {
         activeSession!.summary.submittedFrames = UInt64(max(0, snapshot.submittedRemoteFrames))
         activeSession!.summary.renderedFrames = UInt64(max(0, snapshot.renderedRemoteFrames))
         activeSession!.summary.queueStarvationFrames = UInt64(max(0, snapshot.renderUnfilledFrames))
-        activeSession!.summary.recordDelivery(
-            expectedFrames: UInt64(max(0, snapshot.renderRequestedFrames)),
-            deliveredFrames: UInt64(max(0, snapshot.renderFilledFrames)),
-            marker: .active
-        )
+        activeSession!.summary.queueStarvationCount = UInt64(max(0, snapshot.underrunCallbackCount))
+        activeSession!.summary.activeRequestedFrames = UInt64(max(0, snapshot.renderRequestedFrames))
+        activeSession!.summary.activeFilledFrames = UInt64(max(0, snapshot.renderFilledFrames))
+        activeSession!.summary.activeUnfilledFrames = UInt64(max(0, snapshot.renderUnfilledFrames))
+        activeSession!.summary.activeUnderrunCallbackCount = UInt64(max(0, snapshot.underrunCallbackCount))
+        activeSession!.summary.activeUnderrunFrames = UInt64(max(0, snapshot.renderUnfilledFrames))
+        activeSession!.summary.tailRenderedFrames = UInt64(max(0, snapshot.tailRenderedFrames))
+        activeSession!.summary.tailEmptyCallbackCount = UInt64(max(0, snapshot.tailEmptyCallbackCount))
+        activeSession!.summary.queueDepthMinFrames = UInt64(max(0, snapshot.minQueueDepthFrames))
+        activeSession!.summary.queueDepthMaxFrames = UInt64(max(0, snapshot.maxQueueDepthFrames))
+        activeSession!.summary.queueDepthEndFrames = UInt64(max(0, snapshot.currentQueueDepthFrames))
+        activeSession!.summary.overflowDroppedFrames = UInt64(max(0, snapshot.overflowDroppedFrames))
+        activeSession!.summary.activeExpectedFrames = UInt64(max(0, snapshot.renderRequestedFrames))
+        activeSession!.summary.activeDeliveredFrames = UInt64(max(0, snapshot.renderFilledFrames))
         activeSession!.summary.tailExpectedFrames = UInt64(max(0, snapshot.tailRenderedFrames))
         activeSession!.summary.tailDeliveredFrames = UInt64(max(0, snapshot.tailRenderedFrames))
+        activeSession!.summary.expectedFrames =
+            activeSession!.summary.activeExpectedFrames + activeSession!.summary.tailExpectedFrames
+        activeSession!.summary.deliveredFrames =
+            activeSession!.summary.activeDeliveredFrames + activeSession!.summary.tailDeliveredFrames
         lock.unlock()
     }
 

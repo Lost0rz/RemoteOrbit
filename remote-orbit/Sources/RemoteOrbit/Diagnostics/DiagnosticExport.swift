@@ -246,6 +246,20 @@ final class DiagnosticExporter: @unchecked Sendable {
         timestamp: Date,
         at stagingURL: URL
     ) throws {
+        let includedFiles = try allFiles(at: stagingURL)
+            .map { relativePath(of: $0, from: stagingURL) }
+            .sorted() + ["manifest.json", "SHA256SUMS"]
+        let receiverUnavailableURL = stagingURL
+            .appendingPathComponent("receiver/evidence-unavailable.json")
+        let evidenceErrors: [String]
+        if fileManager.fileExists(atPath: receiverUnavailableURL.path),
+           let data = try? Data(contentsOf: receiverUnavailableURL),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let reason = object["reason"] as? String {
+            evidenceErrors = [reason]
+        } else {
+            evidenceErrors = []
+        }
         let object: [String: Any] = [
             "export_schema_version": 1,
             "created_at_unix_ms": Int64((timestamp.timeIntervalSince1970 * 1_000).rounded(.down)),
@@ -253,8 +267,16 @@ final class DiagnosticExporter: @unchecked Sendable {
             "since_unix_ms": options.startWallTimestampUnixMilliseconds as Any,
             "until_unix_ms": options.endWallTimestampUnixMilliseconds as Any,
             "journal_schema_version": DiagnosticEvent.currentSchemaVersion,
+            "observation_schema_version": LongTermVoiceSessionSummary.schemaVersion,
             "receiver_evidence_status": receiverEvidenceStatus(at: stagingURL),
+            "evidence_errors": evidenceErrors,
+            "files_included": includedFiles,
+            "diagnostic_dropped_event_count": authority.droppedEventCount,
+            "diagnostic_write_failure_count": authority.writeFailureCount,
             "runtime_process_instance_id": runtimeIdentity.processInstanceID.uuidString,
+            "runtime_app_version": runtimeIdentity.appVersion,
+            "runtime_build_version": runtimeIdentity.buildVersion,
+            "runtime_source_revision": runtimeIdentity.sourceRevision as Any,
         ]
         let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         try write(data: data, to: stagingURL.appendingPathComponent("manifest.json"))
@@ -307,7 +329,7 @@ final class DiagnosticExporter: @unchecked Sendable {
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         )
-        return try (enumerator?.compactMap { item -> URL? in
+        return (enumerator?.compactMap { item -> URL? in
             guard let url = item as? URL,
                   (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { return nil }
             return url
@@ -315,7 +337,10 @@ final class DiagnosticExporter: @unchecked Sendable {
     }
 
     private func relativePath(of url: URL, from root: URL) -> String {
-        String(url.path.dropFirst(root.path.count + 1))
+        let rootComponents = root.standardizedFileURL.pathComponents
+        let fileComponents = url.standardizedFileURL.pathComponents
+        guard fileComponents.starts(with: rootComponents) else { return url.lastPathComponent }
+        return fileComponents.dropFirst(rootComponents.count).joined(separator: "/")
     }
 
     private func uniqueArchiveURL(directory: URL, timestamp: Date) -> URL {
@@ -337,7 +362,8 @@ final class DiagnosticExporter: @unchecked Sendable {
         let bytes = Array(value.utf8)
         guard !bytes.isEmpty, bytes.count <= 64 else { return false }
         return bytes.allSatisfy {
-            ($0 >= 97 && $0 <= 122)
+            ($0 >= 65 && $0 <= 90)
+                || ($0 >= 97 && $0 <= 122)
                 || ($0 >= 48 && $0 <= 57)
                 || $0 == 45 || $0 == 46 || $0 == 95
         }

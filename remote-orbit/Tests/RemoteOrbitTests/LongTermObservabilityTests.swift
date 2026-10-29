@@ -142,6 +142,7 @@ final class LongTermObservabilityTests: XCTestCase {
             runtimeIdentity: runtime,
             thresholds: LongTermObservabilityThresholds(
                 maxNotificationGapCount: 1,
+                maxDecodeGapCount: 3,
                 maxActiveDeficitFrames: 1_000
             )
         )
@@ -151,6 +152,8 @@ final class LongTermObservabilityTests: XCTestCase {
             mode: "remote",
             codec: "ADPCM",
             sampleRate: 16_000,
+            reason: 7,
+            streamID: 9,
             timestampNanoseconds: 100
         )
 
@@ -160,6 +163,30 @@ final class LongTermObservabilityTests: XCTestCase {
         service.mark("AUDIO_START", timestampNanoseconds: 400, sessionID: sessionID)
         service.mark("AUDIO_FIRST", timestampNanoseconds: 500, sessionID: sessionID)
         service.observeNotification(bytes: 120, gapNanoseconds: 30_000_000)
+        service.observeTransportMetrics(
+            notificationCount: 3,
+            notificationBytes: 360,
+            notificationSizeMin: 120,
+            notificationSizeMax: 120,
+            notificationSizeDistribution: "120=3",
+            notificationFrameSizeDistribution: "==frameSize=3",
+            notificationMaxGapMilliseconds: 30,
+            notificationP95GapMilliseconds: 30,
+            gapOver20Milliseconds: 1,
+            gapOver30Milliseconds: 0,
+            gapOver50Milliseconds: 0,
+            gapOver100Milliseconds: 0,
+            decodeRejectCount: 1,
+            zeroSampleDecodeCount: 2,
+            audioSyncCount: 1,
+            decodedAudioDurationMilliseconds: 20,
+            measurementElapsedMilliseconds: 25,
+            expectedSamples: 400,
+            deliveredSamples: 320,
+            deliveryRatio: 0.8,
+            deficitSamples: 80,
+            deficitMilliseconds: 5
+        )
         service.observeDecode(frameCount: 2, sampleCount: 320)
         service.observeSupply(submittedFrames: 320)
         service.observePlayout(expectedFrames: 320, deliveredFrames: 300, marker: .active)
@@ -180,13 +207,22 @@ final class LongTermObservabilityTests: XCTestCase {
             return XCTFail("summary payload must be an object")
         }
         XCTAssertEqual(payload["capture_id"], .string(captureID.uuidString))
+        XCTAssertEqual(payload["audio_start_reason"], .unsignedInteger(7))
+        XCTAssertEqual(payload["audio_stream_id"], .unsignedInteger(9))
         XCTAssertEqual(payload["physical_down_timestamp_nanoseconds"], .unsignedInteger(200))
         XCTAssertEqual(payload["mic_open_timestamp_nanoseconds"], .unsignedInteger(300))
         XCTAssertEqual(payload["audio_first_timestamp_nanoseconds"], .unsignedInteger(500))
         XCTAssertEqual(payload["drain_finish_timestamp_nanoseconds"], .unsignedInteger(900))
-        XCTAssertEqual(payload["notification_count"], .unsignedInteger(1))
+        XCTAssertEqual(payload["notification_count"], .unsignedInteger(3))
         XCTAssertEqual(payload["notification_gap_count"], .unsignedInteger(1))
+        XCTAssertEqual(payload["notification_size_distribution"], .string("120=3"))
+        XCTAssertEqual(payload["notification_p95_gap_milliseconds"], .double(30))
         XCTAssertEqual(payload["decoded_sample_count"], .unsignedInteger(320))
+        XCTAssertEqual(payload["decode_reject_count"], .unsignedInteger(1))
+        XCTAssertEqual(payload["zero_sample_decode_count"], .unsignedInteger(2))
+        XCTAssertEqual(payload["audio_sync_count"], .unsignedInteger(1))
+        XCTAssertEqual(payload["expected_samples"], .unsignedInteger(400))
+        XCTAssertEqual(payload["deficit_samples"], .unsignedInteger(80))
         XCTAssertEqual(payload["submitted_frames"], .unsignedInteger(320))
         XCTAssertEqual(payload["rendered_frames"], .unsignedInteger(300))
         XCTAssertEqual(payload["receiver_evidence_status"], .string("unavailable"))
