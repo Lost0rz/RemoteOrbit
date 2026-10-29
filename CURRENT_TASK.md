@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `ACTIVE — IMPLEMENTATION CANDIDATE CONSTRUCTION`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -43,4 +43,12 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 
 ## Completion gate
 
-Stop at a verified implementation candidate ready for independent Web audit and later owner-controlled Air installation/testing. Completion requires focused tests, proportionate Swift regression/build/self-tests, source/test evidence for hot-path and bounded-memory/disk claims, documentation, exact changed-file identity, and reconciled controls. It does not authorize merge, tag, release, or Air runtime validation.
+Satisfied at candidate HEAD `373717186d3c889217a611f4e913b431ece9bd47`: focused tests, 442-test Swift regression, release build, self-tests, source/test evidence for hot-path and bounded-memory/disk claims, documentation, exact changed-file identity, and reconciled controls. The task now waits for independent Web audit and later owner-controlled Air installation/testing. It does not authorize merge, tag, release, or Air runtime validation.
+
+## Final verification receipt
+
+- `swift test`: 442 passed, 0 failed.
+- `swift build -c release`: passed.
+- `./run-self-tests.sh`: passed all 3 protocol self-tests.
+- `git diff --check`: passed.
+- PR #25 remains Draft/Open/Unmerged; no push, merge, tag, release, install, or Air runtime mutation was performed.
