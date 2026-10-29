@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `ACTIVE — FINAL VERIFICATION`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -43,9 +43,12 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 
 ## Completion gate
 
-The prior candidate satisfied the gate, but a final review added an explicit lifecycle-order anomaly flag and its focused test. Re-run the full regression, release build, self-tests, source checks, and `git diff --check`; then record the refreshed exact candidate HEAD before waiting for independent Web audit. It does not authorize merge, tag, release, or Air runtime validation.
+Satisfied at implementation candidate HEAD `79406f17be3fbee77b4492687f63431434b23998`: focused tests, 443-test Swift regression, release build, self-tests, source/test evidence for hot-path and bounded-memory/disk claims, documentation, exact changed-file identity, and reconciled controls. The task now waits for independent Web audit and later owner-controlled Air installation/testing. It does not authorize merge, tag, release, or Air runtime validation.
 
 ## Final verification receipt
 
-- Previous baseline: `swift test` 442 passed, `swift build -c release`, self-tests, and `git diff --check` passed; these receipts must be refreshed after the lifecycle classifier change.
+- `swift test`: 443 passed, 0 failed.
+- `swift build -c release`: passed.
+- `./run-self-tests.sh`: passed all 3 protocol self-tests.
+- `git diff --check`: passed.
 - PR #25 remains Draft/Open/Unmerged; no push, merge, tag, release, install, or Air runtime mutation was performed.
