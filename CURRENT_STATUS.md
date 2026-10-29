@@ -20,6 +20,7 @@ Repository: Lost0rz/RemoteOrbit
 - Remote-delivery verification before this corrective: `origin/codex/observability-039` matched `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
 - Remote-delivery verification for this corrective: `origin/codex/observability-039` matched `e703e16554e98e69ed6fb4e84ccce542c4169b20` before this receipt.
 - Remote-delivery verification for the pre-HID lifecycle corrective: `origin/codex/observability-039` matched `593a488cad186d02485ea821fb41f966a135ac77` before this delivery receipt.
+- Final delivery receipt `93f1b91ad06f9717251b09653557aebe4ff44910` was pushed and remotely read back before this factual control correction.
 - PR #25 (`Release RemoteOrbit v0.2.15`) is Draft/Open/Unmerged; public release is blocked and no merge, tag, or release is authorized by this task.
 - The former release-control branch `codex/release-v0.2.15` remains at `f049e6eb7f0e5625b807fba1860d04c048b638ca` in `/private/tmp/remoteorbit-release-v0.2.15-local-soak`; it is retained for provenance and is not an active writer for this task.
 - The owner's MacBook Air natural-use observation reported substantial final-text omission. This records the release decision as `RELEASE_BLOCKED / SOAK_FAILED`; it does not claim a technical root cause.
@@ -47,7 +48,7 @@ Repository: Lost0rz/RemoteOrbit
 
 ## Candidate evidence
 
-- 461 Swift tests pass; release build and `run-self-tests.sh` pass.
+- 466 Swift tests pass; release build and `run-self-tests.sh` pass.
 - `git diff --check` passes.
 - Source review confirms the second corrective adds no AudioPipe render/BLE callback disk I/O, formatting, authority call, or new contended diagnostic lock; BLE/audio callbacks do not synchronously write the journal; normal sessions emit summary-only and anomaly traces are emitted off-path.
 - Focused evidence covers first-writer-wins cross-producer incident identity/anchor, production-path material BLE gap and AudioPipe starvation coordination, transport-to-render retention after both recent rings wrap, strict main-queue >50 ms threshold alignment, actual trace drop, exact export-limit truncation, existing journal/export/receiver/late-lifecycle behavior, and product-freeze preservation.
