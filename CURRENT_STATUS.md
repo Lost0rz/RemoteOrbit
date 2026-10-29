@@ -50,7 +50,7 @@ Repository: Lost0rz/RemoteOrbit
 
 ## Current next action
 
-The second corrective candidate has been pushed on `codex/observability-039` and its remote head was verified at `e703e16554e98e69ed6fb4e84ccce542c4169b20`; await another independent Web audit. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
+The second corrective candidate has been pushed on `codex/observability-039` and remote delivery was verified; await another independent Web audit. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
 
 ## Stop conditions
 
