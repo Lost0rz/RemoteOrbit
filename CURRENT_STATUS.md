@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-29
-State: RO-MAPPING-CONFIG-SIMPLIFY-040 — WAITING_FOR_INDEPENDENT_WEB_AUDIT
+State: RO-MAPPING-CONFIG-SIMPLIFY-040 — STRUCTURED_RECORDING_EVIDENCE_CORRECTIVE_IN_PROGRESS
 Repository: Lost0rz/RemoteOrbit
 
 ## Current authority
@@ -12,8 +12,8 @@ Repository: Lost0rz/RemoteOrbit
 - Active writer worktree: `/private/tmp/remoteorbit-mapping-config-simplify-040`.
 - Delivered implementation commit: `c3b8c74ee933f666bcc9688be9554d9b79416993`.
 - Delivered corrective commit: `9669420ecfd65034ebeb61ade08386dd0ca20659`.
-- Verified remote delivery: `origin/codex/mapping-config-simplify-040` contains `9669420ecfd65034ebeb61ade08386dd0ca20659`; local and remote heads match.
-- Current corrective authorization: the owner authorized a bounded Settings corrective on this same branch/worktree for deterministic mapping-page entry state and observable debug-recording persistence; no new writer is created.
+- Reconciled remote delivery: `origin/codex/mapping-config-simplify-040` and PR #26 point to `d0c11d7b74d70f3ba5e4fbb9b70f1d451644df66`; local and remote heads match at that control-reconciled snapshot.
+- Current corrective authorization: the owner authorized one bounded follow-up on this same branch/worktree to emit persistent structured recording failure evidence through `DiagnosticAuthority`; no new writer is created.
 - `AGENTS.md` remains the durable repository rule authority; `CURRENT_TASK.md` is the single active implementation authorization for this branch.
 - `RO-OBSERVABILITY-039` continues separately as owner-run Air natural-use observation on `codex/observability-039`; that branch is frozen for product writes while evidence is collected.
 - PR #25 / `codex/release-v0.2.15` remains Draft/Open/Unmerged and is not part of this task.
@@ -49,16 +49,22 @@ This task must not change:
 - Recording sessions use unique filenames and never delete or overwrite existing captures during recorder initialization.
 - `ROOT_CAUSE_DEBUG_RECORDING`: the owner-reported live session remains `UNKNOWN` because no Air/hardware session was run in this task. Direct source defects confirmed at the recorder boundary were silent creation failure handling and same-millisecond filename collision with pre-existing-file deletion; local production-chain seams now prove the enabled/disabled, create, write, close, and filesystem behavior.
 
+## Current bounded follow-up
+
+- Scope is limited to structured `DiagnosticAuthority` evidence for recording creation, write, and close failures, independent of the optional runtime-log toggle.
+- Preserve successful recording behavior, existing recording lifecycle events, mapping behavior, import/export, BLE/ATVV, AudioPipe, codec, gestures, backup retirement, RO-OBSERVABILITY-039, and PR #25.
+- This follow-up must update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together after implementation and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+
 ## Acceptance state
 
 - Design mode: `DESIGN_IMPLEMENT`.
 - Implementation: delivered baseline plus corrective at `9669420ecfd65034ebeb61ade08386dd0ca20659`.
-- Automated verification: PASS — focused mapping/recording 20/20; full Swift 430/430; release build PASS; `git diff --check` PASS.
+- Automated verification: prior corrective baseline PASS — focused mapping/recording 20/20; full Swift 430/430; release build PASS; `git diff --check` PASS. Follow-up verification is pending.
 - Retirement residue check: PASS — no retired mapping backup/history identifiers remain in production or tests.
 - `RO-OBSERVABILITY-039` changed: NO.
 - PR #25 changed: NO.
 - Old backup files deleted: NO.
-- Remote delivery: `PUSHED_VERIFIED`; local and `origin/codex/mapping-config-simplify-040` both point to `718a2f543fae79ccc98a16c1274cfd95b0fb53d2`.
+- Remote delivery before this follow-up: `PUSHED_VERIFIED`; local and `origin/codex/mapping-config-simplify-040` both point to `d0c11d7b74d70f3ba5e4fbb9b70f1d451644df66`.
 - Corrective PR: `#26` Draft/Open/Unmerged — `https://github.com/Lost0rz/RemoteOrbit/pull/26`.
 - Independent Web audit: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; no independent Web PASS is claimed.
 - AI-rendered inspection: not part of this corrective; existing accepted Settings / Control Center UI is frozen.
@@ -66,4 +72,4 @@ This task must not change:
 
 ## Next
 
-Corrective implementation and verification are complete. Independent Web audit is the next owner-controlled gate. Do not merge, tag, release, modify PR #25, or modify the Air validation runtime.
+Complete the structured recording-evidence follow-up, verify locally, push only this branch, reconcile the exact final implementation/control/remote heads, then stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge, tag, release, modify PR #25, or modify the Air validation runtime.

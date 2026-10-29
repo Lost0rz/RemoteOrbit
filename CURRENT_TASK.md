@@ -2,7 +2,7 @@
 
 ## RO-MAPPING-CONFIG-SIMPLIFY-040 — Settings bounded corrective
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `STRUCTURED_RECORDING_EVIDENCE_CORRECTIVE_IN_PROGRESS`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -39,6 +39,18 @@ The implementation must establish observable evidence for the toggle value, enab
 Delivered in `9669420ecfd65034ebeb61ade08386dd0ca20659`: mapping entry is deterministic and navigation-only; the recorder now uses unique non-destructive paths, throws observable creation errors, reports write/close evidence, and has focused production-chain test seams.
 
 The owner-reported live-session root cause remains `UNKNOWN` because no Air/hardware session was run here. Source evidence confirms the previous silent recorder creation/write boundary and same-millisecond filename collision/deletion risk; local tests now cover the corrected chain.
+
+## Bounded follow-up authorized by the owner
+
+The independent Web audit found that recording creation/write/close failure evidence still depends on `print → Log.write`, which is disabled when `AppStorage.loggingEnabled == false`. The owner authorizes one bounded corrective on this same branch/worktree:
+
+- Emit persistent structured failure events through the existing `DiagnosticAuthority` path for recording creation, write, and close failures.
+- Keep the existing `audio.capture.recording_started` and `audio.capture.recording_closed` events and successful WAV/RAW behavior unchanged.
+- Include only bounded operation/category/reason evidence; do not include audio content, dictated text, or raw filesystem paths.
+- Add focused tests for failure evidence with runtime logging disabled, practical write/close failure paths, successful lifecycle-only events, valid WAV/RAW finalization, and payload non-leakage.
+- Reconcile `CURRENT_STATUS.md` and `CURRENT_TASK.md` together after implementation with exact final implementation/control/remote heads.
+
+This follow-up does not reopen the accepted mapping UI, import/export behavior, backup retirement, or any BLE/audio/HID/codec/gesture/observability-039/PR-25 work.
 
 ### Corrective non-goals and acceptance
 
@@ -199,11 +211,12 @@ After implementation and verification:
 - Bounded corrective commit: `9669420ecfd65034ebeb61ade08386dd0ca20659`.
 - Corrective verification: focused mapping/recording 20/20, full `swift test` 430/430, release build PASS, and `git diff --check` PASS.
 - Corrective PR: `#26` Draft/Open/Unmerged — `https://github.com/Lost0rz/RemoteOrbit/pull/26`.
+- Follow-up status: `STRUCTURED_RECORDING_EVIDENCE_CORRECTIVE_IN_PROGRESS` at reconciled pre-follow-up head `d0c11d7b74d70f3ba5e4fbb9b70f1d451644df66`.
 - do not merge;
 - do not tag or release;
 - do not modify PR #25;
 - do not modify/install the owner's Air validation runtime;
-- stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`;
+- after the bounded follow-up, stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`;
 - report exact changed files, removed backup/history surfaces, verification results, and human UI acceptance as `PENDING`.
 
 ## Stop conditions
