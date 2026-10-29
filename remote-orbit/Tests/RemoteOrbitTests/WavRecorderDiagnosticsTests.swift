@@ -46,6 +46,7 @@ final class WavRecorderDiagnosticsTests: XCTestCase {
         XCTAssertNil(events[0].payload["path"])
         XCTAssertNil(events[0].payload["filename"])
         XCTAssertNil(events[1].payload["audio"])
+        XCTAssertFalse(events.contains { $0.category == "failure" })
     }
 
     func testRecordingWritesRawAndValidFinalizedPCMHeader() throws {
@@ -114,10 +115,16 @@ final class WavRecorderDiagnosticsTests: XCTestCase {
         let blockedDirectory = root.appendingPathComponent("not-a-directory")
         XCTAssertTrue(FileManager.default.createFile(atPath: blockedDirectory.path, contents: Data([1])))
 
+        let authority = makeDiagnosticAuthority(in: root)
+        let previousLogging = AppStorage.loggingEnabled
+        defer { AppStorage.loggingEnabled = previousLogging }
+        AppStorage.loggingEnabled = false
+
         XCTAssertThrowsError(
             try WavRecorder.createNext(
                 prefix: "remote-orbit",
-                directory: blockedDirectory
+                directory: blockedDirectory,
+                diagnosticAuthority: authority
             )
         ) { error in
             guard case let WavRecorderError.directoryCreationFailed(path, _) = error else {
@@ -125,6 +132,50 @@ final class WavRecorderDiagnosticsTests: XCTestCase {
             }
             XCTAssertEqual(path, blockedDirectory.path)
         }
+
+        let events = try authority.query(DiagnosticQueryFilter(
+            eventTypes: ["audio.capture.recording_create_failed"],
+            limit: 10
+        )).events
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].payload["operation"], .string("directory_create"))
+        XCTAssertEqual(events[0].payload["failure_category"], .string("directory"))
+        XCTAssertEqual(events[0].payload["reason"], .string("directory_creation_failed"))
+        XCTAssertFalse(String(describing: events[0].payload).contains(blockedDirectory.path))
+        XCTAssertFalse(String(describing: events[0].payload).contains("dictated"))
+        XCTAssertFalse(String(describing: events[0].payload).contains("audio"))
+    }
+
+    func testWriteAndCloseFailuresEmitStructuredEvidence() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let authority = makeDiagnosticAuthority(in: directory)
+        let recorder = try WavRecorder(
+            wavURL: directory.appendingPathComponent("capture.wav"),
+            rawURL: directory.appendingPathComponent("capture.raw.bin"),
+            basename: "capture",
+            diagnosticAuthority: authority
+        )
+        defer { recorder.close() }
+
+        recorder.emitWriteFailureForTesting()
+        recorder.emitCloseFailureForTesting()
+
+        let events = try authority.query(DiagnosticQueryFilter(
+            subsystems: ["audio.capture"],
+            limit: 10
+        )).events
+        XCTAssertEqual(events.map(\.eventType), [
+            "audio.capture.recording_started",
+            "audio.capture.recording_write_failed",
+            "audio.capture.recording_close_failed",
+        ])
+        XCTAssertEqual(events[1].payload["failure_category"], .string("write"))
+        XCTAssertEqual(events[2].payload["failure_category"], .string("close"))
+        XCTAssertFalse(events.dropFirst().contains {
+            String(describing: $0.payload).contains(directory.path)
+        })
     }
 
     func testBridgeRecordingToggleCoversDisabledEnabledAndSecondSession() throws {
@@ -201,6 +252,23 @@ final class WavRecorderDiagnosticsTests: XCTestCase {
             withIntermediateDirectories: true
         )
         return directory
+    }
+
+    private func makeDiagnosticAuthority(in directory: URL) -> DiagnosticAuthorityService {
+        DiagnosticAuthorityService(
+            journal: JSONLinesDiagnosticJournal(
+                fileURL: directory.appendingPathComponent("diagnostics.jsonl")
+            ),
+            runtimeContext: DiagnosticRuntimeContext(
+                processInstanceID: UUID(),
+                processID: 123,
+                binaryPath: "/tmp/RemoteOrbit-test",
+                appVersion: "test",
+                buildVersion: "test",
+                sourceRevision: nil
+            ),
+            clock: SystemDiagnosticClock()
+        )
     }
 
     private func recordingFiles(in directory: URL) throws -> (wav: [URL], raw: [URL]) {

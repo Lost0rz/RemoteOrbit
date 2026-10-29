@@ -503,6 +503,39 @@ enum DiagnosticEventCatalog {
                 "recorded_duration_ms": .number,
             ]
         ),
+        "audio.capture.recording_create_failed": DiagnosticEventDefinition(
+            subsystem: "audio.capture",
+            category: "failure",
+            severity: .error,
+            sourceComponent: "wav_recorder",
+            payloadFields: [
+                "operation": .string,
+                "failure_category": .string,
+                "reason": .string,
+            ]
+        ),
+        "audio.capture.recording_write_failed": DiagnosticEventDefinition(
+            subsystem: "audio.capture",
+            category: "failure",
+            severity: .error,
+            sourceComponent: "wav_recorder",
+            payloadFields: [
+                "operation": .string,
+                "failure_category": .string,
+                "reason": .string,
+            ]
+        ),
+        "audio.capture.recording_close_failed": DiagnosticEventDefinition(
+            subsystem: "audio.capture",
+            category: "failure",
+            severity: .error,
+            sourceComponent: "wav_recorder",
+            payloadFields: [
+                "operation": .string,
+                "failure_category": .string,
+                "reason": .string,
+            ]
+        ),
         "application.frontmost.transition": DiagnosticEventDefinition(
             subsystem: "application.frontmost",
             category: "transition",

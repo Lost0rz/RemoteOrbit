@@ -42,6 +42,13 @@ final class WavRecorder {
                 withIntermediateDirectories: true
             )
         } catch {
+            Self.emitStructuredFailure(
+                authority: diagnosticAuthority,
+                eventType: "audio.capture.recording_create_failed",
+                operation: "directory_create",
+                failureCategory: "directory",
+                reason: "directory_creation_failed"
+            )
             throw WavRecorderError.directoryCreationFailed(
                 path: directory.path,
                 reason: error.localizedDescription
@@ -92,6 +99,14 @@ final class WavRecorder {
 
         let fileManager = FileManager.default
         guard fileManager.createFile(atPath: wavURL.path, contents: nil) else {
+            Self.emitStructuredFailure(
+                authority: diagnosticAuthority,
+                eventType: "audio.capture.recording_create_failed",
+                operation: "wav_create",
+                failureCategory: "file",
+                reason: "file_creation_failed",
+                correlationID: recordingID
+            )
             throw WavRecorderError.fileCreationFailed(path: wavURL.path)
         }
 
@@ -100,6 +115,14 @@ final class WavRecorder {
             wh = try FileHandle(forWritingTo: wavURL)
         } catch {
             try? fileManager.removeItem(at: wavURL)
+            Self.emitStructuredFailure(
+                authority: diagnosticAuthority,
+                eventType: "audio.capture.recording_create_failed",
+                operation: "wav_open",
+                failureCategory: "file",
+                reason: "file_open_failed",
+                correlationID: recordingID
+            )
             throw WavRecorderError.fileOpenFailed(
                 path: wavURL.path,
                 reason: error.localizedDescription
@@ -116,6 +139,14 @@ final class WavRecorder {
         } catch {
             try? wh.close()
             try? fileManager.removeItem(at: wavURL)
+            Self.emitStructuredFailure(
+                authority: diagnosticAuthority,
+                eventType: "audio.capture.recording_create_failed",
+                operation: "wav_header_write",
+                failureCategory: "write",
+                reason: "header_write_failed",
+                correlationID: recordingID
+            )
             throw WavRecorderError.writeFailed(
                 path: wavURL.path,
                 operation: "WAV header",
@@ -126,6 +157,14 @@ final class WavRecorder {
         guard fileManager.createFile(atPath: rawURL.path, contents: nil) else {
             try? wh.close()
             try? fileManager.removeItem(at: wavURL)
+            Self.emitStructuredFailure(
+                authority: diagnosticAuthority,
+                eventType: "audio.capture.recording_create_failed",
+                operation: "raw_create",
+                failureCategory: "file",
+                reason: "file_creation_failed",
+                correlationID: recordingID
+            )
             throw WavRecorderError.fileCreationFailed(path: rawURL.path)
         }
 
@@ -136,6 +175,14 @@ final class WavRecorder {
             try? wh.close()
             try? fileManager.removeItem(at: wavURL)
             try? fileManager.removeItem(at: rawURL)
+            Self.emitStructuredFailure(
+                authority: diagnosticAuthority,
+                eventType: "audio.capture.recording_create_failed",
+                operation: "raw_open",
+                failureCategory: "file",
+                reason: "file_open_failed",
+                correlationID: recordingID
+            )
             throw WavRecorderError.fileOpenFailed(
                 path: rawURL.path,
                 reason: error.localizedDescription
@@ -162,9 +209,12 @@ final class WavRecorder {
                 try h.write(contentsOf: Data(pcm))
                 self.totalFrames += UInt64(samples.count)
             } catch {
-                self.emitFailure(
+                self.reportFailure(
+                    eventType: "audio.capture.recording_write_failed",
                     path: self.wavURL.path,
-                    operation: "PCM samples",
+                    operation: "pcm_samples_write",
+                    failureCategory: "write",
+                    reason: "write_failed",
                     error: error
                 )
             }
@@ -179,9 +229,12 @@ final class WavRecorder {
                 try h.write(contentsOf: data)
                 self.rawByteCount += UInt64(data.count)
             } catch {
-                self.emitFailure(
+                self.reportFailure(
+                    eventType: "audio.capture.recording_write_failed",
                     path: self.rawURL.path,
-                    operation: "raw bytes",
+                    operation: "raw_bytes_write",
+                    failureCategory: "write",
+                    reason: "write_failed",
                     error: error
                 )
             }
@@ -213,9 +266,12 @@ final class WavRecorder {
                     try h.write(contentsOf: header)
                     try h.close()
                 } catch {
-                    emitFailure(
+                    reportFailure(
+                        eventType: "audio.capture.recording_close_failed",
                         path: wavURL.path,
-                        operation: "WAV close",
+                        operation: "wav_close",
+                        failureCategory: "close",
+                        reason: "header_rewrite_or_close_failed",
                         error: error
                     )
                 }
@@ -225,9 +281,12 @@ final class WavRecorder {
                 do {
                     try h.close()
                 } catch {
-                    emitFailure(
+                    reportFailure(
+                        eventType: "audio.capture.recording_close_failed",
                         path: rawURL.path,
-                        operation: "raw close",
+                        operation: "raw_close",
+                        failureCategory: "close",
+                        reason: "raw_close_failed",
                         error: error
                     )
                 }
@@ -262,11 +321,78 @@ final class WavRecorder {
 
     var recordedSampleRate: UInt32 { sampleRate }
 
-    private func emitFailure(path: String, operation: String, error: Error) {
+    // These seams exercise the same structured failure path used by the I/O
+    // catches without making the normal recorder lifecycle artificial.
+    func emitWriteFailureForTesting() {
+        ioQueue.sync {
+            reportFailure(
+                eventType: "audio.capture.recording_write_failed",
+                path: wavURL.path,
+                operation: "test_write",
+                failureCategory: "write",
+                reason: "test_failure",
+                error: nil
+            )
+        }
+    }
+
+    func emitCloseFailureForTesting() {
+        ioQueue.sync {
+            reportFailure(
+                eventType: "audio.capture.recording_close_failed",
+                path: wavURL.path,
+                operation: "test_close",
+                failureCategory: "close",
+                reason: "test_failure",
+                error: nil
+            )
+        }
+    }
+
+    private func reportFailure(
+        eventType: String,
+        path: String,
+        operation: String,
+        failureCategory: String,
+        reason: String,
+        error: Error?
+    ) {
+        Self.emitStructuredFailure(
+            authority: diagnosticAuthority,
+            eventType: eventType,
+            operation: operation,
+            failureCategory: failureCategory,
+            reason: reason,
+            correlationID: recordingID
+        )
         print(
             "[WAV] failure operation=\(operation) path=\(path) "
-                + "error=\(error.localizedDescription)"
+                + "error=\(error?.localizedDescription ?? reason)"
         )
+    }
+
+    private static func emitStructuredFailure(
+        authority: any DiagnosticAuthority,
+        eventType: String,
+        operation: String,
+        failureCategory: String,
+        reason: String,
+        correlationID: String? = nil
+    ) {
+        guard let event = try? DiagnosticEventInput(
+            eventType: eventType,
+            subsystem: "audio.capture",
+            category: "failure",
+            severity: .error,
+            sourceComponent: "wav_recorder",
+            correlationID: correlationID,
+            payload: [
+                "operation": .string(operation),
+                "failure_category": .string(failureCategory),
+                "reason": .string(reason),
+            ]
+        ) else { return }
+        authority.emit(event)
     }
 
     private func fileSize(at url: URL) -> UInt64 {
