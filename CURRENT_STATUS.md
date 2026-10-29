@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-29
-State: WAITING_FOR_INDEPENDENT_WEB_AUDIT — RO-OBSERVABILITY-039 CANDIDATE
+State: CORRECTIVE_ACTIVE — RO-OBSERVABILITY-039
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -11,7 +11,8 @@ Repository: Lost0rz/RemoteOrbit
 - Audited control parent: `origin/main` at `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9`.
 - Active implementation branch: `codex/observability-039`.
 - Active implementation worktree: `/private/tmp/remoteorbit-longterm-observability-039`.
-- Verified implementation candidate HEAD: `79406f17be3fbee77b4492687f63431434b23998` (`diagnostics: classify lifecycle inconsistencies`).
+- Previous implementation candidate HEAD: `79406f17be3fbee77b4492687f63431434b23998` (`diagnostics: classify lifecycle inconsistencies`).
+- Current control HEAD before corrective work: `24d08c64abf5832a89957241713fb50cfd60da04`.
 - PR #25 (`Release RemoteOrbit v0.2.15`) is Draft/Open/Unmerged; public release is blocked and no merge, tag, or release is authorized by this task.
 - The former release-control branch `codex/release-v0.2.15` remains at `f049e6eb7f0e5625b807fba1860d04c048b638ca` in `/private/tmp/remoteorbit-release-v0.2.15-local-soak`; it is retained for provenance and is not an active writer for this task.
 - The owner's MacBook Air natural-use observation reported substantial final-text omission. This records the release decision as `RELEASE_BLOCKED / SOAK_FAILED`; it does not claim a technical root cause.
@@ -21,9 +22,11 @@ Repository: Lost0rz/RemoteOrbit
 ## Task transition
 
 - Previous active task: `RO-RELEASE-V0.2.15`, state `LOCAL_SOAK_ACTIVE`.
-- Current active task: `RO-OBSERVABILITY-039`, state `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+- Current active task: `RO-OBSERVABILITY-039`, state `CORRECTIVE_ACTIVE`.
 - Transition parent: `79406f17be3fbee77b4492687f63431434b23998`.
 - `CURRENT_STATUS.md` and `CURRENT_TASK.md` were updated together in the control-transition commit immediately following that parent.
+- Corrective transition start HEAD: `24d08c64abf5832a89957241713fb50cfd60da04`.
+- The independent Web audit of the pushed candidate failed with findings covering anomaly/ring semantics, incident freezing, BLE/decode trace completeness, main-queue correlation, delivery-deficit classification, crash-tolerant journal recovery, export pagination/log source, receiver evidence, and late lifecycle correlation. The corrective scope remains observability-only.
 
 ## Product and runtime boundaries
 
@@ -41,7 +44,7 @@ Repository: Lost0rz/RemoteOrbit
 
 ## Current next action
 
-Independent Web audit of exact candidate HEAD. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
+Implement the bounded audit corrective in the existing worktree, then run focused tests, proportionate Swift regression, release build, self-tests, diff/source review, and push the corrected candidate for another independent Web audit. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
 
 ## Stop conditions
 

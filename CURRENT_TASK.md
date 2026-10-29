@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `CORRECTIVE_ACTIVE`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -19,6 +19,7 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 - Audited parent: `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9`.
 - Active branch: `codex/observability-039`.
 - Active worktree: `/private/tmp/remoteorbit-longterm-observability-039`.
+- Corrective transition start HEAD: `24d08c64abf5832a89957241713fb50cfd60da04`.
 - PR #25 remains Draft/Open/Unmerged and must not be merged, tagged, or released.
 
 ## Authorized scope
@@ -41,9 +42,9 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 - Do not unconditionally allocate the existing 8192-bucket opt-in ledger if that creates meaningful normal-runtime cost.
 - Do not synchronously write disk, format strings, allocate, or acquire a new shared diagnostic lock in CoreAudio render or CoreBluetooth audio hot callbacks.
 
-## Completion gate
+## Corrective gate
 
-Satisfied at implementation candidate HEAD `79406f17be3fbee77b4492687f63431434b23998`: focused tests, 443-test Swift regression, release build, self-tests, source/test evidence for hot-path and bounded-memory/disk claims, documentation, exact changed-file identity, and reconciled controls. The task now waits for independent Web audit and later owner-controlled Air installation/testing. It does not authorize merge, tag, release, or Air runtime validation.
+The independent Web audit of the pushed candidate failed. Correct the bounded observability findings from the corrective card without changing product/audio behavior, then prove the corrected candidate with focused realistic tests, full/proportionate Swift regression, release build, self-tests, `git diff --check`, exact source/product-freeze review, and remote branch verification. The corrected task remains subject to another independent Web audit and later owner-controlled Air installation/testing. It does not authorize merge, tag, release, or Air runtime validation.
 
 ## Final verification receipt
 
@@ -51,4 +52,4 @@ Satisfied at implementation candidate HEAD `79406f17be3fbee77b4492687f63431434b2
 - `swift build -c release`: passed.
 - `./run-self-tests.sh`: passed all 3 protocol self-tests.
 - `git diff --check`: passed.
-- PR #25 remains Draft/Open/Unmerged; no push, merge, tag, release, install, or Air runtime mutation was performed.
+- PR #25 remains Draft/Open/Unmerged; no merge, tag, release, install, or Air runtime mutation is authorized by this corrective.
