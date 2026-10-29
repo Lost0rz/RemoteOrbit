@@ -205,17 +205,42 @@ final class DiagnosticAuthorityTests: XCTestCase {
         XCTAssertEqual(secondPage.events.map(\.sequenceNumber), [3])
     }
 
-    func testPartialTrailingRecordFailsClosed() throws {
+    func testPartialTrailingRecordIsRepairedAndPreservesHistory() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let fileURL = directory.appendingPathComponent("events.jsonl")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Data("{\"schema_version\":1".utf8).write(to: fileURL)
+        let validLine = try JSONEncoder().encode(makeEvent(wallMilliseconds: 100, sequence: 1))
+        var data = validLine
+        data.append(0x0A)
+        data.append(contentsOf: Data("{\"schema_version\":1".utf8))
+        try data.write(to: fileURL)
+
+        let journal = JSONLinesDiagnosticJournal(fileURL: fileURL)
+        try journal.append(makeEvent(wallMilliseconds: 200, sequence: 2))
+
+        let page = try journal.query(DiagnosticQueryFilter(limit: 10))
+        XCTAssertEqual(page.events.map(\.sequenceNumber), [1, 2])
+        XCTAssertEqual(try Data(contentsOf: fileURL).last, 0x0A)
+    }
+
+    func testInteriorMalformedCompleteRecordStillFailsClosed() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("events.jsonl")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let validLine = try JSONEncoder().encode(makeEvent(wallMilliseconds: 100, sequence: 1))
+        var data = validLine
+        data.append(0x0A)
+        data.append(contentsOf: Data("{\"malformed\":true}\n".utf8))
+        data.append(contentsOf: validLine)
+        data.append(0x0A)
+        try data.write(to: fileURL)
 
         XCTAssertThrowsError(try JSONLinesDiagnosticJournal(fileURL: fileURL).query(
             DiagnosticQueryFilter()
         )) { error in
-            XCTAssertEqual(error as? DiagnosticQueryError, .corruptJournal(1))
+            XCTAssertEqual(error as? DiagnosticQueryError, .corruptJournal(2))
         }
     }
 

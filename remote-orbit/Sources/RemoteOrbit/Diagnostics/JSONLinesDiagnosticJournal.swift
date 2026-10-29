@@ -44,11 +44,14 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         do {
+            try repairTrailingRecordIfNeeded(at: fileURL)
             try openForAppendIfNeeded()
             try rotateIfNeeded(incomingBytes: UInt64(data.count))
             guard let fileHandle else { throw DiagnosticQueryError.storageUnavailable }
             try fileHandle.write(contentsOf: data)
             try fileHandle.synchronize()
+        } catch let error as DiagnosticQueryError {
+            throw error
         } catch {
             throw DiagnosticQueryError.storageUnavailable
         }
@@ -65,6 +68,7 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
         var hasMore = false
 
         for segmentURL in segmentURLs() {
+            try repairTrailingRecordIfNeeded(at: segmentURL)
             for event in try readEvents(from: segmentURL) {
                 if !started {
                     if event.eventID == cursorID {
@@ -127,6 +131,43 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
             fileHandle = handle
         } catch {
             throw DiagnosticQueryError.storageUnavailable
+        }
+    }
+
+    private func repairTrailingRecordIfNeeded(at url: URL) throws {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            throw DiagnosticQueryError.storageUnavailable
+        }
+        guard !data.isEmpty, data.last != 0x0A else { return }
+
+        let lastNewline = data.lastIndex(of: 0x0A)
+        let tailStart = lastNewline.map { data.index(after: $0) } ?? data.startIndex
+        let tail = Data(data[tailStart...])
+        do {
+            _ = try JSONDecoder().decode(DiagnosticEvent.self, from: tail)
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data([0x0A]))
+            try handle.synchronize()
+        } catch DiagnosticSchemaError.unsupportedVersion(let version) {
+            throw DiagnosticQueryError.unsupportedSchemaVersion(version)
+        } catch {
+            let validPrefixLength = lastNewline.map {
+                data.distance(from: data.startIndex, to: data.index(after: $0))
+            } ?? 0
+            do {
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                try handle.truncate(atOffset: UInt64(validPrefixLength))
+                try handle.synchronize()
+            } catch {
+                throw DiagnosticQueryError.storageUnavailable
+            }
         }
     }
 

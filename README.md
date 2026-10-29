@@ -176,9 +176,13 @@ DMG 安装的应用位于：
 ## 长期语音诊断（只读导出）
 
 普通语音会保留一条低开销的 L1 machine-readable session summary；只有集中阈值
-判定为异常时，才会把固定容量的 L2 front-edge/recent trace 冻结到诊断事件中。
-默认 JSONL 诊断日志按 2 MiB、5 个 segment 轮转，查询支持 session、process、event
-和 wall-clock window。异常标记只决定是否保留证据，不建立 root cause。
+判定为异常时，才会把固定容量的 L2 front-edge/recent trace 以及独立的 incident
+window 冻结到诊断事件中。incident window 在首次物质异常后不会被后续正常写入
+覆盖；正常 recent ring overwrite 只是 retention metadata，真实 drop/out-of-order
+和 delivery deficit 才是异常。普通 >20ms callback gap 只进入统计，默认 >100ms
+才触发 gap 异常。默认 JSONL 诊断日志按 2 MiB、5 个 segment 轮转，查询支持
+session、process、event 和 wall-clock window。异常标记只决定是否保留证据，不建立
+root cause。
 
 自然使用后可手动导出一个 bounded archive（不上传、不修改设置）：
 
@@ -187,9 +191,13 @@ RemoteOrbit diagnostics export --output ~/Desktop --host-role TEST_HOST \
   --since-unix-ms <start> --until-unix-ms <end>
 ```
 
-在 MacBook Air 上，`TEST_HOST` 表示 Air。导出包含 manifest、runtime identity、session
-events、保留的 journal segments、allowlisted JSON/JSONL logs、可用的 receiver unified-log
-window 或 `receiver/evidence-unavailable.json`，以及 `SHA256SUMS`。详见
+在 MacBook Air 上，`TEST_HOST` 表示 Air。导出从真实的
+`~/Library/Logs/RemoteOrbit` 读取，仅包含 `RemoteOrbit.log` 和 allowlisted JSON/JSONL
+diagnostic logs，不包含 settings、backups 或 recordings。session events 会沿 authority
+cursor 分页读取，并在 manifest 中记录 count、limit 和是否达到 10,000-event safety
+limit；不会静默停在单页。导出还包含 runtime identity、保留的 journal segments、可用的
+receiver unified-log window 或 `receiver/evidence-unavailable.json`，以及 `SHA256SUMS`。
+空 receiver 输出或不含有用 timing 字段时必须保持 unavailable。详见
 `docs/diagnostics/ADR-0003-long-term-observability.md`。
 
 ## 当前限制

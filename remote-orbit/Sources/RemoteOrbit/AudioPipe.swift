@@ -127,7 +127,10 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             AudioContinuityRenderLedger(capture: $0)
         }
         let nextMainQueueProbe = MainQueueResponsivenessProbe(
-            sampleIntervalNanoseconds: 50_000_000
+            sampleIntervalNanoseconds: 50_000_000,
+            onMaterialLag: { [weak self] in
+                self?.markLongTermMaterialAnomaly()
+            }
         )
         let previousMainQueueProbe: MainQueueResponsivenessProbe?
         stateLock.lock()
@@ -1090,6 +1093,12 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         } else {
             longTermSecondaryTrace.freezeIncidentWindow()
         }
+    }
+
+    private func markLongTermMaterialAnomaly() {
+        stateLock.lock()
+        markLongTermMaterialAnomalyLocked()
+        stateLock.unlock()
     }
     private static func findOutputDevice() -> (id: AudioDeviceID, name: String)? {
         var propertySize: UInt32 = 0

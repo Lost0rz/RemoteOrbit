@@ -9,10 +9,11 @@ final class DiagnosticExportTests: XCTestCase {
         let output = root.appendingPathComponent("exports", isDirectory: true)
         let logs = root.appendingPathComponent("logs", isDirectory: true)
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        try Data("real-log".utf8).write(to: logs.appendingPathComponent("RemoteOrbit.log"))
         try Data("typed-log".utf8).write(to: logs.appendingPathComponent("diagnostic.jsonl"))
         try Data("raw".utf8).write(to: logs.appendingPathComponent("raw.txt"))
         try Data("settings".utf8).write(to: logs.appendingPathComponent("settings.backup"))
-        let journalURL = root.appendingPathComponent("events.jsonl")
+        let journalURL = logs.appendingPathComponent("events.jsonl")
         try Data("journal\n".utf8).write(to: journalURL)
 
         let exporter = DiagnosticExporter(
@@ -62,6 +63,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("sessions/diagnostic-events.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("journal/events.jsonl").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("logs/diagnostic.jsonl").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("logs/RemoteOrbit.log").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("receiver/evidence-unavailable.json").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("logs/raw.txt").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("logs/settings.backup").path))
@@ -104,6 +106,98 @@ final class DiagnosticExportTests: XCTestCase {
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("journal/events.jsonl.1").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("journal/events.jsonl.2").path))
+    }
+
+    func testExportPaginatesBeyondFiveHundredEventsWithoutSilentTruncation() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let events = (1...501).map { sequence in
+            DiagnosticEvent(
+                input: try! DiagnosticEventInput(
+                    eventType: "voice.session.summary",
+                    subsystem: "voice.session",
+                    category: "summary",
+                    severity: .info,
+                    sourceComponent: "long_term_observability",
+                    sessionID: "session-\(sequence)",
+                    payload: ["summary": .object([
+                        "observation_schema_version": .unsignedInteger(1),
+                        "anomaly_flags": .array([]),
+                    ])]
+                ),
+                context: DiagnosticRuntimeContext(
+                    processInstanceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                    processID: 42,
+                    binaryPath: "/tmp/RemoteOrbit",
+                    appVersion: "1.0",
+                    buildVersion: "7",
+                    sourceRevision: "abc123"
+                ),
+                timestamp: DiagnosticClockStamp(
+                    wallTimestampUnixMilliseconds: Int64(sequence),
+                    monotonic: DiagnosticMonotonicTimestamp(
+                        valueNanoseconds: UInt64(sequence) * 1_000_000,
+                        clockDomain: "mach_continuous_time",
+                        rawTicks: UInt64(sequence) * 1_000_000,
+                        timebaseNumerator: 1,
+                        timebaseDenominator: 1
+                    )
+                ),
+                sequenceNumber: UInt64(sequence)
+            )
+        }
+        let exporter = DiagnosticExporter(
+            authority: PaginatedExportAuthority(events: events),
+            journalURL: root.appendingPathComponent("diagnostic-events-v1.jsonl"),
+            receiverEvidenceProvider: FixedReceiverEvidenceProvider(data: Data("{\"event\":\"timing\"}\n".utf8)),
+            clock: { Date(timeIntervalSince1970: 1_700_000_002) }
+        )
+
+        let archive = try exporter.export(options: DiagnosticExportOptions(outputDirectory: root))
+        let extracted = try extract(archive: archive, into: root.appendingPathComponent("extracted"))
+        let eventsData = try Data(contentsOf: extracted.appendingPathComponent("sessions/diagnostic-events.json"))
+        let page = try JSONDecoder().decode(DiagnosticQueryPage.self, from: eventsData)
+        XCTAssertEqual(page.events.count, 501)
+
+        let manifestData = try Data(contentsOf: extracted.appendingPathComponent("manifest.json"))
+        let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: manifestData) as? [String: Any])
+        XCTAssertEqual(manifest["session_event_count"] as? Int, 501)
+        XCTAssertEqual(manifest["session_events_truncated"] as? Bool, false)
+    }
+
+    func testEmptyReceiverOutputIsUnavailableAndRealLogLayoutIsAllowlisted() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logs = root.appendingPathComponent("logs", isDirectory: true)
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        try Data("remote-log".utf8).write(to: logs.appendingPathComponent("RemoteOrbit.log"))
+        try Data("approved".utf8).write(to: logs.appendingPathComponent("diagnostic.json"))
+        try Data("secret".utf8).write(to: logs.appendingPathComponent("settings.backup"))
+        try FileManager.default.createDirectory(
+            at: logs.appendingPathComponent("Recordings"),
+            withIntermediateDirectories: true
+        )
+        try Data("wav".utf8).write(to: logs.appendingPathComponent("Recordings/voice.wav"))
+
+        let exporter = DiagnosticExporter(
+            authority: ExportRecordingAuthority(),
+            journalURL: logs.appendingPathComponent("diagnostic-events-v1.jsonl"),
+            receiverEvidenceProvider: FixedReceiverEvidenceProvider(data: Data()),
+            clock: { Date(timeIntervalSince1970: 1_700_000_003) }
+        )
+        let archive = try exporter.export(options: DiagnosticExportOptions(outputDirectory: root))
+        let extracted = try extract(archive: archive, into: root.appendingPathComponent("extracted"))
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("logs/RemoteOrbit.log").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("logs/diagnostic.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("logs/settings.backup").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("logs/Recordings/voice.wav").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("receiver/evidence-unavailable.json").path))
+
+        let manifestData = try Data(contentsOf: extracted.appendingPathComponent("manifest.json"))
+        let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: manifestData) as? [String: Any])
+        XCTAssertEqual(manifest["receiver_evidence_status"] as? String, "unavailable")
+        XCTAssertEqual(manifest["evidence_errors"] as? [String], ["no useful receiver timing records"])
     }
 
     private func extract(archive: URL, into directory: URL) throws -> URL {
@@ -151,5 +245,42 @@ private final class ExportRecordingAuthority: DiagnosticAuthority {
         try JSONEncoder().encode(
             DiagnosticQueryPage(schemaVersion: DiagnosticEvent.currentSchemaVersion, events: [], nextCursor: nil)
         )
+    }
+}
+
+private final class PaginatedExportAuthority: DiagnosticAuthority {
+    let events: [DiagnosticEvent]
+
+    init(events: [DiagnosticEvent]) {
+        self.events = events
+    }
+
+    var droppedEventCount: UInt64 { 0 }
+    var writeFailureCount: UInt64 { 0 }
+
+    func emit(_ input: DiagnosticEventInput) {}
+
+    func query(_ filter: DiagnosticQueryFilter) throws -> DiagnosticQueryPage {
+        let matching = events.filter(filter.matches)
+        let startIndex: Int
+        if let cursor = filter.cursor,
+           let index = matching.firstIndex(where: { $0.eventID.uuidString == cursor }) {
+            startIndex = index + 1
+        } else {
+            startIndex = 0
+        }
+        let pageEvents = Array(matching.dropFirst(startIndex).prefix(filter.limit))
+        let nextCursor = pageEvents.count + startIndex < matching.count
+            ? pageEvents.last?.eventID.uuidString
+            : nil
+        return DiagnosticQueryPage(
+            schemaVersion: DiagnosticEvent.currentSchemaVersion,
+            events: pageEvents,
+            nextCursor: nextCursor
+        )
+    }
+
+    func snapshot(_ filter: DiagnosticQueryFilter) throws -> Data {
+        try JSONEncoder().encode(try query(filter))
     }
 }

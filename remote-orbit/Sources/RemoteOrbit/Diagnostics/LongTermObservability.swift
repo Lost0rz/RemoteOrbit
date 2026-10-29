@@ -147,9 +147,7 @@ struct FixedCapacityObservationTrace: Sendable {
         lastTimestampNanoseconds = point.timestampNanoseconds
 
         if !incidentFrozen {
-            if incidentCount < incident.count {
-                incidentCount += 1
-            }
+            if incidentCount < incident.count { incidentCount += 1 }
             incident[incidentWriteIndex] = point
             incidentWriteIndex = (incidentWriteIndex + 1) % incident.count
         }
@@ -351,15 +349,27 @@ struct MainQueueLagAccumulator: Sendable {
 
 final class MainQueueResponsivenessProbe: @unchecked Sendable {
     private let sampleIntervalNanoseconds: UInt64
+    private let incidentLagThresholdNanoseconds: UInt64
+    private let onMaterialLag: (() -> Void)?
     private let lock = NSLock()
     private var accumulator = MainQueueLagAccumulator()
     private var timer: DispatchSourceTimer?
     private var running = false
+    private var incidentSignaled = false
     private var stoppedSummary: MainQueueLagSummary?
 
-    init(sampleIntervalNanoseconds: UInt64) {
+    init(
+        sampleIntervalNanoseconds: UInt64,
+        incidentLagThresholdNanoseconds: UInt64 = 25_000_000,
+        onMaterialLag: (() -> Void)? = nil
+    ) {
         precondition(sampleIntervalNanoseconds > 0)
         self.sampleIntervalNanoseconds = sampleIntervalNanoseconds
+        self.incidentLagThresholdNanoseconds = incidentLagThresholdNanoseconds
+        self.onMaterialLag = onMaterialLag
+        self.accumulator = MainQueueLagAccumulator(
+            incidentLagThresholdNanoseconds: incidentLagThresholdNanoseconds
+        )
     }
 
     func start() {
@@ -369,6 +379,7 @@ final class MainQueueResponsivenessProbe: @unchecked Sendable {
             return
         }
         running = true
+        incidentSignaled = false
         stoppedSummary = nil
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         timer.schedule(
@@ -392,18 +403,23 @@ final class MainQueueResponsivenessProbe: @unchecked Sendable {
     }
 
     func record(lagNanoseconds: UInt64) {
-        lock.lock()
-        accumulator.record(lagNanoseconds: lagNanoseconds)
-        lock.unlock()
+        record(lagNanoseconds: lagNanoseconds, timestampNanoseconds: nil)
     }
 
     func record(lagNanoseconds: UInt64, timestampNanoseconds: UInt64) {
+        record(lagNanoseconds: lagNanoseconds, timestampNanoseconds: Optional(timestampNanoseconds))
+    }
+
+    private func record(lagNanoseconds: UInt64, timestampNanoseconds: UInt64?) {
         lock.lock()
         accumulator.record(
             lagNanoseconds: lagNanoseconds,
             timestampNanoseconds: timestampNanoseconds
         )
+        let shouldSignal = lagNanoseconds >= incidentLagThresholdNanoseconds && !incidentSignaled
+        if shouldSignal { incidentSignaled = true }
         lock.unlock()
+        if shouldSignal { onMaterialLag?() }
     }
 
     func stop() -> MainQueueLagSummary {
@@ -593,7 +609,9 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
     mutating func recordNotification(bytes: UInt64, gapNanoseconds: UInt64?) {
         notificationCount &+= 1
         notificationBytes &+= bytes
-        if gapNanoseconds ?? 0 > 20_000_000 { notificationGapCount &+= 1 }
+        let gap = gapNanoseconds ?? 0
+        if gap > 20_000_000 { notificationGapCount &+= 1 }
+        if gap > 100_000_000 { notificationGapOver100Milliseconds &+= 1 }
     }
 
     mutating func recordDecode(frameCount: UInt64, sampleCount: UInt64) {
@@ -832,11 +850,19 @@ final class LongTermObservabilityService: @unchecked Sendable {
         var detachedTraceSnapshot: FixedCapacityObservationTraceSnapshot? = nil
     }
 
+    private struct FinalizedSession {
+        let sessionID: String
+        let captureID: String
+    }
+
     private let authority: any DiagnosticAuthority
     private let runtimeIdentity: LongTermRuntimeIdentity
     private let thresholds: LongTermObservabilityThresholds
     private let lock = NSLock()
     private var activeSession: ActiveSession?
+    /// Keep one bounded post-end identity so a transport close that arrives
+    /// after the gesture can be emitted as a correlated follow-up event.
+    private var finalizedSession: FinalizedSession?
 
     init(
         authority: any DiagnosticAuthority = DiagnosticAuthorityService.shared,
@@ -879,6 +905,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
 
     func begin(sessionID: UUID, timestampNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()) {
         lock.lock()
+        finalizedSession = nil
         if activeSession == nil {
             activeSession = ActiveSession(
                 summary: makeSummary(sessionID: sessionID.uuidString, captureID: UUID().uuidString)
@@ -910,8 +937,21 @@ final class LongTermObservabilityService: @unchecked Sendable {
 
     func mark(_ event: String, timestampNanoseconds: UInt64, sessionID: UUID? = nil) {
         lock.lock()
-        guard activeSession != nil,
-              sessionID == nil || activeSession!.summary.sessionID == sessionID!.uuidString else {
+        guard let currentSession = activeSession,
+              sessionID == nil || currentSession.summary.sessionID == sessionID!.uuidString else {
+            if let sessionID,
+               let finalizedSession,
+               finalizedSession.sessionID == sessionID.uuidString {
+                let captureID = finalizedSession.captureID
+                lock.unlock()
+                emitLifecycleFollowup(
+                    event: event,
+                    timestampNanoseconds: timestampNanoseconds,
+                    sessionID: sessionID,
+                    captureID: captureID
+                )
+                return
+            }
             lock.unlock()
             return
         }
@@ -952,9 +992,6 @@ final class LongTermObservabilityService: @unchecked Sendable {
                     marker: .unclassified
                 )
             )
-        }
-        if gapNanoseconds ?? 0 > 100_000_000 {
-            activeSession?.trace.freezeIncidentWindow()
         }
         lock.unlock()
     }
@@ -1121,6 +1158,10 @@ final class LongTermObservabilityService: @unchecked Sendable {
             lock.unlock()
             return nil
         }
+        self.finalizedSession = FinalizedSession(
+            sessionID: activeSession.summary.sessionID,
+            captureID: activeSession.summary.captureID
+        )
         self.activeSession = nil
         activeSession.summary.runtimeIdentity = runtimeIdentity
         activeSession.summary.lifecycleInconsistencyCount =
@@ -1185,6 +1226,28 @@ final class LongTermObservabilityService: @unchecked Sendable {
             authority.emit(traceInput)
         }
         return summary
+    }
+
+    private func emitLifecycleFollowup(
+        event: String,
+        timestampNanoseconds: UInt64,
+        sessionID: UUID,
+        captureID: String
+    ) {
+        guard let input = try? DiagnosticEventInput(
+            eventType: "voice.session.lifecycle_followup",
+            subsystem: "voice.session",
+            category: "lifecycle",
+            severity: .info,
+            sourceComponent: "long_term_observability",
+            sessionID: sessionID.uuidString,
+            correlationID: captureID,
+            payload: [
+                "event": .string(event),
+                "timestamp_nanoseconds": .unsignedInteger(timestampNanoseconds),
+            ]
+        ) else { return }
+        authority.emit(input)
     }
 
     private func makeSummary(sessionID: String, captureID: String) -> LongTermVoiceSessionSummary {

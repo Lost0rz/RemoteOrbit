@@ -1,6 +1,6 @@
 # ADR-0003: Long-term voice observability
 
-Status: candidate for independent audit
+Status: corrective candidate for next independent audit
 
 Date: 2026-10-29
 
@@ -18,18 +18,27 @@ The two evidence levels are:
   playout counters, active-versus-tail deficits, runtime provenance, observation
   schema version, receiver evidence status, and diagnostic drop/write counters.
 - L2 incident trace: anomaly only. AudioPipe keeps a fixed front-edge capacity of 64
-  observations and a rolling recent capacity of 512 observations. Trace observations
-  are numeric records with a typed kind, monotonic timestamp, frame accounting, queue
-  depth, and active/tail marker. Trace chunks contain at most 128 observations and are
-  emitted off the BLE/CoreAudio callback path.
+  observations and a rolling recent capacity of 512 observations. The service keeps
+  the same bounded shape for its transport observations. A separate incident ring is
+  frozen at the first material trace anomaly and cannot be overwritten by later normal
+  wrapping. Intentional recent-ring overwrite is retention metadata only; an actual
+  out-of-order/drop condition is anomalous. Trace observations are numeric records
+  with a typed kind, monotonic timestamp, frame accounting, queue depth, and
+  active/tail marker. Trace chunks contain at most 128 observations and are emitted
+  off the BLE/CoreAudio callback path.
 
 The default journal policy is 2 MiB per JSONL segment and 5 retained segments. The
 authority remains asynchronous and best-effort; queue drops and journal write failures
-are counted separately. Centralized anomaly flags include notification/decode gaps,
-active or tail deficits, queue starvation, lifecycle order inconsistency, main-queue
-lag, trace overwrite/drop, and authority write failure. Querying scans one bounded segment at a time and supports
-process, session, incident, correlation, event, subsystem, severity, and wall-clock
-window filters.
+are counted separately. Centralized anomaly flags include material notification/decode
+gaps, active or tail deficits, explicit delivery deficit, queue starvation, lifecycle
+order inconsistency, main-queue lag, actual trace drop, and authority write failure.
+A normal callback gap over 20 ms contributes to aggregate timing statistics but is not
+anomalous by default; the default material callback-gap gate is over 100 ms. Delivery
+deficit requires both the configured sample-count and duration thresholds. Main-queue
+lag retains bounded timestamped occurrences in addition to the aggregate histogram and
+percentiles. Querying scans one bounded segment at a time and supports process,
+session, incident, correlation, event, subsystem, severity, and wall-clock window
+filters.
 
 ## Receiver evidence boundary
 
@@ -64,9 +73,15 @@ receiver/evidence-unavailable.json
 SHA256SUMS
 ```
 
-The receiver file is mutually exclusive: an available bounded window or an explicit
-unavailable record. The export does not upload, reset, install, modify settings, or
-create a settings backup.
+The receiver file is mutually exclusive: an available bounded window containing useful
+receiver timing records, or an explicit unavailable record. Empty output, output with
+no useful timing evidence, and command failure remain unavailable. The export follows
+authority query cursors in bounded pages rather than silently stopping at one page; it
+has a centralized 10,000-event safety limit and records count/limit/truncation in the
+manifest. Logs are sourced from the production `AppStorage.logsDirectory` and are
+limited to `RemoteOrbit.log` plus approved JSON/JSONL diagnostic files in that same
+directory. Settings, backups, and recordings are excluded. The export does not upload,
+reset, install, modify settings, or create a settings backup.
 
 ## Air acceptance workflow
 
@@ -88,8 +103,13 @@ create a settings backup.
 
 They establish recorded local observations: event ordering and monotonic timestamps,
 the RemoteOrbit-owned lifecycle boundaries, bounded notification/decode/supply/
-playout counters, active-versus-tail accounting, bounded main-queue lag aggregates,
-runtime identity, and whether receiver evidence was available at export time.
+playout counters, active-versus-tail accounting, real BLE-arrival/decode-complete/
+PCM-submit/render observations, bounded timestamped main-queue lag occurrences,
+runtime identity, and whether receiver evidence was available at export time. An
+incomplete final JSONL record is repaired without discarding valid history; interior
+corruption and unsupported schema versions fail closed. Lifecycle events that arrive
+after end remain queryable as bounded `voice.session.lifecycle_followup` events
+correlated to the finalized capture.
 
 They do not establish receiver text, an InputMethodKit state that RemoteOrbit cannot
 observe, BLE radio causality, firmware behavior, or a product root cause. This evidence does not establish root cause. Anomaly flags

@@ -402,8 +402,11 @@ defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool false
 ### 长期语音证据导出
 
 长期诊断默认记录每个真实 voice session 的 L1 summary；异常时才保留 L2 bounded
-trace。L1/L2 都通过 DiagnosticAuthority 查询，默认 retention 是 2 MiB × 5 segments。
-CoreAudio render 和 CoreBluetooth callback 不同步写 journal，也不默认收集 dictated text。
+front/recent trace 和不可覆盖的 incident window。L1/L2 都通过 DiagnosticAuthority
+查询，默认 retention 是 2 MiB × 5 segments。正常 >20ms callback gap 只作为统计，默认
+>100ms 才进入 gap anomaly；recent overwrite 只作 retention metadata，真实 drop、
+delivery deficit 和其他集中阈值异常才保留 trace。CoreAudio render 和 CoreBluetooth
+callback 不同步写 journal，也不默认收集 dictated text。
 
 MacBook Air 自然使用结束后，在 Air 上执行：
 
@@ -413,8 +416,11 @@ RemoteOrbit diagnostics export --output <directory> --host-role TEST_HOST \
 ```
 
 检查 `manifest.json` 中的 app/build/source head、observation schema、window、drop/write
-计数和 receiver evidence status，再检查 `SHA256SUMS`。receiver unified-log 不可用时保留
-`receiver/evidence-unavailable.json`，不得把 unavailable 改写成成功或推测值。该诊断只建立
+计数、分页 count/limit/truncation 和 receiver evidence status，再检查 `SHA256SUMS`。导出
+从 `AppStorage.logsDirectory` 的生产布局读取，仅 allowlist `RemoteOrbit.log` 及同目录
+JSON/JSONL diagnostic files；settings、backups、recordings 不导出。receiver unified-log
+不可用、为空或没有有用 timing 记录时保留 `receiver/evidence-unavailable.json`，不得把
+unavailable 改写成成功或推测值。该诊断只建立
 RemoteOrbit 自身的时间和计数事实；它不建立 root cause。需要 A/B、HCI 或 PacketLogger
 验证的问题记录在 `docs/diagnostics/ADR-0003-long-term-observability.md`。
 

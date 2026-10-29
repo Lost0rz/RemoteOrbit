@@ -42,6 +42,25 @@ final class LongTermObservabilityTests: XCTestCase {
         )
     }
 
+    func testHealthyLongSessionWrapsWithoutPersistingAnIncidentTrace() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current()
+        )
+        let sessionID = UUID()
+        service.begin(sessionID: sessionID, timestampNanoseconds: 1)
+        for timestamp in UInt64(1)...700 {
+            service.observeTracePoint(point(timestamp: timestamp))
+        }
+
+        let summary = try XCTUnwrap(service.end(sessionID: sessionID))
+
+        XCTAssertTrue(summary.traceOverwrittenObservationCount > 0)
+        XCTAssertTrue(summary.anomalyFlags.isEmpty)
+        XCTAssertEqual(authority.inputs.filter { $0.eventType == "voice.session.trace" }.count, 0)
+    }
+
     func testActualObservationDropRemainsAnAnomaly() {
         var trace = FixedCapacityObservationTrace(frontCapacity: 1, recentCapacity: 1)
         trace.append(point(timestamp: 10))
@@ -67,6 +86,17 @@ final class LongTermObservabilityTests: XCTestCase {
         }
 
         XCTAssertEqual(trace.snapshot().incident.map(\.timestampNanoseconds), [1, 2, 3, 4, 5])
+    }
+
+    func testIncidentFreezeStopsIncidentWindowGrowth() {
+        var trace = FixedCapacityObservationTrace(frontCapacity: 1, recentCapacity: 1, incidentCapacity: 4)
+        trace.append(point(timestamp: 1))
+        trace.freezeIncidentWindow()
+        for timestamp in UInt64(2)...5 {
+            trace.append(point(timestamp: timestamp))
+        }
+
+        XCTAssertEqual(trace.snapshot().incident.map(\.timestampNanoseconds), [1])
     }
 
     func testTraceContainsCorrelatableTransportToRenderStages() {
@@ -207,6 +237,21 @@ final class LongTermObservabilityTests: XCTestCase {
         XCTAssertEqual(probe.stop(), summary)
     }
 
+    func testMainQueueProbeSignalsMaterialLagForIncidentFreeze() {
+        var incidentCount = 0
+        let probe = MainQueueResponsivenessProbe(
+            sampleIntervalNanoseconds: 1_000_000,
+            incidentLagThresholdNanoseconds: 50,
+            onMaterialLag: { incidentCount += 1 }
+        )
+        probe.start()
+        probe.record(lagNanoseconds: 80, timestampNanoseconds: 1_000)
+        let summary = probe.stop()
+
+        XCTAssertEqual(incidentCount, 1)
+        XCTAssertEqual(summary.incidentOccurrences.count, 1)
+    }
+
     func testSummaryDiagnosticValueHasStableAccountingKeys() throws {
         var summary = LongTermVoiceSessionSummary(sessionID: "session-1", captureID: "capture-1")
         summary.recordDelivery(expectedFrames: 10, deliveredFrames: 8, marker: .active)
@@ -339,6 +384,100 @@ final class LongTermObservabilityTests: XCTestCase {
 
         XCTAssertEqual(summary?.anomalyFlags, [])
         XCTAssertEqual(authority.inputs.map(\.eventType), ["voice.session.summary"])
+    }
+
+    func testLateLifecycleAfterEndEmitsCorrelatedFollowup() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current()
+        )
+        let sessionID = UUID()
+        service.begin(sessionID: sessionID, timestampNanoseconds: 1)
+        let summary = try XCTUnwrap(service.end(sessionID: sessionID))
+
+        service.mark("MIC_CLOSE_TX", timestampNanoseconds: 2, sessionID: sessionID)
+
+        XCTAssertEqual(authority.inputs.map(\.eventType), [
+            "voice.session.summary",
+            "voice.session.lifecycle_followup",
+        ])
+        let followup = try XCTUnwrap(authority.inputs.last)
+        XCTAssertEqual(followup.sessionID, sessionID.uuidString)
+        XCTAssertEqual(followup.correlationID, summary.captureID)
+        XCTAssertEqual(followup.payload["event"], .string("MIC_CLOSE_TX"))
+        XCTAssertEqual(followup.payload["timestamp_nanoseconds"], .unsignedInteger(2))
+    }
+
+    func testMaterialDeliveryDeficitIsExplicitEvenWithoutDecodeRejects() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current()
+        )
+        let sessionID = UUID()
+        service.begin(sessionID: sessionID, timestampNanoseconds: 1)
+        service.observeTransportMetrics(
+            notificationCount: 10,
+            notificationBytes: 1_200,
+            notificationSizeMin: 120,
+            notificationSizeMax: 120,
+            notificationSizeDistribution: "120=10",
+            notificationFrameSizeDistribution: "==frameSize=10",
+            notificationMaxGapMilliseconds: 10,
+            notificationP95GapMilliseconds: 10,
+            gapOver20Milliseconds: 0,
+            gapOver30Milliseconds: 0,
+            gapOver50Milliseconds: 0,
+            gapOver100Milliseconds: 0,
+            decodeRejectCount: 0,
+            zeroSampleDecodeCount: 0,
+            audioSyncCount: 0,
+            decodedAudioDurationMilliseconds: 100,
+            measurementElapsedMilliseconds: 300,
+            expectedSamples: 16_000,
+            deliveredSamples: 8_000,
+            deliveryRatio: 0.5,
+            deficitSamples: 8_000,
+            deficitMilliseconds: 500
+        )
+
+        let summary = try XCTUnwrap(service.end(sessionID: sessionID))
+        XCTAssertTrue(summary.anomalyFlags.contains(.deliveryDeficit))
+        XCTAssertEqual(summary.decodeRejectCount, 0)
+        XCTAssertEqual(summary.zeroSampleDecodeCount, 0)
+    }
+
+    func testAnomalyTraceContainsMonotonicTransportToRenderEvidence() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current()
+        )
+        let sessionID = UUID()
+        service.begin(sessionID: sessionID, timestampNanoseconds: 1)
+        service.observeNotification(bytes: 120, gapNanoseconds: 120_000_000, timestampNanoseconds: 100)
+        service.observeDecode(frameCount: 1, sampleCount: 160, timestampNanoseconds: 110)
+        service.observeTracePoint(point(timestamp: 120, kind: .pcmSubmitted))
+        service.observeTracePoint(point(timestamp: 130, kind: .render))
+
+        _ = try XCTUnwrap(service.end(sessionID: sessionID))
+        let traceInput = try XCTUnwrap(authority.inputs.first { $0.eventType == "voice.session.trace" })
+        guard case .array(let observations) = traceInput.payload["observations"] else {
+            return XCTFail("trace observations must be an array")
+        }
+        let kinds = observations.compactMap { value -> String? in
+            guard case .object(let object) = value,
+                  case .string(let kind) = object["kind"] else { return nil }
+            return kind
+        }
+        XCTAssertEqual(kinds, ["ble_arrival", "decode_complete", "pcm_submitted", "render"])
+        let timestamps = observations.compactMap { value -> UInt64? in
+            guard case .object(let object) = value,
+                  case .unsignedInteger(let timestamp) = object["timestamp_nanoseconds"] else { return nil }
+            return timestamp
+        }
+        XCTAssertTrue(timestamps.isStrictlyIncreasing)
     }
 
     func testAnomalousSessionPersistsSummaryAndBoundedTraceChunks() throws {

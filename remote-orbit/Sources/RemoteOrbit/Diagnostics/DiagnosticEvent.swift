@@ -538,6 +538,16 @@ enum DiagnosticEventCatalog {
                 "dropped_observations": .unsignedInteger,
             ]
         ),
+        "voice.session.lifecycle_followup": DiagnosticEventDefinition(
+            subsystem: "voice.session",
+            category: "lifecycle",
+            severity: .info,
+            sourceComponent: "long_term_observability",
+            payloadFields: [
+                "event": .string,
+                "timestamp_nanoseconds": .unsignedInteger,
+            ]
+        ),
     ]
 
     static func accepts(

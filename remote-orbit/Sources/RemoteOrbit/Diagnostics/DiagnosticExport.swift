@@ -96,12 +96,17 @@ struct UnifiedLogReceiverEvidenceProvider: ReceiverEvidenceProvider {
 }
 
 final class DiagnosticExporter: @unchecked Sendable {
+    static let maximumSessionEventCount = 10_000
+
     private let authority: any DiagnosticAuthority
     private let journalURL: URL
     private let runtimeIdentity: LongTermRuntimeIdentity
     private let receiverEvidenceProvider: any ReceiverEvidenceProvider
     private let clock: () -> Date
     private let fileManager: FileManager
+    private let maximumSessionEventCount: Int
+    private var sessionEventCount = 0
+    private var sessionEventsTruncated = false
 
     init(
         authority: any DiagnosticAuthority = DiagnosticAuthorityService.shared,
@@ -109,14 +114,17 @@ final class DiagnosticExporter: @unchecked Sendable {
         runtimeIdentity: LongTermRuntimeIdentity = .current(),
         receiverEvidenceProvider: any ReceiverEvidenceProvider = UnifiedLogReceiverEvidenceProvider(),
         clock: @escaping () -> Date = Date.init,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        maximumSessionEventCount: Int = DiagnosticExporter.maximumSessionEventCount
     ) {
+        precondition(maximumSessionEventCount > 0)
         self.authority = authority
         self.journalURL = journalURL
         self.runtimeIdentity = runtimeIdentity
         self.receiverEvidenceProvider = receiverEvidenceProvider
         self.clock = clock
         self.fileManager = fileManager
+        self.maximumSessionEventCount = maximumSessionEventCount
     }
 
     func export(options: DiagnosticExportOptions) throws -> URL {
@@ -161,12 +169,32 @@ final class DiagnosticExporter: @unchecked Sendable {
     }
 
     private func stageSessions(options: DiagnosticExportOptions, at stagingURL: URL) throws {
-        let filter = try DiagnosticQueryFilter(
-            startWallTimestampUnixMilliseconds: options.startWallTimestampUnixMilliseconds,
-            endWallTimestampUnixMilliseconds: options.endWallTimestampUnixMilliseconds,
-            limit: 500
+        var events: [DiagnosticEvent] = []
+        events.reserveCapacity(min(500, maximumSessionEventCount))
+        var cursor: String?
+        var sawMoreEvents = false
+        while events.count < maximumSessionEventCount {
+            let pageFilter = try DiagnosticQueryFilter(
+                cursor: cursor,
+                startWallTimestampUnixMilliseconds: options.startWallTimestampUnixMilliseconds,
+                endWallTimestampUnixMilliseconds: options.endWallTimestampUnixMilliseconds,
+                limit: min(500, maximumSessionEventCount - events.count)
+            )
+            let page = try authority.query(pageFilter)
+            events.append(contentsOf: page.events)
+            guard let nextCursor = page.nextCursor else { break }
+            guard !page.events.isEmpty else { break }
+            sawMoreEvents = true
+            cursor = nextCursor
+        }
+        sessionEventCount = events.count
+        sessionEventsTruncated = sawMoreEvents && events.count >= maximumSessionEventCount
+        let page = DiagnosticQueryPage(
+            schemaVersion: DiagnosticEvent.currentSchemaVersion,
+            events: events,
+            nextCursor: sessionEventsTruncated ? events.last?.eventID.uuidString : nil
         )
-        let data = try authority.snapshot(filter)
+        let data = try JSONEncoder().encode(page)
         try write(data: data, to: stagingURL.appendingPathComponent("sessions/diagnostic-events.json"))
     }
 
@@ -196,7 +224,7 @@ final class DiagnosticExporter: @unchecked Sendable {
     }
 
     private func stageLogs(at stagingURL: URL) throws {
-        let source = journalURL.deletingLastPathComponent().appendingPathComponent("logs", isDirectory: true)
+        let source = journalURL.deletingLastPathComponent()
         guard fileManager.fileExists(atPath: source.path) else { return }
         let destination = stagingURL.appendingPathComponent("logs", isDirectory: true)
         try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
@@ -205,7 +233,7 @@ final class DiagnosticExporter: @unchecked Sendable {
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         )
-        for file in files where ["json", "jsonl"].contains(file.pathExtension.lowercased()) {
+        for file in files where Self.isApprovedLogFile(file, journalURL: journalURL) {
             try copyBounded(from: file, to: destination.appendingPathComponent(file.lastPathComponent))
         }
     }
@@ -217,6 +245,10 @@ final class DiagnosticExporter: @unchecked Sendable {
                 untilWallMilliseconds: options.endWallTimestampUnixMilliseconds
             )
             guard data.count <= 512 * 1024 else { throw DiagnosticExportError.evidenceTooLarge }
+            guard Self.hasUsefulReceiverTimingEvidence(data) else {
+                try writeUnavailableReceiver(reason: "no useful receiver timing records", at: stagingURL)
+                return
+            }
             try write(data: data, to: stagingURL.appendingPathComponent("receiver/unified-log-window.jsonl"))
         } catch ReceiverEvidenceError.evidenceTooLarge {
             throw DiagnosticExportError.evidenceTooLarge
@@ -270,6 +302,9 @@ final class DiagnosticExporter: @unchecked Sendable {
             "observation_schema_version": LongTermVoiceSessionSummary.schemaVersion,
             "receiver_evidence_status": receiverEvidenceStatus(at: stagingURL),
             "evidence_errors": evidenceErrors,
+            "session_event_count": sessionEventCount,
+            "session_event_limit": maximumSessionEventCount,
+            "session_events_truncated": sessionEventsTruncated,
             "files_included": includedFiles,
             "diagnostic_dropped_event_count": authority.droppedEventCount,
             "diagnostic_write_failure_count": authority.writeFailureCount,
@@ -366,6 +401,32 @@ final class DiagnosticExporter: @unchecked Sendable {
                 || ($0 >= 97 && $0 <= 122)
                 || ($0 >= 48 && $0 <= 57)
                 || $0 == 45 || $0 == 46 || $0 == 95
+        }
+    }
+
+    private static func isApprovedLogFile(_ url: URL, journalURL: URL) -> Bool {
+        guard url.standardizedFileURL.deletingLastPathComponent() == journalURL.standardizedFileURL.deletingLastPathComponent() else {
+            return false
+        }
+        if url.lastPathComponent == "RemoteOrbit.log" { return true }
+        guard ["json", "jsonl"].contains(url.pathExtension.lowercased()) else { return false }
+        return url.standardizedFileURL != journalURL.standardizedFileURL
+    }
+
+    private static func hasUsefulReceiverTimingEvidence(_ data: Data) -> Bool {
+        guard !data.isEmpty else { return false }
+        let lines = data.split(omittingEmptySubsequences: true, whereSeparator: { $0 == 0x0A })
+        guard !lines.isEmpty else { return false }
+        return lines.contains { line in
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else {
+                return false
+            }
+            let text = object.values.compactMap { $0 as? String }.joined(separator: " ").lowercased()
+            return text.contains("receiver")
+                || text.contains("avcapture")
+                || text.contains("didstartrunning")
+                || text.contains("mic")
+                || text.contains("timing")
         }
     }
 }
