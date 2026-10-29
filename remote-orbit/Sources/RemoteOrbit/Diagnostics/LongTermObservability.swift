@@ -45,6 +45,11 @@ final class LongTermIncidentCoordinator: @unchecked Sendable {
     static let shared = LongTermIncidentCoordinator()
 
     private var nextIdentity: Int64 = 0
+    /// A positive value means a logical voice capture owns the coordinator;
+    /// a negative value is the short initialization state used while a new
+    /// generation clears the previous incident scalars.
+    private var nextCaptureToken: Int64 = 0
+    private var activeCaptureToken: Int64 = 0
     private var activeToken: Int64 = 0
     private var serviceReservation: Int64 = 0
     private var audioPipeReservation: Int64 = 0
@@ -53,7 +58,13 @@ final class LongTermIncidentCoordinator: @unchecked Sendable {
     private var audioPipeTimestamp: UInt64 = 0
     private var audioPipeTrigger: Int64 = 0
 
-    func beginSession() {
+    @discardableResult
+    func beginCaptureIfNeeded() -> Bool {
+        let token = OSAtomicIncrement64Barrier(&nextCaptureToken)
+        let initializingToken = -token
+        guard OSAtomicCompareAndSwap64Barrier(0, initializingToken, &activeCaptureToken) else {
+            return false
+        }
         clear(&activeToken)
         clear(&serviceReservation)
         clear(&audioPipeReservation)
@@ -61,6 +72,21 @@ final class LongTermIncidentCoordinator: @unchecked Sendable {
         serviceTrigger = 0
         audioPipeTimestamp = 0
         audioPipeTrigger = 0
+        _ = OSAtomicCompareAndSwap64Barrier(
+            initializingToken,
+            token,
+            &activeCaptureToken
+        )
+        return true
+    }
+
+    /// Ends ownership after all producer snapshots for the logical capture
+    /// have been detached. The next capture performs the scalar reset before
+    /// publishing its active generation.
+    func endCapture() {
+        let token = OSAtomicAdd64Barrier(0, &activeCaptureToken)
+        guard token > 0 else { return }
+        _ = OSAtomicCompareAndSwap64Barrier(token, 0, &activeCaptureToken)
     }
 
     func trigger(
@@ -68,6 +94,7 @@ final class LongTermIncidentCoordinator: @unchecked Sendable {
         kind: LongTermIncidentTriggerKind,
         timestampNanoseconds: UInt64
     ) {
+        guard OSAtomicAdd64Barrier(0, &activeCaptureToken) > 0 else { return }
         guard OSAtomicAdd64Barrier(0, &activeToken) == 0 else { return }
         let identity = OSAtomicIncrement64Barrier(&nextIdentity)
         let encoded = (identity << 2) | producer.rawValue
@@ -95,6 +122,7 @@ final class LongTermIncidentCoordinator: @unchecked Sendable {
     }
 
     func currentAnchor() -> LongTermIncidentAnchor? {
+        guard OSAtomicAdd64Barrier(0, &activeCaptureToken) > 0 else { return nil }
         let encoded = OSAtomicAdd64Barrier(0, &activeToken)
         guard encoded != 0 else { return nil }
         let producerRaw = encoded & 3
@@ -1108,6 +1136,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
     ) -> UUID {
         lock.lock()
         if activeSession == nil {
+            incidentCoordinator.beginCaptureIfNeeded()
             activeSession = ActiveSession(
                 summary: makeSummary(sessionID: "unavailable", captureID: UUID().uuidString),
                 coordinator: incidentCoordinator
@@ -1127,10 +1156,10 @@ final class LongTermObservabilityService: @unchecked Sendable {
     }
 
     func begin(sessionID: UUID, timestampNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()) {
-        incidentCoordinator.beginSession()
         lock.lock()
         finalizedSession = nil
         if activeSession == nil {
+            incidentCoordinator.beginCaptureIfNeeded()
             activeSession = ActiveSession(
                 summary: makeSummary(sessionID: sessionID.uuidString, captureID: UUID().uuidString),
                 coordinator: incidentCoordinator
@@ -1433,6 +1462,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         if !summary.anomalyFlags.isEmpty {
             summary.tracePersisted = true
         }
+        incidentCoordinator.endCapture()
         lock.unlock()
 
         guard let input = try? DiagnosticEventInput(

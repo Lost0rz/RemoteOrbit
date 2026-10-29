@@ -417,6 +417,231 @@ final class LongTermObservabilityTests: XCTestCase {
         ]))
     }
 
+    func testPreHIDBLEIncidentSurvivesBindingAndBothRecentRingsWrap() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current()
+        )
+        let pipe = AudioPipe.shared
+        let base = P1A4MonotonicClock.nowNanoseconds()
+        let sessionID = UUID()
+        pipe.beginRemoteAudioDiagnostics()
+        defer {
+            _ = pipe.setRemoteActive(false)
+            _ = pipe.endRemoteAudioDiagnostics()
+            LongTermIncidentCoordinator.shared.endCapture()
+        }
+
+        let captureID = service.observeTransportStart(
+            protocolVersion: "2",
+            mode: "remote",
+            codec: "ADPCM",
+            sampleRate: 16_000,
+            timestampNanoseconds: base
+        )
+        service.observeNotification(
+            bytes: 120,
+            gapNanoseconds: 120_000_000,
+            timestampNanoseconds: base + 1
+        )
+        service.observeDecode(
+            frameCount: 1,
+            sampleCount: 160,
+            timestampNanoseconds: base + 2
+        )
+        service.observeTracePoint(point(timestamp: base + 3, kind: .pcmSubmitted))
+        _ = pipe.setRemoteActive(true)
+        pipe.feed(samples: Array(repeating: Int16(7), count: 320))
+        pipe.recordLongTermRenderObservationForTesting(
+            timestampNanoseconds: base + 1_000_000_000,
+            requestedFrames: 480,
+            filledFrames: 480,
+            unfilledFrames: 0,
+            queueDepthFrames: 480
+        )
+
+        for offset in UInt64(1)...700 {
+            service.observeTracePoint(
+                point(timestamp: base + 3_000_000_000 + offset)
+            )
+            pipe.recordLongTermRenderObservationForTesting(
+                timestampNanoseconds: base + 1_000_000_000 + offset,
+                requestedFrames: 480,
+                filledFrames: 480,
+                unfilledFrames: 0,
+                queueDepthFrames: 480
+            )
+        }
+
+        service.begin(sessionID: sessionID, timestampNanoseconds: base + 4_000_000_000)
+        service.observeLongTermAudioSnapshot(pipe.takeLongTermObservationSnapshot())
+        let summary = try XCTUnwrap(service.end(sessionID: sessionID))
+        let observations = authority.inputs
+            .filter { $0.eventType == "voice.session.trace" }
+            .flatMap { input -> [DiagnosticJSONValue] in
+                guard case .array(let values) = input.payload["observations"] else { return [] }
+                return values
+            }
+        let kinds = Set(observations.compactMap { value -> String? in
+            guard case .object(let object) = value,
+                  case .string(let kind) = object["kind"] else { return nil }
+            return kind
+        })
+
+        XCTAssertEqual(summary.captureID, captureID.uuidString)
+        XCTAssertNotNil(summary.incidentIdentity)
+        XCTAssertEqual(summary.incidentAnchorTimestampNanoseconds, base + 1)
+        XCTAssertEqual(summary.incidentTriggerSource, "long_term_service")
+        XCTAssertEqual(summary.incidentTrigger, "ble_gap")
+        XCTAssertTrue(kinds.isSuperset(of: [
+            "ble_arrival", "decode_complete", "pcm_submitted", "render",
+        ]))
+        XCTAssertGreaterThan(summary.traceOverwrittenObservationCount, 0)
+    }
+
+    func testPreHIDAudioPipeIncidentSurvivesBindingAndJoinsTransportEvidence() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current(),
+            thresholds: LongTermObservabilityThresholds(maxNotificationGapCount: 0)
+        )
+        let pipe = AudioPipe.shared
+        let base = P1A4MonotonicClock.nowNanoseconds()
+        let sessionID = UUID()
+        pipe.beginRemoteAudioDiagnostics()
+        defer {
+            _ = pipe.setRemoteActive(false)
+            _ = pipe.endRemoteAudioDiagnostics()
+            LongTermIncidentCoordinator.shared.endCapture()
+        }
+
+        _ = pipe.setRemoteActive(true)
+        pipe.recordLongTermRenderObservationForTesting(
+            timestampNanoseconds: base + 1,
+            requestedFrames: 480,
+            filledFrames: 0,
+            unfilledFrames: 480,
+            queueDepthFrames: 0
+        )
+        _ = service.observeTransportStart(
+            protocolVersion: "2",
+            mode: "remote",
+            codec: "ADPCM",
+            sampleRate: 16_000,
+            timestampNanoseconds: base + 2
+        )
+        service.observeNotification(
+            bytes: 120,
+            gapNanoseconds: 30_000_000,
+            timestampNanoseconds: base + 3
+        )
+        service.observeDecode(
+            frameCount: 1,
+            sampleCount: 160,
+            timestampNanoseconds: base + 4
+        )
+        service.observeTracePoint(point(timestamp: base + 5, kind: .pcmSubmitted))
+        service.begin(sessionID: sessionID, timestampNanoseconds: base + 5)
+        service.observeLongTermAudioSnapshot(pipe.takeLongTermObservationSnapshot())
+        let summary = try XCTUnwrap(service.end(sessionID: sessionID))
+        let observations = authority.inputs
+            .filter { $0.eventType == "voice.session.trace" }
+            .flatMap { input -> [DiagnosticJSONValue] in
+                guard case .array(let values) = input.payload["observations"] else { return [] }
+                return values
+            }
+        let kinds = Set(observations.compactMap { value -> String? in
+            guard case .object(let object) = value,
+                  case .string(let kind) = object["kind"] else { return nil }
+            return kind
+        })
+
+        XCTAssertEqual(summary.incidentTriggerSource, "audio_pipe")
+        XCTAssertEqual(summary.incidentTrigger, "render_starvation")
+        XCTAssertTrue(kinds.isSuperset(of: [
+            "ble_arrival", "decode_complete", "pcm_submitted", "render", "queue_starvation",
+        ]))
+    }
+
+    func testPreHIDFirstIncidentRemainsFirstAfterHIDAnomaly() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current()
+        )
+        let base = P1A4MonotonicClock.nowNanoseconds()
+        let sessionID = UUID()
+        _ = service.observeTransportStart(
+            protocolVersion: "2",
+            mode: "remote",
+            codec: "ADPCM",
+            sampleRate: 16_000,
+            timestampNanoseconds: base
+        )
+        service.observeNotification(
+            bytes: 120,
+            gapNanoseconds: 120_000_000,
+            timestampNanoseconds: base + 1
+        )
+        service.begin(sessionID: sessionID, timestampNanoseconds: base + 2)
+        service.markMaterialAnomaly(trigger: .manual)
+        let first = try XCTUnwrap(service.end(sessionID: sessionID))
+
+        XCTAssertEqual(first.incidentTriggerSource, "long_term_service")
+        XCTAssertEqual(first.incidentTrigger, "ble_gap")
+        XCTAssertNotNil(first.incidentIdentity)
+    }
+
+    func testGestureFirstCaptureKeepsGenerationWhenTransportStartsLater() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current()
+        )
+        let sessionID = UUID()
+        service.begin(sessionID: sessionID, timestampNanoseconds: 1)
+        service.markMaterialAnomaly(trigger: .manual)
+        service.observeTransportStart(
+            protocolVersion: "2",
+            mode: "remote",
+            codec: "ADPCM",
+            sampleRate: 16_000,
+            timestampNanoseconds: 2
+        )
+
+        let summary = try XCTUnwrap(service.end(sessionID: sessionID))
+
+        XCTAssertEqual(summary.incidentTriggerSource, "long_term_service")
+        XCTAssertEqual(summary.incidentTrigger, "manual")
+        XCTAssertEqual(summary.audioStartTimestampNanoseconds, 2)
+    }
+
+    func testNewCaptureStartsWithCleanIncidentGeneration() throws {
+        let firstAuthority = CapturingLongTermAuthority()
+        let firstService = LongTermObservabilityService(
+            authority: firstAuthority,
+            runtimeIdentity: .current()
+        )
+        let firstSessionID = UUID()
+        firstService.begin(sessionID: firstSessionID, timestampNanoseconds: 1)
+        firstService.markMaterialAnomaly(trigger: .manual)
+        let first = try XCTUnwrap(firstService.end(sessionID: firstSessionID))
+
+        let secondAuthority = CapturingLongTermAuthority()
+        let secondService = LongTermObservabilityService(
+            authority: secondAuthority,
+            runtimeIdentity: .current()
+        )
+        let secondSessionID = UUID()
+        secondService.begin(sessionID: secondSessionID, timestampNanoseconds: 2)
+        secondService.markMaterialAnomaly(trigger: .manual)
+        let second = try XCTUnwrap(secondService.end(sessionID: secondSessionID))
+
+        XCTAssertNotEqual(first.incidentIdentity, second.incidentIdentity)
+    }
+
     func testSummaryDiagnosticValueHasStableAccountingKeys() throws {
         var summary = LongTermVoiceSessionSummary(sessionID: "session-1", captureID: "capture-1")
         summary.recordDelivery(expectedFrames: 10, deliveredFrames: 8, marker: .active)

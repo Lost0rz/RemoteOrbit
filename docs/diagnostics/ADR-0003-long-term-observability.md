@@ -21,8 +21,12 @@ The two evidence levels are:
   observations and a rolling recent capacity of 256; each AudioPipe producer trace
   keeps 64 front-edge and 512 rolling recent observations. Each producer also owns a
   bounded 128-observation pre-incident ring and a bounded 128-observation follow-up
-  ring. A lock-free first-writer-wins coordinator assigns one incident identity,
-  trigger, and monotonic anchor across both producers. The triggering producer freezes
+  ring. A lock-free first-writer-wins coordinator establishes one capture generation at
+  the earliest gesture or transport boundary, before either producer can publish
+  pre-HID evidence. A later HID session binding is not a reset boundary; the generation
+  is released only after the capture snapshot is detached, and the next independent
+  capture starts clean. Within that generation, the coordinator assigns one incident
+  identity, trigger, and monotonic anchor across both producers. The triggering producer freezes
   its pre-ring and appends to its follow-up ring; the other producer synchronizes to
   the same anchor on its next observation, so merging never silently prefers one
   producer's incident evidence over the other's. Intentional recent-ring overwrite is

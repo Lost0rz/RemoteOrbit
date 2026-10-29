@@ -125,6 +125,10 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     func beginRemoteAudioDiagnostics(
         continuityContext: AudioContinuityCaptureContext? = nil
     ) {
+        // AUDIO_START can precede HID. Establish the shared observability
+        // generation before this producer can publish any pre-HID evidence;
+        // a later HID binding is intentionally not a reset boundary.
+        LongTermIncidentCoordinator.shared.beginCaptureIfNeeded()
         let nextContinuityLedger = continuityContext.map {
             AudioContinuityRenderLedger(capture: $0)
         }

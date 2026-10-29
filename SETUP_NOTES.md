@@ -404,7 +404,10 @@ defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool false
 长期诊断默认记录每个真实 voice session 的 L1 summary；异常时才保留 L2 bounded
 front/recent trace 和不可覆盖的 incident window。service trace 是 front 64/recent
 256，AudioPipe trace 是 front 64/recent 512；每个 producer 的 incident pre/follow-up
-ring 各为 128 条，并由无锁 coordinator 共享一次 material incident identity/anchor。
+ring 各为 128 条。无锁 coordinator 在 gesture 或 transport capture 的最早边界建立一次
+generation；AUDIO_START 先于 HID 时，后续 HID 只绑定 session，不会清除 pre-HID incident
+identity/anchor 或 producer 同步状态。capture 结束后才释放 generation，下一次独立 capture
+才会开始干净 generation，并共享一次 material incident identity/anchor。
 L1/L2 都通过 DiagnosticAuthority 查询，默认 retention 是 2 MiB × 5 segments。正常
 >20ms callback gap 只作为统计，默认 >100ms 才进入 gap anomaly；main-queue material
 threshold 与 classifier 均为严格 >50ms；recent overwrite 只作 retention metadata，真实 drop、

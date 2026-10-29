@@ -179,8 +179,11 @@ DMG 安装的应用位于：
 判定为异常时，才会把固定容量的 L2 front-edge/recent trace 以及独立的 incident
 window 冻结到诊断事件中。service trace 的容量是 front 64/recent 256，AudioPipe
 trace 是 front 64/recent 512；每个 producer 还有 128 条 pre-incident 与 128 条
-follow-up 有界 ring。无锁 first-writer-wins coordinator 为一次 material incident
-分配共同 identity/anchor，合并时不会静默偏向某一个 producer。incident window 在
+follow-up 有界 ring。无锁 first-writer-wins coordinator 在最早的 gesture 或 transport
+capture 边界为一次 logical capture 建立 generation；因此 AUDIO_START/AudioPipe 先于 HID
+时也能先记录 incident，后续 HID 只绑定 session ID，不会重置 identity、anchor 或 producer
+同步状态。一次 capture 结束后 generation 才释放，下一次独立 capture 才会清空并建立新的
+generation。该 coordinator 为一次 material incident 分配共同 identity/anchor，合并时不会静默偏向某一个 producer。incident window 在
 首次物质异常后不会被后续正常写入覆盖；正常 recent ring overwrite 只是 retention
 metadata，真实 drop/out-of-order 和 delivery deficit 才是异常。普通 >20ms callback
 gap 只进入统计，默认 >100ms 才触发 gap 异常；main-queue material threshold 与
