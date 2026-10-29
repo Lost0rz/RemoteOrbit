@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTIC-HARDENING-041 — One-shot Incident Evidence Closure
 
-Status: `AUTHORIZED / READY_FOR_LOCAL_IMPLEMENTATION`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -219,6 +219,39 @@ At minimum:
 Local implementation stops at:
 
 `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+
+## Delivered state
+
+The authorized 041 package is implemented on `codex/diagnostic-hardening-041`.
+The 040 semantic commits were integrated in the required order without importing
+040 control-plane commits. The implementation commit is
+`1b65135f303fd79d3641766a15462fdc8dcc97c3` (`feat: harden diagnostic evidence
+boundaries`); the paired update to `CURRENT_STATUS.md` and
+`CURRENT_TASK.md` is the final control transition for this task, with its exact
+control and remote heads verified in the delivery receipt.
+
+Delivered evidence includes unified attempt correlation, stage-aware start
+watchdog, bounded runtime health, stream/sequence attribution on the existing
+fixed trace, startup/active/tail underrun episodes, output boundary facts,
+required-evidence archive receipts, structured failure classifications, and
+bounded diagnostic-noise reduction. Existing 039 DiagnosticAuthority, exporter,
+raw-HID evidence, LongTermIncidentCoordinator, and FixedCapacityObservationTrace
+were reused.
+
+Verification completed:
+
+- 039+040 integration-focused suites: 126/126 passed before 041 implementation.
+- Focused 039+040+041 suites: 132/132 passed.
+- Dedicated 041 hardening/export/recording suites: 53/53 passed.
+- Full Swift tests: 487/487 passed.
+- Release build, x86 release build using `x86_64-apple-macos13.0`, protocol
+  self-tests (3/3), and `git diff --check`: passed.
+
+No product voice semantics, BLE/ATVV behavior, decoder/codec, AudioPipe
+queue/playout policy, driver behavior, Air runtime, PR #25, or
+`codex/observability-039` was changed. Driver-level consumer evidence remains
+explicitly unavailable; human/Air runtime validation and the independent Web
+audit remain outside this executor's evidence.
 
 No merge, tag, public release, Air install, driver install, TCC change, or automatic runtime mutation is authorized.
 
