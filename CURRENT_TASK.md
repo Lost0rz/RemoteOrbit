@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `CORRECTIVE_ACTIVE`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -23,6 +23,7 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 - Corrected implementation baseline HEAD: `ad223e4b5f35653abe1014697cb50a87d3db05ad`.
 - Second corrective transition parent: `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
 - Second corrective implementation HEAD: `447b3b9`.
+- Pre-HID lifecycle corrective start HEAD: `c6cc2918ab9314507ad85f8e82fac58c74f26674`.
 - PR #25 remains Draft/Open/Unmerged and must not be merged, tagged, or released.
 
 ## Authorized scope
@@ -47,7 +48,14 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 
 ## Corrective gate
 
-The second independent Web audit was blocked by bounded cross-layer incident-window findings. This corrective establishes one shared incident identity/anchor across the existing service and AudioPipe producer-owned traces, preserves relevant BLE/decode/PCM/render/starvation evidence when either producer triggers, aligns production material triggers with centralized classification, corrects exact-limit export truncation, and makes ADR capacities exact. It preserves the product/audio freeze and adds no hot-path disk I/O, formatting, authority emission, or new contended diagnostic lock. Focused realistic tests, full Swift regression, release build, self-tests, `git diff --check`, and exact source/product-freeze review pass. The candidate was pushed and remote-verified; await another independent Web audit. This does not authorize merge, tag, release, or Air runtime validation.
+The second independent Web audit was blocked by bounded cross-layer incident-window findings and is now extended by one remaining pre-HID lifecycle finding. This corrective must establish the shared incident coordinator generation exactly once at the earliest authoritative gesture/transport capture boundary; a later HID session binding must preserve incident identity, anchor, and producer synchronization state; a genuinely new capture must receive a clean generation. It must preserve first-writer-wins, pre-HID BLE/decode/PCM/render evidence, AudioPipe-first evidence, wrap survival, and all existing journal/export/receiver/late-lifecycle behavior. It preserves the product/audio freeze and adds no hot-path disk I/O, formatting, authority emission, or new contended diagnostic lock. Focused pre-HID lifecycle tests, full Swift regression, release build, self-tests, `git diff --check`, and exact source/product-freeze review are required. After verification, push `codex/observability-039` and return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. This does not authorize merge, tag, release, or Air runtime validation.
+
+## Corrective gate
+
+- Start from literal HEAD `c6cc2918ab9314507ad85f8e82fac58c74f26674`.
+- Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together before implementation.
+- Do not reset the shared incident coordinator merely because a HID UUID becomes available if an active pre-HID capture already owns the generation.
+- Do not add a hot-path lock or change ATVV, BLE, AudioPipe, HID, gesture, driver, Doubao, packaging, installation, release, PR, or Air runtime behavior.
 
 ## Final verification receipt
 
