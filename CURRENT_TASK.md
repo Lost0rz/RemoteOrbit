@@ -10,6 +10,8 @@ Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`
 
 Active branch: `codex/mapping-config-simplify-040`
 
+Active writer worktree: `/private/tmp/remoteorbit-mapping-config-simplify-040`
+
 DESIGN_MODE: `DESIGN_IMPLEMENT`
 
 ## Objective
