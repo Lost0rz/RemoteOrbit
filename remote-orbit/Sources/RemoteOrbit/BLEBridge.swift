@@ -191,6 +191,10 @@ final class BLEBridge: NSObject {
     private var hasRecordedFirstP1A4AudioPacket = false
     private var p1A5VoiceOnsetDetector = P1A5VoiceOnsetDetector()
     private var wavRecorder: WavRecorder?
+    // These seams keep the recording lifecycle testable without a live
+    // peripheral. They do not participate in the production transport path.
+    var recordingDirectoryOverrideForTesting: URL?
+    private(set) var lastRecordingFailureForTesting: String?
     // Verbose PCM diagnostics are off unless explicitly requested.
     private static let diagnosticsEnabled =
         ProcessInfo.processInfo.environment["REMOTE_ORBIT_DIAGNOSTICS"] == "1"
@@ -217,6 +221,22 @@ final class BLEBridge: NSObject {
 
     func resetTransportForTesting() {
         clearTransportState(notify: true)
+    }
+
+    func beginAudioStartForTesting() {
+        isStreaming = true
+        wavRecorder = createRecordingIfEnabled(reason: "AUDIO_START_TEST")
+    }
+
+    func appendRecordingDataForTesting(rawData: Data, samples: [Int16]) {
+        wavRecorder?.appendRawBytes(rawData)
+        wavRecorder?.appendSamples(samples)
+    }
+
+    func closeRecordingForTesting() {
+        wavRecorder?.close()
+        wavRecorder = nil
+        isStreaming = false
     }
 
     override init() {
@@ -492,11 +512,49 @@ final class BLEBridge: NSObject {
 
     func setRecordingEnabled(_ enabled: Bool) {
         AppStorage.recordingEnabled = enabled
+        print(
+            "[RECORDING] setRecordingEnabled enabled=\(enabled) "
+                + "persisted=\(AppStorage.recordingEnabled) isStreaming=\(isStreaming)"
+        )
         if enabled, isStreaming, wavRecorder == nil {
-            wavRecorder = WavRecorder.createNext(prefix: "remote-orbit")
+            wavRecorder = createRecordingIfEnabled(reason: "recording_toggle")
         } else if !enabled, let recorder = wavRecorder {
             recorder.close()
             wavRecorder = nil
+        }
+    }
+
+    private func createRecordingIfEnabled(reason: String) -> WavRecorder? {
+        let enabled = AppStorage.recordingEnabled
+        print(
+            "[RECORDING] recorder_request reason=\(reason) "
+                + "recordingEnabled=\(enabled)"
+        )
+        guard enabled else {
+            print("[RECORDING] recorder_skipped reason=disabled")
+            return nil
+        }
+
+        do {
+            let recorder = try WavRecorder.createNext(
+                prefix: "remote-orbit",
+                directory: recordingDirectoryOverrideForTesting
+                    ?? AppStorage.recordingsDirectory
+            )
+            lastRecordingFailureForTesting = nil
+            print(
+                "[RECORDING] recorder_created wav=\(recorder.wavPath) "
+                    + "raw=\(recorder.rawPath)"
+            )
+            return recorder
+        } catch {
+            let message = error.localizedDescription
+            lastRecordingFailureForTesting = message
+            print(
+                "[RECORDING] recorder_creation_failed reason=\(reason) "
+                    + "error=\(message)"
+            )
+            return nil
         }
     }
 
@@ -1177,9 +1235,7 @@ extension BLEBridge: CBPeripheralDelegate {
             maxAudioFrameGap = 0
             streamDrainFrameCount = 0
             audioFramesOutsideStream = 0
-            wavRecorder = AppStorage.recordingEnabled
-                ? WavRecorder.createNext(prefix: "remote-orbit")
-                : nil
+            wavRecorder = createRecordingIfEnabled(reason: "AUDIO_START")
             startKeepAliveTimer()
             print(
                 "[BLE] AUDIO_START "

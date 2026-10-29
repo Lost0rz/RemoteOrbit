@@ -45,7 +45,7 @@ struct SettingsView: View {
     private var onSecondaryVoiceTriggerKeyChanged: SecondaryVoiceTriggerKeyChangeHandler
     private var onMicrophoneShortBindingChanged: MicrophoneShortBindingChangeHandler
     @State private var selectedSection: WorkspaceSection = .overview
-    @State private var selectedButton: RemoteButton = .back
+    @State private var selectedButton: RemoteButton = .microphone
     @State private var mappingScope: MappingScope = .global
     @State private var selectedMomentaryVoiceTriggerKey: VoiceTriggerKey
     @State private var isApplyingMomentaryVoiceTriggerKey = false
@@ -100,7 +100,7 @@ struct SettingsView: View {
         )
     }
 
-    private enum MappingScope: Hashable {
+    enum MappingScope: Hashable {
         case global
         case app(String)
     }
@@ -124,7 +124,7 @@ struct SettingsView: View {
         var id: String { "\(button.rawValue)-\(slot.rawValue)" }
     }
 
-    private enum TemplateTarget: Hashable {
+    enum TemplateTarget: Hashable {
         case none
         case template(UUID)
     }
@@ -178,9 +178,6 @@ struct SettingsView: View {
     var body: some View {
         workspace
         .frame(minWidth: 1_020, minHeight: 660)
-        .onAppear {
-            synchronizeMappingScopeToEffectiveTarget()
-        }
         // 用 sheet(item:) 直接以按钮作为展示状态，避免第一次点击时
         // showRecorder 已变成 true、recorderButton 仍是 nil，导致空 sheet。
         .sheet(item: $recorderButton) { button in
@@ -307,7 +304,7 @@ struct SettingsView: View {
 
             ForEach(WorkspaceSection.allCases) { section in
                 Button {
-                    selectedSection = section
+                    selectSection(section)
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: section.symbolName)
@@ -2509,18 +2506,25 @@ struct SettingsView: View {
         }
     }
 
-    /// Settings is hosted by RemoteOrbit itself, so the window becoming
-    /// frontmost must not make the editor default to the global scope. Use the
-    /// same cached external target as runtime routing and select its Active
-    /// template before the user edits a button.
-    private func synchronizeMappingScopeToEffectiveTarget() {
-        guard let bundleID = MappingStore.preferredApplicationBundleIdentifier(),
-              store.activeTemplate(for: bundleID) != nil
-        else {
-            selectMappingScope(.global)
-            return
+    private func selectSection(_ section: WorkspaceSection) {
+        if section == .mappings {
+            Self.resetMappingEditorEntry(
+                scope: &mappingScope,
+                selectedButton: &selectedButton,
+                selectedTemplateTarget: &selectedTemplateTarget
+            )
         }
-        selectMappingScope(.app(bundleID))
+        selectedSection = section
+    }
+
+    static func resetMappingEditorEntry(
+        scope: inout MappingScope,
+        selectedButton: inout RemoteButton,
+        selectedTemplateTarget: inout TemplateTarget
+    ) {
+        scope = .global
+        selectedButton = .microphone
+        selectedTemplateTarget = .none
     }
 
     private func selectTemplate(_ target: TemplateTarget, for bundleID: String) {

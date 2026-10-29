@@ -4,20 +4,52 @@
 
 import Foundation
 
+enum WavRecorderError: Error, Equatable, LocalizedError {
+    case directoryCreationFailed(path: String, reason: String)
+    case fileCreationFailed(path: String)
+    case fileOpenFailed(path: String, reason: String)
+    case writeFailed(path: String, operation: String, reason: String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .directoryCreationFailed(path, reason):
+            return "创建录音目录失败（\(path)）：\(reason)"
+        case let .fileCreationFailed(path):
+            return "创建录音文件失败（\(path)）"
+        case let .fileOpenFailed(path, reason):
+            return "打开录音文件失败（\(path)）：\(reason)"
+        case let .writeFailed(path, operation, reason):
+            return "\(operation) 写入失败（\(path)）：\(reason)"
+        }
+    }
+}
+
 final class WavRecorder {
     static func createNext(
         prefix: String,
+        directory: URL = AppStorage.recordingsDirectory,
         diagnosticAuthority: any DiagnosticAuthority = DiagnosticAuthorityService.shared
-    ) -> WavRecorder? {
+    ) throws -> WavRecorder {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
-        let base = "\(prefix)-\(formatter.string(from: Date()))"
-        let dir = AppStorage.recordingsDirectory
-        AppStorage.ensureDirectory(dir)
-        let wavURL = dir.appendingPathComponent("\(base).wav")
-        let rawURL = dir.appendingPathComponent("\(base).raw.bin")
-        return WavRecorder(
+        // The UUID keeps back-to-back sessions independent even within one
+        // millisecond. Existing captures are never removed or overwritten.
+        let base = "\(prefix)-\(formatter.string(from: Date()))-\(UUID().uuidString)"
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            throw WavRecorderError.directoryCreationFailed(
+                path: directory.path,
+                reason: error.localizedDescription
+            )
+        }
+        let wavURL = directory.appendingPathComponent("\(base).wav")
+        let rawURL = directory.appendingPathComponent("\(base).raw.bin")
+        return try WavRecorder(
             wavURL: wavURL,
             rawURL: rawURL,
             basename: base,
@@ -31,6 +63,7 @@ final class WavRecorder {
     private var wavHandle: FileHandle?
     private var rawHandle: FileHandle?
     private var totalFrames: UInt64 = 0
+    private var rawByteCount: UInt64 = 0
     private var isClosed = false
     private let ioQueue: DispatchQueue
     private let diagnosticAuthority: any DiagnosticAuthority
@@ -39,12 +72,12 @@ final class WavRecorder {
     private let channels: UInt16 = 1
     private let bitsPerSample: UInt16 = 16
 
-    init?(
+    init(
         wavURL: URL,
         rawURL: URL,
         basename: String,
         diagnosticAuthority: any DiagnosticAuthority = DiagnosticAuthorityService.shared
-    ) {
+    ) throws {
         self.wavURL = wavURL
         self.rawURL = rawURL
         self.basename = basename
@@ -54,23 +87,64 @@ final class WavRecorder {
             label: "com.lost0rz.RemoteOrbit.wav.\(basename)",
             qos: .utility
         )
-        // WAV
-        try? FileManager.default.removeItem(at: wavURL)
-        guard FileManager.default.createFile(atPath: wavURL.path, contents: nil),
-              let wh = try? FileHandle(forWritingTo: wavURL) else { return nil }
-        self.wavHandle = wh
-        wh.write(Self.makeHeader(
-            sampleRate: sampleRate, channels: channels,
-            bitsPerSample: bitsPerSample, dataBytes: 0
-        ))
-        // Raw ATVV bytes
-        try? FileManager.default.removeItem(at: rawURL)
-        guard FileManager.default.createFile(atPath: rawURL.path, contents: nil),
-              let rh = try? FileHandle(forWritingTo: rawURL) else {
-            try? wh.close()
-            return nil
+        self.wavHandle = nil
+        self.rawHandle = nil
+
+        let fileManager = FileManager.default
+        guard fileManager.createFile(atPath: wavURL.path, contents: nil) else {
+            throw WavRecorderError.fileCreationFailed(path: wavURL.path)
         }
+
+        let wh: FileHandle
+        do {
+            wh = try FileHandle(forWritingTo: wavURL)
+        } catch {
+            try? fileManager.removeItem(at: wavURL)
+            throw WavRecorderError.fileOpenFailed(
+                path: wavURL.path,
+                reason: error.localizedDescription
+            )
+        }
+
+        do {
+            try wh.write(contentsOf: Self.makeHeader(
+                sampleRate: sampleRate,
+                channels: channels,
+                bitsPerSample: bitsPerSample,
+                dataBytes: 0
+            ))
+        } catch {
+            try? wh.close()
+            try? fileManager.removeItem(at: wavURL)
+            throw WavRecorderError.writeFailed(
+                path: wavURL.path,
+                operation: "WAV header",
+                reason: error.localizedDescription
+            )
+        }
+
+        guard fileManager.createFile(atPath: rawURL.path, contents: nil) else {
+            try? wh.close()
+            try? fileManager.removeItem(at: wavURL)
+            throw WavRecorderError.fileCreationFailed(path: rawURL.path)
+        }
+
+        let rh: FileHandle
+        do {
+            rh = try FileHandle(forWritingTo: rawURL)
+        } catch {
+            try? wh.close()
+            try? fileManager.removeItem(at: wavURL)
+            try? fileManager.removeItem(at: rawURL)
+            throw WavRecorderError.fileOpenFailed(
+                path: rawURL.path,
+                reason: error.localizedDescription
+            )
+        }
+
+        self.wavHandle = wh
         self.rawHandle = rh
+        print("[WAV] created wav=\(wavURL.path) raw=\(rawURL.path)")
         emitRecordingStarted()
     }
 
@@ -81,11 +155,19 @@ final class WavRecorder {
             var pcm = [UInt8](repeating: 0, count: samples.count * 2)
             for (i, s) in samples.enumerated() {
                 let u = UInt16(bitPattern: Int16(s))
-                pcm[i * 2]     = UInt8(u & 0xFF)
+                pcm[i * 2] = UInt8(u & 0xFF)
                 pcm[i * 2 + 1] = UInt8((u >> 8) & 0xFF)
             }
-            h.write(Data(pcm))
-            self.totalFrames += UInt64(samples.count)
+            do {
+                try h.write(contentsOf: Data(pcm))
+                self.totalFrames += UInt64(samples.count)
+            } catch {
+                self.emitFailure(
+                    path: self.wavURL.path,
+                    operation: "PCM samples",
+                    error: error
+                )
+            }
         }
     }
 
@@ -93,39 +175,77 @@ final class WavRecorder {
         guard !data.isEmpty else { return }
         ioQueue.async { [weak self] in
             guard let self, !self.isClosed, let h = self.rawHandle else { return }
-            h.write(data)
+            do {
+                try h.write(contentsOf: data)
+                self.rawByteCount += UInt64(data.count)
+            } catch {
+                self.emitFailure(
+                    path: self.rawURL.path,
+                    operation: "raw bytes",
+                    error: error
+                )
+            }
         }
     }
 
     func close() {
         var closedFrameCount: UInt64?
+        var closedRawByteCount: UInt64 = 0
         ioQueue.sync {
             guard !isClosed else { return }
             isClosed = true
             closedFrameCount = totalFrames
+            closedRawByteCount = rawByteCount
 
             if let h = wavHandle {
                 wavHandle = nil
-                let dataBytes = UInt32(totalFrames) * UInt32(channels) * UInt32(bitsPerSample / 8)
+                let dataBytes = UInt32(totalFrames)
+                    * UInt32(channels)
+                    * UInt32(bitsPerSample / 8)
                 let header = Self.makeHeader(
-                    sampleRate: sampleRate, channels: channels,
-                    bitsPerSample: bitsPerSample, dataBytes: dataBytes
+                    sampleRate: sampleRate,
+                    channels: channels,
+                    bitsPerSample: bitsPerSample,
+                    dataBytes: dataBytes
                 )
                 do {
                     try h.seek(toOffset: 0)
                     try h.write(contentsOf: header)
                     try h.close()
                 } catch {
-                    print("[WAV] close error: \(error.localizedDescription)")
+                    emitFailure(
+                        path: wavURL.path,
+                        operation: "WAV close",
+                        error: error
+                    )
                 }
             }
             if let h = rawHandle {
                 rawHandle = nil
-                try? h.close()
+                do {
+                    try h.close()
+                } catch {
+                    emitFailure(
+                        path: rawURL.path,
+                        operation: "raw close",
+                        error: error
+                    )
+                }
             }
         }
         if let closedFrameCount {
             emitRecordingClosed(frameCount: closedFrameCount)
+            let wavBytes = fileSize(at: wavURL)
+            let rawBytes = fileSize(at: rawURL)
+            let wavDataBytes = closedFrameCount
+                * UInt64(channels)
+                * UInt64(bitsPerSample / 8)
+            print(
+                "[WAV] closed wav=\(wavURL.path) raw=\(rawURL.path) "
+                    + "samples=\(closedFrameCount) wav_data_bytes=\(wavDataBytes) "
+                    + "wav_file_bytes=\(wavBytes) raw_written_bytes=\(closedRawByteCount) "
+                    + "raw_file_bytes=\(rawBytes)"
+            )
         }
     }
 
@@ -134,11 +254,25 @@ final class WavRecorder {
 
     var wavPath: String { wavURL.path }
 
+    var rawPath: String { rawURL.path }
+
     var totalSamples: UInt64 {
         ioQueue.sync { totalFrames }
     }
 
     var recordedSampleRate: UInt32 { sampleRate }
+
+    private func emitFailure(path: String, operation: String, error: Error) {
+        print(
+            "[WAV] failure operation=\(operation) path=\(path) "
+                + "error=\(error.localizedDescription)"
+        )
+    }
+
+    private func fileSize(at url: URL) -> UInt64 {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+    }
 
     private func emitRecordingStarted() {
         guard let event = try? DiagnosticEventInput(
@@ -176,11 +310,14 @@ final class WavRecorder {
     }
 
     private static func makeHeader(
-        sampleRate: UInt32, channels: UInt16, bitsPerSample: UInt16, dataBytes: UInt32
+        sampleRate: UInt32,
+        channels: UInt16,
+        bitsPerSample: UInt16,
+        dataBytes: UInt32
     ) -> Data {
-        let byteRate: UInt32  = sampleRate * UInt32(channels) * UInt32(bitsPerSample / 8)
+        let byteRate: UInt32 = sampleRate * UInt32(channels) * UInt32(bitsPerSample / 8)
         let blockAlign: UInt16 = channels * (bitsPerSample / 8)
-        let chunkSize: UInt32  = 36 + dataBytes
+        let chunkSize: UInt32 = 36 + dataBytes
         var d = Data()
         d.append(Data("RIFF".utf8))
         d.append(Self.u32(chunkSize))
@@ -202,6 +339,7 @@ final class WavRecorder {
         var le = v.littleEndian
         return Data(bytes: &le, count: 4)
     }
+
     private static func u16(_ v: UInt16) -> Data {
         var le = v.littleEndian
         return Data(bytes: &le, count: 2)
