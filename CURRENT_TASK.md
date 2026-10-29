@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTIC-HARDENING-041 — One-shot Incident Evidence Closure
 
-Status: `AUTHORIZED / EXPORTER_RECEIPT_CORRECTIVE`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -257,6 +257,29 @@ queue/playout policy, driver behavior, Air runtime, PR #25, or
 `codex/observability-039` was changed. Driver-level consumer evidence remains
 explicitly unavailable; human/Air runtime validation and the independent Web
 audit remain outside this executor's evidence.
+
+The exporter receipt corrective authorized from
+`6489517dca8a7d6fb5aeabee973e3240ac2434c9` is implemented at
+`d4584f04f5ce8cd974773abe6b5a6e87b72453c4`:
+
+- session summary and frozen-trace receipts derive from actual exported event-type presence and counts;
+- global session-event truncation is reported as bounded/unknown rather than converted into a false absence or availability claim;
+- required application-log receipts preserve bounded status and per-file truncation metadata;
+- selected system input is refreshed from `SystemAudioDeviceManager` at export time;
+- manifest and SHA behavior remain unchanged, with privacy boundaries preserved.
+
+Exporter corrective verification:
+
+- `DiagnosticExportTests`: 16/16 passed;
+- all 041 diagnostic/export focused suites: 146/146 passed;
+- full Swift tests: 501/501 passed;
+- release build and x86 release build (`x86_64-apple-macos13.0`): passed;
+- protocol self-tests: 3/3 passed;
+- `git diff --check`: passed.
+
+No HID, BLE, AudioPipe, runtime probe, watchdog, ring, underrun, output,
+driver, PR #25, PR #26, `codex/observability-039`, or Air runtime behavior was
+changed by this exporter corrective.
 
 No merge, tag, public release, Air install, driver install, TCC change, or automatic runtime mutation is authorized.
 
