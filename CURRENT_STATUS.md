@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-29
-State: CORRECTIVE_ACTIVE — RO-OBSERVABILITY-039
+State: WAITING_FOR_INDEPENDENT_WEB_AUDIT — RO-OBSERVABILITY-039 CORRECTIVE CANDIDATE
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -13,6 +13,7 @@ Repository: Lost0rz/RemoteOrbit
 - Active implementation worktree: `/private/tmp/remoteorbit-longterm-observability-039`.
 - Previous implementation candidate HEAD: `79406f17be3fbee77b4492687f63431434b23998` (`diagnostics: classify lifecycle inconsistencies`).
 - Current control HEAD before corrective work: `24d08c64abf5832a89957241713fb50cfd60da04`.
+- Corrected implementation candidate HEAD: `ad223e4b5f35653abe1014697cb50a87d3db05ad` (`diagnostics: correct observability audit findings`).
 - PR #25 (`Release RemoteOrbit v0.2.15`) is Draft/Open/Unmerged; public release is blocked and no merge, tag, or release is authorized by this task.
 - The former release-control branch `codex/release-v0.2.15` remains at `f049e6eb7f0e5625b807fba1860d04c048b638ca` in `/private/tmp/remoteorbit-release-v0.2.15-local-soak`; it is retained for provenance and is not an active writer for this task.
 - The owner's MacBook Air natural-use observation reported substantial final-text omission. This records the release decision as `RELEASE_BLOCKED / SOAK_FAILED`; it does not claim a technical root cause.
@@ -27,6 +28,7 @@ Repository: Lost0rz/RemoteOrbit
 - `CURRENT_STATUS.md` and `CURRENT_TASK.md` were updated together in the control-transition commit immediately following that parent.
 - Corrective transition start HEAD: `24d08c64abf5832a89957241713fb50cfd60da04`.
 - The independent Web audit of the pushed candidate failed with findings covering anomaly/ring semantics, incident freezing, BLE/decode trace completeness, main-queue correlation, delivery-deficit classification, crash-tolerant journal recovery, export pagination/log source, receiver evidence, and late lifecycle correlation. The corrective scope remains observability-only.
+- Corrective implementation is complete at `ad223e4b5f35653abe1014697cb50a87d3db05ad`; this control update is the direct child that records the handoff back to independent Web audit.
 
 ## Product and runtime boundaries
 
@@ -37,14 +39,14 @@ Repository: Lost0rz/RemoteOrbit
 
 ## Candidate evidence
 
-- 443 Swift tests pass; release build and `run-self-tests.sh` pass.
+- 457 Swift tests pass; release build and `run-self-tests.sh` pass.
 - `git diff --check` passes.
-- Source review confirms no new AudioPipe render disk I/O, formatting, authority call, or diagnostic lock; BLE audio callbacks do not synchronously write the journal; normal sessions emit summary-only and anomaly traces are emitted off-path.
-- Documentation and export tests cover L1/L2, bounded retention, archive inclusion/exclusion, receiver evidence-unavailable state, schema/query fields, and no-root-cause boundary.
+- Source review confirms no new AudioPipe render/BLE callback disk I/O, formatting, authority call, or diagnostic lock; BLE audio callbacks do not synchronously write the journal; normal sessions emit summary-only and anomaly traces are emitted off-path.
+- Focused evidence covers true incident freeze, retention-only overwrite, actual drop, real transport-to-render stages, bounded main-queue timestamps, explicit delivery deficit, partial-tail recovery/fail-closed corruption, cursor pagination, production log allowlist, receiver usefulness, and late lifecycle correlation.
 
 ## Current next action
 
-Implement the bounded audit corrective in the existing worktree, then run focused tests, proportionate Swift regression, release build, self-tests, diff/source review, and push the corrected candidate for another independent Web audit. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
+Push corrected implementation candidate `ad223e4b5f35653abe1014697cb50a87d3db05ad` on `codex/observability-039` and await another independent Web audit. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
 
 ## Stop conditions
 

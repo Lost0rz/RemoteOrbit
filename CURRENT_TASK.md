@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `CORRECTIVE_ACTIVE`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -20,6 +20,7 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 - Active branch: `codex/observability-039`.
 - Active worktree: `/private/tmp/remoteorbit-longterm-observability-039`.
 - Corrective transition start HEAD: `24d08c64abf5832a89957241713fb50cfd60da04`.
+- Corrected implementation candidate HEAD: `ad223e4b5f35653abe1014697cb50a87d3db05ad`.
 - PR #25 remains Draft/Open/Unmerged and must not be merged, tagged, or released.
 
 ## Authorized scope
@@ -44,11 +45,11 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 
 ## Corrective gate
 
-The independent Web audit of the pushed candidate failed. Correct the bounded observability findings from the corrective card without changing product/audio behavior, then prove the corrected candidate with focused realistic tests, full/proportionate Swift regression, release build, self-tests, `git diff --check`, exact source/product-freeze review, and remote branch verification. The corrected task remains subject to another independent Web audit and later owner-controlled Air installation/testing. It does not authorize merge, tag, release, or Air runtime validation.
+The independent Web audit of the pushed candidate failed. The bounded observability findings are corrected without changing product/audio behavior. Focused realistic tests, full Swift regression, release build, self-tests, `git diff --check`, and exact source/product-freeze review pass. The corrected candidate is now ready to push for another independent Web audit. The task remains subject to that audit and later owner-controlled Air installation/testing. It does not authorize merge, tag, release, or Air runtime validation.
 
 ## Final verification receipt
 
-- `swift test`: 443 passed, 0 failed.
+- `swift test`: 457 passed, 0 failed.
 - `swift build -c release`: passed.
 - `./run-self-tests.sh`: passed all 3 protocol self-tests.
 - `git diff --check`: passed.
