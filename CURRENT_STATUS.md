@@ -58,7 +58,7 @@ This task must not change:
 - `RO-OBSERVABILITY-039` changed: NO.
 - PR #25 changed: NO.
 - Old backup files deleted: NO.
-- Remote delivery: `PUSHED_VERIFIED`; local and `origin/codex/mapping-config-simplify-040` both point to `9669420ecfd65034ebeb61ade08386dd0ca20659`.
+- Remote delivery: `PUSHED_VERIFIED`; local and `origin/codex/mapping-config-simplify-040` both point to `718a2f543fae79ccc98a16c1274cfd95b0fb53d2`.
 - Corrective PR: `#26` Draft/Open/Unmerged — `https://github.com/Lost0rz/RemoteOrbit/pull/26`.
 - Independent Web audit: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; no independent Web PASS is claimed.
 - AI-rendered inspection: not part of this corrective; existing accepted Settings / Control Center UI is frozen.
