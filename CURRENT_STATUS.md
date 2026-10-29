@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: RO-DIAGNOSTIC-HARDENING-041 — WAITING_FOR_INDEPENDENT_WEB_AUDIT
+State: RO-DIAGNOSTIC-HARDENING-041 — AUTHORIZED / EXPORTER_RECEIPT_CORRECTIVE
 Repository: Lost0rz/RemoteOrbit
 
 ## Current authority
@@ -14,8 +14,10 @@ Repository: Lost0rz/RemoteOrbit
 - Post-040 integration HEAD: `069694c925f36a7f16cab6ae6595ca02c3483e8d`.
 - Corrective authorization control HEAD: `7388a77b239228fd3034c0b9945224a7c83bd4ea`.
 - Final implementation HEAD: `90b1e6b83c18ec5ddff5ea572f3e8f4a969bc321` (`fix: close diagnostic evidence audit gaps`).
+- Exporter corrective authorization start HEAD: `6489517dca8a7d6fb5aeabee973e3240ac2434c9`.
 - The paired control update in this transition is the final control commit; its exact SHA and remote match are verified in the delivery receipt.
 - Independent Web audit blocker receipt: exact remote head `2d699f107b8ebb55b117243f0ac5d5fe1b2dfbc1`; corrective scope is limited to the six evidence-accuracy blockers in the audit.
+- Latest independent Web audit stop receipt: exact remote head `6489517dca8a7d6fb5aeabee973e3240ac2434c9`; runtime probe closure is accepted and the only authorized corrective is exporter evidence-receipt truthfulness.
 - `AGENTS.md` remains the durable repository rule authority and is unchanged by this transition.
 - `CURRENT_TASK.md` is the only authorization for 041 implementation.
 - Local writer worktree: `/private/tmp/remoteorbit-diagnostic-hardening-041`.
@@ -65,4 +67,4 @@ The target is evidence closure, not a production behavior fix. After this packag
 
 ## Current next action
 
-Await independent Web audit of exact pushed 041 control HEAD. Do not merge, tag, release, package/install an Air candidate, or mutate runtime state.
+Implement and verify the exporter-only receipt corrective, update both control files together, push only `codex/diagnostic-hardening-041`, then return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not modify HID, BLE, AudioPipe, runtime probes, driver, PR #25, PR #26, or Air runtime.

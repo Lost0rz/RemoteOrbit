@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTIC-HARDENING-041 — One-shot Incident Evidence Closure
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `AUTHORIZED / EXPORTER_RECEIPT_CORRECTIVE`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -279,3 +279,35 @@ explicitly unavailable; human/Air runtime validation and the independent Web
 audit remain outside this executor's evidence.
 
 After independent audit passes, a separate packaging/install gate may create one unified observation candidate. The intended end state is that no further always-on probe expansion occurs unless a fresh natural incident demonstrates a concrete missing evidence boundary.
+
+## Exporter receipt corrective authorization
+
+The independent Web audit of exact remote HEAD
+`6489517dca8a7d6fb5aeabee973e3240ac2434c9` accepted runtime diagnostic probe
+closure and stopped only on DiagnosticExporter evidence-receipt truthfulness.
+This corrective is strictly limited to `DiagnosticExport.swift`,
+`DiagnosticExportTests.swift`, and these two control files. An immediately
+adjacent exporter helper may be changed only if the exporter cannot otherwise
+read the existing system-input authority safely.
+
+Required behavior:
+
+- `frozen_trace_and_session_summaries` must derive from actual exported
+  `voice.session.summary` and `voice.session.trace` event counts, with explicit
+  unavailable, bounded, or failed reasons and session-event truncation context.
+- `remoteorbit_log` and `voice_diagnostic_current` receipts must preserve the
+  staged per-file status and bounded byte/truncation metadata.
+- `selected_system_input` must read the current
+  `SystemAudioDeviceManager.defaultInputDevice` at export time, or explicitly
+  report unavailable.
+- Existing archive manifest and SHA behavior must remain unchanged.
+
+No HID, BLE, AudioPipe, DiagnosticHardening, LongTermObservability probe,
+watchdog, queue/buffer/audio behavior, driver, PR #25, PR #26,
+`codex/observability-039`, or Air runtime changes are authorized.
+
+After focused exporter tests, all required 041 diagnostic/export tests, full
+Swift tests, release/x86 builds, protocol self-tests, and diff-check pass,
+update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together and return to
+`WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge, tag, release, package, or
+install an Air candidate.
