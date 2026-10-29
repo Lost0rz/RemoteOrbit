@@ -2,7 +2,7 @@
 
 ## RO-MAPPING-CONFIG-SIMPLIFY-040 — Settings bounded corrective
 
-Status: `STRUCTURED_RECORDING_EVIDENCE_CORRECTIVE_IN_PROGRESS`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -40,7 +40,7 @@ Delivered in `9669420ecfd65034ebeb61ade08386dd0ca20659`: mapping entry is determ
 
 The owner-reported live-session root cause remains `UNKNOWN` because no Air/hardware session was run here. Source evidence confirms the previous silent recorder creation/write boundary and same-millisecond filename collision/deletion risk; local tests now cover the corrected chain.
 
-## Bounded follow-up authorized by the owner
+## Bounded follow-up authorized by the owner — delivered
 
 The independent Web audit found that recording creation/write/close failure evidence still depends on `print → Log.write`, which is disabled when `AppStorage.loggingEnabled == false`. The owner authorizes one bounded corrective on this same branch/worktree:
 
@@ -50,14 +50,16 @@ The independent Web audit found that recording creation/write/close failure evid
 - Add focused tests for failure evidence with runtime logging disabled, practical write/close failure paths, successful lifecycle-only events, valid WAV/RAW finalization, and payload non-leakage.
 - Reconcile `CURRENT_STATUS.md` and `CURRENT_TASK.md` together after implementation with exact final implementation/control/remote heads.
 
-This follow-up does not reopen the accepted mapping UI, import/export behavior, backup retirement, or any BLE/audio/HID/codec/gesture/observability-039/PR-25 work.
+Delivered in `21255f3`. `WavRecorder` now emits persistent structured `DiagnosticAuthority` events for creation, write, and close failures independent of `AppStorage.loggingEnabled`; the payload is limited to bounded operation/category/reason tokens and excludes audio, dictated text, and raw paths. Existing start/close lifecycle events and successful WAV/RAW behavior are preserved. Tests cover logging-disabled creation failure, write/close evidence paths, success lifecycle-only behavior, valid WAV/RAW finalization, unique sessions, and payload non-leakage.
+
+This follow-up did not reopen the accepted mapping UI, import/export behavior, backup retirement, or any BLE/audio/HID/codec/gesture/observability-039/PR-25 work.
 
 ### Corrective non-goals and acceptance
 
 - Do not redesign the Settings / Control Center UI or revisit the owner-frozen import/export acceptance.
 - Do not touch `RO-OBSERVABILITY-039`, PR #25, the Air runtime, release metadata, or any unrelated code.
 - Run focused mapping/recording tests, full Swift tests, release build, and `git diff --check`.
-- Push only `codex/mapping-config-simplify-040`, create the independent corrective PR, and stop before merge at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+- Push only `codex/mapping-config-simplify-040` to the existing PR #26 and stop before merge at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
 ## Objective
 
@@ -209,9 +211,11 @@ After implementation and verification:
 - Remote delivery is `PUSHED_VERIFIED`; `origin/codex/mapping-config-simplify-040` contains the implementation commit and paired control records.
 - The task now stops at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 - Bounded corrective commit: `9669420ecfd65034ebeb61ade08386dd0ca20659`.
-- Corrective verification: focused mapping/recording 20/20, full `swift test` 430/430, release build PASS, and `git diff --check` PASS.
+- Corrective verification: focused mapping/recording 21/21, full `swift test` 431/431, release build PASS, and `git diff --check` PASS.
 - Corrective PR: `#26` Draft/Open/Unmerged — `https://github.com/Lost0rz/RemoteOrbit/pull/26`.
-- Follow-up status: `STRUCTURED_RECORDING_EVIDENCE_CORRECTIVE_IN_PROGRESS` at reconciled pre-follow-up head `d0c11d7b74d70f3ba5e4fbb9b70f1d451644df66`.
+- Structured-evidence follow-up commit: `21255f3`.
+- Final control reconciliation is the paired update to `CURRENT_STATUS.md` and `CURRENT_TASK.md`; its exact published SHA and resulting remote head are recorded in the completion receipt.
+- Pre-follow-up control/remote head: `d0c11d7b74d70f3ba5e4fbb9b70f1d451644df66`.
 - do not merge;
 - do not tag or release;
 - do not modify PR #25;

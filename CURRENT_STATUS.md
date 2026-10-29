@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-29
-State: RO-MAPPING-CONFIG-SIMPLIFY-040 — STRUCTURED_RECORDING_EVIDENCE_CORRECTIVE_IN_PROGRESS
+State: RO-MAPPING-CONFIG-SIMPLIFY-040 — WAITING_FOR_INDEPENDENT_WEB_AUDIT
 Repository: Lost0rz/RemoteOrbit
 
 ## Current authority
@@ -12,8 +12,10 @@ Repository: Lost0rz/RemoteOrbit
 - Active writer worktree: `/private/tmp/remoteorbit-mapping-config-simplify-040`.
 - Delivered implementation commit: `c3b8c74ee933f666bcc9688be9554d9b79416993`.
 - Delivered corrective commit: `9669420ecfd65034ebeb61ade08386dd0ca20659`.
-- Reconciled remote delivery: `origin/codex/mapping-config-simplify-040` and PR #26 point to `d0c11d7b74d70f3ba5e4fbb9b70f1d451644df66`; local and remote heads match at that control-reconciled snapshot.
-- Current corrective authorization: the owner authorized one bounded follow-up on this same branch/worktree to emit persistent structured recording failure evidence through `DiagnosticAuthority`; no new writer is created.
+- Delivered structured-evidence implementation commit: `21255f3`.
+- Final control reconciliation is the paired update to `CURRENT_STATUS.md` and `CURRENT_TASK.md` on this same branch; its exact published SHA and the resulting remote head are recorded in the completion receipt.
+- The pre-follow-up remote/control snapshot was reconciled at `d0c11d7b74d70f3ba5e4fbb9b70f1d451644df66`; no stale `718a…` identity remains.
+- No new writer was created; the bounded follow-up is complete and the branch now stops at the independent Web-audit gate.
 - `AGENTS.md` remains the durable repository rule authority; `CURRENT_TASK.md` is the single active implementation authorization for this branch.
 - `RO-OBSERVABILITY-039` continues separately as owner-run Air natural-use observation on `codex/observability-039`; that branch is frozen for product writes while evidence is collected.
 - PR #25 / `codex/release-v0.2.15` remains Draft/Open/Unmerged and is not part of this task.
@@ -49,22 +51,22 @@ This task must not change:
 - Recording sessions use unique filenames and never delete or overwrite existing captures during recorder initialization.
 - `ROOT_CAUSE_DEBUG_RECORDING`: the owner-reported live session remains `UNKNOWN` because no Air/hardware session was run in this task. Direct source defects confirmed at the recorder boundary were silent creation failure handling and same-millisecond filename collision with pre-existing-file deletion; local production-chain seams now prove the enabled/disabled, create, write, close, and filesystem behavior.
 
-## Current bounded follow-up
+## Delivered structured-evidence follow-up
 
-- Scope is limited to structured `DiagnosticAuthority` evidence for recording creation, write, and close failures, independent of the optional runtime-log toggle.
-- Preserve successful recording behavior, existing recording lifecycle events, mapping behavior, import/export, BLE/ATVV, AudioPipe, codec, gestures, backup retirement, RO-OBSERVABILITY-039, and PR #25.
-- This follow-up must update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together after implementation and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+- `WavRecorder` now emits persistent `audio.capture.recording_create_failed`, `audio.capture.recording_write_failed`, and `audio.capture.recording_close_failed` events directly through `DiagnosticAuthority`, independent of `AppStorage.loggingEnabled`.
+- Structured payloads contain only bounded operation, failure category, and reason tokens; they contain no audio content, dictated text, or raw recording paths. Existing recording lifecycle events and successful WAV/RAW behavior remain unchanged.
+- Focused tests cover creation failure with runtime logging disabled, write/close failure evidence paths, lifecycle-only successful recordings, valid WAV/RAW finalization, unique sessions, and payload non-leakage.
 
 ## Acceptance state
 
 - Design mode: `DESIGN_IMPLEMENT`.
 - Implementation: delivered baseline plus corrective at `9669420ecfd65034ebeb61ade08386dd0ca20659`.
-- Automated verification: prior corrective baseline PASS — focused mapping/recording 20/20; full Swift 430/430; release build PASS; `git diff --check` PASS. Follow-up verification is pending.
+- Automated verification: PASS — focused mapping/recording 21/21; full Swift 431/431; release build PASS; `git diff --check` PASS.
 - Retirement residue check: PASS — no retired mapping backup/history identifiers remain in production or tests.
 - `RO-OBSERVABILITY-039` changed: NO.
 - PR #25 changed: NO.
 - Old backup files deleted: NO.
-- Remote delivery before this follow-up: `PUSHED_VERIFIED`; local and `origin/codex/mapping-config-simplify-040` both point to `d0c11d7b74d70f3ba5e4fbb9b70f1d451644df66`.
+- Remote delivery: final paired control update is ready for publication; exact final local/control/remote heads are verified after push in the completion receipt.
 - Corrective PR: `#26` Draft/Open/Unmerged — `https://github.com/Lost0rz/RemoteOrbit/pull/26`.
 - Independent Web audit: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; no independent Web PASS is claimed.
 - AI-rendered inspection: not part of this corrective; existing accepted Settings / Control Center UI is frozen.
@@ -72,4 +74,4 @@ This task must not change:
 
 ## Next
 
-Complete the structured recording-evidence follow-up, verify locally, push only this branch, reconcile the exact final implementation/control/remote heads, then stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge, tag, release, modify PR #25, or modify the Air validation runtime.
+The structured recording-evidence follow-up is complete. Publish only this branch, verify exact local/control/remote heads and PR #26, then stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge, tag, release, modify PR #25, or modify the Air validation runtime.
