@@ -1,8 +1,8 @@
 # RemoteOrbit Current Task
 
-## RO-MAPPING-CONFIG-SIMPLIFY-040 — Import/Export-Only Mapping Configuration
+## RO-MAPPING-CONFIG-SIMPLIFY-040 — Settings bounded corrective
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `IMPLEMENTING_BOUNDED_CORRECTIVE`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -13,6 +13,35 @@ Active branch: `codex/mapping-config-simplify-040`
 Active writer worktree: `/private/tmp/remoteorbit-mapping-config-simplify-040`
 
 DESIGN_MODE: `DESIGN_IMPLEMENT`
+
+## Current authorized corrective
+
+The owner has frozen the already accepted Settings / Control Center UI and manual JSON import/export behavior as PASS. This continuation is limited to two bounded corrections on the existing 040 implementation:
+
+### A. Deterministic mapping-page entry
+
+Every entry into the `按键映射` section must reset only editor navigation/selection state to:
+
+- `Mapping Scope = Global / 通用`;
+- `Selected Button = Microphone / 语音键`;
+- the template/editor selection must show the global UI state.
+
+The entry reset must not mutate actual global mappings, App templates, Active Template, runtime routing, or button semantics. User-driven App/template changes while inside the section remain editable; leaving and re-entering resets the editor state again. Add automated coverage for entry, leave/re-enter, and unchanged App-template runtime state.
+
+### B. Observable debug-recording runtime chain
+
+Trace and minimally correct the existing production chain:
+
+`Settings Toggle → onRecordingChanged → BLEBridge.setRecordingEnabled → AUDIO_START → WavRecorder.createNext → appendRawBytes / appendSamples → close → filesystem`.
+
+The implementation must establish observable evidence for the toggle value, enable propagation, AUDIO_START state, recorder creation, WAV/RAW URLs, file creation, raw/sample writes, close, and final WAV/data lengths. Creation or write failures must not disappear as silent nil/failure. Preserve existing BLE/ATVV protocol, AudioPipe, codec, gesture, persistence, import/export, Settings UI, and recording semantics. Add focused tests for disabled/no file, enabled WAV+RAW, observable creation failure, and valid finalization; ensure a second session creates independent files and existing recordings are not deleted.
+
+### Corrective non-goals and acceptance
+
+- Do not redesign the Settings / Control Center UI or revisit the owner-frozen import/export acceptance.
+- Do not touch `RO-OBSERVABILITY-039`, PR #25, the Air runtime, release metadata, or any unrelated code.
+- Run focused mapping/recording tests, full Swift tests, release build, and `git diff --check`.
+- Push only `codex/mapping-config-simplify-040`, create the independent corrective PR, and stop before merge at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
 ## Objective
 
