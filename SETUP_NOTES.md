@@ -402,9 +402,12 @@ defaults write com.lost0rz.RemoteOrbit RemoteOrbit.loggingEnabled -bool false
 ### 长期语音证据导出
 
 长期诊断默认记录每个真实 voice session 的 L1 summary；异常时才保留 L2 bounded
-front/recent trace 和不可覆盖的 incident window。L1/L2 都通过 DiagnosticAuthority
-查询，默认 retention 是 2 MiB × 5 segments。正常 >20ms callback gap 只作为统计，默认
->100ms 才进入 gap anomaly；recent overwrite 只作 retention metadata，真实 drop、
+front/recent trace 和不可覆盖的 incident window。service trace 是 front 64/recent
+256，AudioPipe trace 是 front 64/recent 512；每个 producer 的 incident pre/follow-up
+ring 各为 128 条，并由无锁 coordinator 共享一次 material incident identity/anchor。
+L1/L2 都通过 DiagnosticAuthority 查询，默认 retention 是 2 MiB × 5 segments。正常
+>20ms callback gap 只作为统计，默认 >100ms 才进入 gap anomaly；main-queue material
+threshold 与 classifier 均为严格 >50ms；recent overwrite 只作 retention metadata，真实 drop、
 delivery deficit 和其他集中阈值异常才保留 trace。CoreAudio render 和 CoreBluetooth
 callback 不同步写 journal，也不默认收集 dictated text。
 

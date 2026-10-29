@@ -252,6 +252,171 @@ final class LongTermObservabilityTests: XCTestCase {
         XCTAssertEqual(summary.incidentOccurrences.count, 1)
     }
 
+    func testMainQueueThresholdDoesNotFreezeBelowBoundaryThenPersistsLaterAnomaly() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current()
+        )
+        let sessionID = UUID()
+        let base = P1A4MonotonicClock.nowNanoseconds()
+        service.begin(sessionID: sessionID, timestampNanoseconds: base)
+        service.observeTracePoint(point(timestamp: base + 1))
+
+        var materialCallbackCount = 0
+        let probe = MainQueueResponsivenessProbe(
+            sampleIntervalNanoseconds: 1_000_000,
+            onMaterialLag: {
+                materialCallbackCount += 1
+                service.markMaterialAnomaly(trigger: .mainQueueLag)
+            }
+        )
+        probe.record(lagNanoseconds: 50_000_000, timestampNanoseconds: base + 2)
+        XCTAssertEqual(materialCallbackCount, 0)
+        probe.record(lagNanoseconds: 50_000_001, timestampNanoseconds: base + 3)
+        XCTAssertEqual(materialCallbackCount, 1)
+        service.observeTracePoint(point(timestamp: base + 4))
+        let lagSummary = probe.stop()
+        service.observeLongTermAudioSnapshot(
+            LongTermAudioObservationSnapshot(
+                trace: FixedCapacityObservationTrace(frontCapacity: 1, recentCapacity: 1).snapshot(),
+                mainQueueLag: lagSummary
+            )
+        )
+
+        let summary = try XCTUnwrap(service.end(sessionID: sessionID))
+        XCTAssertTrue(summary.anomalyFlags.contains(.mainQueueLag))
+        XCTAssertTrue(summary.tracePersisted)
+        XCTAssertEqual(summary.incidentTrigger, "main_queue_lag")
+        XCTAssertEqual(authority.inputs.filter { $0.eventType == "voice.session.trace" }.count, 1)
+    }
+
+    func testProductionPathMaterialGapMergesTransportAndAudioAfterBothRingsWrap() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current()
+        )
+        let pipe = AudioPipe.shared
+        let sessionID = UUID()
+        let base = P1A4MonotonicClock.nowNanoseconds()
+        service.begin(sessionID: sessionID, timestampNanoseconds: base)
+        pipe.beginRemoteAudioDiagnostics()
+        defer {
+            _ = pipe.setRemoteActive(false)
+            _ = pipe.endRemoteAudioDiagnostics()
+        }
+
+        service.observeNotification(
+            bytes: 120,
+            gapNanoseconds: 120_000_000,
+            timestampNanoseconds: base + 1
+        )
+        service.observeDecode(
+            frameCount: 1,
+            sampleCount: 160,
+            timestampNanoseconds: base + 2
+        )
+        _ = pipe.setRemoteActive(true)
+        pipe.feed(samples: Array(repeating: Int16(7), count: 320))
+        pipe.recordLongTermRenderObservationForTesting(
+            timestampNanoseconds: base + 1_000_000_000,
+            requestedFrames: 480,
+            filledFrames: 0,
+            unfilledFrames: 480,
+            queueDepthFrames: 0
+        )
+        for offset in UInt64(1)...700 {
+            service.observeTracePoint(point(timestamp: base + 2_000_000_000 + offset))
+            pipe.recordLongTermRenderObservationForTesting(
+                timestampNanoseconds: base + 1_000_000_000 + offset,
+                requestedFrames: 480,
+                filledFrames: 480,
+                unfilledFrames: 0,
+                queueDepthFrames: 480
+            )
+        }
+
+        service.observeLongTermAudioSnapshot(pipe.takeLongTermObservationSnapshot())
+        let summary = try XCTUnwrap(service.end(sessionID: sessionID))
+        let traceInputs = authority.inputs.filter { $0.eventType == "voice.session.trace" }
+        let observations = traceInputs.flatMap { input -> [DiagnosticJSONValue] in
+            guard case .array(let values) = input.payload["observations"] else { return [] }
+            return values
+        }
+        let kinds = Set(observations.compactMap { value -> String? in
+            guard case .object(let object) = value,
+                  case .string(let kind) = object["kind"] else { return nil }
+            return kind
+        })
+
+        XCTAssertTrue(summary.tracePersisted)
+        XCTAssertEqual(summary.incidentTriggerSource, "long_term_service")
+        XCTAssertTrue(kinds.isSuperset(of: [
+            "ble_arrival", "decode_complete", "pcm_submitted", "render", "queue_starvation",
+        ]))
+        XCTAssertGreaterThan(summary.traceOverwrittenObservationCount, 0)
+        XCTAssertTrue(traceInputs.allSatisfy { $0.incidentID == String(summary.incidentIdentity ?? 0) })
+    }
+
+    func testProductionPathAudioStarvationMergesTransportEvidenceWhenAudioTriggersFirst() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(
+            authority: authority,
+            runtimeIdentity: .current(),
+            thresholds: LongTermObservabilityThresholds(maxNotificationGapCount: 0)
+        )
+        let pipe = AudioPipe.shared
+        let sessionID = UUID()
+        let base = P1A4MonotonicClock.nowNanoseconds()
+        service.begin(sessionID: sessionID, timestampNanoseconds: base)
+        pipe.beginRemoteAudioDiagnostics()
+        defer {
+            _ = pipe.setRemoteActive(false)
+            _ = pipe.endRemoteAudioDiagnostics()
+        }
+
+        service.observeNotification(
+            bytes: 120,
+            gapNanoseconds: 30_000_000,
+            timestampNanoseconds: base + 1
+        )
+        service.observeDecode(
+            frameCount: 1,
+            sampleCount: 160,
+            timestampNanoseconds: base + 2
+        )
+        _ = pipe.setRemoteActive(true)
+        pipe.feed(samples: Array(repeating: Int16(7), count: 320))
+        pipe.recordLongTermRenderObservationForTesting(
+            timestampNanoseconds: base + 1_000_000_000,
+            requestedFrames: 480,
+            filledFrames: 0,
+            unfilledFrames: 480,
+            queueDepthFrames: 0
+        )
+
+        service.observeLongTermAudioSnapshot(pipe.takeLongTermObservationSnapshot())
+        let summary = try XCTUnwrap(service.end(sessionID: sessionID))
+        let observations = authority.inputs
+            .filter { $0.eventType == "voice.session.trace" }
+            .flatMap { input -> [DiagnosticJSONValue] in
+                guard case .array(let values) = input.payload["observations"] else { return [] }
+                return values
+            }
+        let kinds = Set(observations.compactMap { value -> String? in
+            guard case .object(let object) = value,
+                  case .string(let kind) = object["kind"] else { return nil }
+            return kind
+        })
+
+        XCTAssertEqual(summary.incidentTriggerSource, "audio_pipe")
+        XCTAssertEqual(summary.incidentTrigger, "render_starvation")
+        XCTAssertTrue(kinds.isSuperset(of: [
+            "ble_arrival", "decode_complete", "pcm_submitted", "render", "queue_starvation",
+        ]))
+    }
+
     func testSummaryDiagnosticValueHasStableAccountingKeys() throws {
         var summary = LongTermVoiceSessionSummary(sessionID: "session-1", captureID: "capture-1")
         summary.recordDelivery(expectedFrames: 10, deliveredFrames: 8, marker: .active)

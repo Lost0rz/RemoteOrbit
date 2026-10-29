@@ -1,6 +1,6 @@
 # ADR-0003: Long-term voice observability
 
-Status: corrective candidate for next independent audit
+Status: second corrective candidate for next independent audit
 
 Date: 2026-10-29
 
@@ -17,15 +17,19 @@ The two evidence levels are:
   control policy/classification, ATVV transport identity, notification/decode/supply/
   playout counters, active-versus-tail deficits, runtime provenance, observation
   schema version, receiver evidence status, and diagnostic drop/write counters.
-- L2 incident trace: anomaly only. AudioPipe keeps a fixed front-edge capacity of 64
-  observations and a rolling recent capacity of 512 observations. The service keeps
-  the same bounded shape for its transport observations. A separate incident ring is
-  frozen at the first material trace anomaly and cannot be overwritten by later normal
-  wrapping. Intentional recent-ring overwrite is retention metadata only; an actual
-  out-of-order/drop condition is anomalous. Trace observations are numeric records
-  with a typed kind, monotonic timestamp, frame accounting, queue depth, and
-  active/tail marker. Trace chunks contain at most 128 observations and are emitted
-  off the BLE/CoreAudio callback path.
+- L2 incident trace: anomaly only. The service keeps a fixed front-edge capacity of 64
+  observations and a rolling recent capacity of 256; each AudioPipe producer trace
+  keeps 64 front-edge and 512 rolling recent observations. Each producer also owns a
+  bounded 128-observation pre-incident ring and a bounded 128-observation follow-up
+  ring. A lock-free first-writer-wins coordinator assigns one incident identity,
+  trigger, and monotonic anchor across both producers. The triggering producer freezes
+  its pre-ring and appends to its follow-up ring; the other producer synchronizes to
+  the same anchor on its next observation, so merging never silently prefers one
+  producer's incident evidence over the other's. Intentional recent-ring overwrite is
+  retention metadata only; an actual out-of-order/drop condition is anomalous. Trace
+  observations are numeric records with a typed kind, monotonic timestamp, frame
+  accounting, queue depth, and active/tail marker. Trace chunks contain at most 128
+  observations and are emitted off the BLE/CoreAudio callback path.
 
 The default journal policy is 2 MiB per JSONL segment and 5 retained segments. The
 authority remains asynchronous and best-effort; queue drops and journal write failures
@@ -78,7 +82,8 @@ receiver timing records, or an explicit unavailable record. Empty output, output
 no useful timing evidence, and command failure remain unavailable. The export follows
 authority query cursors in bounded pages rather than silently stopping at one page; it
 has a centralized 10,000-event safety limit and records count/limit/truncation in the
-manifest. Logs are sourced from the production `AppStorage.logsDirectory` and are
+manifest. Truncation is true only when the bounded query proves that events remain
+beyond the exported limit. Logs are sourced from the production `AppStorage.logsDirectory` and are
 limited to `RemoteOrbit.log` plus approved JSON/JSONL diagnostic files in that same
 directory. Settings, backups, and recordings are excluded. The export does not upload,
 reset, install, modify settings, or create a settings backup.

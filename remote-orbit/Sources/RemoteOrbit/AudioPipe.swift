@@ -64,11 +64,13 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var remoteDiagnosticsSawActiveRoute = false
     private var longTermPrimaryTrace = FixedCapacityObservationTrace(
         frontCapacity: 64,
-        recentCapacity: 512
+        recentCapacity: 512,
+        incidentProducer: .audioPipe
     )
     private var longTermSecondaryTrace = FixedCapacityObservationTrace(
         frontCapacity: 64,
-        recentCapacity: 512
+        recentCapacity: 512,
+        incidentProducer: .audioPipe
     )
     private var longTermPrimaryTraceIsActive = true
     private var mainQueueResponsivenessProbe: MainQueueResponsivenessProbe?
@@ -129,7 +131,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         let nextMainQueueProbe = MainQueueResponsivenessProbe(
             sampleIntervalNanoseconds: 50_000_000,
             onMaterialLag: { [weak self] in
-                self?.markLongTermMaterialAnomaly()
+                self?.markLongTermMaterialAnomaly(trigger: .mainQueueLag)
             }
         )
         let previousMainQueueProbe: MainQueueResponsivenessProbe?
@@ -195,6 +197,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             detachedTrace = longTermSecondaryTrace
             longTermSecondaryTrace = detachedTrace
         }
+        var synchronizedTrace = detachedTrace
+        synchronizedTrace.synchronizeIncidentWithCoordinator()
         longTermPrimaryTrace.reset()
         longTermPrimaryTraceIsActive = true
         probe = mainQueueResponsivenessProbe
@@ -202,7 +206,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         stateLock.unlock()
 
         return LongTermAudioObservationSnapshot(
-            trace: detachedTrace.snapshot(),
+            trace: synchronizedTrace.snapshot(),
             mainQueueLag: probe?.stop() ?? .empty
         )
     }
@@ -941,7 +945,10 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 )
             }
             if renderAccounting.activeUnderrunFrames > 0 {
-                markLongTermMaterialAnomalyLocked()
+                markLongTermMaterialAnomalyLocked(
+                    trigger: .renderStarvation,
+                    timestampNanoseconds: observationTimestamp
+                )
             }
         }
         if remoteDiagnosticsActive,
@@ -1080,24 +1087,96 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 
     private func appendLongTermObservationLocked(_ point: LongTermObservationPoint) {
+        let appended: Bool
         if longTermPrimaryTraceIsActive {
-            longTermPrimaryTrace.append(point)
+            appended = longTermPrimaryTrace.append(point)
         } else {
-            longTermSecondaryTrace.append(point)
+            appended = longTermSecondaryTrace.append(point)
+        }
+        if !appended {
+            LongTermIncidentCoordinator.shared.trigger(
+                producer: .audioPipe,
+                kind: .traceDrop,
+                timestampNanoseconds: point.timestampNanoseconds
+            )
+            if longTermPrimaryTraceIsActive {
+                longTermPrimaryTrace.synchronizeIncidentWithCoordinator()
+            } else {
+                longTermSecondaryTrace.synchronizeIncidentWithCoordinator()
+            }
         }
     }
 
-    private func markLongTermMaterialAnomalyLocked() {
+    private func markLongTermMaterialAnomalyLocked(
+        trigger: LongTermIncidentTriggerKind,
+        timestampNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()
+    ) {
+        LongTermIncidentCoordinator.shared.trigger(
+            producer: .audioPipe,
+            kind: trigger,
+            timestampNanoseconds: timestampNanoseconds
+        )
         if longTermPrimaryTraceIsActive {
-            longTermPrimaryTrace.freezeIncidentWindow()
+            longTermPrimaryTrace.synchronizeIncidentWithCoordinator()
         } else {
-            longTermSecondaryTrace.freezeIncidentWindow()
+            longTermSecondaryTrace.synchronizeIncidentWithCoordinator()
         }
     }
 
-    private func markLongTermMaterialAnomaly() {
+    private func markLongTermMaterialAnomaly(
+        trigger: LongTermIncidentTriggerKind
+    ) {
         stateLock.lock()
-        markLongTermMaterialAnomalyLocked()
+        markLongTermMaterialAnomalyLocked(trigger: trigger)
+        stateLock.unlock()
+    }
+
+    /// Test seam for the same bounded accounting used by the CoreAudio render
+    /// callback. It exercises production observation semantics without faking a
+    /// coordinator freeze or touching product audio behavior.
+    func recordLongTermRenderObservationForTesting(
+        timestampNanoseconds: UInt64,
+        requestedFrames: UInt64,
+        filledFrames: UInt64,
+        unfilledFrames: UInt64,
+        queueDepthFrames: UInt64,
+        marker: LongTermObservationSemanticMarker = .active
+    ) {
+        stateLock.lock()
+        guard remoteDiagnosticsActive else {
+            stateLock.unlock()
+            return
+        }
+        appendLongTermObservationLocked(
+            LongTermObservationPoint(
+                timestampNanoseconds: timestampNanoseconds,
+                kind: .render,
+                requestedFrames: requestedFrames,
+                filledFrames: filledFrames,
+                unfilledFrames: unfilledFrames,
+                queueDepthFrames: queueDepthFrames,
+                byteOrSampleCount: filledFrames,
+                marker: marker
+            )
+        )
+        if unfilledFrames > 0 {
+            appendLongTermObservationLocked(
+                LongTermObservationPoint(
+                    timestampNanoseconds: timestampNanoseconds,
+                    kind: .queueStarvation,
+                    requestedFrames: requestedFrames,
+                    filledFrames: filledFrames,
+                    unfilledFrames: unfilledFrames,
+                    queueDepthFrames: queueDepthFrames,
+                    byteOrSampleCount: unfilledFrames,
+                    marker: marker
+                )
+            )
+            markLongTermMaterialAnomalyLocked(
+                trigger: .renderStarvation,
+                timestampNanoseconds: timestampNanoseconds
+            )
+        }
         stateLock.unlock()
     }
     private static func findOutputDevice() -> (id: AudioDeviceID, name: String)? {

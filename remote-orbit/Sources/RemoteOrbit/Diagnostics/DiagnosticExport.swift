@@ -172,23 +172,41 @@ final class DiagnosticExporter: @unchecked Sendable {
         var events: [DiagnosticEvent] = []
         events.reserveCapacity(min(500, maximumSessionEventCount))
         var cursor: String?
-        var sawMoreEvents = false
+        var remainingCursor: String?
+        var eventsRemainBeyondLimit = false
         while events.count < maximumSessionEventCount {
+            let remainingCapacity = maximumSessionEventCount - events.count
             let pageFilter = try DiagnosticQueryFilter(
                 cursor: cursor,
                 startWallTimestampUnixMilliseconds: options.startWallTimestampUnixMilliseconds,
                 endWallTimestampUnixMilliseconds: options.endWallTimestampUnixMilliseconds,
-                limit: min(500, maximumSessionEventCount - events.count)
+                limit: min(500, remainingCapacity)
             )
             let page = try authority.query(pageFilter)
-            events.append(contentsOf: page.events)
+            if page.events.count > remainingCapacity {
+                eventsRemainBeyondLimit = true
+            }
+            events.append(contentsOf: page.events.prefix(remainingCapacity))
             guard let nextCursor = page.nextCursor else { break }
             guard !page.events.isEmpty else { break }
-            sawMoreEvents = true
+            if events.count >= maximumSessionEventCount {
+                let remainingPageFilter = try DiagnosticQueryFilter(
+                    cursor: nextCursor,
+                    startWallTimestampUnixMilliseconds: options.startWallTimestampUnixMilliseconds,
+                    endWallTimestampUnixMilliseconds: options.endWallTimestampUnixMilliseconds,
+                    limit: 1
+                )
+                let remainingPage = try authority.query(remainingPageFilter)
+                if !remainingPage.events.isEmpty {
+                    eventsRemainBeyondLimit = true
+                    remainingCursor = nextCursor
+                }
+                break
+            }
             cursor = nextCursor
         }
         sessionEventCount = events.count
-        sessionEventsTruncated = sawMoreEvents && events.count >= maximumSessionEventCount
+        sessionEventsTruncated = eventsRemainBeyondLimit || remainingCursor != nil
         let page = DiagnosticQueryPage(
             schemaVersion: DiagnosticEvent.currentSchemaVersion,
             events: events,

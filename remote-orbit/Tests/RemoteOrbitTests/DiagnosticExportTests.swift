@@ -165,6 +165,51 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(manifest["session_events_truncated"] as? Bool, false)
     }
 
+    func testExportExactEventLimitIsNotMarkedTruncatedWithoutRemainingEvents() throws {
+        let exactRoot = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: exactRoot) }
+        let exactEvents = [makeSummaryEvent(sequence: 1), makeSummaryEvent(sequence: 2)]
+        let exactExporter = DiagnosticExporter(
+            authority: PaginatedExportAuthority(events: exactEvents),
+            journalURL: exactRoot.appendingPathComponent("diagnostic-events-v1.jsonl"),
+            receiverEvidenceProvider: FixedReceiverEvidenceProvider(data: Data("{}\n".utf8)),
+            clock: { Date(timeIntervalSince1970: 1_700_000_004) },
+            maximumSessionEventCount: 2
+        )
+        let exactArchive = try exactExporter.export(
+            options: DiagnosticExportOptions(outputDirectory: exactRoot)
+        )
+        let exactExtracted = try extract(
+            archive: exactArchive,
+            into: exactRoot.appendingPathComponent("extracted")
+        )
+        let exactManifest = try manifest(at: exactExtracted)
+        XCTAssertEqual(exactManifest["session_event_count"] as? Int, 2)
+        XCTAssertEqual(exactManifest["session_events_truncated"] as? Bool, false)
+
+        let remainingRoot = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: remainingRoot) }
+        let remainingExporter = DiagnosticExporter(
+            authority: PaginatedExportAuthority(
+                events: [makeSummaryEvent(sequence: 1), makeSummaryEvent(sequence: 2), makeSummaryEvent(sequence: 3)]
+            ),
+            journalURL: remainingRoot.appendingPathComponent("diagnostic-events-v1.jsonl"),
+            receiverEvidenceProvider: FixedReceiverEvidenceProvider(data: Data("{}\n".utf8)),
+            clock: { Date(timeIntervalSince1970: 1_700_000_005) },
+            maximumSessionEventCount: 2
+        )
+        let remainingArchive = try remainingExporter.export(
+            options: DiagnosticExportOptions(outputDirectory: remainingRoot)
+        )
+        let remainingExtracted = try extract(
+            archive: remainingArchive,
+            into: remainingRoot.appendingPathComponent("extracted")
+        )
+        let remainingManifest = try manifest(at: remainingExtracted)
+        XCTAssertEqual(remainingManifest["session_event_count"] as? Int, 2)
+        XCTAssertEqual(remainingManifest["session_events_truncated"] as? Bool, true)
+    }
+
     func testEmptyReceiverOutputIsUnavailableAndRealLogLayoutIsAllowlisted() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -214,6 +259,47 @@ final class DiagnosticExportTests: XCTestCase {
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("remoteorbit-export-" + UUID().uuidString, isDirectory: true)
+    }
+
+    private func manifest(at extracted: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: extracted.appendingPathComponent("manifest.json"))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func makeSummaryEvent(sequence: Int) -> DiagnosticEvent {
+        DiagnosticEvent(
+            input: try! DiagnosticEventInput(
+                eventType: "voice.session.summary",
+                subsystem: "voice.session",
+                category: "summary",
+                severity: .info,
+                sourceComponent: "long_term_observability",
+                sessionID: "session-\(sequence)",
+                payload: ["summary": .object([
+                    "observation_schema_version": .unsignedInteger(1),
+                    "anomaly_flags": .array([]),
+                ])]
+            ),
+            context: DiagnosticRuntimeContext(
+                processInstanceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                processID: 42,
+                binaryPath: "/tmp/RemoteOrbit",
+                appVersion: "1.0",
+                buildVersion: "7",
+                sourceRevision: "abc123"
+            ),
+            timestamp: DiagnosticClockStamp(
+                wallTimestampUnixMilliseconds: Int64(sequence),
+                monotonic: DiagnosticMonotonicTimestamp(
+                    valueNanoseconds: UInt64(sequence) * 1_000_000,
+                    clockDomain: "mach_continuous_time",
+                    rawTicks: UInt64(sequence) * 1_000_000,
+                    timebaseNumerator: 1,
+                    timebaseDenominator: 1
+                )
+            ),
+            sequenceNumber: UInt64(sequence)
+        )
     }
 }
 

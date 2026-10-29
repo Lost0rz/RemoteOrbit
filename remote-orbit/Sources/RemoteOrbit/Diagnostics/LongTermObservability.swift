@@ -1,4 +1,131 @@
+import Darwin
 import Foundation
+
+enum LongTermIncidentProducer: Int64, Sendable {
+    case service = 1
+    case audioPipe = 2
+
+    var diagnosticName: String {
+        switch self {
+        case .service: return "long_term_service"
+        case .audioPipe: return "audio_pipe"
+        }
+    }
+}
+
+enum LongTermIncidentTriggerKind: Int64, Sendable {
+    case bleGap = 1
+    case renderStarvation = 2
+    case mainQueueLag = 3
+    case traceDrop = 4
+    case manual = 5
+
+    var diagnosticName: String {
+        switch self {
+        case .bleGap: return "ble_gap"
+        case .renderStarvation: return "render_starvation"
+        case .mainQueueLag: return "main_queue_lag"
+        case .traceDrop: return "trace_drop"
+        case .manual: return "manual"
+        }
+    }
+}
+
+struct LongTermIncidentAnchor: Equatable, Sendable {
+    let identity: UInt64
+    let timestampNanoseconds: UInt64
+    let producer: LongTermIncidentProducer
+    let trigger: LongTermIncidentTriggerKind
+}
+
+/// A bounded, lock-free first-writer-wins incident identity shared by the
+/// service and AudioPipe traces. Producers publish only fixed scalar metadata;
+/// all formatting and serialization stays on the detached/off-path consumer.
+final class LongTermIncidentCoordinator: @unchecked Sendable {
+    static let shared = LongTermIncidentCoordinator()
+
+    private var nextIdentity: Int64 = 0
+    private var activeToken: Int64 = 0
+    private var serviceReservation: Int64 = 0
+    private var audioPipeReservation: Int64 = 0
+    private var serviceTimestamp: UInt64 = 0
+    private var serviceTrigger: Int64 = 0
+    private var audioPipeTimestamp: UInt64 = 0
+    private var audioPipeTrigger: Int64 = 0
+
+    func beginSession() {
+        clear(&activeToken)
+        clear(&serviceReservation)
+        clear(&audioPipeReservation)
+        serviceTimestamp = 0
+        serviceTrigger = 0
+        audioPipeTimestamp = 0
+        audioPipeTrigger = 0
+    }
+
+    func trigger(
+        producer: LongTermIncidentProducer,
+        kind: LongTermIncidentTriggerKind,
+        timestampNanoseconds: UInt64
+    ) {
+        guard OSAtomicAdd64Barrier(0, &activeToken) == 0 else { return }
+        let identity = OSAtomicIncrement64Barrier(&nextIdentity)
+        let encoded = (identity << 2) | producer.rawValue
+        let reserved: Bool
+        switch producer {
+        case .service:
+            reserved = withUnsafeMutablePointer(to: &serviceReservation) {
+                OSAtomicCompareAndSwap64Barrier(0, encoded, $0)
+            }
+        case .audioPipe:
+            reserved = withUnsafeMutablePointer(to: &audioPipeReservation) {
+                OSAtomicCompareAndSwap64Barrier(0, encoded, $0)
+            }
+        }
+        guard reserved else { return }
+        switch producer {
+        case .service:
+            serviceTimestamp = timestampNanoseconds
+            serviceTrigger = kind.rawValue
+        case .audioPipe:
+            audioPipeTimestamp = timestampNanoseconds
+            audioPipeTrigger = kind.rawValue
+        }
+        _ = OSAtomicCompareAndSwap64Barrier(0, encoded, &activeToken)
+    }
+
+    func currentAnchor() -> LongTermIncidentAnchor? {
+        let encoded = OSAtomicAdd64Barrier(0, &activeToken)
+        guard encoded != 0 else { return nil }
+        let producerRaw = encoded & 3
+        let producer = LongTermIncidentProducer(rawValue: producerRaw) ?? .service
+        let identity = UInt64(encoded >> 2)
+        switch producer {
+        case .service:
+            return LongTermIncidentAnchor(
+                identity: identity,
+                timestampNanoseconds: serviceTimestamp,
+                producer: producer,
+                trigger: LongTermIncidentTriggerKind(rawValue: serviceTrigger) ?? .manual
+            )
+        case .audioPipe:
+            return LongTermIncidentAnchor(
+                identity: identity,
+                timestampNanoseconds: audioPipeTimestamp,
+                producer: producer,
+                trigger: LongTermIncidentTriggerKind(rawValue: audioPipeTrigger) ?? .manual
+            )
+        }
+    }
+
+    private func clear(_ value: UnsafeMutablePointer<Int64>) {
+        while true {
+            let oldValue = OSAtomicAdd64Barrier(0, value)
+            guard oldValue != 0 else { return }
+            if OSAtomicCompareAndSwap64Barrier(oldValue, 0, value) { return }
+        }
+    }
+}
 
 enum LongTermObservationKind: String, Codable, CaseIterable, Sendable {
     case bleArrival = "ble_arrival"
@@ -63,6 +190,7 @@ struct FixedCapacityObservationTraceSnapshot: Equatable, Sendable {
     let front: [LongTermObservationPoint]
     let recent: [LongTermObservationPoint]
     let incident: [LongTermObservationPoint]
+    let incidentAnchor: LongTermIncidentAnchor?
     let droppedObservationCount: UInt64
     let overwrittenObservationCount: UInt64
 
@@ -75,16 +203,25 @@ struct FixedCapacityObservationTraceSnapshot: Equatable, Sendable {
             }
             return $0.timestampNanoseconds < $1.timestampNanoseconds
         }
-        let mergedIncident = (incident + other.incident).sorted {
+        let hasIncident = !incident.isEmpty || !other.incident.isEmpty
+        let leftIncident = incident.isEmpty && hasIncident ? all : incident
+        let rightIncident = other.incident.isEmpty && hasIncident ? other.all : other.incident
+        let mergedIncident = (leftIncident + rightIncident).sorted {
             if $0.timestampNanoseconds == $1.timestampNanoseconds {
                 return $0.kind.rawValue < $1.kind.rawValue
             }
             return $0.timestampNanoseconds < $1.timestampNanoseconds
         }
+        let anchors = [incidentAnchor, other.incidentAnchor].compactMap { $0 }
+        let mergedAnchor = anchors.min {
+            if $0.identity == $1.identity { return $0.timestampNanoseconds < $1.timestampNanoseconds }
+            return $0.identity < $1.identity
+        }
         return FixedCapacityObservationTraceSnapshot(
             front: mergedAll,
             recent: [],
             incident: mergedIncident,
+            incidentAnchor: mergedAnchor,
             droppedObservationCount: droppedObservationCount &+ other.droppedObservationCount,
             overwrittenObservationCount: overwrittenObservationCount &+ other.overwrittenObservationCount
         )
@@ -109,11 +246,25 @@ struct FixedCapacityObservationTrace: Sendable {
     private var incidentCount = 0
     private var incidentWriteIndex = 0
     private var incidentFrozen = false
+    private var incidentFollowup: [LongTermObservationPoint?]
+    private var incidentFollowupCount = 0
+    private var incidentFollowupWriteIndex = 0
+    private var incidentFollowupActive = false
+    private var incidentHardFrozen = false
+    private var incidentAnchor: LongTermIncidentAnchor?
+    private let incidentCoordinator: LongTermIncidentCoordinator
+    private let incidentProducer: LongTermIncidentProducer
 
     private(set) var droppedObservationCount: UInt64 = 0
     private(set) var overwrittenObservationCount: UInt64 = 0
 
-    init(frontCapacity: Int, recentCapacity: Int, incidentCapacity: Int = 128) {
+    init(
+        frontCapacity: Int,
+        recentCapacity: Int,
+        incidentCapacity: Int = 128,
+        incidentCoordinator: LongTermIncidentCoordinator = .shared,
+        incidentProducer: LongTermIncidentProducer = .service
+    ) {
         precondition(frontCapacity >= 0)
         precondition(recentCapacity >= 0)
         precondition(incidentCapacity > 0)
@@ -121,6 +272,9 @@ struct FixedCapacityObservationTrace: Sendable {
         front = Array(repeating: nil, count: frontCapacity)
         recent = Array(repeating: nil, count: recentCapacity)
         incident = Array(repeating: nil, count: incidentCapacity)
+        incidentFollowup = Array(repeating: nil, count: incidentCapacity)
+        self.incidentCoordinator = incidentCoordinator
+        self.incidentProducer = incidentProducer
     }
 
     mutating func reset() {
@@ -134,15 +288,29 @@ struct FixedCapacityObservationTrace: Sendable {
         incidentCount = 0
         incidentWriteIndex = 0
         incidentFrozen = false
+        for index in incidentFollowup.indices { incidentFollowup[index] = nil }
+        incidentFollowupCount = 0
+        incidentFollowupWriteIndex = 0
+        incidentFollowupActive = false
+        incidentHardFrozen = false
+        incidentAnchor = nil
         droppedObservationCount = 0
         overwrittenObservationCount = 0
     }
 
-    mutating func append(_ point: LongTermObservationPoint) {
+    @discardableResult
+    mutating func append(_ point: LongTermObservationPoint) -> Bool {
+        synchronizeIncidentWithCoordinator()
         if let lastTimestampNanoseconds,
            point.timestampNanoseconds < lastTimestampNanoseconds {
             droppedObservationCount &+= 1
-            return
+            incidentCoordinator.trigger(
+                producer: incidentProducer,
+                kind: .traceDrop,
+                timestampNanoseconds: lastTimestampNanoseconds
+            )
+            synchronizeIncidentWithCoordinator()
+            return false
         }
         lastTimestampNanoseconds = point.timestampNanoseconds
 
@@ -150,17 +318,28 @@ struct FixedCapacityObservationTrace: Sendable {
             if incidentCount < incident.count { incidentCount += 1 }
             incident[incidentWriteIndex] = point
             incidentWriteIndex = (incidentWriteIndex + 1) % incident.count
+        } else if incidentFollowupActive,
+                  incidentFollowupCount < incidentFollowup.count {
+            incidentFollowup[incidentFollowupWriteIndex] = point
+            incidentFollowupCount += 1
+            incidentFollowupWriteIndex = (incidentFollowupWriteIndex + 1) % incidentFollowup.count
         }
 
         if frontCount < front.count {
             front[frontCount] = point
             frontCount += 1
-            return
+            return true
         }
 
         guard !recent.isEmpty else {
             droppedObservationCount &+= 1
-            return
+            incidentCoordinator.trigger(
+                producer: incidentProducer,
+                kind: .traceDrop,
+                timestampNanoseconds: point.timestampNanoseconds
+            )
+            synchronizeIncidentWithCoordinator()
+            return false
         }
 
         if recentCount == recent.count {
@@ -170,6 +349,7 @@ struct FixedCapacityObservationTrace: Sendable {
         }
         recent[recentWriteIndex] = point
         recentWriteIndex = (recentWriteIndex + 1) % recent.count
+        return true
     }
 
     /// Stops the preallocated incident ring at the first material anomaly.
@@ -177,6 +357,16 @@ struct FixedCapacityObservationTrace: Sendable {
     /// later when the detached snapshot is consumed off the hot path.
     mutating func freezeIncidentWindow() {
         incidentFrozen = true
+        incidentHardFrozen = true
+        incidentFollowupActive = false
+    }
+
+    mutating func synchronizeIncidentWithCoordinator() {
+        guard !incidentHardFrozen,
+              let anchor = incidentCoordinator.currentAnchor() else { return }
+        incidentAnchor = anchor
+        incidentFrozen = true
+        incidentFollowupActive = true
     }
 
     func snapshot() -> FixedCapacityObservationTraceSnapshot {
@@ -193,6 +383,7 @@ struct FixedCapacityObservationTrace: Sendable {
                 front: frontSnapshot,
                 recent: recentSnapshot,
                 incident: incidentSnapshot(),
+                incidentAnchor: incidentAnchor,
                 droppedObservationCount: droppedObservationCount,
                 overwrittenObservationCount: overwrittenObservationCount
             )
@@ -207,6 +398,7 @@ struct FixedCapacityObservationTrace: Sendable {
             front: frontSnapshot,
             recent: recentSnapshot,
             incident: incidentSnapshot(),
+            incidentAnchor: incidentAnchor,
             droppedObservationCount: droppedObservationCount,
             overwrittenObservationCount: overwrittenObservationCount
         )
@@ -220,6 +412,15 @@ struct FixedCapacityObservationTrace: Sendable {
         for offset in 0..<incidentCount {
             let index = (start + offset) % incident.count
             if let point = incident[index] { snapshot.append(point) }
+        }
+        if incidentFollowupActive {
+            snapshot.append(contentsOf: incidentFollowup.prefix(incidentFollowupCount).compactMap { $0 })
+            snapshot.sort {
+                if $0.timestampNanoseconds == $1.timestampNanoseconds {
+                    return $0.kind.rawValue < $1.kind.rawValue
+                }
+                return $0.timestampNanoseconds < $1.timestampNanoseconds
+            }
         }
         return snapshot
     }
@@ -284,7 +485,7 @@ struct MainQueueLagAccumulator: Sendable {
         ],
         maxSampleCount: Int = 512,
         maxIncidentSampleCount: Int = 32,
-        incidentLagThresholdNanoseconds: UInt64 = 25_000_000
+        incidentLagThresholdNanoseconds: UInt64 = 50_000_000
     ) {
         precondition(!bucketUpperBoundsNanoseconds.isEmpty)
         precondition(bucketUpperBoundsNanoseconds == bucketUpperBoundsNanoseconds.sorted())
@@ -360,7 +561,7 @@ final class MainQueueResponsivenessProbe: @unchecked Sendable {
 
     init(
         sampleIntervalNanoseconds: UInt64,
-        incidentLagThresholdNanoseconds: UInt64 = 25_000_000,
+        incidentLagThresholdNanoseconds: UInt64 = 50_000_000,
         onMaterialLag: (() -> Void)? = nil
     ) {
         precondition(sampleIntervalNanoseconds > 0)
@@ -416,7 +617,7 @@ final class MainQueueResponsivenessProbe: @unchecked Sendable {
             lagNanoseconds: lagNanoseconds,
             timestampNanoseconds: timestampNanoseconds
         )
-        let shouldSignal = lagNanoseconds >= incidentLagThresholdNanoseconds && !incidentSignaled
+        let shouldSignal = lagNanoseconds > incidentLagThresholdNanoseconds && !incidentSignaled
         if shouldSignal { incidentSignaled = true }
         lock.unlock()
         if shouldSignal { onMaterialLag?() }
@@ -510,6 +711,10 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
     var authorityDroppedEventCount: UInt64 = 0
     var authorityWriteFailureCount: UInt64 = 0
     var traceOverwrittenObservationCount: UInt64 = 0
+    var incidentIdentity: UInt64?
+    var incidentAnchorTimestampNanoseconds: UInt64?
+    var incidentTriggerSource = "unavailable"
+    var incidentTrigger = "unavailable"
     var anomalyFlags: [LongTermAnomalyFlag] = []
     var tracePersisted = false
     var receiverEvidenceStatus = "unavailable"
@@ -665,6 +870,10 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
             }),
             "trace_dropped_observations": .unsignedInteger(traceDroppedObservationCount),
             "trace_overwritten_observations": .unsignedInteger(traceOverwrittenObservationCount),
+            "incident_identity": optionalUInt(incidentIdentity),
+            "incident_anchor_timestamp_nanoseconds": optionalUInt(incidentAnchorTimestampNanoseconds),
+            "incident_trigger_source": .string(incidentTriggerSource),
+            "incident_trigger": .string(incidentTrigger),
             "authority_dropped_events": .unsignedInteger(authorityDroppedEventCount),
             "authority_write_failures": .unsignedInteger(authorityWriteFailureCount),
             "anomaly_flags": .array(anomalyFlags.map { .string($0.rawValue) }),
@@ -846,8 +1055,18 @@ final class LongTermObservabilityService: @unchecked Sendable {
 
     private struct ActiveSession {
         var summary: LongTermVoiceSessionSummary
-        var trace = FixedCapacityObservationTrace(frontCapacity: 64, recentCapacity: 256)
+        var trace: FixedCapacityObservationTrace
         var detachedTraceSnapshot: FixedCapacityObservationTraceSnapshot? = nil
+
+        init(summary: LongTermVoiceSessionSummary, coordinator: LongTermIncidentCoordinator) {
+            self.summary = summary
+            trace = FixedCapacityObservationTrace(
+                frontCapacity: 64,
+                recentCapacity: 256,
+                incidentCoordinator: coordinator,
+                incidentProducer: .service
+            )
+        }
     }
 
     private struct FinalizedSession {
@@ -858,6 +1077,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
     private let authority: any DiagnosticAuthority
     private let runtimeIdentity: LongTermRuntimeIdentity
     private let thresholds: LongTermObservabilityThresholds
+    private let incidentCoordinator: LongTermIncidentCoordinator
     private let lock = NSLock()
     private var activeSession: ActiveSession?
     /// Keep one bounded post-end identity so a transport close that arrives
@@ -867,11 +1087,13 @@ final class LongTermObservabilityService: @unchecked Sendable {
     init(
         authority: any DiagnosticAuthority = DiagnosticAuthorityService.shared,
         runtimeIdentity: LongTermRuntimeIdentity = .current(),
-        thresholds: LongTermObservabilityThresholds = LongTermObservabilityThresholds()
+        thresholds: LongTermObservabilityThresholds = LongTermObservabilityThresholds(),
+        incidentCoordinator: LongTermIncidentCoordinator = .shared
     ) {
         self.authority = authority
         self.runtimeIdentity = runtimeIdentity
         self.thresholds = thresholds
+        self.incidentCoordinator = incidentCoordinator
     }
 
     @discardableResult
@@ -887,7 +1109,8 @@ final class LongTermObservabilityService: @unchecked Sendable {
         lock.lock()
         if activeSession == nil {
             activeSession = ActiveSession(
-                summary: makeSummary(sessionID: "unavailable", captureID: UUID().uuidString)
+                summary: makeSummary(sessionID: "unavailable", captureID: UUID().uuidString),
+                coordinator: incidentCoordinator
             )
         }
         let captureID = UUID(uuidString: activeSession!.summary.captureID) ?? UUID()
@@ -904,11 +1127,13 @@ final class LongTermObservabilityService: @unchecked Sendable {
     }
 
     func begin(sessionID: UUID, timestampNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()) {
+        incidentCoordinator.beginSession()
         lock.lock()
         finalizedSession = nil
         if activeSession == nil {
             activeSession = ActiveSession(
-                summary: makeSummary(sessionID: sessionID.uuidString, captureID: UUID().uuidString)
+                summary: makeSummary(sessionID: sessionID.uuidString, captureID: UUID().uuidString),
+                coordinator: incidentCoordinator
             )
         } else {
             activeSession!.summary.sessionID = sessionID.uuidString
@@ -993,6 +1218,14 @@ final class LongTermObservabilityService: @unchecked Sendable {
                 )
             )
         }
+        if let gapNanoseconds, gapNanoseconds > 100_000_000 {
+            incidentCoordinator.trigger(
+                producer: .service,
+                kind: .bleGap,
+                timestampNanoseconds: timestampNanoseconds ?? P1A4MonotonicClock.nowNanoseconds()
+            )
+            activeSession?.trace.synchronizeIncidentWithCoordinator()
+        }
         lock.unlock()
     }
 
@@ -1071,6 +1304,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
                     marker: .unclassified
                 )
             )
+            activeSession?.trace.synchronizeIncidentWithCoordinator()
         }
         lock.unlock()
     }
@@ -1078,12 +1312,20 @@ final class LongTermObservabilityService: @unchecked Sendable {
     func observeTracePoint(_ point: LongTermObservationPoint) {
         lock.lock()
         activeSession?.trace.append(point)
+        activeSession?.trace.synchronizeIncidentWithCoordinator()
         lock.unlock()
     }
 
-    func markMaterialAnomaly() {
+    func markMaterialAnomaly(
+        trigger: LongTermIncidentTriggerKind = .manual
+    ) {
         lock.lock()
-        activeSession?.trace.freezeIncidentWindow()
+        incidentCoordinator.trigger(
+            producer: .service,
+            kind: trigger,
+            timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
+        )
+        activeSession?.trace.synchronizeIncidentWithCoordinator()
         lock.unlock()
     }
 
@@ -1168,6 +1410,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
             activeSession.summary.calculatedLifecycleInconsistencyCount()
         activeSession.summary.authorityDroppedEventCount = authority.droppedEventCount
         activeSession.summary.authorityWriteFailureCount = authority.writeFailureCount
+        activeSession.trace.synchronizeIncidentWithCoordinator()
         let serviceTraceSnapshot = activeSession.trace.snapshot()
         let traceSnapshot = activeSession.detachedTraceSnapshot.map {
             serviceTraceSnapshot.merged(with: $0)
@@ -1176,6 +1419,12 @@ final class LongTermObservabilityService: @unchecked Sendable {
             traceSnapshot.droppedObservationCount
         activeSession.summary.traceOverwrittenObservationCount =
             traceSnapshot.overwrittenObservationCount
+        if let anchor = traceSnapshot.incidentAnchor {
+            activeSession.summary.incidentIdentity = anchor.identity
+            activeSession.summary.incidentAnchorTimestampNanoseconds = anchor.timestampNanoseconds
+            activeSession.summary.incidentTriggerSource = anchor.producer.diagnosticName
+            activeSession.summary.incidentTrigger = anchor.trigger.diagnosticName
+        }
         activeSession.summary.anomalyFlags = thresholds.classify(
             summary: activeSession.summary,
             trace: traceSnapshot
@@ -1214,6 +1463,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
                 severity: .warning,
                 sourceComponent: "long_term_observability",
                 sessionID: sessionID.uuidString,
+                incidentID: summary.incidentIdentity.map(String.init),
                 payload: [
                     "capture_id": .string(summary.captureID),
                     "chunk_index": .unsignedInteger(UInt64(chunkIndex)),
