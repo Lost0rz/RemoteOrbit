@@ -144,7 +144,7 @@ The candidate was installed and used by the owner under the prior Air-validation
 - Packaging fallback: current Xcode rejected the pinned driver deployment target 10.10 until a temporary `MACOSX_DEPLOYMENT_TARGET=13.0` xcconfig was supplied; the existing package-app x86 `-Xswiftc -target` path failed under current SwiftPM, so packaging used the supported explicit `--triple` x86 slice and preserved the existing bundle/DMG layout. No source, tests, or packaging scripts changed.
 - No Mac mini installation or launch occurred; the Air runtime/evidence was preserved.
 
-## Final verification receipt
+## Prior final verification receipt
 
 - `swift test`: 466 passed, 0 failed.
 - `swift build -c release`: passed.

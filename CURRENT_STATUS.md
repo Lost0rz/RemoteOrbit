@@ -59,7 +59,7 @@ Repository: Lost0rz/RemoteOrbit
 - Mac mini is the construction/verification host. MacBook Air is the owner-controlled natural-use acceptance host. Runtime PIDs and local runtime identity must not be compared across hosts.
 - No installed Air runtime, TCC state, driver, LaunchAgent, tag, release, or PR #25 lifecycle state may be changed by this task.
 
-## Candidate evidence
+## Prior candidate evidence
 
 - 466 Swift tests pass; release build and `run-self-tests.sh` pass.
 - `git diff --check` passes.
