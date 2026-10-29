@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTIC-HARDENING-041 — One-shot Incident Evidence Closure
 
-Status: `AUTHORIZED / AUDIT_CORRECTIVE_IMPLEMENTATION`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -222,13 +222,15 @@ Local implementation stops at:
 
 ## Delivered state
 
-The authorized 041 package is implemented on `codex/diagnostic-hardening-041`.
+The authorized 041 package and its bounded audit corrective are implemented on
+`codex/diagnostic-hardening-041`.
 The 040 semantic commits were integrated in the required order without importing
-040 control-plane commits. The implementation commit is
-`1b65135f303fd79d3641766a15462fdc8dcc97c3` (`feat: harden diagnostic evidence
-boundaries`); the paired update to `CURRENT_STATUS.md` and
-`CURRENT_TASK.md` is the final control transition for this task, with its exact
-control and remote heads verified in the delivery receipt.
+040 control-plane commits. The original implementation commit is
+`1b65135f303fd79d3641766a15462fdc8dcc97c3` and the corrective implementation
+commit is `90b1e6b83c18ec5ddff5ea572f3e8f4a969bc321` (`fix: close diagnostic
+evidence audit gaps`). The paired update to `CURRENT_STATUS.md` and
+`CURRENT_TASK.md` is the final control transition for this corrective, with its
+exact control and remote heads verified in the delivery receipt.
 
 Delivered evidence includes unified attempt correlation, stage-aware start
 watchdog, bounded runtime health, stream/sequence attribution on the existing
@@ -241,9 +243,12 @@ were reused.
 Verification completed:
 
 - 039+040 integration-focused suites: 126/126 passed before 041 implementation.
-- Focused 039+040+041 suites: 132/132 passed.
+- Focused 039+040+041 suites before corrective: 132/132 passed.
+- Audit-corrective focused mapping/diagnostic suites: 140/140 passed, including
+  `AUDIO_START_MISSING`, `AUDIO_FIRST_MISSING`, active/empty remote queue, and
+  truthful nonzero output tests.
 - Dedicated 041 hardening/export/recording suites: 53/53 passed.
-- Full Swift tests: 487/487 passed.
+- Full Swift tests: 495/495 passed.
 - Release build, x86 release build using `x86_64-apple-macos13.0`, protocol
   self-tests (3/3), and `git diff --check`: passed.
 
@@ -255,16 +260,22 @@ audit remain outside this executor's evidence.
 
 No merge, tag, public release, Air install, driver install, TCC change, or automatic runtime mutation is authorized.
 
-## Audit corrective authorization
+## Audit corrective delivered
 
 The independent Web audit of exact remote head
 `2d699f107b8ebb55b117243f0ac5d5fe1b2dfbc1` found bounded evidence-accuracy
-blockers. The current one-shot corrective is authorized to address all of them
-together: separate `AUDIO_START` and `AUDIO_FIRST` watchdog completion, accurate
+blockers. The one-shot corrective addressed all of them together: separate
+`AUDIO_START` and `AUDIO_FIRST` watchdog completion, accurate
 runtime-health lifecycle facts and unknown mapping state, truth-only output
 boundary timestamps plus post-selection input identity, queue-depth and frozen
 incident episode semantics, explicit producer sequence attribution, and tests
 joining existing raw-HID transitions to edges and attempts. No product, driver,
 Air-runtime, import/export, PR #25, or 039 behavior changes are authorized.
+
+No product voice semantics, BLE/ATVV behavior, decoder/codec, AudioPipe
+queue/playout policy, driver behavior, Air runtime, PR #25, or
+`codex/observability-039` was changed. Driver-level consumer evidence remains
+explicitly unavailable; human/Air runtime validation and the independent Web
+audit remain outside this executor's evidence.
 
 After independent audit passes, a separate packaging/install gate may create one unified observation candidate. The intended end state is that no further always-on probe expansion occurs unless a fresh natural incident demonstrates a concrete missing evidence boundary.
