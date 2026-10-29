@@ -57,6 +57,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var renderCallbackCount = 0
     private var renderedFrames = 0
     private var renderedPeak: Float = 0
+    private var lastIdleMeterAt: TimeInterval = 0
     private var diagnosticsCumulative = AudioPipeDiagnosticsCounters()
     private var diagnosticsWindow = AudioPipeDiagnosticsCounters()
     private var diagnosticsTimer: Timer?
@@ -77,6 +78,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var continuityRenderLedger: AudioContinuityRenderLedger?
     private var lastRemoteSubmittedMonotonicNanoseconds: UInt64?
     private var lastRemoteRenderedMonotonicNanoseconds: UInt64?
+    private var diagnosticStreamIdentity: UInt64 = 0
+    private var diagnosticObservationSequence: UInt64 = 0
     private var p1A5StableRenderIntervals = 0
 
     private override init() {
@@ -125,6 +128,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     func beginRemoteAudioDiagnostics(
         continuityContext: AudioContinuityCaptureContext? = nil
     ) {
+        DiagnosticOutputBoundaryClock.shared.reset()
         // AUDIO_START can precede HID. Establish the shared observability
         // generation before this producer can publish any pre-HID evidence;
         // a later HID binding is intentionally not a reset boundary.
@@ -146,6 +150,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         } else {
             longTermSecondaryTrace.reset()
         }
+        diagnosticStreamIdentity = 0
+        diagnosticObservationSequence = 0
         mainQueueResponsivenessProbe = nextMainQueueProbe
         let totalDepth = max(0, pendingOutput.count - pendingOutputIndex)
         let currentDepth = AudioRemoteQueueAttribution.remoteQueueDepth(
@@ -177,6 +183,12 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             captureID: captureID,
             session: session
         ) ?? false
+    }
+
+    func setDiagnosticStreamIdentity(_ streamIdentity: UInt64) {
+        stateLock.lock()
+        diagnosticStreamIdentity = streamIdentity
+        stateLock.unlock()
     }
 
     func endRemoteAudioDiagnostics() -> AudioContinuityRenderSnapshot? {
@@ -363,6 +375,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             pendingRemotePrebuffer.removeAll(keepingCapacity: true)
         }
         stateLock.unlock()
+        DiagnosticRuntimeHealthRegistry.shared.setBool("audio_pipe_remote_active", active)
         if active {
             // A target app can cache the physical microphone selected in its
             // own audio session. Re-assert the bridge as the app-facing input
@@ -455,6 +468,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         localMicrophonePermissionRequestInFlight = false
         pendingLocalMicrophoneReady = nil
         stateLock.unlock()
+        DiagnosticRuntimeHealthRegistry.shared.markOutputDevice(ready: false, identity: nil)
         stopLocalMicCapture()
         endRemoteCandidate()
     }
@@ -813,12 +827,14 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             self?.render(outputData)
         }
         guard createStatus == noErr, let ioProcID else {
+            DiagnosticRuntimeHealthRegistry.shared.markOutputDevice(ready: false, identity: name)
             print("[AUDIO] ⚠️ 创建 RemoteOrbit IOProc 失败: OSStatus=\(createStatus)")
             return
         }
 
         let startStatus = AudioDeviceStart(deviceID, ioProcID)
         guard startStatus == noErr else {
+            DiagnosticRuntimeHealthRegistry.shared.markOutputDevice(ready: false, identity: name)
             AudioDeviceDestroyIOProcID(deviceID, ioProcID)
             print("[AUDIO] ⚠️ 启动 RemoteOrbit IOProc 失败: OSStatus=\(startStatus)")
             return
@@ -830,6 +846,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         outputDeviceName = name
         outputDeviceReady = true
         stateLock.unlock()
+        DiagnosticRuntimeHealthRegistry.shared.markOutputDevice(ready: true, identity: name)
         print("[AUDIO] \(name) IOProc 已启动: id=\(deviceID), 48000 Hz stereo")
 
     }
@@ -901,10 +918,13 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 diagnosticsCumulative.recordRenderedRemoteFrames(renderedRemoteFrames)
                 diagnosticsWindow.recordRenderedRemoteFrames(renderedRemoteFrames)
             }
-            renderedPeak = max(
-                renderedPeak,
-                pendingOutput[start..<end].reduce(0) { max($0, abs($1)) }
-            )
+            let callbackPeak = pendingOutput[start..<end].reduce(0) { max($0, abs($1)) }
+            renderedPeak = max(renderedPeak, callbackPeak)
+            if remoteDiagnosticsActive, renderedRemoteFrames > 0, callbackPeak > 0 {
+                DiagnosticOutputBoundaryClock.shared.record(
+                    timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
+                )
+            }
             pendingOutputIndex = end
             compactOutputBufferIfNeeded(
                 recordRemoteDiagnostics: recordRemoteCompaction
@@ -1091,17 +1111,32 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 
     private func appendLongTermObservationLocked(_ point: LongTermObservationPoint) {
+        diagnosticObservationSequence &+= 1
+        let attributedPoint = LongTermObservationPoint(
+            timestampNanoseconds: point.timestampNanoseconds,
+            kind: point.kind,
+            requestedFrames: point.requestedFrames,
+            filledFrames: point.filledFrames,
+            unfilledFrames: point.unfilledFrames,
+            queueDepthFrames: point.queueDepthFrames,
+            byteOrSampleCount: point.byteOrSampleCount,
+            marker: point.marker,
+            streamIdentity: point.streamIdentity == 0
+                ? diagnosticStreamIdentity
+                : point.streamIdentity,
+            sequence: diagnosticObservationSequence
+        )
         let appended: Bool
         if longTermPrimaryTraceIsActive {
-            appended = longTermPrimaryTrace.append(point)
+            appended = longTermPrimaryTrace.append(attributedPoint)
         } else {
-            appended = longTermSecondaryTrace.append(point)
+            appended = longTermSecondaryTrace.append(attributedPoint)
         }
         if !appended {
             LongTermIncidentCoordinator.shared.trigger(
                 producer: .audioPipe,
                 kind: .traceDrop,
-                timestampNanoseconds: point.timestampNanoseconds
+                timestampNanoseconds: attributedPoint.timestampNanoseconds
             )
             if longTermPrimaryTraceIsActive {
                 longTermPrimaryTrace.synchronizeIncidentWithCoordinator()
@@ -1261,6 +1296,15 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             let renderedFrames = self.renderedFrames
             let renderedPeak = self.renderedPeak
             let queuedFrames = self.pendingOutput.count - self.pendingOutputIndex
+            let now = ProcessInfo.processInfo.systemUptime
+            let shouldPrint = DiagnosticAudioMeterCadence.shouldEmit(
+                mode: mode,
+                now: now,
+                lastIdleEmission: self.lastIdleMeterAt
+            )
+            if mode == "idle", shouldPrint {
+                self.lastIdleMeterAt = now
+            }
             self.scheduledMacBuffers = 0
             self.scheduledRemoteBuffers = 0
             self.scheduledPeak = 0
@@ -1268,6 +1312,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             self.renderedFrames = 0
             self.renderedPeak = 0
             self.stateLock.unlock()
+            guard shouldPrint else { return }
             print(String(
                 format: "[AUDIO-METER] mode=%@ macBuffers=%d remoteBuffers=%d scheduledPeak=%.4f renders=%d renderedFrames=%d renderedPeak=%.4f queuedFrames=%d",
                 mode,

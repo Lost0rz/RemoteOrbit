@@ -4532,6 +4532,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func prepareVoiceTransport() {
+        VoiceAttemptDiagnostics.shared.stage("TRANSPORT_PREWARM_REQUEST")
         if let prepareVoiceTransportAction {
             prepareVoiceTransportAction()
         } else {
@@ -4540,6 +4541,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func activateVoiceInput() {
+        VoiceAttemptDiagnostics.shared.stage("VOICE_INPUT_ACTIVATION")
         if let activateVoiceInputAction {
             activateVoiceInputAction()
         } else {
@@ -5327,6 +5329,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         AppStorage.prepare()
+        DiagnosticRuntimeHealthService.shared.start()
+        if let input = SystemAudioDeviceManager.defaultInputDevice {
+            DiagnosticRuntimeHealthRegistry.shared.setString(
+                "selected_input_identity",
+                input.stableIdentifier
+            )
+        }
         var runStartFields = P1A4MonotonicClock.runStartCalibrationFields()
         runStartFields["persisted_persistent"] = readPersistedPersistentSessionTriggerKey().rawValue
         runStartFields["persisted_momentary"] = readPersistedVoiceTriggerKey().rawValue
@@ -5546,6 +5555,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         ble.onConnectionChanged = { [weak self] connected in
             self?.bleConnected = connected
+            DiagnosticRuntimeHealthRegistry.shared.setBool("ble_connected", connected)
             if !connected {
                 self?.remoteStreaming = false
                 // A BLE loss can happen before HID emits the matching key-up.
@@ -5558,6 +5568,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ble.onStreamingChanged = { [weak self] streaming, _ in
             self?.voicePress.setRemoteStreaming(streaming)
             self?.remoteStreaming = streaming
+            DiagnosticRuntimeHealthRegistry.shared.setBool("atvv_streaming", streaming)
             self?.updateStatus()
         }
         ble.onAudioFrame = { [weak self] in
@@ -5695,6 +5706,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 targetApplicationBundleIdentifier = self.mappingStore
                     .activePressApplicationBundleIdentifier(for: button)
                 let profile = self.mappingStore.activePressGestureProfile(for: button)
+                if button == .microphone {
+                    DiagnosticRuntimeHealthRegistry.shared.setBool(
+                        "mapping_enabled",
+                        !binding.isDisabled
+                    )
+                    DiagnosticRuntimeHealthRegistry.shared.setBool("mapping_verified", true)
+                    VoiceAttemptDiagnostics.shared.stage(
+                        "MAPPING_RESOLVED",
+                        state: [
+                            "mapping_enabled": .bool(!binding.isDisabled),
+                            "mapping_verified": .bool(true),
+                        ]
+                    )
+                }
                 if button != .microphone, profile.isEnabled {
                     print(
                         "[GESTURE-ROUTE] " + button.displayName + " down "

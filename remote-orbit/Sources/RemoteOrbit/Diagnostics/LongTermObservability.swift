@@ -179,6 +179,8 @@ struct LongTermObservationPoint: Equatable, Sendable {
     let queueDepthFrames: UInt64
     let byteOrSampleCount: UInt64
     let marker: LongTermObservationSemanticMarker
+    let streamIdentity: UInt64
+    let sequence: UInt64
 
     init(
         timestampNanoseconds: UInt64,
@@ -188,7 +190,9 @@ struct LongTermObservationPoint: Equatable, Sendable {
         unfilledFrames: UInt64,
         queueDepthFrames: UInt64,
         byteOrSampleCount: UInt64,
-        marker: LongTermObservationSemanticMarker
+        marker: LongTermObservationSemanticMarker,
+        streamIdentity: UInt64 = 0,
+        sequence: UInt64 = 0
     ) {
         self.timestampNanoseconds = timestampNanoseconds
         self.kind = kind
@@ -198,6 +202,8 @@ struct LongTermObservationPoint: Equatable, Sendable {
         self.queueDepthFrames = queueDepthFrames
         self.byteOrSampleCount = byteOrSampleCount
         self.marker = marker
+        self.streamIdentity = streamIdentity
+        self.sequence = sequence
     }
 
     func toDiagnosticJSONValue() -> DiagnosticJSONValue {
@@ -210,6 +216,8 @@ struct LongTermObservationPoint: Equatable, Sendable {
             "queue_depth_frames": .unsignedInteger(queueDepthFrames),
             "byte_or_sample_count": .unsignedInteger(byteOrSampleCount),
             "marker": .string(marker.rawValue),
+            "stream_identity": .unsignedInteger(streamIdentity),
+            "sequence": .unsignedInteger(sequence),
         ])
     }
 }
@@ -724,6 +732,7 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
 
     var sessionID: String
     var captureID: String
+    var voiceAttemptID = "unavailable"
     var expectedFrames: UInt64 = 0
     var deliveredFrames: UInt64 = 0
     var activeExpectedFrames: UInt64 = 0
@@ -806,6 +815,7 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
     var queueDepthEndFrames: UInt64?
     var overflowDroppedFrames: UInt64 = 0
     var runtimeIdentity: LongTermRuntimeIdentity?
+    var underrunEpisodes: [DiagnosticUnderrunEpisode] = []
 
     init(sessionID: String, captureID: String) {
         self.sessionID = sessionID
@@ -874,6 +884,7 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
             "schema_version": .unsignedInteger(Self.schemaVersion),
             "session_id": .string(sessionID),
             "capture_id": .string(captureID),
+            "voice_attempt_id": .string(voiceAttemptID),
             "expected_frames": .unsignedInteger(expectedFrames),
             "delivered_frames": .unsignedInteger(deliveredFrames),
             "deficit_frames": .unsignedInteger(deficitFrames),
@@ -966,6 +977,7 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
             "queue_depth_max_frames": optionalUInt(queueDepthMaxFrames),
             "queue_depth_end_frames": optionalUInt(queueDepthEndFrames),
             "overflow_dropped_frames": .unsignedInteger(overflowDroppedFrames),
+            "underrun_episodes": .array(underrunEpisodes.map { $0.toDiagnosticJSONValue() }),
             "runtime_process_instance_id": runtimeIdentity.map { .string($0.processInstanceID.uuidString) } ?? .null,
             "runtime_process_id": runtimeIdentity.map { .integer(Int64($0.processID)) } ?? .null,
             "runtime_binary_path": runtimeIdentity.map { .string($0.binaryPath) } ?? .null,
@@ -1155,7 +1167,11 @@ final class LongTermObservabilityService: @unchecked Sendable {
         return captureID
     }
 
-    func begin(sessionID: UUID, timestampNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()) {
+    func begin(
+        sessionID: UUID,
+        attemptID: String? = nil,
+        timestampNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()
+    ) {
         lock.lock()
         finalizedSession = nil
         if activeSession == nil {
@@ -1168,6 +1184,9 @@ final class LongTermObservabilityService: @unchecked Sendable {
             activeSession!.summary.sessionID = sessionID.uuidString
         }
         activeSession!.summary.physicalDownTimestampNanoseconds = timestampNanoseconds
+        if let attemptID {
+            activeSession!.summary.voiceAttemptID = attemptID
+        }
         lock.unlock()
     }
 
@@ -1234,6 +1253,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         lock.lock()
         activeSession?.summary.recordNotification(bytes: bytes, gapNanoseconds: gapNanoseconds)
         if let timestampNanoseconds {
+            let streamIdentity = activeSession?.summary.audioStreamID ?? 0
             activeSession?.trace.append(
                 LongTermObservationPoint(
                     timestampNanoseconds: timestampNanoseconds,
@@ -1243,7 +1263,8 @@ final class LongTermObservabilityService: @unchecked Sendable {
                     unfilledFrames: 0,
                     queueDepthFrames: 0,
                     byteOrSampleCount: bytes,
-                    marker: .unclassified
+                    marker: .unclassified,
+                    streamIdentity: streamIdentity
                 )
             )
         }
@@ -1321,6 +1342,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         lock.lock()
         activeSession?.summary.recordDecode(frameCount: frameCount, sampleCount: sampleCount)
         if let timestampNanoseconds {
+            let streamIdentity = activeSession?.summary.audioStreamID ?? 0
             activeSession?.trace.append(
                 LongTermObservationPoint(
                     timestampNanoseconds: timestampNanoseconds,
@@ -1330,7 +1352,8 @@ final class LongTermObservabilityService: @unchecked Sendable {
                     unfilledFrames: 0,
                     queueDepthFrames: 0,
                     byteOrSampleCount: sampleCount,
-                    marker: .unclassified
+                    marker: .unclassified,
+                    streamIdentity: streamIdentity
                 )
             )
             activeSession?.trace.synchronizeIncidentWithCoordinator()
@@ -1448,6 +1471,10 @@ final class LongTermObservabilityService: @unchecked Sendable {
             traceSnapshot.droppedObservationCount
         activeSession.summary.traceOverwrittenObservationCount =
             traceSnapshot.overwrittenObservationCount
+        activeSession.summary.underrunEpisodes = DiagnosticUnderrunEpisodeBuilder.build(traceSnapshot.all)
+        if let attemptID = VoiceAttemptDiagnostics.shared.attemptID(for: sessionID.uuidString) {
+            activeSession.summary.voiceAttemptID = attemptID
+        }
         if let anchor = traceSnapshot.incidentAnchor {
             activeSession.summary.incidentIdentity = anchor.identity
             activeSession.summary.incidentAnchorTimestampNanoseconds = anchor.timestampNanoseconds
@@ -1475,6 +1502,11 @@ final class LongTermObservabilityService: @unchecked Sendable {
             payload: ["summary": summary.toDiagnosticJSONValue()]
         ) else { return summary }
         authority.emit(input)
+        DiagnosticHardeningSessionEmitter.emit(
+            summary: summary,
+            trace: traceSnapshot,
+            authority: authority
+        )
         guard !summary.anomalyFlags.isEmpty else { return summary }
 
         let observations = traceSnapshot.incident.isEmpty

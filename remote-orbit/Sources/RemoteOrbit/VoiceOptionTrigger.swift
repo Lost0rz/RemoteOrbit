@@ -79,6 +79,14 @@ enum VoiceTimingLogger {
 
     static func begin(sessionID: UUID) {
         let timestamp = P1A4MonotonicClock.nowNanoseconds()
+        DiagnosticRuntimeHealthService.shared.start()
+        if let input = SystemAudioDeviceManager.defaultInputDevice {
+            DiagnosticRuntimeHealthRegistry.shared.setString(
+                "selected_input_identity",
+                input.stableIdentifier
+            )
+        }
+        let attemptID = VoiceAttemptDiagnostics.shared.ensureSession(sessionID)
         var captureToBind: AudioContinuityCaptureContext?
         lock.lock()
         if continuityEvidenceEnabled {
@@ -116,6 +124,7 @@ enum VoiceTimingLogger {
         lock.unlock()
         LongTermObservabilityService.shared.begin(
             sessionID: sessionID,
+            attemptID: attemptID.uuidString,
             timestampNanoseconds: timestamp
         )
         if let captureToBind {
@@ -304,6 +313,11 @@ enum VoiceTimingLogger {
             timestampNanoseconds: nowNanoseconds,
             sessionID: activeSessionID
         )
+        VoiceAttemptDiagnostics.shared.stage(
+            event,
+            sessionID: activeSessionID,
+            timestampNanoseconds: nowNanoseconds
+        )
         print(
             "[VOICE][\(shortID)][TIMING] \(event) "
                 + String(format: "+%.1fms", elapsedMS)
@@ -337,6 +351,11 @@ enum VoiceTimingLogger {
             event,
             timestampNanoseconds: nowNanoseconds,
             sessionID: sessionID
+        )
+        VoiceAttemptDiagnostics.shared.stage(
+            event,
+            sessionID: sessionID,
+            timestampNanoseconds: nowNanoseconds
         )
         print(
             "[VOICE][\(shortID)][TIMING] \(event) "
@@ -395,6 +414,7 @@ enum VoiceTimingLogger {
             print(line)
         }
         _ = LongTermObservabilityService.shared.end(sessionID: sessionID)
+        VoiceAttemptDiagnostics.shared.end(sessionID: sessionID)
         guard p1A5Enabled else { return }
 
         let frontEdgeEvents = [
@@ -446,7 +466,11 @@ enum VoiceTimingLogger {
         streamID: UInt64? = nil,
         timestampNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()
     ) -> UUID {
-        LongTermObservabilityService.shared.observeTransportStart(
+        if let streamID {
+            AudioPipe.shared.setDiagnosticStreamIdentity(streamID)
+            DiagnosticRuntimeHealthRegistry.shared.setUnsigned("audio_stream_id", streamID)
+        }
+        return LongTermObservabilityService.shared.observeTransportStart(
             protocolVersion: protocolVersion,
             mode: mode,
             codec: codec,
@@ -550,6 +574,7 @@ enum VoiceTimingLogger {
     }
 
     static func observeAudioPipeSnapshot(_ snapshot: AudioPipeDiagnosticsSnapshot) {
+        DiagnosticRuntimeHealthRegistry.shared.updateAudioPipe(snapshot)
         LongTermObservabilityService.shared.observeAudioPipe(snapshot)
     }
 

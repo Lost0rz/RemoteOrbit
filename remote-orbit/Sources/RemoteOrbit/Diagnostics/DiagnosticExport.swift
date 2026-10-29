@@ -260,6 +260,7 @@ final class DiagnosticExporter: @unchecked Sendable {
             try stageJournal(at: stagingURL)
             try stageLogs(options: options, at: stagingURL)
             try stageReceiver(options: options, at: stagingURL)
+            try stageRequiredEvidenceReceipts(at: stagingURL)
             try stageManifest(options: options, timestamp: timestamp, at: stagingURL)
             try stageChecksums(at: stagingURL)
             try makeArchive(stagingURL: stagingURL, archiveURL: archiveURL)
@@ -337,6 +338,109 @@ final class DiagnosticExporter: @unchecked Sendable {
         ]
         let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         try write(data: data, to: stagingURL.appendingPathComponent("runtime/runtime-context.json"))
+        evidenceSources["runtime_identity"] = evidenceObject(
+            status: .available,
+            originalBytes: data.count,
+            exportedBytes: data.count,
+            reason: nil
+        )
+    }
+
+    private func stageRequiredEvidenceReceipts(at stagingURL: URL) throws {
+        let logsDirectory = journalURL.deletingLastPathComponent()
+        let stagedLogs = stagingURL.appendingPathComponent("logs")
+        func logReceipt(_ name: String) -> [String: Any] {
+            let source = logsDirectory.appendingPathComponent(name)
+            let staged = stagedLogs.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: source.path) else {
+                return [
+                    "status": EvidenceStatus.unavailable.rawValue,
+                    "path": name,
+                    "reason": "source not present",
+                ]
+            }
+            let status = fileManager.fileExists(atPath: staged.path)
+                ? EvidenceStatus.available.rawValue
+                : EvidenceStatus.failed.rawValue
+            return [
+                "status": status,
+                "path": name,
+                "reason": status == EvidenceStatus.available.rawValue ? NSNull() : "source was not staged",
+            ]
+        }
+
+        let health = DiagnosticRuntimeHealthRegistry.shared.snapshot()
+        let outputReady: Bool
+        if case .bool(let value) = health["audio_pipe_output_ready"] { outputReady = value } else { outputReady = false }
+        let outputIdentity: String
+        if case .string(let value) = health["output_device_identity"] { outputIdentity = value } else { outputIdentity = "unavailable" }
+        let selectedInput: String
+        if case .string(let value) = health["selected_input_identity"] { selectedInput = value } else { selectedInput = "unavailable" }
+
+        let receipts: [String: Any] = [
+            "remoteorbit_log": logReceipt("RemoteOrbit.log"),
+            "voice_diagnostic_current": logReceipt("voice-diagnostic-current.jsonl"),
+            "diagnostic_authority_journal": evidenceSources["journal"] ?? [
+                "status": EvidenceStatus.unavailable.rawValue,
+                "reason": "journal receipt unavailable",
+            ],
+            "session_events": evidenceSources["session_events"] ?? [
+                "status": EvidenceStatus.unavailable.rawValue,
+                "reason": "session receipt unavailable",
+            ],
+            "frozen_trace_and_session_summaries": [
+                "status": fileManager.fileExists(
+                    atPath: stagingURL.appendingPathComponent("sessions/diagnostic-events.json").path
+                ) ? EvidenceStatus.available.rawValue : EvidenceStatus.unavailable.rawValue,
+                "path": "sessions/diagnostic-events.json",
+                "observation_schema_version": LongTermVoiceSessionSummary.schemaVersion,
+            ],
+            "runtime_identity": evidenceSources["runtime_identity"] ?? [
+                "status": EvidenceStatus.unavailable.rawValue,
+            ],
+            "diagnostic_environment_flags": [
+                "status": EvidenceStatus.available.rawValue,
+                "flags": [
+                    "REMOTE_ORBIT_DIAGNOSTICS",
+                    "REMOTE_ORBIT_CONTINUITY_EVIDENCE",
+                    "REMOTE_ORBIT_P1A5_FRONT_EDGE",
+                    "REMOTE_ORBIT_P1A4_RECEIVER_FINALIZATION",
+                ].map { name in
+                    ["name": name, "enabled": ProcessInfo.processInfo.environment[name] == "1"]
+                },
+            ],
+            "permissions": [
+                "status": EvidenceStatus.available.rawValue,
+                "input_monitoring_granted": HIDMonitor.isInputMonitoringGranted,
+                "accessibility_granted": KeyInjector.isAccessibilityTrusted,
+            ],
+            "remoteorbit_virtual_mic": [
+                "status": outputReady ? EvidenceStatus.available.rawValue : EvidenceStatus.unavailable.rawValue,
+                "identity": outputIdentity,
+                "ready": outputReady,
+                "reason": outputReady ? NSNull() : "process output readiness unavailable",
+            ],
+            "selected_system_input": [
+                "status": selectedInput == "unavailable" ? EvidenceStatus.unavailable.rawValue : EvidenceStatus.available.rawValue,
+                "identity": selectedInput,
+            ],
+            "receiver_evidence": evidenceSources["receiver"] ?? [
+                "status": EvidenceStatus.unavailable.rawValue,
+                "reason": "receiver receipt unavailable",
+            ],
+            "archive_integrity": [
+                "status": EvidenceStatus.available.rawValue,
+                "manifest": "manifest.json",
+                "sha256": "SHA256SUMS",
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: receipts, options: [.sortedKeys])
+        try write(data: data, to: stagingURL.appendingPathComponent("evidence/required-evidence.json"))
+        evidenceSources["required_evidence"] = [
+            "status": EvidenceStatus.available.rawValue,
+            "path": "evidence/required-evidence.json",
+            "source_count": receipts.count,
+        ]
     }
 
     private func writeUnavailableSessionEvents(reason: String, at stagingURL: URL) throws {

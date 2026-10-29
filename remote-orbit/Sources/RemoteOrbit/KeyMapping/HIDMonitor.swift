@@ -235,6 +235,7 @@ final class HIDMonitor {
         }
         self.manager = m
         self.isRunning = true
+        DiagnosticRuntimeHealthRegistry.shared.setBool("hid_manager_running", true)
         updateStatus("等待遥控器连接")
         print("[HID] started; waiting for RC003")
     }
@@ -262,6 +263,9 @@ final class HIDMonitor {
             self.manager = nil
         }
         isRunning = false
+        DiagnosticRuntimeHealthRegistry.shared.setBool("hid_manager_running", false)
+        DiagnosticRuntimeHealthRegistry.shared.setBool("hid_device_active", false)
+        DiagnosticRuntimeHealthRegistry.shared.setBool("physical_voice_key_down", false)
     }
 
     /// Whether a physical button is still considered held while HID is
@@ -292,6 +296,7 @@ final class HIDMonitor {
 
         activeDevice = device
         activeDeviceIsSeized = false
+        DiagnosticRuntimeHealthRegistry.shared.setBool("hid_device_active", true)
         eventSuppressor.setRemotePowerSuppressionEnabled(true)
         updateStatus("遥控器已连接（兼容模式）")
         print("[HID] connected: monitored")
@@ -303,6 +308,8 @@ final class HIDMonitor {
         IOHIDDeviceClose(activeDevice, IOOptionBits(kIOHIDOptionsTypeNone))
         self.activeDevice = nil
         activeDeviceIsSeized = false
+        DiagnosticRuntimeHealthRegistry.shared.setBool("hid_device_active", false)
+        DiagnosticRuntimeHealthRegistry.shared.setBool("physical_voice_key_down", false)
         eventSuppressor.setRemotePowerSuppressionEnabled(false)
         pendingReconnectUsages.formUnion(activeUsages)
         activeUsages.removeAll()
@@ -327,6 +334,10 @@ final class HIDMonitor {
         hidReportSequence &+= 1
         let reportSequence = hidReportSequence
         let reportObservedUptime = ProcessInfo.processInfo.systemUptime
+        DiagnosticRuntimeHealthRegistry.shared.setUnsigned(
+            "last_hid_report_uptime_ms",
+            UInt64(max(0, reportObservedUptime * 1_000))
+        )
         guard let usages = Self.parseUsages(reportID: reportID, data: data) else { return }
 
         let microphoneUsage = RemoteButton.microphone.hidUsage
@@ -554,6 +565,18 @@ final class HIDMonitor {
         at timestamp: TimeInterval,
         rawReportSequence: UInt64
     ) {
+        let attemptID: UUID?
+        if button == .microphone, isDown {
+            attemptID = VoiceAttemptDiagnostics.shared.beginPhysicalAttempt(
+                state: ["physical_source": .string("hid_monitor")]
+            )
+            DiagnosticRuntimeHealthRegistry.shared.setBool("physical_voice_key_down", true)
+        } else if button == .microphone {
+            attemptID = VoiceAttemptDiagnostics.shared.currentID
+            DiagnosticRuntimeHealthRegistry.shared.setBool("physical_voice_key_down", false)
+        } else {
+            attemptID = nil
+        }
         if let callback = onButtonEdgeAt {
             callback(button, isDown, timestamp)
         } else {
@@ -568,6 +591,7 @@ final class HIDMonitor {
                     "event_uptime": timestamp,
                     "raw_report_sequence": rawReportSequence,
                     "source": "hid_monitor",
+                    "voice_attempt_id": attemptID?.uuidString ?? "unavailable",
                 ]
             )
         }

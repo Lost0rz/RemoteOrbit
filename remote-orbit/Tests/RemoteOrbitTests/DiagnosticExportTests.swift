@@ -83,12 +83,28 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("logs/diagnostic.jsonl").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("logs/RemoteOrbit.log").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("receiver/evidence-unavailable.json").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("evidence/required-evidence.json").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("logs/raw.txt").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: extracted.appendingPathComponent("logs/settings.backup").path))
 
         let checksums = try String(contentsOf: extracted.appendingPathComponent("SHA256SUMS"), encoding: .utf8)
         XCTAssertTrue(checksums.contains("manifest.json"))
         XCTAssertTrue(checksums.contains("runtime/runtime-context.json"))
+        let requiredEvidence = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: extracted.appendingPathComponent("evidence/required-evidence.json"))
+            ) as? [String: Any]
+        )
+        XCTAssertEqual(
+            (requiredEvidence["remoteorbit_log"] as? [String: Any])?["status"] as? String,
+            "available"
+        )
+        XCTAssertEqual(
+            (requiredEvidence["voice_diagnostic_current"] as? [String: Any])?["status"] as? String,
+            "unavailable"
+        )
+        XCTAssertNotNil(requiredEvidence["permissions"])
+        XCTAssertNotNil(requiredEvidence["archive_integrity"])
     }
 
     func testExportIncludesBoundedReceiverEvidenceAndRotatedJournalSegments() throws {

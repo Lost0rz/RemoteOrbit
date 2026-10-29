@@ -445,6 +445,7 @@ fileprivate enum DiagnosticContractValidation {
 private enum DiagnosticPayloadValueKind {
     case unsignedInteger
     case number
+    case boolean
     case string
     case array
     case object
@@ -468,6 +469,8 @@ private struct DiagnosticEventDefinition {
             case (.unsignedInteger, .integer(let number)):
                 return number >= 0
             case (.number, .integer), (.number, .unsignedInteger), (.number, .double):
+                return true
+            case (.boolean, .bool):
                 return true
             case (.string, .string):
                 return true
@@ -579,6 +582,71 @@ enum DiagnosticEventCatalog {
             payloadFields: [
                 "event": .string,
                 "timestamp_nanoseconds": .unsignedInteger,
+            ]
+        ),
+        "voice.attempt.stage": DiagnosticEventDefinition(
+            subsystem: "voice.attempt",
+            category: "lifecycle",
+            severity: .info,
+            sourceComponent: "diagnostic_hardening",
+            payloadFields: [
+                "voice_attempt_id": .string,
+                "session_id": .string,
+                "stage": .string,
+                "elapsed_ms": .number,
+                "state": .object,
+            ]
+        ),
+        "voice.start.watchdog": DiagnosticEventDefinition(
+            subsystem: "voice.start",
+            category: "watchdog",
+            severity: .warning,
+            sourceComponent: "diagnostic_hardening",
+            payloadFields: [
+                "voice_attempt_id": .string,
+                "stage_event": .string,
+                "last_successful_stage": .string,
+                "elapsed_ms": .number,
+                "state": .object,
+            ]
+        ),
+        "voice.runtime.health": DiagnosticEventDefinition(
+            subsystem: "voice.runtime",
+            category: "health",
+            severity: .info,
+            sourceComponent: "diagnostic_hardening",
+            payloadFields: [
+                "cadence": .string,
+                "state": .object,
+            ]
+        ),
+        "voice.output.boundary": DiagnosticEventDefinition(
+            subsystem: "voice.output",
+            category: "boundary",
+            severity: .info,
+            sourceComponent: "diagnostic_hardening",
+            payloadFields: [
+                "voice_attempt_id": .string,
+                "first_nonzero_output_timestamp_ns": .unsignedInteger,
+                "last_nonzero_output_timestamp_ns": .unsignedInteger,
+                "output_device_identity": .string,
+                "output_ready": .boolean,
+                "selected_input_identity": .string,
+                "consumer_evidence": .string,
+            ]
+        ),
+        "voice.failure.classified": DiagnosticEventDefinition(
+            subsystem: "voice.failure",
+            category: "classification",
+            severity: .warning,
+            sourceComponent: "diagnostic_hardening",
+            payloadFields: [
+                "voice_attempt_id": .string,
+                "layer": .string,
+                "classification": .string,
+                "status": .string,
+                "reason": .string,
+                "state": .object,
             ]
         ),
     ]

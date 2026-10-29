@@ -804,6 +804,7 @@ final class BLEBridge: NSObject {
 
     private func requestMicOpenIfReady() {
         guard transportState.shouldRequestMicOpen else { return }
+        VoiceAttemptDiagnostics.shared.stage("MIC_OPEN_REQUEST")
         do {
             protocolHandler.prepareForAudioStream()
             pendingAudioSyncCount = 0
@@ -812,6 +813,10 @@ final class BLEBridge: NSObject {
             print("[BLE] TX micOpen (voice hold)")
             VoiceTimingLogger.mark("MIC_OPEN_TX")
         } catch {
+            VoiceAttemptDiagnostics.shared.stage(
+                "MIC_OPEN_WRITE_FAILED",
+                state: ["failure_category": .string("command_write")]
+            )
             print("[BLE] micOpen error: \(error.localizedDescription)")
         }
     }

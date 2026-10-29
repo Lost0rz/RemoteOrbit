@@ -729,8 +729,8 @@ final class LongTermObservabilityTests: XCTestCase {
 
         let summary = try XCTUnwrap(service.end(sessionID: sessionID))
         XCTAssertEqual(summary.captureID, captureID.uuidString)
-        XCTAssertEqual(authority.inputs.count, 1)
-        let input = try XCTUnwrap(authority.inputs.first)
+        XCTAssertGreaterThanOrEqual(authority.inputs.count, 3)
+        let input = try XCTUnwrap(authority.inputs.first { $0.eventType == "voice.session.summary" })
         XCTAssertEqual(input.eventType, "voice.session.summary")
         XCTAssertEqual(input.sessionID, sessionID.uuidString)
         XCTAssertEqual(input.incidentID, nil)
