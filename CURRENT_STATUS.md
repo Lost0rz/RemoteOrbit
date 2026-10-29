@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-29
-State: AIR_VALIDATION_PREP — AIR_CANDIDATE_PACKAGING — READY_FOR_UPDATED_AIR_VALIDATION — RO-OBSERVABILITY-039
+State: AIR_VALIDATION_PREP — UPDATED_AIR_CANDIDATE_PACKAGED — OWNER_AIR_INSTALL_PENDING — RO-OBSERVABILITY-039
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -30,6 +30,7 @@ Repository: Lost0rz/RemoteOrbit
 - Remote-delivery verification for this corrective: `origin/codex/observability-039` matched `e703e16554e98e69ed6fb4e84ccce542c4169b20` before this receipt.
 - Remote-delivery verification for the pre-HID lifecycle corrective: `origin/codex/observability-039` matched `593a488cad186d02485ea821fb41f966a135ac77` before this delivery receipt.
 - Final delivery receipt `93f1b91ad06f9717251b09653557aebe4ff44910` was pushed and remotely read back before this factual control correction.
+- Remote-delivery verification for the packaging control: `origin/codex/observability-039` matches `bc5a7c19b212d18d4fd67184e8ed7fbb94dabe74`.
 - PR #25 (`Release RemoteOrbit v0.2.15`) is Draft/Open/Unmerged; public release is blocked and no merge, tag, or release is authorized by this task.
 - The former release-control branch `codex/release-v0.2.15` remains at `f049e6eb7f0e5625b807fba1860d04c048b638ca` in `/private/tmp/remoteorbit-release-v0.2.15-local-soak`; it is retained for provenance and is not an active writer for this task.
 - The owner's MacBook Air natural-use observation reported substantial final-text omission. This records the release decision as `RELEASE_BLOCKED / SOAK_FAILED`; it does not claim a technical root cause.
@@ -65,7 +66,7 @@ Repository: Lost0rz/RemoteOrbit
 - Source review confirms the second corrective adds no AudioPipe render/BLE callback disk I/O, formatting, authority call, or new contended diagnostic lock; BLE/audio callbacks do not synchronously write the journal; normal sessions emit summary-only and anomaly traces are emitted off-path.
 - Focused evidence covers first-writer-wins cross-producer incident identity/anchor, production-path material BLE gap and AudioPipe starvation coordination, transport-to-render retention after both recent rings wrap, strict main-queue >50 ms threshold alignment, actual trace drop, exact export-limit truncation, existing journal/export/receiver/late-lifecycle behavior, and product-freeze preservation.
 
-## MacBook Air candidate receipt
+## Prior MacBook Air candidate receipt
 
 - Independent Web audit: `PASS`; no root-cause claim is made for the prior natural-use omission.
 - Candidate build source/control HEAD: `9200a9f8e21715038a07d64bb6a607f550b4f765`.
@@ -94,9 +95,28 @@ Repository: Lost0rz/RemoteOrbit
 - Scope: preserve newest complete selected-window log lines first, retain chronological order, and expose honest older-evidence truncation metadata without increasing the 2 MiB bound.
 - No journal/receiver broadening, audio corrective, Air runtime change, merge, tag, release, or PR #25 mutation is authorized.
 
+## Updated Air candidate receipt
+
+- Independent Web audit: `PASS` for the exporter-recency corrective and the exact pushed source lineage; no audio/root-cause claim is made.
+- Packaging control/source HEAD used for the candidate: `bc5a7c19b212d18d4fd67184e8ed7fbb94dabe74`.
+- Semantic implementation HEAD: `62d58765c6a0bffbd7853861eae50cdf094bb586` (`diagnostics: retain recent export evidence`).
+- Artifact: `/private/tmp/remoteorbit-air-validation-20261029-export-recency/RemoteOrbit-0.2.14-AIR-VALIDATION-EXPORT-RECENCY.dmg`.
+- Artifact SHA-256: `4887595e28ea4aacf9fa567c73d3bb46be2b70c647f7ce51e9565f7c9b935e72`.
+- App executable SHA-256: `958d9db4d126b43b2afe00df8e209eb83563e6442e86acb81d8ef4a5a74ea670`.
+- App version/build: `0.2.14 (43)`; app and embedded driver architectures: `x86_64 arm64` (Universal 2).
+- Embedded `RemoteOrbitDiagnosticSourceHead`: `bc5a7c19b212d18d4fd67184e8ed7fbb94dabe74`.
+- Code identity: app ad-hoc signature valid with designated requirement `identifier "com.lost0rz.RemoteOrbit"`; embedded driver ad-hoc signature valid; no Developer ID, Team ID, notarization, or release identity is claimed.
+- Exporter corrective included: `YES`; recency corrective included: `YES`; source review found `evidence_sources`, time-windowed log handling, `selected_window_bytes`, `selected_window_truncated`, and older-evidence-drop metadata.
+- Focused `DiagnosticExportTests`: `10 passed, 0 failed`.
+- Full Swift suite: `471 executed, 1 failure`; exact failure `VoicePersistentSessionTests.testPersistentSessionAcceptsMultipleAudioOnlySegmentsThenClosesByTap` (`XCTAssertNil` failed because a UUID remained). This is recorded as an unresolved verification caveat, not retried away.
+- Release build: `PASS`; explicit x86 build with `swift build --triple x86_64-apple-macos13.0`: `PASS`; protocol self-tests: `3/3 PASS`; `git diff --check`: `PASS`.
+- DMG mount/content check: `PASS`; top-level app, Applications link, Documentation, embedded driver, signatures, architectures, version/build, and embedded source revision read back successfully.
+- Packaging note: direct `package-dmg.sh` required the temporary `MACOSX_DEPLOYMENT_TARGET=13.0` xcconfig because current Xcode rejects the pinned driver target 10.10; the existing app script's x86 `-Xswiftc -target` path failed under current SwiftPM, so the same bundle/DMG layout was assembled with the supported explicit `--triple` x86 build. No repository source, test, or packaging script was modified.
+- Tracked worktree is clean after packaging; no Air app/driver/runtime was installed or launched from the Mac mini.
+
 ## Current next action
 
-Reconcile the exact audited branch, build and package the updated Air candidate containing both exporter correctives, verify provenance and packaging evidence, then hand off Finder replacement and natural-use instructions to the owner. Preserve the observed Air runtime/evidence. No audio/root-cause corrective is authorized.
+Hand off the exact updated DMG and Finder replacement/natural-use instructions to the owner. The owner may install and validate on the MacBook Air; preserve the prior Air runtime/evidence, use no special environment, and export only after ordinary use. The full-suite verification caveat remains explicit. No audio/root-cause corrective is authorized.
 
 ## Stop conditions
 

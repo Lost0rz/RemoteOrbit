@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `AIR_VALIDATION_PREP / AIR_CANDIDATE_PACKAGING / READY_FOR_UPDATED_AIR_VALIDATION`
+Status: `AIR_VALIDATION_PREP / UPDATED_AIR_CANDIDATE_PACKAGED / OWNER_AIR_INSTALL_PENDING`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -69,7 +69,7 @@ The second independent Web audit was blocked by bounded cross-layer incident-win
 - Verify Swift tests, release build, protocol self-tests, packaging, artifact contents, signatures, checksums, `git diff --check`, and clean worktree.
 - Provide owner-run Finder/Login Item installation and natural-use instructions for the MacBook Air. Do not install or launch the Air candidate from the Mac mini. Do not upload evidence automatically.
 
-## Air-validation candidate receipt
+## Prior Air-validation candidate receipt
 
 - Independent Web audit: `PASS`; no root-cause claim is made for the prior natural-use omission.
 - Candidate build source/control HEAD: `9200a9f8e21715038a07d64bb6a607f550b4f765`.
@@ -108,7 +108,7 @@ The candidate was installed and used by the owner under the prior Air-validation
 - Focused exporter regressions: 9 passed, including large-log windowing, bounded journal/receiver evidence, provider oversize fallback, session-query failure status, allowlist, pagination, exact event-limit semantics, and checksum verification.
 - Full Swift regression: 470 passed, 0 failed. Release build passed. Protocol self-tests: 3/3 PASS. `git diff --check` passed before the implementation commit.
 - Product/audio freeze review: changed product source is limited to `Diagnostics/DiagnosticExport.swift`; no audio, BLE, HID, gesture, receiver behavior, driver, install, or runtime files changed.
-- Next action: reconcile the exact audited branch, package the updated candidate containing both exporter correctives, verify all requested provenance and packaging evidence, and hand off owner-run Air replacement/natural-use instructions. Air validation remains owner-controlled; preserve the observed Air runtime/evidence.
+- Next action: hand off the updated candidate and owner-run Air replacement/natural-use instructions. Air validation remains owner-controlled; preserve the observed Air runtime/evidence and keep the full-suite verification caveat explicit.
 
 ## Export-recency corrective gate
 
@@ -125,6 +125,24 @@ The candidate was installed and used by the owner under the prior Air-validation
 - Full Swift regression: an immediate rerun passed 471 tests with 0 failures after one earlier run reported 2 non-reproduced failures; release build passed; protocol self-tests passed 3/3; `git diff --check` passed.
 - Manifest evidence: `selected_window_bytes`, `selected_window_truncated`, and `truncation_direction=older_selected_window_evidence_dropped` are recorded per exported application-log file.
 - Product/audio freeze review: only `Diagnostics/DiagnosticExport.swift`, its tests, and control files changed; no ATVV, BLE, decode, AudioPipe, HID, gesture, persistent-session, receiver, driver, install, or Air-runtime files changed.
+
+## Updated Air candidate packaging receipt
+
+- Packaging control/source HEAD used for the candidate: `bc5a7c19b212d18d4fd67184e8ed7fbb94dabe74`.
+- Semantic implementation HEAD: `62d58765c6a0bffbd7853861eae50cdf094bb586`.
+- Artifact: `/private/tmp/remoteorbit-air-validation-20261029-export-recency/RemoteOrbit-0.2.14-AIR-VALIDATION-EXPORT-RECENCY.dmg`.
+- Artifact SHA-256: `4887595e28ea4aacf9fa567c73d3bb46be2b70c647f7ce51e9565f7c9b935e72`.
+- App executable SHA-256: `958d9db4d126b43b2afe00df8e209eb83563e6442e86acb81d8ef4a5a74ea670`.
+- App version/build: `0.2.14 (43)`; app and embedded driver architectures: `x86_64 arm64` (Universal 2).
+- Embedded `RemoteOrbitDiagnosticSourceHead`: `bc5a7c19b212d18d4fd67184e8ed7fbb94dabe74`.
+- App signature: ad-hoc and valid, designated requirement `identifier "com.lost0rz.RemoteOrbit"`; embedded driver signature: ad-hoc and valid. No Developer ID, Team ID, notarization, or release identity is claimed.
+- Exporter corrective included: `YES`; recency corrective included: `YES`; source markers and manifest fields were verified before packaging.
+- Focused `DiagnosticExportTests`: `10 passed, 0 failed`.
+- Full Swift suite: `471 executed, 1 failure`; exact failure `VoicePersistentSessionTests.testPersistentSessionAcceptsMultipleAudioOnlySegmentsThenClosesByTap` (`XCTAssertNil` failed because a UUID remained). No repeat was used to mask it.
+- Release build: `PASS`; x86 `swift build --triple x86_64-apple-macos13.0`: `PASS`; protocol self-tests: `3/3 PASS`; `git diff --check`: `PASS`.
+- DMG mount/content: `PASS`; top-level app, Applications link, Documentation, embedded driver, signatures, architectures, version/build, and embedded source revision all read back successfully.
+- Packaging fallback: current Xcode rejected the pinned driver deployment target 10.10 until a temporary `MACOSX_DEPLOYMENT_TARGET=13.0` xcconfig was supplied; the existing package-app x86 `-Xswiftc -target` path failed under current SwiftPM, so packaging used the supported explicit `--triple` x86 slice and preserved the existing bundle/DMG layout. No source, tests, or packaging scripts changed.
+- No Mac mini installation or launch occurred; the Air runtime/evidence was preserved.
 
 ## Final verification receipt
 
