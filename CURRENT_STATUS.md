@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-29
-State: AIR_VALIDATION_ACTIVE — EXPORT_RECENCY_CORRECTIVE_ACTIVE — WAITING_FOR_INDEPENDENT_WEB_AUDIT — RO-OBSERVABILITY-039
+State: AIR_VALIDATION_ACTIVE — EXPORT_RECENCY_CORRECTIVE_DELIVERED — WAITING_FOR_INDEPENDENT_WEB_AUDIT — RO-OBSERVABILITY-039
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -23,6 +23,7 @@ Repository: Lost0rz/RemoteOrbit
 - Exporter corrective implementation HEAD: `d366646` (`diagnostics: bound long-term export evidence`); this corrective is awaiting independent Web audit.
 - Exporter corrective independent Web audit: `PENDING`; no pass is claimed for this corrective receipt.
 - Export-recency audit finding: at remote head `3f8136280be450f74a83569684922baf0173ca68`, a timestamp-filtered window larger than the 2 MiB bound retains the beginning of the selected window and drops newer lines. The audit sample measured a roughly 4.63 MiB log and a roughly 2.33 MiB three-hour window, so the newest incident evidence could be lost. This is an exporter-retention finding only; no audio/root-cause claim is made.
+- Export-recency implementation HEAD: `62d5876` (`diagnostics: retain recent export evidence`); remote publication is pending the final control receipt.
 - Air validation is active under the owner-controlled candidate workflow. The first real Air export reported `diagnostics: export failed: evidenceTooLarge` and produced no archive.
 - Pre-corrective source audit: the exporter copied approved application logs wholesale and rejected any individual copied file over 2 MiB; the requested export window therefore did not bound `RemoteOrbit.log`.
 - Remote-delivery verification before this corrective: `origin/codex/observability-039` matched `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
@@ -95,7 +96,7 @@ Repository: Lost0rz/RemoteOrbit
 
 ## Current next action
 
-Correct export recency on the existing `codex/observability-039` lineage, verify focused/full regression and remote delivery, then return to independent Web audit. Air validation remains owner-controlled; preserve the observed Air runtime/evidence. No audio/root-cause corrective is authorized.
+Push the exact export-recency corrective and final control receipt, verify the remote branch head, and return to independent Web audit. Air validation remains owner-controlled; preserve the observed Air runtime/evidence. No audio/root-cause corrective is authorized.
 
 ## Stop conditions
 

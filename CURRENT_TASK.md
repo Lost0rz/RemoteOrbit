@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `AIR_VALIDATION_ACTIVE / EXPORT_RECENCY_CORRECTIVE_ACTIVE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `AIR_VALIDATION_ACTIVE / EXPORT_RECENCY_CORRECTIVE_DELIVERED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -34,6 +34,7 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 - Exporter corrective implementation: `d366646` (`diagnostics: bound long-term export evidence`). It applies parseable time windows to `RemoteOrbit.log`, uses an honest bounded fallback for unparseable lines, and preserves archives with source-specific bounded/unavailable/failed manifest receipts for sessions, journals, application logs, and receiver evidence.
 - Exporter corrective independent Web audit: `PENDING`; do not infer PASS from local tests or remote delivery.
 - Export-recency audit finding at observed remote head `3f8136280be450f74a83569684922baf0173ca68`: when a timestamp-filtered window exceeds the 2 MiB evidence bound, `boundedLineData` retains the beginning of the selected window and drops newer lines. The audit sample measured a roughly 4.63 MiB log and a roughly 2.33 MiB three-hour window, making latest incident evidence losable. This is exporter-only and makes no audio/root-cause claim.
+- Export-recency implementation HEAD: `62d5876` (`diagnostics: retain recent export evidence`); remote publication is pending the final control receipt.
 - PR #25 remains Draft/Open/Unmerged and must not be merged, tagged, or released.
 
 ## Authorized scope
@@ -107,7 +108,7 @@ The candidate was installed and used by the owner under the prior Air-validation
 - Focused exporter regressions: 9 passed, including large-log windowing, bounded journal/receiver evidence, provider oversize fallback, session-query failure status, allowlist, pagination, exact event-limit semantics, and checksum verification.
 - Full Swift regression: 470 passed, 0 failed. Release build passed. Protocol self-tests: 3/3 PASS. `git diff --check` passed before the implementation commit.
 - Product/audio freeze review: changed product source is limited to `Diagnostics/DiagnosticExport.swift`; no audio, BLE, HID, gesture, receiver behavior, driver, install, or runtime files changed.
-- Next action: verify and publish `d366646` plus the final control receipt on `codex/observability-039`, then hand off for independent Web audit. Air validation remains active and owner-controlled; preserve the observed Air runtime/evidence.
+- Next action: verify and publish `62d5876` plus the final control receipt on `codex/observability-039`, then hand off for independent Web audit. Air validation remains active and owner-controlled; preserve the observed Air runtime/evidence.
 
 ## Export-recency corrective gate
 
@@ -116,6 +117,14 @@ The candidate was installed and used by the owner under the prior Air-validation
 - Keep the existing honest fallback for unparseable/non-UTF-8 logs. Do not broaden journal/receiver behavior unless shared bounded-line refactoring requires it.
 - Add production-facing recency and realistic multi-hour-like oversize regressions; keep all existing exporter/observability/audio/gesture tests green.
 - No DMG, Air installation, merge, PR #25 mutation, tag, or release.
+
+## Export-recency corrective verification receipt
+
+- Red proof: before the change, the production-facing exporter test retained `EARLY_IN_WINDOW` and dropped `LATE_IN_WINDOW` when the selected window exceeded 2 MiB.
+- Recency regression: 10 focused exporter tests passed, including a multi-hour-like oversized window; newest complete lines were retained in chronological order and older selected-window evidence was reported as dropped.
+- Full Swift regression: an immediate rerun passed 471 tests with 0 failures after one earlier run reported 2 non-reproduced failures; release build passed; protocol self-tests passed 3/3; `git diff --check` passed.
+- Manifest evidence: `selected_window_bytes`, `selected_window_truncated`, and `truncation_direction=older_selected_window_evidence_dropped` are recorded per exported application-log file.
+- Product/audio freeze review: only `Diagnostics/DiagnosticExport.swift`, its tests, and control files changed; no ATVV, BLE, decode, AudioPipe, HID, gesture, persistent-session, receiver, driver, install, or Air-runtime files changed.
 
 ## Final verification receipt
 
