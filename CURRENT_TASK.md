@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `AIR_VALIDATION_ACTIVE / EXPORT_RECENCY_CORRECTIVE_DELIVERED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `AIR_VALIDATION_PREP / AIR_CANDIDATE_PACKAGING / READY_FOR_UPDATED_AIR_VALIDATION`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -32,9 +32,9 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 - The observed Air `RemoteOrbit.log` was approximately 4.86 MB / 29,813 lines. The pre-corrective source review showed approved application logs were copied whole-file and an individual copied file above 2 MiB failed the export.
 - This exporter corrective remains under `RO-OBSERVABILITY-039`; it does not authorize an audio or root-cause corrective.
 - Exporter corrective implementation: `d366646` (`diagnostics: bound long-term export evidence`). It applies parseable time windows to `RemoteOrbit.log`, uses an honest bounded fallback for unparseable lines, and preserves archives with source-specific bounded/unavailable/failed manifest receipts for sessions, journals, application logs, and receiver evidence.
-- Exporter corrective independent Web audit: `PENDING`; do not infer PASS from local tests or remote delivery.
+- Exporter corrective independent Web audit: `PASS` for the exact pushed lineage; no audio/root-cause claim is made.
 - Export-recency audit finding at observed remote head `3f8136280be450f74a83569684922baf0173ca68`: when a timestamp-filtered window exceeds the 2 MiB evidence bound, `boundedLineData` retains the beginning of the selected window and drops newer lines. The audit sample measured a roughly 4.63 MiB log and a roughly 2.33 MiB three-hour window, making latest incident evidence losable. This is exporter-only and makes no audio/root-cause claim.
-- Export-recency implementation HEAD: `62d5876` (`diagnostics: retain recent export evidence`); remote publication is pending the final control receipt.
+- Export-recency implementation HEAD: `62d5876` (`diagnostics: retain recent export evidence`); exact corrective lineage is remotely verified at `3eca563795db4fb927e5c73c4ffd737851307763`.
 - PR #25 remains Draft/Open/Unmerged and must not be merged, tagged, or released.
 
 ## Authorized scope
@@ -59,7 +59,7 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 
 ## Corrective gate
 
-The second independent Web audit was blocked by bounded cross-layer incident-window findings and then identified one remaining pre-HID lifecycle boundary. The completed corrective establishes the shared incident coordinator generation exactly once at the earliest authoritative gesture/transport capture boundary; a later HID session binding preserves incident identity, anchor, and producer synchronization state; a genuinely new capture receives a clean generation. It preserves first-writer-wins, pre-HID BLE/decode/PCM/render evidence, AudioPipe-first evidence, wrap survival, and all existing journal/export/receiver/late-lifecycle behavior. It preserves the product/audio freeze and adds no hot-path disk I/O, formatting, authority emission, or new contended diagnostic lock. Focused lifecycle tests, full Swift regression, release build, self-tests, `git diff --check`, and exact source/product-freeze review pass locally. The candidate is pushed on `codex/observability-039`; remote readback matched `593a488cad186d02485ea821fb41f966a135ac77` before the delivery receipt, and receipt `93f1b91ad06f9717251b09653557aebe4ff44910` was also pushed and read back before this factual control correction. The independent Web audit is now PASS. This authorizes exact candidate packaging and owner-run Air validation preparation only; it does not authorize merge, tag, release, PR #25 mutation, or Mac mini/Air runtime installation.
+The second independent Web audit was blocked by bounded cross-layer incident-window findings and then identified one remaining pre-HID lifecycle boundary. The completed corrective establishes the shared incident coordinator generation exactly once at the earliest authoritative gesture/transport capture boundary; a later HID session binding preserves incident identity, anchor, and producer synchronization state; a genuinely new capture receives a clean generation. It preserves first-writer-wins, pre-HID BLE/decode/PCM/render evidence, AudioPipe-first evidence, wrap survival, and all existing journal/export/receiver/late-lifecycle behavior. It preserves the product/audio freeze and adds no hot-path disk I/O, formatting, authority emission, or new contended diagnostic lock. Focused lifecycle tests, full Swift regression, release build, self-tests, `git diff --check`, and exact source/product-freeze review pass locally. The candidate is pushed on `codex/observability-039`; remote readback matched `593a488cad186d02485ea821fb41f966a135ac77` before the delivery receipt, and receipt `93f1b91ad06f9717251b09653557aebe4ff44910` was also pushed and read back before this factual control correction. The independent Web audit is now PASS, including the exporter-recency corrective at exact remote head `3eca563795db4fb927e5c73c4ffd737851307763`. This authorizes exact updated candidate packaging and owner-run Air validation preparation only; it does not authorize merge, tag, release, PR #25 mutation, or Mac mini/Air runtime installation.
 
 ## Air-validation preparation gate
 
@@ -108,7 +108,7 @@ The candidate was installed and used by the owner under the prior Air-validation
 - Focused exporter regressions: 9 passed, including large-log windowing, bounded journal/receiver evidence, provider oversize fallback, session-query failure status, allowlist, pagination, exact event-limit semantics, and checksum verification.
 - Full Swift regression: 470 passed, 0 failed. Release build passed. Protocol self-tests: 3/3 PASS. `git diff --check` passed before the implementation commit.
 - Product/audio freeze review: changed product source is limited to `Diagnostics/DiagnosticExport.swift`; no audio, BLE, HID, gesture, receiver behavior, driver, install, or runtime files changed.
-- Next action: verify and publish `62d5876` plus the final control receipt on `codex/observability-039`, then hand off for independent Web audit. Air validation remains active and owner-controlled; preserve the observed Air runtime/evidence.
+- Next action: reconcile the exact audited branch, package the updated candidate containing both exporter correctives, verify all requested provenance and packaging evidence, and hand off owner-run Air replacement/natural-use instructions. Air validation remains owner-controlled; preserve the observed Air runtime/evidence.
 
 ## Export-recency corrective gate
 
