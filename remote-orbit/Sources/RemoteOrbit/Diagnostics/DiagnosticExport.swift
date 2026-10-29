@@ -193,9 +193,12 @@ final class DiagnosticExporter: @unchecked Sendable {
     private let receiverEvidenceProvider: any ReceiverEvidenceProvider
     private let clock: () -> Date
     private let fileManager: FileManager
+    private let selectedSystemInputIdentity: () -> String?
     private let maximumSessionEventCount: Int
     private var sessionEventCount = 0
     private var sessionEventsTruncated = false
+    private var sessionEventTypeCounts: [String: Int] = [:]
+    private var sessionEventsQueryFailed = false
     private var evidenceSources: [String: [String: Any]] = [:]
 
     init(
@@ -205,6 +208,9 @@ final class DiagnosticExporter: @unchecked Sendable {
         receiverEvidenceProvider: any ReceiverEvidenceProvider = UnifiedLogReceiverEvidenceProvider(),
         clock: @escaping () -> Date = Date.init,
         fileManager: FileManager = .default,
+        selectedSystemInputIdentity: @escaping () -> String? = {
+            SystemAudioDeviceManager.defaultInputDevice?.stableIdentifier
+        },
         maximumSessionEventCount: Int = DiagnosticExporter.maximumSessionEventCount
     ) {
         precondition(maximumSessionEventCount > 0)
@@ -214,6 +220,7 @@ final class DiagnosticExporter: @unchecked Sendable {
         self.receiverEvidenceProvider = receiverEvidenceProvider
         self.clock = clock
         self.fileManager = fileManager
+        self.selectedSystemInputIdentity = selectedSystemInputIdentity
         self.maximumSessionEventCount = maximumSessionEventCount
     }
 
@@ -230,6 +237,8 @@ final class DiagnosticExporter: @unchecked Sendable {
         do {
             sessionEventCount = 0
             sessionEventsTruncated = false
+            sessionEventTypeCounts.removeAll(keepingCapacity: true)
+            sessionEventsQueryFailed = false
             evidenceSources.removeAll(keepingCapacity: true)
             try fileManager.createDirectory(
                 at: options.outputDirectory,
@@ -248,6 +257,7 @@ final class DiagnosticExporter: @unchecked Sendable {
             do {
                 try stageSessions(options: options, at: stagingURL)
             } catch {
+                sessionEventsQueryFailed = true
                 evidenceSources["session_events"] = [
                     "status": EvidenceStatus.failed.rawValue,
                     "reason": "session diagnostic query failed",
@@ -311,6 +321,9 @@ final class DiagnosticExporter: @unchecked Sendable {
         }
         sessionEventCount = events.count
         sessionEventsTruncated = eventsRemainBeyondLimit || remainingCursor != nil
+        sessionEventTypeCounts = events.reduce(into: [:]) { counts, event in
+            counts[event.eventType, default: 0] += 1
+        }
         let page = DiagnosticQueryPage(
             schemaVersion: DiagnosticEvent.currentSchemaVersion,
             events: events,
@@ -324,6 +337,7 @@ final class DiagnosticExporter: @unchecked Sendable {
             "exported_bytes": data.count,
             "event_count": sessionEventCount,
             "truncated": sessionEventsTruncated,
+            "event_type_counts": sessionEventTypeCounts,
         ]
     }
 
@@ -350,6 +364,10 @@ final class DiagnosticExporter: @unchecked Sendable {
         let logsDirectory = journalURL.deletingLastPathComponent()
         let stagedLogs = stagingURL.appendingPathComponent("logs")
         func logReceipt(_ name: String) -> [String: Any] {
+            if let files = evidenceSources["application_logs"]?["files"] as? [[String: Any]],
+               let receipt = files.first(where: { $0["path"] as? String == name }) {
+                return receipt
+            }
             let source = logsDirectory.appendingPathComponent(name)
             let staged = stagedLogs.appendingPathComponent(name)
             guard fileManager.fileExists(atPath: source.path) else {
@@ -374,8 +392,15 @@ final class DiagnosticExporter: @unchecked Sendable {
         if case .bool(let value) = health["audio_pipe_output_ready"] { outputReady = value } else { outputReady = false }
         let outputIdentity: String
         if case .string(let value) = health["output_device_identity"] { outputIdentity = value } else { outputIdentity = "unavailable" }
-        let selectedInput: String
-        if case .string(let value) = health["selected_input_identity"] { selectedInput = value } else { selectedInput = "unavailable" }
+        let selectedInput = selectedSystemInputIdentity()
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? "unavailable"
+        let summaryReceipt = sessionEventReceipt(for: "voice.session.summary")
+        let traceReceipt = sessionEventReceipt(for: "voice.session.trace")
+        let frozenReceipt = frozenTraceAndSessionReceipt(
+            summary: summaryReceipt,
+            trace: traceReceipt
+        )
 
         let receipts: [String: Any] = [
             "remoteorbit_log": logReceipt("RemoteOrbit.log"),
@@ -388,13 +413,7 @@ final class DiagnosticExporter: @unchecked Sendable {
                 "status": EvidenceStatus.unavailable.rawValue,
                 "reason": "session receipt unavailable",
             ],
-            "frozen_trace_and_session_summaries": [
-                "status": fileManager.fileExists(
-                    atPath: stagingURL.appendingPathComponent("sessions/diagnostic-events.json").path
-                ) ? EvidenceStatus.available.rawValue : EvidenceStatus.unavailable.rawValue,
-                "path": "sessions/diagnostic-events.json",
-                "observation_schema_version": LongTermVoiceSessionSummary.schemaVersion,
-            ],
+            "frozen_trace_and_session_summaries": frozenReceipt,
             "runtime_identity": evidenceSources["runtime_identity"] ?? [
                 "status": EvidenceStatus.unavailable.rawValue,
             ],
@@ -441,6 +460,75 @@ final class DiagnosticExporter: @unchecked Sendable {
             "path": "evidence/required-evidence.json",
             "source_count": receipts.count,
         ]
+    }
+
+    private func sessionEventReceipt(for eventType: String) -> [String: Any] {
+        let count = sessionEventTypeCounts[eventType, default: 0]
+        var receipt: [String: Any] = [
+            "event_type": eventType,
+            "count": count,
+            "session_event_count": sessionEventCount,
+            "session_event_limit": maximumSessionEventCount,
+            "session_events_truncated": sessionEventsTruncated,
+        ]
+        if sessionEventsQueryFailed {
+            receipt["status"] = EvidenceStatus.failed.rawValue
+            receipt["reason"] = "session diagnostic query failed"
+        } else if count > 0 {
+            receipt["status"] = EvidenceStatus.available.rawValue
+            if sessionEventsTruncated {
+                receipt["completeness"] = EvidenceStatus.bounded.rawValue
+                receipt["reason"] = "event present; global session-event limit may have truncated additional evidence"
+            }
+        } else if sessionEventsTruncated {
+            receipt["status"] = EvidenceStatus.bounded.rawValue
+            receipt["completeness"] = "unknown"
+            receipt["reason"] = "global session-event limit may have truncated this event type"
+        } else {
+            receipt["status"] = EvidenceStatus.unavailable.rawValue
+            receipt["reason"] = "event type absent from exported session event set"
+        }
+        return receipt
+    }
+
+    private func frozenTraceAndSessionReceipt(
+        summary: [String: Any],
+        trace: [String: Any]
+    ) -> [String: Any] {
+        let summaryStatus = summary["status"] as? String
+        let traceStatus = trace["status"] as? String
+        let status: EvidenceStatus
+        let reason: String?
+        if summaryStatus == EvidenceStatus.failed.rawValue || traceStatus == EvidenceStatus.failed.rawValue {
+            status = .failed
+            reason = "session diagnostic query failed"
+        } else if summaryStatus == EvidenceStatus.bounded.rawValue || traceStatus == EvidenceStatus.bounded.rawValue {
+            status = .bounded
+            reason = "session-event limit may have bounded certainty about required evidence"
+        } else if summaryStatus == EvidenceStatus.available.rawValue,
+                  traceStatus == EvidenceStatus.available.rawValue {
+            status = .available
+            reason = nil
+        } else {
+            status = .unavailable
+            reason = "one or more required session event types are absent from exported evidence"
+        }
+        var receipt: [String: Any] = [
+            "status": status.rawValue,
+            "path": "sessions/diagnostic-events.json",
+            "observation_schema_version": LongTermVoiceSessionSummary.schemaVersion,
+            "voice.session.summary": summary,
+            "voice.session.trace": trace,
+            "summary_count": summary["count"] as? Int ?? 0,
+            "summary_status": summaryStatus as Any,
+            "trace_count": trace["count"] as? Int ?? 0,
+            "trace_status": traceStatus as Any,
+            "session_event_count": sessionEventCount,
+            "session_event_limit": maximumSessionEventCount,
+            "session_events_truncated": sessionEventsTruncated,
+        ]
+        if let reason { receipt["reason"] = reason }
+        return receipt
     }
 
     private func writeUnavailableSessionEvents(reason: String, at stagingURL: URL) throws {

@@ -97,7 +97,7 @@ final class DiagnosticExportTests: XCTestCase {
         )
         XCTAssertEqual(
             (requiredEvidence["remoteorbit_log"] as? [String: Any])?["status"] as? String,
-            "available"
+            "bounded"
         )
         XCTAssertEqual(
             (requiredEvidence["voice_diagnostic_current"] as? [String: Any])?["status"] as? String,
@@ -105,6 +105,71 @@ final class DiagnosticExportTests: XCTestCase {
         )
         XCTAssertNotNil(requiredEvidence["permissions"])
         XCTAssertNotNil(requiredEvidence["archive_integrity"])
+    }
+
+    func testDiagnosticEventsWithoutSummaryDoNotClaimFrozenSummaryAvailable() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let extracted = try exportAndExtract(events: [], root: root)
+        let requiredEvidence = try requiredEvidence(at: extracted)
+        let frozen = try XCTUnwrap(requiredEvidence["frozen_trace_and_session_summaries"] as? [String: Any])
+
+        XCTAssertEqual(frozen["status"] as? String, "unavailable")
+        XCTAssertEqual(frozen["summary_count"] as? Int, 0)
+        XCTAssertEqual(frozen["summary_status"] as? String, "unavailable")
+        XCTAssertEqual(frozen["trace_count"] as? Int, 0)
+        XCTAssertEqual(frozen["trace_status"] as? String, "unavailable")
+        XCTAssertTrue((frozen["reason"] as? String)?.contains("absent") == true)
+    }
+
+    func testDiagnosticEventsWithoutTraceDoNotClaimFrozenTraceAvailable() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let extracted = try exportAndExtract(events: [makeSummaryEvent(sequence: 1)], root: root)
+        let requiredEvidence = try requiredEvidence(at: extracted)
+        let frozen = try XCTUnwrap(requiredEvidence["frozen_trace_and_session_summaries"] as? [String: Any])
+
+        XCTAssertEqual(frozen["status"] as? String, "unavailable")
+        XCTAssertEqual(frozen["summary_count"] as? Int, 1)
+        XCTAssertEqual(frozen["summary_status"] as? String, "available")
+        XCTAssertEqual(frozen["trace_count"] as? Int, 0)
+        XCTAssertEqual(frozen["trace_status"] as? String, "unavailable")
+    }
+
+    func testSummaryAndTraceEventsMakeFrozenReceiptAvailableWithCounts() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let extracted = try exportAndExtract(
+            events: [makeSummaryEvent(sequence: 1), makeTraceEvent(sequence: 2)],
+            root: root
+        )
+        let requiredEvidence = try requiredEvidence(at: extracted)
+        let frozen = try XCTUnwrap(requiredEvidence["frozen_trace_and_session_summaries"] as? [String: Any])
+
+        XCTAssertEqual(frozen["status"] as? String, "available")
+        XCTAssertEqual(frozen["summary_count"] as? Int, 1)
+        XCTAssertEqual(frozen["summary_status"] as? String, "available")
+        XCTAssertEqual(frozen["trace_count"] as? Int, 1)
+        XCTAssertEqual(frozen["trace_status"] as? String, "available")
+    }
+
+    func testSessionEventTruncationDoesNotClaimAbsentTraceEvidence() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let extracted = try exportAndExtract(
+            events: [makeSummaryEvent(sequence: 1), makeTraceEvent(sequence: 2)],
+            root: root,
+            maximumSessionEventCount: 1
+        )
+        let requiredEvidence = try requiredEvidence(at: extracted)
+        let frozen = try XCTUnwrap(requiredEvidence["frozen_trace_and_session_summaries"] as? [String: Any])
+
+        XCTAssertEqual(frozen["status"] as? String, "bounded")
+        XCTAssertEqual(frozen["summary_status"] as? String, "available")
+        XCTAssertEqual(frozen["trace_count"] as? Int, 0)
+        XCTAssertEqual(frozen["trace_status"] as? String, "bounded")
+        XCTAssertTrue(((frozen["voice.session.trace"] as? [String: Any])?["reason"] as? String ?? "").contains("may have truncated"))
+        XCTAssertEqual(frozen["session_events_truncated"] as? Bool, true)
     }
 
     func testExportIncludesBoundedReceiverEvidenceAndRotatedJournalSegments() throws {
@@ -377,6 +442,62 @@ final class DiagnosticExportTests: XCTestCase {
             "older_selected_window_evidence_dropped"
         )
         XCTAssertGreaterThan(remoteLog["selected_window_bytes"] as? Int ?? 0, 2 * 1024 * 1024)
+
+        let requiredEvidence = try requiredEvidence(at: extracted)
+        let requiredLog = try XCTUnwrap(requiredEvidence["remoteorbit_log"] as? [String: Any])
+        XCTAssertEqual(requiredLog["status"] as? String, "bounded")
+        XCTAssertGreaterThan(requiredLog["original_bytes"] as? Int ?? 0, requiredLog["exported_bytes"] as? Int ?? 0)
+        XCTAssertEqual(requiredLog["selected_window_truncated"] as? Bool, true)
+        XCTAssertEqual(
+            requiredLog["truncation_direction"] as? String,
+            "older_selected_window_evidence_dropped"
+        )
+    }
+
+    func testBoundedVoiceDiagnosticReceiptPreservesPerFileMetadata() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logs = root.appendingPathComponent("logs", isDirectory: true)
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        let data = Data(String(repeating: "{\"event\":\"diagnostic\"}\n", count: 150_000).utf8)
+        try data.write(to: logs.appendingPathComponent("voice-diagnostic-current.jsonl"))
+
+        let extracted = try exportAndExtract(events: [], root: root)
+        let requiredEvidence = try requiredEvidence(at: extracted)
+        let receipt = try XCTUnwrap(requiredEvidence["voice_diagnostic_current"] as? [String: Any])
+
+        XCTAssertEqual(receipt["status"] as? String, "bounded")
+        XCTAssertEqual(receipt["original_bytes"] as? Int, data.count)
+        XCTAssertLessThan(receipt["exported_bytes"] as? Int ?? data.count, data.count)
+        XCTAssertEqual(receipt["path"] as? String, "voice-diagnostic-current.jsonl")
+    }
+
+    func testSelectedSystemInputReceiptUsesExportTimeAuthorityValue() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var currentIdentity: String? = "uid:before-export"
+        let extracted = try exportAndExtract(
+            events: [],
+            root: root,
+            selectedSystemInputIdentity: { currentIdentity }
+        )
+        currentIdentity = "uid:after-export"
+
+        let before = try requiredEvidence(at: extracted)
+        let beforeReceipt = try XCTUnwrap(before["selected_system_input"] as? [String: Any])
+        XCTAssertEqual(beforeReceipt["identity"] as? String, "uid:before-export")
+
+        let secondRoot = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: secondRoot) }
+        let secondExtracted = try exportAndExtract(
+            events: [],
+            root: secondRoot,
+            selectedSystemInputIdentity: { currentIdentity }
+        )
+        let after = try requiredEvidence(at: secondExtracted)
+        let afterReceipt = try XCTUnwrap(after["selected_system_input"] as? [String: Any])
+        XCTAssertEqual(afterReceipt["identity"] as? String, "uid:after-export")
+        XCTAssertEqual(afterReceipt["status"] as? String, "available")
     }
 
     func testOversizedJournalAndReceiverProducePartialArchiveWithManifestStatusesAndChecksums() throws {
@@ -477,6 +598,26 @@ final class DiagnosticExportTests: XCTestCase {
         ))
     }
 
+    private func exportAndExtract(
+        events: [DiagnosticEvent],
+        root: URL,
+        maximumSessionEventCount: Int = 10_000,
+        selectedSystemInputIdentity: @escaping () -> String? = { nil }
+    ) throws -> URL {
+        let logs = root.appendingPathComponent("logs", isDirectory: true)
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        let exporter = DiagnosticExporter(
+            authority: PaginatedExportAuthority(events: events),
+            journalURL: logs.appendingPathComponent("diagnostic-events-v1.jsonl"),
+            receiverEvidenceProvider: FixedReceiverEvidenceProvider(data: Data("{\"event\":\"timing\"}\n".utf8)),
+            clock: { Date(timeIntervalSince1970: 1_700_000_011) },
+            selectedSystemInputIdentity: selectedSystemInputIdentity,
+            maximumSessionEventCount: maximumSessionEventCount
+        )
+        let archive = try exporter.export(options: DiagnosticExportOptions(outputDirectory: root))
+        return try extract(archive: archive, into: root.appendingPathComponent("extracted"))
+    }
+
     private func extract(archive: URL, into directory: URL) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let process = Process()
@@ -498,6 +639,11 @@ final class DiagnosticExportTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
+    private func requiredEvidence(at extracted: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: extracted.appendingPathComponent("evidence/required-evidence.json"))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
     private func makeSummaryEvent(sequence: Int) -> DiagnosticEvent {
         DiagnosticEvent(
             input: try! DiagnosticEventInput(
@@ -511,6 +657,46 @@ final class DiagnosticExportTests: XCTestCase {
                     "observation_schema_version": .unsignedInteger(1),
                     "anomaly_flags": .array([]),
                 ])]
+            ),
+            context: DiagnosticRuntimeContext(
+                processInstanceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                processID: 42,
+                binaryPath: "/tmp/RemoteOrbit",
+                appVersion: "1.0",
+                buildVersion: "7",
+                sourceRevision: "abc123"
+            ),
+            timestamp: DiagnosticClockStamp(
+                wallTimestampUnixMilliseconds: Int64(sequence),
+                monotonic: DiagnosticMonotonicTimestamp(
+                    valueNanoseconds: UInt64(sequence) * 1_000_000,
+                    clockDomain: "mach_continuous_time",
+                    rawTicks: UInt64(sequence) * 1_000_000,
+                    timebaseNumerator: 1,
+                    timebaseDenominator: 1
+                )
+            ),
+            sequenceNumber: UInt64(sequence)
+        )
+    }
+
+    private func makeTraceEvent(sequence: Int) -> DiagnosticEvent {
+        DiagnosticEvent(
+            input: try! DiagnosticEventInput(
+                eventType: "voice.session.trace",
+                subsystem: "voice.session",
+                category: "trace",
+                severity: .warning,
+                sourceComponent: "long_term_observability",
+                sessionID: "session-(sequence)",
+                payload: [
+                    "capture_id": .string("capture-(sequence)"),
+                    "chunk_index": .unsignedInteger(0),
+                    "chunk_count": .unsignedInteger(1),
+                    "observation_schema_version": .unsignedInteger(1),
+                    "observations": .array([]),
+                    "dropped_observations": .unsignedInteger(0),
+                ]
             ),
             context: DiagnosticRuntimeContext(
                 processInstanceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
