@@ -314,6 +314,7 @@ enum LongTermAnomalyFlag: String, Codable, CaseIterable, Hashable, Sendable {
     case activeDeficit = "active_deficit"
     case tailDeficit = "tail_deficit"
     case queueStarvation = "queue_starvation"
+    case lifecycleInconsistency = "lifecycle_inconsistency"
     case mainQueueLag = "main_queue_lag"
     case traceOverwritten = "trace_overwritten"
     case authorityWriteFailure = "authority_write_failure"
@@ -370,6 +371,7 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
     var notificationGapCount: UInt64 = 0
     var decodeGapCount: UInt64 = 0
     var queueStarvationCount: UInt64 = 0
+    var lifecycleInconsistencyCount: UInt64 = 0
     var mainQueueLag: MainQueueLagSummary = .empty
     var traceDroppedObservationCount: UInt64 = 0
     var authorityDroppedEventCount: UInt64 = 0
@@ -515,6 +517,7 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
             "notification_gap_count": .unsignedInteger(notificationGapCount),
             "decode_gap_count": .unsignedInteger(decodeGapCount),
             "queue_starvation_count": .unsignedInteger(queueStarvationCount),
+            "lifecycle_inconsistency_count": .unsignedInteger(lifecycleInconsistencyCount),
             "main_queue_sample_count": .unsignedInteger(mainQueueLag.sampleCount),
             "main_queue_max_lag_nanoseconds": .unsignedInteger(mainQueueLag.maxLagNanoseconds),
             "main_queue_p95_lag_nanoseconds": .unsignedInteger(mainQueueLag.p95LagNanoseconds),
@@ -599,6 +602,25 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
     private func optionalDouble(_ value: Double?) -> DiagnosticJSONValue {
         value.map(DiagnosticJSONValue.double) ?? .null
     }
+
+    func calculatedLifecycleInconsistencyCount() -> UInt64 {
+        let orderedPairs: [(UInt64?, UInt64?)] = [
+            (physicalDownTimestampNanoseconds, holdConfirmedTimestampNanoseconds),
+            (physicalDownTimestampNanoseconds, micOpenTimestampNanoseconds),
+            (micOpenTimestampNanoseconds, audioStartTimestampNanoseconds),
+            (audioStartTimestampNanoseconds, audioFirstTimestampNanoseconds),
+            (audioFirstTimestampNanoseconds, physicalUpTimestampNanoseconds),
+            (physicalUpTimestampNanoseconds, micCloseTimestampNanoseconds),
+            (audioStopTimestampNanoseconds, drainBeginTimestampNanoseconds),
+            (drainBeginTimestampNanoseconds, drainFinishTimestampNanoseconds),
+            (drainFinishTimestampNanoseconds, outputCompleteTimestampNanoseconds),
+        ]
+        return UInt64(orderedPairs.reduce(into: 0) { count, pair in
+            if let first = pair.0, let second = pair.1, first > second {
+                count += 1
+            }
+        })
+    }
 }
 
 struct LongTermObservabilityThresholds: Equatable, Sendable {
@@ -607,6 +629,7 @@ struct LongTermObservabilityThresholds: Equatable, Sendable {
     let maxActiveDeficitFrames: UInt64
     let maxTailDeficitFrames: UInt64
     let maxQueueStarvationCount: UInt64
+    let maxLifecycleInconsistencyCount: UInt64
     let maxMainQueueP95LagNanoseconds: UInt64
     let maxTraceDroppedObservations: UInt64
     let maxAuthorityWriteFailures: UInt64
@@ -617,6 +640,7 @@ struct LongTermObservabilityThresholds: Equatable, Sendable {
         maxActiveDeficitFrames: UInt64 = 0,
         maxTailDeficitFrames: UInt64 = 0,
         maxQueueStarvationCount: UInt64 = 0,
+        maxLifecycleInconsistencyCount: UInt64 = 0,
         maxMainQueueP95LagNanoseconds: UInt64 = 50_000_000,
         maxTraceDroppedObservations: UInt64 = 0,
         maxAuthorityWriteFailures: UInt64 = 0
@@ -626,6 +650,7 @@ struct LongTermObservabilityThresholds: Equatable, Sendable {
         self.maxActiveDeficitFrames = maxActiveDeficitFrames
         self.maxTailDeficitFrames = maxTailDeficitFrames
         self.maxQueueStarvationCount = maxQueueStarvationCount
+        self.maxLifecycleInconsistencyCount = maxLifecycleInconsistencyCount
         self.maxMainQueueP95LagNanoseconds = maxMainQueueP95LagNanoseconds
         self.maxTraceDroppedObservations = maxTraceDroppedObservations
         self.maxAuthorityWriteFailures = maxAuthorityWriteFailures
@@ -641,6 +666,9 @@ struct LongTermObservabilityThresholds: Equatable, Sendable {
         if summary.activeDeficitFrames > maxActiveDeficitFrames { flags.append(.activeDeficit) }
         if summary.tailDeficitFrames > maxTailDeficitFrames { flags.append(.tailDeficit) }
         if summary.queueStarvationCount > maxQueueStarvationCount { flags.append(.queueStarvation) }
+        if summary.lifecycleInconsistencyCount > maxLifecycleInconsistencyCount {
+            flags.append(.lifecycleInconsistency)
+        }
         if summary.mainQueueLag.p95LagNanoseconds > maxMainQueueP95LagNanoseconds {
             flags.append(.mainQueueLag)
         }
@@ -904,6 +932,8 @@ final class LongTermObservabilityService: @unchecked Sendable {
         }
         self.activeSession = nil
         activeSession.summary.runtimeIdentity = runtimeIdentity
+        activeSession.summary.lifecycleInconsistencyCount =
+            activeSession.summary.calculatedLifecycleInconsistencyCount()
         activeSession.summary.authorityDroppedEventCount = authority.droppedEventCount
         activeSession.summary.authorityWriteFailureCount = authority.writeFailureCount
         let traceSnapshot = activeSession.detachedTraceSnapshot ?? activeSession.trace.snapshot()

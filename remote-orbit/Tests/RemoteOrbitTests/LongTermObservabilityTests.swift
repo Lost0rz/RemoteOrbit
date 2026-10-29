@@ -87,6 +87,21 @@ final class LongTermObservabilityTests: XCTestCase {
         ]))
     }
 
+    func testLifecycleOrderViolationIsAnExplicitAnomalyFlag() {
+        var summary = LongTermVoiceSessionSummary(sessionID: "session-1", captureID: "capture-1")
+        summary.audioStartTimestampNanoseconds = 200
+        summary.audioFirstTimestampNanoseconds = 100
+
+        XCTAssertEqual(summary.calculatedLifecycleInconsistencyCount(), 1)
+        summary.lifecycleInconsistencyCount = summary.calculatedLifecycleInconsistencyCount()
+        let flags = LongTermObservabilityThresholds().classify(
+            summary: summary,
+            trace: FixedCapacityObservationTrace(frontCapacity: 1, recentCapacity: 1).snapshot()
+        )
+
+        XCTAssertTrue(flags.contains(.lifecycleInconsistency))
+    }
+
     func testMainQueueLagAccumulatorProvidesP95AndHistogram() {
         var accumulator = MainQueueLagAccumulator(bucketUpperBoundsNanoseconds: [10, 20, 50, 100])
         for value in [1, 9, 11, 19, 20, 70, 100] {

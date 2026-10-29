@@ -25,7 +25,9 @@ The two evidence levels are:
 
 The default journal policy is 2 MiB per JSONL segment and 5 retained segments. The
 authority remains asynchronous and best-effort; queue drops and journal write failures
-are counted separately. Querying scans one bounded segment at a time and supports
+are counted separately. Centralized anomaly flags include notification/decode gaps,
+active or tail deficits, queue starvation, lifecycle order inconsistency, main-queue
+lag, trace overwrite/drop, and authority write failure. Querying scans one bounded segment at a time and supports
 process, session, incident, correlation, event, subsystem, severity, and wall-clock
 window filters.
 
