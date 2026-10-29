@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-29
-State: AIR_VALIDATION_ACTIVE — EXPORTER_CORRECTIVE_ACTIVE — RO-OBSERVABILITY-039
+State: AIR_VALIDATION_ACTIVE — EXPORTER_CORRECTIVE_DELIVERED — WAITING_FOR_INDEPENDENT_WEB_AUDIT — RO-OBSERVABILITY-039
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -20,8 +20,10 @@ Repository: Lost0rz/RemoteOrbit
 - Air-validation preparation source/control authority before this transition: `e524b636021b4af407dffae6b1b5c2c5baab718d`.
 - Air-validation preparation semantic implementation authority: `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d`.
 - Independent Web audit: PASS, as authorized by the RO-OBSERVABILITY-039 Air-validation preparation card; this does not establish a root cause for the prior natural-use omission.
+- Exporter corrective implementation HEAD: `d366646` (`diagnostics: bound long-term export evidence`); this corrective is awaiting independent Web audit.
+- Exporter corrective independent Web audit: `PENDING`; no pass is claimed for this corrective receipt.
 - Air validation is active under the owner-controlled candidate workflow. The first real Air export reported `diagnostics: export failed: evidenceTooLarge` and produced no archive.
-- Exporter corrective source audit: the exporter currently copies approved application logs wholesale and rejects any individual copied file over 2 MiB; the requested export window therefore does not bound `RemoteOrbit.log`.
+- Pre-corrective source audit: the exporter copied approved application logs wholesale and rejected any individual copied file over 2 MiB; the requested export window therefore did not bound `RemoteOrbit.log`.
 - Remote-delivery verification before this corrective: `origin/codex/observability-039` matched `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
 - Remote-delivery verification for this corrective: `origin/codex/observability-039` matched `e703e16554e98e69ed6fb4e84ccce542c4169b20` before this receipt.
 - Remote-delivery verification for the pre-HID lifecycle corrective: `origin/codex/observability-039` matched `593a488cad186d02485ea821fb41f966a135ac77` before this delivery receipt.
@@ -45,6 +47,7 @@ Repository: Lost0rz/RemoteOrbit
 - The next independent Web audit found one remaining lifecycle boundary: HID `begin(sessionID:)` can reset a material incident created during a valid pre-HID transport capture. The completed corrective establishes one shared coordinator generation at the earliest authoritative gesture/transport capture boundary, preserves it when HID later binds the session, and resets it only for a genuinely new logical capture. It does not change product/audio behavior.
 - The independent Web audit is now recorded as PASS for the exact pushed candidate. This authorizes only Air-validation preparation: build and provenance verification of a candidate from the current branch lineage, followed by owner-run MacBook Air installation and natural-use validation. It does not authorize merge, tag, release, PR #25 mutation, or Mac mini installation.
 - The first real Air validation exposed an exporter-only failure: a roughly 4.86 MB / 29,813-line `RemoteOrbit.log` caused a three-hour export to fail with `evidenceTooLarge`. The corrective is bounded to exporter time-window semantics, source-specific bounded/unavailable manifest evidence, and archive integrity. It makes no audio or root-cause claim and does not authorize an audio/receiver corrective.
+- The exporter corrective now applies the requested timestamp window to parseable `RemoteOrbit.log` lines, uses an explicit bounded fallback for unparseable lines, preserves useful archives when one source exceeds its bound, and records source-specific status/reason/original/exported sizes while retaining allowlists, checksums, pagination, and receiver privacy boundaries.
 
 ## Product and runtime boundaries
 
@@ -76,9 +79,16 @@ Repository: Lost0rz/RemoteOrbit
 - Packaging note: the repository DMG script's pinned driver build required a current-Xcode-only `MACOSX_DEPLOYMENT_TARGET=13.0` command-line override, and its SwiftPM x86 slice required `--triple x86_64-apple-macos13.0`; neither the source nor packaging scripts were modified.
 - Tracked worktree is clean after packaging; generated build outputs remain ignored and no Mac mini runtime was installed or launched.
 
+## Exporter corrective verification
+
+- Root failure reproduced by an oversized `RemoteOrbit.log` fixture with a requested time window; the prior implementation raised `evidenceTooLarge` before creating an archive.
+- Focused exporter regressions: 9 passed, including large-log windowing, bounded journal/receiver evidence, provider oversize fallback, session-query failure status, allowlist, pagination, exact event-limit semantics, and checksum verification.
+- Full Swift regression: 470 passed, 0 failed. Release build passed. Protocol self-tests: 3/3 PASS. `git diff --check` passed before the implementation commit.
+- Product/audio freeze review: changed product source is limited to `Diagnostics/DiagnosticExport.swift`; no audio, BLE, HID, gesture, receiver behavior, driver, install, or runtime files changed.
+
 ## Current next action
 
-Air validation is active, but the first evidence export failed before producing an archive. Correct the exporter on the existing `codex/observability-039` lineage, preserve the observed Air runtime/evidence, and return to independent Web audit after remote delivery. No audio/root-cause corrective is authorized.
+Push the exact exporter corrective lineage, verify the remote branch head, and hand the branch to independent Web audit. Air validation remains owner-controlled; preserve the observed Air runtime/evidence. No audio/root-cause corrective is authorized.
 
 ## Stop conditions
 

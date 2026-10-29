@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `AIR_VALIDATION_ACTIVE / EXPORTER_CORRECTIVE_ACTIVE`
+Status: `AIR_VALIDATION_ACTIVE / EXPORTER_CORRECTIVE_DELIVERED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -29,8 +29,10 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 - Independent Web audit: `PASS` for the exact pushed candidate, as authorized by the current Air-validation preparation card.
 - The prior natural-use omission remains an observed release-blocking result; this task makes no root-cause claim.
 - Air validation is active under the owner-controlled candidate workflow. The first real Air export failed repeatedly with `diagnostics: export failed: evidenceTooLarge` and produced no archive.
-- The observed Air `RemoteOrbit.log` was approximately 4.86 MB / 29,813 lines. Source review shows approved application logs are currently copied whole-file and an individual copied file above 2 MiB fails the export.
+- The observed Air `RemoteOrbit.log` was approximately 4.86 MB / 29,813 lines. The pre-corrective source review showed approved application logs were copied whole-file and an individual copied file above 2 MiB failed the export.
 - This exporter corrective remains under `RO-OBSERVABILITY-039`; it does not authorize an audio or root-cause corrective.
+- Exporter corrective implementation: `d366646` (`diagnostics: bound long-term export evidence`). It applies parseable time windows to `RemoteOrbit.log`, uses an honest bounded fallback for unparseable lines, and preserves archives with source-specific bounded/unavailable/failed manifest receipts for sessions, journals, application logs, and receiver evidence.
+- Exporter corrective independent Web audit: `PENDING`; do not infer PASS from local tests or remote delivery.
 - PR #25 remains Draft/Open/Unmerged and must not be merged, tagged, or released.
 
 ## Authorized scope
@@ -97,6 +99,14 @@ The candidate was installed and used by the owner under the prior Air-validation
 - Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together before implementation.
 - Do not reset the shared incident coordinator merely because a HID UUID becomes available if an active pre-HID capture already owns the generation.
 - Do not add a hot-path lock or change ATVV, BLE, AudioPipe, HID, gesture, driver, Doubao, packaging, installation, release, PR, or Air runtime behavior.
+
+## Exporter corrective verification receipt
+
+- Root failure reproduced by an oversized `RemoteOrbit.log` fixture with a requested time window; the prior implementation raised `evidenceTooLarge` before creating an archive.
+- Focused exporter regressions: 9 passed, including large-log windowing, bounded journal/receiver evidence, provider oversize fallback, session-query failure status, allowlist, pagination, exact event-limit semantics, and checksum verification.
+- Full Swift regression: 470 passed, 0 failed. Release build passed. Protocol self-tests: 3/3 PASS. `git diff --check` passed before the implementation commit.
+- Product/audio freeze review: changed product source is limited to `Diagnostics/DiagnosticExport.swift`; no audio, BLE, HID, gesture, receiver behavior, driver, install, or runtime files changed.
+- Next action: verify and publish `d366646` plus the final control receipt on `codex/observability-039`, then hand off for independent Web audit. Air validation remains active and owner-controlled; preserve the observed Air runtime/evidence.
 
 ## Final verification receipt
 
