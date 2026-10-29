@@ -937,6 +937,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                     )
                 )
             }
+            if renderAccounting.activeUnderrunFrames > 0 {
+                markLongTermMaterialAnomalyLocked()
+            }
         }
         if remoteDiagnosticsActive,
            VoiceTimingLogger.continuityEvidenceEnabled {
@@ -1078,6 +1081,14 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             longTermPrimaryTrace.append(point)
         } else {
             longTermSecondaryTrace.append(point)
+        }
+    }
+
+    private func markLongTermMaterialAnomalyLocked() {
+        if longTermPrimaryTraceIsActive {
+            longTermPrimaryTrace.freezeIncidentWindow()
+        } else {
+            longTermSecondaryTrace.freezeIncidentWindow()
         }
     }
     private static func findOutputDevice() -> (id: AudioDeviceID, name: String)? {

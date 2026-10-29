@@ -26,6 +26,80 @@ final class LongTermObservabilityTests: XCTestCase {
         XCTAssertEqual(trace.snapshot().all.map(\.timestampNanoseconds), [10])
     }
 
+    func testIntentionalRecentOverwriteIsRetentionMetadataOnly() {
+        var trace = FixedCapacityObservationTrace(frontCapacity: 1, recentCapacity: 2)
+        for timestamp in UInt64(1)...4 {
+            trace.append(point(timestamp: timestamp))
+        }
+
+        let snapshot = trace.snapshot()
+        let summary = LongTermVoiceSessionSummary(sessionID: "session-1", captureID: "capture-1")
+
+        XCTAssertEqual(snapshot.overwrittenObservationCount, 1)
+        XCTAssertEqual(snapshot.droppedObservationCount, 0)
+        XCTAssertFalse(
+            LongTermObservabilityThresholds().classify(summary: summary, trace: snapshot).contains(.traceOverwritten)
+        )
+    }
+
+    func testActualObservationDropRemainsAnAnomaly() {
+        var trace = FixedCapacityObservationTrace(frontCapacity: 1, recentCapacity: 1)
+        trace.append(point(timestamp: 10))
+        trace.append(point(timestamp: 9))
+
+        let flags = LongTermObservabilityThresholds().classify(
+            summary: LongTermVoiceSessionSummary(sessionID: "session-1", captureID: "capture-1"),
+            trace: trace.snapshot()
+        )
+
+        XCTAssertTrue(flags.contains(.traceDropped))
+    }
+
+    func testIncidentFreezePreservesMiddleWindowAfterLaterRecentWrap() {
+        var trace = FixedCapacityObservationTrace(frontCapacity: 2, recentCapacity: 3)
+        for timestamp in UInt64(1)...5 {
+            trace.append(point(timestamp: timestamp))
+        }
+
+        trace.freezeIncidentWindow()
+        for timestamp in UInt64(6)...20 {
+            trace.append(point(timestamp: timestamp))
+        }
+
+        XCTAssertEqual(trace.snapshot().incident.map(\.timestampNanoseconds), [1, 2, 3, 4, 5])
+    }
+
+    func testTraceContainsCorrelatableTransportToRenderStages() {
+        var trace = FixedCapacityObservationTrace(frontCapacity: 8, recentCapacity: 8)
+        trace.append(point(timestamp: 10, kind: .bleArrival))
+        trace.append(point(timestamp: 20, kind: .decodeComplete))
+        trace.append(point(timestamp: 30, kind: .pcmSubmitted))
+        trace.append(point(timestamp: 40, kind: .render))
+
+        XCTAssertEqual(
+            trace.snapshot().all.map(\.kind),
+            [.bleArrival, .decodeComplete, .pcmSubmitted, .render]
+        )
+        XCTAssertTrue(trace.snapshot().all.map(\.timestampNanoseconds).isStrictlyIncreasing)
+    }
+
+    func testMainQueueLagRetainsBoundedIncidentTimestamps() {
+        var accumulator = MainQueueLagAccumulator(
+            bucketUpperBoundsNanoseconds: [10, 100, UInt64.max],
+            maxIncidentSampleCount: 2,
+            incidentLagThresholdNanoseconds: 50
+        )
+        accumulator.record(lagNanoseconds: 80, timestampNanoseconds: 1_000)
+        accumulator.record(lagNanoseconds: 90, timestampNanoseconds: 2_000)
+        accumulator.record(lagNanoseconds: 100, timestampNanoseconds: 3_000)
+
+        XCTAssertEqual(
+            accumulator.summary.incidentOccurrences.map(\.timestampNanoseconds),
+            [1_000, 2_000]
+        )
+        XCTAssertEqual(accumulator.summary.sampleCount, 3)
+    }
+
     func testSummaryAccountsForExpectedDeliveredAndActiveTailDeficits() {
         var summary = LongTermVoiceSessionSummary(sessionID: "session-1", captureID: "capture-1")
         summary.recordDelivery(expectedFrames: 100, deliveredFrames: 90, marker: .active)
@@ -55,17 +129,23 @@ final class LongTermObservabilityTests: XCTestCase {
             sampleCount: 1,
             maxLagNanoseconds: 101,
             p95LagNanoseconds: 101,
-            histogram: [1]
+            histogram: [1],
+            incidentOccurrences: [MainQueueLagOccurrence(timestampNanoseconds: 1, lagNanoseconds: 101)]
         )
+        summary.expectedSamples = 10
+        summary.deliveredSamples = 8
+        summary.deliveryRatio = 0.8
+        summary.deficitSamples = 2
+        summary.deficitMilliseconds = 0.125
         summary.authorityWriteFailureCount = 1
         var trace = FixedCapacityObservationTrace(frontCapacity: 1, recentCapacity: 1)
         trace.append(point(timestamp: 1))
-        trace.append(point(timestamp: 2))
-        trace.append(point(timestamp: 3))
+        trace.append(point(timestamp: 0))
 
         let thresholds = LongTermObservabilityThresholds(
             maxNotificationGapCount: 0,
             maxDecodeGapCount: 0,
+            maxDeliveryDeficitMilliseconds: 0,
             maxActiveDeficitFrames: 0,
             maxTailDeficitFrames: 0,
             maxQueueStarvationCount: 0,
@@ -75,14 +155,15 @@ final class LongTermObservabilityTests: XCTestCase {
         )
         let flags = Set(thresholds.classify(summary: summary, trace: trace.snapshot()))
 
-        XCTAssertEqual(flags, Set([
+        XCTAssertEqual(flags, Set<LongTermAnomalyFlag>([
             .notificationGap,
             .decodeGap,
             .activeDeficit,
             .tailDeficit,
             .queueStarvation,
+            .deliveryDeficit,
             .mainQueueLag,
-            .traceOverwritten,
+            .traceDropped,
             .authorityWriteFailure,
         ]))
     }
@@ -312,10 +393,13 @@ final class LongTermObservabilityTests: XCTestCase {
         }
     }
 
-    private func point(timestamp: UInt64) -> LongTermObservationPoint {
+    private func point(
+        timestamp: UInt64,
+        kind: LongTermObservationKind = .lifecycle
+    ) -> LongTermObservationPoint {
         LongTermObservationPoint(
             timestampNanoseconds: timestamp,
-            kind: .lifecycle,
+            kind: kind,
             requestedFrames: 1,
             filledFrames: 1,
             unfilledFrames: 0,
@@ -323,6 +407,12 @@ final class LongTermObservabilityTests: XCTestCase {
             byteOrSampleCount: 1,
             marker: .active
         )
+    }
+}
+
+private extension Array where Element == UInt64 {
+    var isStrictlyIncreasing: Bool {
+        zip(self, dropFirst()).allSatisfy { $0 < $1 }
     }
 }
 

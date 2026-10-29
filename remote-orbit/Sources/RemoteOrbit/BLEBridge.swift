@@ -1316,7 +1316,8 @@ extension BLEBridge: CBPeripheralDelegate {
         )
         VoiceTimingLogger.observeNotification(
             bytes: data.count,
-            gapNanoseconds: UInt64(max(0, streamNotificationTelemetry.lastNotificationGapMilliseconds * 1_000_000))
+            gapNanoseconds: UInt64(max(0, streamNotificationTelemetry.lastNotificationGapMilliseconds * 1_000_000)),
+            timestampNanoseconds: packetTimestamp
         )
         if VoiceTimingLogger.continuityEvidenceEnabled {
             VoiceTimingLogger.recordContinuityBLE(
@@ -1354,7 +1355,8 @@ extension BLEBridge: CBPeripheralDelegate {
         )
         VoiceTimingLogger.observeDecoded(
             frameCount: 1,
-            sampleCount: frame.samples.count
+            sampleCount: frame.samples.count,
+            timestampNanoseconds: decodedTimestamp
         )
         VoiceTimingLogger.observeSupply(submittedFrames: frame.samples.count)
         if VoiceTimingLogger.continuityEvidenceEnabled {

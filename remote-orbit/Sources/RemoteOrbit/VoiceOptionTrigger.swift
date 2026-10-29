@@ -507,17 +507,27 @@ enum VoiceTimingLogger {
         )
     }
 
-    static func observeNotification(bytes: Int, gapNanoseconds: UInt64?) {
+    static func observeNotification(
+        bytes: Int,
+        gapNanoseconds: UInt64?,
+        timestampNanoseconds: UInt64? = nil
+    ) {
         LongTermObservabilityService.shared.observeNotification(
             bytes: UInt64(max(0, bytes)),
-            gapNanoseconds: gapNanoseconds
+            gapNanoseconds: gapNanoseconds,
+            timestampNanoseconds: timestampNanoseconds
         )
     }
 
-    static func observeDecoded(frameCount: Int, sampleCount: Int) {
+    static func observeDecoded(
+        frameCount: Int,
+        sampleCount: Int,
+        timestampNanoseconds: UInt64? = nil
+    ) {
         LongTermObservabilityService.shared.observeDecode(
             frameCount: UInt64(max(0, frameCount)),
-            sampleCount: UInt64(max(0, sampleCount))
+            sampleCount: UInt64(max(0, sampleCount)),
+            timestampNanoseconds: timestampNanoseconds
         )
     }
 

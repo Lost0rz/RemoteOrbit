@@ -62,10 +62,33 @@ struct LongTermObservationPoint: Equatable, Sendable {
 struct FixedCapacityObservationTraceSnapshot: Equatable, Sendable {
     let front: [LongTermObservationPoint]
     let recent: [LongTermObservationPoint]
+    let incident: [LongTermObservationPoint]
     let droppedObservationCount: UInt64
     let overwrittenObservationCount: UInt64
 
     var all: [LongTermObservationPoint] { front + recent }
+
+    func merged(with other: FixedCapacityObservationTraceSnapshot) -> FixedCapacityObservationTraceSnapshot {
+        let mergedAll = (all + other.all).sorted {
+            if $0.timestampNanoseconds == $1.timestampNanoseconds {
+                return $0.kind.rawValue < $1.kind.rawValue
+            }
+            return $0.timestampNanoseconds < $1.timestampNanoseconds
+        }
+        let mergedIncident = (incident + other.incident).sorted {
+            if $0.timestampNanoseconds == $1.timestampNanoseconds {
+                return $0.kind.rawValue < $1.kind.rawValue
+            }
+            return $0.timestampNanoseconds < $1.timestampNanoseconds
+        }
+        return FixedCapacityObservationTraceSnapshot(
+            front: mergedAll,
+            recent: [],
+            incident: mergedIncident,
+            droppedObservationCount: droppedObservationCount &+ other.droppedObservationCount,
+            overwrittenObservationCount: overwrittenObservationCount &+ other.overwrittenObservationCount
+        )
+    }
 }
 
 struct LongTermAudioObservationSnapshot: Equatable, Sendable {
@@ -82,16 +105,22 @@ struct FixedCapacityObservationTrace: Sendable {
     private var recentCount = 0
     private var recentWriteIndex = 0
     private var lastTimestampNanoseconds: UInt64?
+    private var incident: [LongTermObservationPoint?]
+    private var incidentCount = 0
+    private var incidentWriteIndex = 0
+    private var incidentFrozen = false
 
     private(set) var droppedObservationCount: UInt64 = 0
     private(set) var overwrittenObservationCount: UInt64 = 0
 
-    init(frontCapacity: Int, recentCapacity: Int) {
+    init(frontCapacity: Int, recentCapacity: Int, incidentCapacity: Int = 128) {
         precondition(frontCapacity >= 0)
         precondition(recentCapacity >= 0)
+        precondition(incidentCapacity > 0)
         precondition(frontCapacity + recentCapacity > 0)
         front = Array(repeating: nil, count: frontCapacity)
         recent = Array(repeating: nil, count: recentCapacity)
+        incident = Array(repeating: nil, count: incidentCapacity)
     }
 
     mutating func reset() {
@@ -101,6 +130,10 @@ struct FixedCapacityObservationTrace: Sendable {
         recentCount = 0
         recentWriteIndex = 0
         lastTimestampNanoseconds = nil
+        for index in incident.indices { incident[index] = nil }
+        incidentCount = 0
+        incidentWriteIndex = 0
+        incidentFrozen = false
         droppedObservationCount = 0
         overwrittenObservationCount = 0
     }
@@ -112,6 +145,14 @@ struct FixedCapacityObservationTrace: Sendable {
             return
         }
         lastTimestampNanoseconds = point.timestampNanoseconds
+
+        if !incidentFrozen {
+            if incidentCount < incident.count {
+                incidentCount += 1
+            }
+            incident[incidentWriteIndex] = point
+            incidentWriteIndex = (incidentWriteIndex + 1) % incident.count
+        }
 
         if frontCount < front.count {
             front[frontCount] = point
@@ -133,6 +174,13 @@ struct FixedCapacityObservationTrace: Sendable {
         recentWriteIndex = (recentWriteIndex + 1) % recent.count
     }
 
+    /// Stops the preallocated incident ring at the first material anomaly.
+    /// This only flips a bounded in-memory bit; copying/serialization happens
+    /// later when the detached snapshot is consumed off the hot path.
+    mutating func freezeIncidentWindow() {
+        incidentFrozen = true
+    }
+
     func snapshot() -> FixedCapacityObservationTraceSnapshot {
         var frontSnapshot: [LongTermObservationPoint] = []
         frontSnapshot.reserveCapacity(frontCount)
@@ -146,6 +194,7 @@ struct FixedCapacityObservationTrace: Sendable {
             return FixedCapacityObservationTraceSnapshot(
                 front: frontSnapshot,
                 recent: recentSnapshot,
+                incident: incidentSnapshot(),
                 droppedObservationCount: droppedObservationCount,
                 overwrittenObservationCount: overwrittenObservationCount
             )
@@ -159,10 +208,28 @@ struct FixedCapacityObservationTrace: Sendable {
         return FixedCapacityObservationTraceSnapshot(
             front: frontSnapshot,
             recent: recentSnapshot,
+            incident: incidentSnapshot(),
             droppedObservationCount: droppedObservationCount,
             overwrittenObservationCount: overwrittenObservationCount
         )
     }
+
+    private func incidentSnapshot() -> [LongTermObservationPoint] {
+        var snapshot: [LongTermObservationPoint] = []
+        snapshot.reserveCapacity(incidentCount)
+        guard incidentFrozen, !incident.isEmpty else { return snapshot }
+        let start = incidentCount == incident.count ? incidentWriteIndex : 0
+        for offset in 0..<incidentCount {
+            let index = (start + offset) % incident.count
+            if let point = incident[index] { snapshot.append(point) }
+        }
+        return snapshot
+    }
+}
+
+struct MainQueueLagOccurrence: Equatable, Sendable {
+    let timestampNanoseconds: UInt64
+    let lagNanoseconds: UInt64
 }
 
 struct MainQueueLagSummary: Equatable, Sendable {
@@ -170,12 +237,28 @@ struct MainQueueLagSummary: Equatable, Sendable {
     let maxLagNanoseconds: UInt64
     let p95LagNanoseconds: UInt64
     let histogram: [UInt64]
+    let incidentOccurrences: [MainQueueLagOccurrence]
+
+    init(
+        sampleCount: UInt64,
+        maxLagNanoseconds: UInt64,
+        p95LagNanoseconds: UInt64,
+        histogram: [UInt64],
+        incidentOccurrences: [MainQueueLagOccurrence] = []
+    ) {
+        self.sampleCount = sampleCount
+        self.maxLagNanoseconds = maxLagNanoseconds
+        self.p95LagNanoseconds = p95LagNanoseconds
+        self.histogram = histogram
+        self.incidentOccurrences = incidentOccurrences
+    }
 
     static let empty = MainQueueLagSummary(
         sampleCount: 0,
         maxLagNanoseconds: 0,
         p95LagNanoseconds: 0,
-        histogram: []
+        histogram: [],
+        incidentOccurrences: []
     )
 }
 
@@ -186,6 +269,9 @@ struct MainQueueLagAccumulator: Sendable {
     private var samples: [UInt64]
     private var sampleCount = 0
     private var sampleWriteIndex = 0
+    private let maxIncidentSampleCount: Int
+    private let incidentLagThresholdNanoseconds: UInt64
+    private var incidentOccurrences: [MainQueueLagOccurrence] = []
     private(set) var totalSampleCount: UInt64 = 0
 
     init(
@@ -198,18 +284,23 @@ struct MainQueueLagAccumulator: Sendable {
             100_000_000,
             UInt64.max,
         ],
-        maxSampleCount: Int = 512
+        maxSampleCount: Int = 512,
+        maxIncidentSampleCount: Int = 32,
+        incidentLagThresholdNanoseconds: UInt64 = 25_000_000
     ) {
         precondition(!bucketUpperBoundsNanoseconds.isEmpty)
         precondition(bucketUpperBoundsNanoseconds == bucketUpperBoundsNanoseconds.sorted())
         precondition(maxSampleCount > 0)
+        precondition(maxIncidentSampleCount > 0)
         self.bucketUpperBoundsNanoseconds = bucketUpperBoundsNanoseconds
         bucketCounts = Array(repeating: 0, count: bucketUpperBoundsNanoseconds.count)
         self.maxSampleCount = maxSampleCount
+        self.maxIncidentSampleCount = maxIncidentSampleCount
+        self.incidentLagThresholdNanoseconds = incidentLagThresholdNanoseconds
         samples = Array(repeating: 0, count: maxSampleCount)
     }
 
-    mutating func record(lagNanoseconds: UInt64) {
+    mutating func record(lagNanoseconds: UInt64, timestampNanoseconds: UInt64? = nil) {
         let bucket = bucketUpperBoundsNanoseconds.firstIndex { lagNanoseconds <= $0 }!
         if sampleCount == maxSampleCount {
             let oldValue = samples[sampleWriteIndex]
@@ -223,6 +314,16 @@ struct MainQueueLagAccumulator: Sendable {
         sampleWriteIndex = (sampleWriteIndex + 1) % maxSampleCount
         bucketCounts[bucket] &+= 1
         totalSampleCount &+= 1
+        if lagNanoseconds >= incidentLagThresholdNanoseconds,
+           let timestampNanoseconds,
+           incidentOccurrences.count < maxIncidentSampleCount {
+            incidentOccurrences.append(
+                MainQueueLagOccurrence(
+                    timestampNanoseconds: timestampNanoseconds,
+                    lagNanoseconds: lagNanoseconds
+                )
+            )
+        }
     }
 
     var summary: MainQueueLagSummary {
@@ -231,7 +332,8 @@ struct MainQueueLagAccumulator: Sendable {
                 sampleCount: totalSampleCount,
                 maxLagNanoseconds: 0,
                 p95LagNanoseconds: 0,
-                histogram: bucketCounts
+                histogram: bucketCounts,
+                incidentOccurrences: incidentOccurrences
             )
         }
         var values = Array(samples.prefix(sampleCount))
@@ -241,7 +343,8 @@ struct MainQueueLagAccumulator: Sendable {
             sampleCount: totalSampleCount,
             maxLagNanoseconds: values.last ?? 0,
             p95LagNanoseconds: values[rank],
-            histogram: bucketCounts
+            histogram: bucketCounts,
+            incidentOccurrences: incidentOccurrences
         )
     }
 }
@@ -277,7 +380,10 @@ final class MainQueueResponsivenessProbe: @unchecked Sendable {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 let now = DispatchTime.now().uptimeNanoseconds
-                self.record(lagNanoseconds: now >= scheduled ? now - scheduled : 0)
+                self.record(
+                    lagNanoseconds: now >= scheduled ? now - scheduled : 0,
+                    timestampNanoseconds: scheduled
+                )
             }
         }
         self.timer = timer
@@ -288,6 +394,15 @@ final class MainQueueResponsivenessProbe: @unchecked Sendable {
     func record(lagNanoseconds: UInt64) {
         lock.lock()
         accumulator.record(lagNanoseconds: lagNanoseconds)
+        lock.unlock()
+    }
+
+    func record(lagNanoseconds: UInt64, timestampNanoseconds: UInt64) {
+        lock.lock()
+        accumulator.record(
+            lagNanoseconds: lagNanoseconds,
+            timestampNanoseconds: timestampNanoseconds
+        )
         lock.unlock()
     }
 
@@ -316,6 +431,8 @@ enum LongTermAnomalyFlag: String, Codable, CaseIterable, Hashable, Sendable {
     case queueStarvation = "queue_starvation"
     case lifecycleInconsistency = "lifecycle_inconsistency"
     case mainQueueLag = "main_queue_lag"
+    case deliveryDeficit = "delivery_deficit"
+    case traceDropped = "trace_dropped"
     case traceOverwritten = "trace_overwritten"
     case authorityWriteFailure = "authority_write_failure"
 }
@@ -376,6 +493,7 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
     var traceDroppedObservationCount: UInt64 = 0
     var authorityDroppedEventCount: UInt64 = 0
     var authorityWriteFailureCount: UInt64 = 0
+    var traceOverwrittenObservationCount: UInt64 = 0
     var anomalyFlags: [LongTermAnomalyFlag] = []
     var tracePersisted = false
     var receiverEvidenceStatus = "unavailable"
@@ -521,7 +639,14 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
             "main_queue_sample_count": .unsignedInteger(mainQueueLag.sampleCount),
             "main_queue_max_lag_nanoseconds": .unsignedInteger(mainQueueLag.maxLagNanoseconds),
             "main_queue_p95_lag_nanoseconds": .unsignedInteger(mainQueueLag.p95LagNanoseconds),
+            "main_queue_incident_occurrences": .array(mainQueueLag.incidentOccurrences.map {
+                .object([
+                    "timestamp_nanoseconds": .unsignedInteger($0.timestampNanoseconds),
+                    "lag_nanoseconds": .unsignedInteger($0.lagNanoseconds),
+                ])
+            }),
             "trace_dropped_observations": .unsignedInteger(traceDroppedObservationCount),
+            "trace_overwritten_observations": .unsignedInteger(traceOverwrittenObservationCount),
             "authority_dropped_events": .unsignedInteger(authorityDroppedEventCount),
             "authority_write_failures": .unsignedInteger(authorityWriteFailureCount),
             "anomaly_flags": .array(anomalyFlags.map { .string($0.rawValue) }),
@@ -625,7 +750,10 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
 
 struct LongTermObservabilityThresholds: Equatable, Sendable {
     let maxNotificationGapCount: UInt64
+    let maxNotificationGapOver100Count: UInt64
     let maxDecodeGapCount: UInt64
+    let maxDeliveryDeficitSamples: UInt64
+    let maxDeliveryDeficitMilliseconds: Double
     let maxActiveDeficitFrames: UInt64
     let maxTailDeficitFrames: UInt64
     let maxQueueStarvationCount: UInt64
@@ -635,8 +763,11 @@ struct LongTermObservabilityThresholds: Equatable, Sendable {
     let maxAuthorityWriteFailures: UInt64
 
     init(
-        maxNotificationGapCount: UInt64 = 0,
+        maxNotificationGapCount: UInt64 = .max,
+        maxNotificationGapOver100Count: UInt64 = 0,
         maxDecodeGapCount: UInt64 = 0,
+        maxDeliveryDeficitSamples: UInt64 = 0,
+        maxDeliveryDeficitMilliseconds: Double = 50,
         maxActiveDeficitFrames: UInt64 = 0,
         maxTailDeficitFrames: UInt64 = 0,
         maxQueueStarvationCount: UInt64 = 0,
@@ -646,7 +777,10 @@ struct LongTermObservabilityThresholds: Equatable, Sendable {
         maxAuthorityWriteFailures: UInt64 = 0
     ) {
         self.maxNotificationGapCount = maxNotificationGapCount
+        self.maxNotificationGapOver100Count = maxNotificationGapOver100Count
         self.maxDecodeGapCount = maxDecodeGapCount
+        self.maxDeliveryDeficitSamples = maxDeliveryDeficitSamples
+        self.maxDeliveryDeficitMilliseconds = maxDeliveryDeficitMilliseconds
         self.maxActiveDeficitFrames = maxActiveDeficitFrames
         self.maxTailDeficitFrames = maxTailDeficitFrames
         self.maxQueueStarvationCount = maxQueueStarvationCount
@@ -662,7 +796,14 @@ struct LongTermObservabilityThresholds: Equatable, Sendable {
     ) -> [LongTermAnomalyFlag] {
         var flags: [LongTermAnomalyFlag] = []
         if summary.notificationGapCount > maxNotificationGapCount { flags.append(.notificationGap) }
+        if summary.notificationGapOver100Milliseconds > maxNotificationGapOver100Count {
+            flags.append(.notificationGap)
+        }
         if summary.decodeGapCount > maxDecodeGapCount { flags.append(.decodeGap) }
+        if (summary.deficitSamples ?? 0) > maxDeliveryDeficitSamples,
+           (summary.deficitMilliseconds ?? 0) > maxDeliveryDeficitMilliseconds {
+            flags.append(.deliveryDeficit)
+        }
         if summary.activeDeficitFrames > maxActiveDeficitFrames { flags.append(.activeDeficit) }
         if summary.tailDeficitFrames > maxTailDeficitFrames { flags.append(.tailDeficit) }
         if summary.queueStarvationCount > maxQueueStarvationCount { flags.append(.queueStarvation) }
@@ -672,9 +813,8 @@ struct LongTermObservabilityThresholds: Equatable, Sendable {
         if summary.mainQueueLag.p95LagNanoseconds > maxMainQueueP95LagNanoseconds {
             flags.append(.mainQueueLag)
         }
-        if trace.droppedObservationCount > maxTraceDroppedObservations
-            || trace.overwrittenObservationCount > maxTraceDroppedObservations {
-            flags.append(.traceOverwritten)
+        if trace.droppedObservationCount > maxTraceDroppedObservations {
+            flags.append(.traceDropped)
         }
         if summary.authorityWriteFailureCount > maxAuthorityWriteFailures {
             flags.append(.authorityWriteFailure)
@@ -792,9 +932,30 @@ final class LongTermObservabilityService: @unchecked Sendable {
         lock.unlock()
     }
 
-    func observeNotification(bytes: UInt64, gapNanoseconds: UInt64?) {
+    func observeNotification(
+        bytes: UInt64,
+        gapNanoseconds: UInt64?,
+        timestampNanoseconds: UInt64? = nil
+    ) {
         lock.lock()
         activeSession?.summary.recordNotification(bytes: bytes, gapNanoseconds: gapNanoseconds)
+        if let timestampNanoseconds {
+            activeSession?.trace.append(
+                LongTermObservationPoint(
+                    timestampNanoseconds: timestampNanoseconds,
+                    kind: .bleArrival,
+                    requestedFrames: 0,
+                    filledFrames: 0,
+                    unfilledFrames: 0,
+                    queueDepthFrames: 0,
+                    byteOrSampleCount: bytes,
+                    marker: .unclassified
+                )
+            )
+        }
+        if gapNanoseconds ?? 0 > 100_000_000 {
+            activeSession?.trace.freezeIncidentWindow()
+        }
         lock.unlock()
     }
 
@@ -853,9 +1014,39 @@ final class LongTermObservabilityService: @unchecked Sendable {
         lock.unlock()
     }
 
-    func observeDecode(frameCount: UInt64, sampleCount: UInt64) {
+    func observeDecode(
+        frameCount: UInt64,
+        sampleCount: UInt64,
+        timestampNanoseconds: UInt64? = nil
+    ) {
         lock.lock()
         activeSession?.summary.recordDecode(frameCount: frameCount, sampleCount: sampleCount)
+        if let timestampNanoseconds {
+            activeSession?.trace.append(
+                LongTermObservationPoint(
+                    timestampNanoseconds: timestampNanoseconds,
+                    kind: .decodeComplete,
+                    requestedFrames: 0,
+                    filledFrames: 0,
+                    unfilledFrames: 0,
+                    queueDepthFrames: 0,
+                    byteOrSampleCount: sampleCount,
+                    marker: .unclassified
+                )
+            )
+        }
+        lock.unlock()
+    }
+
+    func observeTracePoint(_ point: LongTermObservationPoint) {
+        lock.lock()
+        activeSession?.trace.append(point)
+        lock.unlock()
+    }
+
+    func markMaterialAnomaly() {
+        lock.lock()
+        activeSession?.trace.freezeIncidentWindow()
         lock.unlock()
     }
 
@@ -936,9 +1127,14 @@ final class LongTermObservabilityService: @unchecked Sendable {
             activeSession.summary.calculatedLifecycleInconsistencyCount()
         activeSession.summary.authorityDroppedEventCount = authority.droppedEventCount
         activeSession.summary.authorityWriteFailureCount = authority.writeFailureCount
-        let traceSnapshot = activeSession.detachedTraceSnapshot ?? activeSession.trace.snapshot()
+        let serviceTraceSnapshot = activeSession.trace.snapshot()
+        let traceSnapshot = activeSession.detachedTraceSnapshot.map {
+            serviceTraceSnapshot.merged(with: $0)
+        } ?? serviceTraceSnapshot
         activeSession.summary.traceDroppedObservationCount =
-            traceSnapshot.droppedObservationCount + traceSnapshot.overwrittenObservationCount
+            traceSnapshot.droppedObservationCount
+        activeSession.summary.traceOverwrittenObservationCount =
+            traceSnapshot.overwrittenObservationCount
         activeSession.summary.anomalyFlags = thresholds.classify(
             summary: activeSession.summary,
             trace: traceSnapshot
@@ -961,7 +1157,9 @@ final class LongTermObservabilityService: @unchecked Sendable {
         authority.emit(input)
         guard !summary.anomalyFlags.isEmpty else { return summary }
 
-        let observations = traceSnapshot.all
+        let observations = traceSnapshot.incident.isEmpty
+            ? traceSnapshot.all
+            : traceSnapshot.incident
         let chunkSize = 128
         let chunkCount = max(1, (observations.count + chunkSize - 1) / chunkSize)
         for chunkIndex in 0..<chunkCount {
