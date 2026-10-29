@@ -41,11 +41,31 @@ private enum EvidenceStatus: String {
     case failed
 }
 
+private enum BoundedLineRetention: Equatable {
+    case beginning
+    case end
+}
+
 private struct BoundedEvidenceResult {
     let status: EvidenceStatus
     let originalBytes: Int
     let exportedBytes: Int
     let reason: String?
+    let metadata: [String: Any]
+
+    init(
+        status: EvidenceStatus,
+        originalBytes: Int,
+        exportedBytes: Int,
+        reason: String?,
+        metadata: [String: Any] = [:]
+    ) {
+        self.status = status
+        self.originalBytes = originalBytes
+        self.exportedBytes = exportedBytes
+        self.reason = reason
+        self.metadata = metadata
+    }
 }
 
 private struct LogTimestampParser {
@@ -638,11 +658,16 @@ final class DiagnosticExporter: @unchecked Sendable {
             )
         }
 
-        let bounded = boundedLineData(selected, maximumBytes: Self.maximumEvidenceBytes)
+        let wasTruncated = selected.count > Self.maximumEvidenceBytes
+        let bounded = boundedLineData(
+            selected,
+            maximumBytes: Self.maximumEvidenceBytes,
+            retention: .end
+        )
         try write(data: bounded, to: destination)
         let reason: String
-        if bounded.count < selected.count {
-            reason = "time_window_applied_and_output_bounded"
+        if wasTruncated {
+            reason = "time_window_applied_and_older_selected_window_evidence_dropped"
         } else if unparseableLineCount > 0 {
             reason = "time_window_applied_unparseable_lines_excluded"
         } else {
@@ -652,18 +677,51 @@ final class DiagnosticExporter: @unchecked Sendable {
             status: .bounded,
             originalBytes: data.count,
             exportedBytes: bounded.count,
-            reason: reason
+            reason: reason,
+            metadata: [
+                "selected_window_bytes": selected.count,
+                "selected_window_truncated": wasTruncated,
+                "truncation_direction": wasTruncated
+                    ? "older_selected_window_evidence_dropped"
+                    : "none",
+            ]
         )
     }
 
-    private func boundedLineData(_ data: Data, maximumBytes: Int) -> Data {
+    private func boundedLineData(
+        _ data: Data,
+        maximumBytes: Int,
+        retention: BoundedLineRetention = .beginning
+    ) -> Data {
         guard data.count > maximumBytes else { return data }
-        var bounded = Data()
-        for line in data.split(omittingEmptySubsequences: false, whereSeparator: { $0 == 0x0A }) {
-            let requiredBytes = line.count + 1
-            guard requiredBytes <= maximumBytes,
-                  bounded.count + requiredBytes <= maximumBytes else { break }
-            bounded.append(contentsOf: line)
+
+        var lines = data.split(omittingEmptySubsequences: false, whereSeparator: { $0 == 0x0A })
+        if lines.last?.isEmpty == true {
+            lines.removeLast()
+        }
+        var selectedLines: [Data] = []
+        var selectedBytes = 0
+        let candidates: AnySequence<Data.SubSequence>
+        switch retention {
+        case .beginning:
+            candidates = AnySequence(lines)
+        case .end:
+            candidates = AnySequence(lines.reversed())
+        }
+        for line in candidates {
+            let lineData = Data(line)
+            let requiredBytes = lineData.count + 1
+            guard requiredBytes <= maximumBytes else { continue }
+            guard selectedBytes + requiredBytes <= maximumBytes else { break }
+            selectedLines.append(lineData)
+            selectedBytes += requiredBytes
+        }
+        if retention == .end {
+            selectedLines.reverse()
+        }
+        var bounded = Data(capacity: selectedBytes)
+        for line in selectedLines {
+            bounded.append(line)
             bounded.append(0x0A)
         }
         return bounded
@@ -692,6 +750,9 @@ final class DiagnosticExporter: @unchecked Sendable {
             exportedBytes: result.exportedBytes,
             reason: result.reason
         )
+        for (key, value) in result.metadata {
+            object[key] = value
+        }
         object["path"] = path
         return object
     }

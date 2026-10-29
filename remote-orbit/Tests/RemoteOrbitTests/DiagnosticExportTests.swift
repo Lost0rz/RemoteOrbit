@@ -302,6 +302,67 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue((logsSource["reason"] as? String)?.hasPrefix("time_window_applied") == true)
     }
 
+    func testOversizedTimeWindowRetainsNewestCompleteLinesAndReportsOlderDrop() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logs = root.appendingPathComponent("logs", isDirectory: true)
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+
+        let before = "2026-10-29T09:59:59.000Z before-window\n"
+        let early = "2026-10-29T10:00:00.000Z EARLY_IN_WINDOW\n"
+        let body = String(
+            repeating: "2026-10-29T10:30:00.000Z multi-hour-window-payload\n",
+            count: 65_000
+        )
+        let late = "2026-10-29T12:59:59.000Z LATE_IN_WINDOW\n"
+        let after = "2026-10-29T13:00:01.000Z after-window\n"
+        try Data((before + early + body + late + after).utf8)
+            .write(to: logs.appendingPathComponent("RemoteOrbit.log"))
+
+        let exporter = DiagnosticExporter(
+            authority: ExportRecordingAuthority(),
+            journalURL: logs.appendingPathComponent("diagnostic-events-v1.jsonl"),
+            receiverEvidenceProvider: FixedReceiverEvidenceProvider(data: Data()),
+            clock: { Date(timeIntervalSince1970: 1_700_000_010) }
+        )
+        let archive = try exporter.export(options: DiagnosticExportOptions(
+            outputDirectory: root,
+            hostRole: "TEST_HOST",
+            startWallTimestampUnixMilliseconds: 1_793_268_000_000,
+            endWallTimestampUnixMilliseconds: 1_793_278_800_000
+        ))
+        let extracted = try extract(archive: archive, into: root.appendingPathComponent("extracted"))
+        let exportedLog = try Data(contentsOf: extracted.appendingPathComponent("logs/RemoteOrbit.log"))
+        let exportedText = try XCTUnwrap(String(data: exportedLog, encoding: .utf8))
+        let manifest = try manifest(at: extracted)
+        let sources = try XCTUnwrap(manifest["evidence_sources"] as? [String: Any])
+        let logsSource = try XCTUnwrap(sources["application_logs"] as? [String: Any])
+        let files = try XCTUnwrap(logsSource["files"] as? [[String: Any]])
+        let remoteLog = try XCTUnwrap(files.first(where: { $0["path"] as? String == "RemoteOrbit.log" }))
+
+        XCTAssertLessThanOrEqual(exportedLog.count, 2 * 1024 * 1024)
+        XCTAssertFalse(exportedText.contains("before-window"))
+        XCTAssertFalse(exportedText.contains("after-window"))
+        XCTAssertFalse(exportedText.contains("EARLY_IN_WINDOW"))
+        XCTAssertTrue(exportedText.contains("LATE_IN_WINDOW"))
+        let timestamps = exportedText
+            .split(separator: "\n")
+            .compactMap { $0.split(separator: " ").first }
+        XCTAssertEqual(timestamps, timestamps.sorted())
+        XCTAssertEqual(logsSource["status"] as? String, "bounded")
+        XCTAssertEqual(
+            logsSource["reason"] as? String,
+            "time_window_applied_and_older_selected_window_evidence_dropped"
+        )
+        XCTAssertEqual(remoteLog["status"] as? String, "bounded")
+        XCTAssertEqual(remoteLog["selected_window_truncated"] as? Bool, true)
+        XCTAssertEqual(
+            remoteLog["truncation_direction"] as? String,
+            "older_selected_window_evidence_dropped"
+        )
+        XCTAssertGreaterThan(remoteLog["selected_window_bytes"] as? Int ?? 0, 2 * 1024 * 1024)
+    }
+
     func testOversizedJournalAndReceiverProducePartialArchiveWithManifestStatusesAndChecksums() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
