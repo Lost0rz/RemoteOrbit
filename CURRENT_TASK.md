@@ -1,148 +1,166 @@
 # RemoteOrbit Current Task
 
-## RO-RELEASE-V0.2.15 — Stability + Diagnostics Baseline Release
+## RO-MAPPING-CONFIG-SIMPLIFY-040 — Import/Export-Only Mapping Configuration
 
-Status: `AUTHORIZED / RELEASE PREPARATION`
+Status: `AUTHORIZED / READY_FOR_IMPLEMENTATION`
 
 Repository: `Lost0rz/RemoteOrbit`
 
 Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`
 
+Active branch: `codex/mapping-config-simplify-040`
+
+DESIGN_MODE: `DESIGN_IMPLEMENT`
+
 ## Objective
 
-Publish RemoteOrbit `v0.2.15` / build `44` as the next stable diagnostic baseline after the merged 038-A / 038-B work, so the owner can run the released build for a longer observation period and later analyze fresh logs.
+Remove the overbuilt local mapping-backup/history workflow and replace it with a minimal manual configuration-transfer workflow: export the current mapping configuration to JSON, or import a JSON configuration.
 
-This task is a release task, not a new audio corrective task.
+This task is simplification/retirement work. It must reduce product and code surface rather than hide the old backup system behind a smaller UI.
 
-## Release baseline
+## Verified current behavior
 
-- Transition parent: `30134cc9a8a705409b28440b5f2215091f6a5e81`.
-- Previous public release: `v0.2.14`, build `43`.
-- Release target: `v0.2.15`, build `44`, Universal 2.
-- PR #24 / 038-B is merged at `b4dbd60d6c27c756bcf735eff050bd29a8324617`.
-- 038-B durable closeout: `docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`.
-- 038-B root-cause verdict remains `NARROWED_NOT_ESTABLISHED`.
-- No safe new product corrective is authorized before this release.
+Current code contains all of the following:
 
-## Authorized release branch
+1. `SettingsView` renders an “按键配置备份” card with:
+   - automatic-backup explanatory copy;
+   - `导出当前配置…`;
+   - `导入配置…`;
+   - `打开备份文件夹`;
+   - recent backup history;
+   - per-backup `恢复` actions;
+   - restore confirmation state.
+2. `MappingStore` contains:
+   - `MappingBackup`;
+   - `mappingBackups()`;
+   - `latestValidBackup()`;
+   - `restoreMappingBackup()`;
+   - `backupInvalidConfiguration()`;
+   - `backupMappingData()`;
+   - backup-before-import/restore;
+   - backup-before-ordinary-save;
+   - backup creation during migration;
+   - automatic historical-backup recovery during load.
+3. `AppStorage` owns and eagerly creates `Backups/Mappings`.
 
-Create one release branch from the authoritative release-transition head:
+The owner does not want this automatic/history backup workflow.
 
-`codex/release-v0.2.15`
+## Authorized product design
 
-The branch is the only writer for release metadata/packaging changes until merge or explicit abandonment.
+### UI
 
-## Authorized changes
+Replace the current backup/history card with a single compact configuration-transfer card.
 
-Only the following release-preparation changes are authorized unless a verification failure proves a smaller necessary packaging correction:
+Preferred structure:
 
-1. `remote-orbit/Packaging/Info.plist`
-   - `CFBundleShortVersionString = 0.2.15`
-   - `CFBundleVersion = 44`
-2. add `RELEASE_NOTES_v0.2.15.md`;
-3. update control records as required by release lifecycle/provenance;
-4. packaging-only corrections required to reproduce the established app/DMG release contract, but only if a concrete release failure is reproduced and the correction is narrowly justified.
+- title: `配置导入与导出`;
+- short explanation: mappings are stored locally; export manually when a copy is needed; import replaces the current mapping configuration;
+- primary actions:
+  - `导出当前配置…`
+  - `导入配置…`
+- one concise inline success/error message area when needed.
 
-Do not modify product audio, BLE, HID, shortcut, Option, queue, buffer, timing, codec, or voice semantics for this release.
+Import may show one lightweight confirmation after selecting a valid JSON file:
 
-## Release notes contract
+- explain that import replaces current mappings/templates/active selections;
+- explicitly state that RemoteOrbit will not create an automatic backup;
+- suggest exporting first if the user wants a copy.
 
-The v0.2.15 notes must state clearly:
+Do not add version browsers, history lists, restore timelines, undo stacks, cloud sync, auto-backup toggles, retention settings, or other replacement complexity.
 
-- this is a stability/diagnostics baseline, not a claim that the audio-continuity root cause is fixed;
-- rapid re-press reliability work is included;
-- shortcut recorder exclusive-capture/restoration hardening is included;
-- the new opt-in BLE/decode/PCM/AudioPipe continuity evidence path is included;
-- decoder rejection and overflow were downgraded by the 038-B evidence set;
-- BLE cadence is supported as a recurring contributor, not an exclusive cause;
-- PCM aggregate supply causality was downgraded;
-- active-stream underrun remains a fact;
-- final text omission remains unverified;
-- continuity evidence remains opt-in rather than default-on.
+### Backend retirement
 
-## Diagnostic observation after release
+Retire the historical backup subsystem rather than merely hiding it:
 
-The owner intends to run v0.2.15 for a longer period and later analyze fresh logs.
+- remove `MappingBackup` and restore/history APIs when no longer referenced;
+- remove backup-before-save;
+- remove backup-before-import/restore;
+- remove automatic backup creation during migration;
+- remove invalid-config snapshot generation;
+- remove automatic recovery from historical backup files;
+- remove mapping-backup directory creation from app preparation when no longer needed;
+- remove backup-specific error cases/messages and unused date/timestamp helpers.
 
-For that observation period, preserve the audited opt-in boundary:
+Existing backup files already on disk must not be automatically deleted by this task.
 
-`REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`
+### Persistence contract to preserve
 
-Do not silently make the continuity ledger always-on in normal app launch.
+Keep:
 
-A post-release observation run should preserve release identity in its evidence receipt:
+- canonical file-backed mapping configuration;
+- atomic file writes;
+- existing JSON configuration schema and backward-compatible decode behavior;
+- manual export;
+- manual import;
+- current mapping/template/gesture/active-template semantics;
+- the existing UserDefaults compatibility mirror unless concrete evidence proves it must change.
 
-- app path;
-- bundle ID;
-- version/build;
-- executable SHA-256;
-- tag/release commit;
-- diagnostic environment enabled;
-- observation window.
-
-## Local macOS release execution
-
-The local release executor must:
-
-1. fetch/reconcile `main` and this release branch;
-2. prove no conflicting active writer for the same release metadata;
-3. run applicable tests/self-tests;
-4. build the required audio driver if the established DMG flow expects it;
-5. run `remote-orbit/package-app.sh`;
-6. verify packaged `RemoteOrbit.app`:
-   - bundle `com.lost0rz.RemoteOrbit`;
-   - version/build `0.2.15 (44)`;
-   - arm64 + x86_64;
-   - designated requirement `identifier "com.lost0rz.RemoteOrbit"`;
-   - embedded `RemoteOrbitDiagnosticSourceHead` equals the exact release candidate commit;
-7. run `package-dmg.sh`;
-8. verify DMG includes the intended app/driver/install surfaces and is named `RemoteOrbit-0.2.15.dmg`;
-9. report SHA-256 of the final DMG;
-10. open/merge the release PR only after the release gate passes;
-11. tag the exact merged release commit as `v0.2.15`;
-12. publish GitHub Release `RemoteOrbit v0.2.15` with the DMG and `RELEASE_NOTES_v0.2.15.md`;
-13. re-fetch release/tag/asset metadata and prove provenance.
-
-## Required verification
-
-At minimum report:
-
-- release branch start/final/remote heads;
-- changed paths;
-- focused/full test results that actually ran;
-- release build result;
-- app bundle identity/version/architecture/codesign;
-- DMG path/name/SHA-256;
-- PR state and merge commit;
-- tag target;
-- GitHub Release URL/id;
-- uploaded asset name/size/digest;
-- whether hosted CI existed (`NO_HOSTED_CI` if absent);
-- worktree status and local release-worktree lifecycle state.
-
-## Stop conditions
-
-STOP rather than silently expanding scope if:
-
-- `main` or the release branch drifts unexpectedly;
-- product source changes appear necessary;
-- packaging requires a material redesign;
-- version/build identity is inconsistent;
-- app/DMG provenance cannot be established;
-- tests/build/package fail for an unresolved reason;
-- tag/release would point to a commit different from the verified release candidate;
-- unique/unpushed local work is discovered.
+A corrupt canonical file may fall through to the existing compatibility/default path, but must not create or scan historical backup snapshots.
 
 ## Non-goals
 
-- No attempt to solve the remaining audio root cause.
-- No new continuity probe granularity.
-- No 038-C/D/E/F execution.
-- No TCC/permission reset.
-- No driver semantic change.
-- No speculative performance tuning.
-- No always-on diagnostic mode change.
+Do not modify:
 
-## Completion
+- button action semantics;
+- app-template routing or built-in template contents;
+- global pinning semantics;
+- advanced gesture semantics;
+- voice trigger configuration semantics;
+- persistent/momentary voice behavior;
+- BLE/audio/HID/driver code;
+- RO-OBSERVABILITY-039 instrumentation or Air runtime;
+- PR #25/release metadata.
 
-This task is complete only when the verified v0.2.15 DMG is published against the exact tagged release commit and the control plane records the release identity and remaining diagnostic uncertainty.
+Do not delete existing user backup folders/files automatically.
+
+## Implementation expectations
+
+Prefer deleting obsolete code and state over introducing compatibility wrappers for the retired history UI.
+
+Expected affected production files are limited to the smallest necessary set, likely:
+
+- `remote-orbit/Sources/RemoteOrbit/KeyMapping/SettingsView.swift`
+- `remote-orbit/Sources/RemoteOrbit/KeyMapping/MappingStore.swift`
+- `remote-orbit/Sources/RemoteOrbit/AppStorage.swift`
+
+Tests may be added/updated as required.
+
+## Verification
+
+At minimum prove:
+
+1. export still produces a valid JSON configuration;
+2. importing that JSON restores/replaces the complete mapping configuration correctly;
+3. import no longer requires or creates an automatic pre-import backup;
+4. ordinary mapping edits/saves no longer create per-change history snapshots;
+5. app launch no longer creates the mapping backup directory solely for this retired feature;
+6. no remaining UI references to recent backups, restore, or backup-folder navigation;
+7. no remaining production references to `MappingBackup`, `mappingBackups()`, `restoreMappingBackup`, `backupMappingData`, or backup-before-save filenames;
+8. relevant mapping/settings focused tests pass;
+9. full `swift test` passes;
+10. release build and `git diff --check` pass.
+
+For the UI, automated/build evidence is implementation evidence only. Final product-interface acceptance remains owner-controlled.
+
+## Delivery
+
+Push only `codex/mapping-config-simplify-040`.
+
+After implementation and verification:
+
+- do not merge;
+- do not tag or release;
+- do not modify PR #25;
+- do not modify/install the owner's Air validation runtime;
+- stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`;
+- report exact changed files, removed backup/history surfaces, verification results, and human UI acceptance as `PENDING`.
+
+## Stop conditions
+
+Stop rather than broaden scope if:
+
+- the task would require changing mapping runtime semantics;
+- import/export schema compatibility cannot be preserved without a material redesign;
+- old backup files must be destructively removed to make the feature work;
+- implementation would require touching audio/BLE/HID/observability product paths;
+- branch/control identity drifts unexpectedly or unique local work is discovered.

@@ -1,76 +1,56 @@
 # CURRENT_STATUS
 
-Last updated: 2026-10-28
-State: RELEASE V0.2.15 PREPARATION
+Last updated: 2026-10-29
+State: RO-MAPPING-CONFIG-SIMPLIFY-040 — AUTHORIZED / READY_FOR_IMPLEMENTATION
 Repository: Lost0rz/RemoteOrbit
 
-## Repository authority
+## Current authority
 
-- Canonical development repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
-- Canonical branch: `main`.
-- Verified origin: `https://github.com/Lost0rz/RemoteOrbit.git`.
-- Release-transition parent: `30134cc9a8a705409b28440b5f2215091f6a5e81`.
-- PR #24 (`038-B Audio Continuity Evidence`) is merged at `b4dbd60d6c27c756bcf735eff050bd29a8324617`.
-- Durable 038-B closeout: `docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`.
-- Task 038-B product/evidence work is terminal. Its local `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence` workspace still has a local-host cleanup obligation; remote evidence does not prove that local worktree is physically closed.
-- The retained 038-B workspace is frozen/read-only by authority and may not resume product writes without a new transition, so it does not authorize or overlap this release task.
-- `038-C/D/E/F` remain deferred.
+- Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`.
+- Task baseline: `origin/main` at `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9`.
+- Active implementation branch: `codex/mapping-config-simplify-040`.
+- `AGENTS.md` remains the durable repository rule authority; `CURRENT_TASK.md` is the single active implementation authorization for this branch.
+- `RO-OBSERVABILITY-039` continues separately as owner-run Air natural-use observation on `codex/observability-039`; that branch is frozen for product writes while evidence is collected.
+- PR #25 / `codex/release-v0.2.15` remains Draft/Open/Unmerged and is not part of this task.
 
-## Release decision
+## Verified simplification finding
 
-The owner explicitly authorized a new release after the 038-B evidence phase because there is no currently justified product corrective to apply safely.
+The current local mapping-configuration surface is materially overbuilt for the owner's actual workflow:
 
-Release target:
+- Settings UI exposes an automatic-backup card, recent backup history, restore actions, and an “open backup folder” action in addition to manual export/import.
+- `MappingStore` creates history snapshots before ordinary configuration saves, before import/restore, during migration, and for invalid configuration payloads; it also scans prior backup history for automatic recovery.
+- `AppStorage.prepare()` creates the mapping-backup directory on every launch.
 
-- marketing version: `0.2.15`
-- build: `44`
-- architecture: Universal 2
-- release class: stability + diagnostics baseline
-- predecessor release: `v0.2.14` / build `43`
+The owner explicitly wants the mapping-configuration workflow reduced to manual export/import only. Automatic backup/history management is no longer a product requirement.
 
-The release does **not** claim that the audio-continuity root cause is fixed. Final 038-B root-cause status remains `NARROWED_NOT_ESTABLISHED`.
+## Target product state
 
-## Delta since v0.2.14
+- Replace the backup/history UI with one lightweight “配置导入与导出” surface.
+- Keep only manual `导出当前配置…` and `导入配置…` actions plus concise success/error feedback.
+- Import may use a small confirmation explaining that it replaces the current mapping configuration and does not create an automatic backup.
+- Remove recent-backup history, restore-from-backup actions, backup-folder navigation, backup date formatting, and restore-specific UI state.
+- Retire automatic mapping snapshot generation and automatic recovery from historical backup files.
+- Preserve the canonical file-backed configuration, atomic writes, JSON import/export contract, schema compatibility, and existing UserDefaults compatibility mirror unless a concrete incompatibility requires a narrower corrective.
+- Do not automatically delete old backup files already present on user machines; they become inert historical residue.
 
-Repository comparison `v0.2.14...main` shows the release line is 73 commits ahead and includes the following accepted work:
+## Product boundaries
 
-- rapid re-press admission / runtime reliability 038-A;
-- shortcut recorder exclusive capture and restoration hardening;
-- opt-in audio-continuity correlation across BLE -> decode -> PCM submission -> AudioPipe render/underrun;
-- observer-effect corrections that remove shared diagnostic lock/dictionary work from the real-time render/submission path;
-- stable AUDIO_START-before-HID capture/session correlation;
-- runtime evidence and durable diagnostic conclusions.
+This task must not change:
 
-This release preparation itself must not add speculative audio/BLE correction.
+- actual button mapping semantics;
+- app-template routing or Active-template behavior;
+- advanced gesture semantics;
+- voice trigger / persistent voice behavior;
+- BLE, audio, HID, diagnostics, driver, or Air-validation behavior.
 
-## Diagnostic observation boundary
+## Acceptance state
 
-The 038-B continuity ledger is intentionally opt-in. Normal app launch does not enable it automatically.
+- Design mode: `DESIGN_IMPLEMENT`.
+- Implementation: pending local executor.
+- Automated verification: pending.
+- Independent Web audit: pending after remote delivery.
+- Human UI acceptance: pending owner review.
 
-For the owner's post-release observation run, the installed v0.2.15 app should be launched in the existing diagnostic mode with:
+## Next
 
-`REMOTE_ORBIT_CONTINUITY_EVIDENCE=1`
-
-Do not change the product default to always-on continuity capture solely for this release. This preserves the audited default-off production path while allowing a bounded owner-operated observation period.
-
-## Release verification requirements
-
-Before publication, the local macOS release executor must prove the exact release candidate identity and run proportional release checks:
-
-1. reconcile/fetch `main` and create/use the authorized release branch;
-2. bump `remote-orbit/Packaging/Info.plist` to `0.2.15 (44)`;
-3. add `RELEASE_NOTES_v0.2.15.md` with the accepted scope and known unresolved audio-continuity limitation;
-4. run the applicable Swift tests/self-tests;
-5. build the audio driver used by the DMG if required by the established packaging flow;
-6. run `remote-orbit/package-app.sh` and verify app identity/version/architectures/codesign;
-7. run `package-dmg.sh` and verify the DMG contents/version;
-8. merge the release PR only after release evidence passes;
-9. create tag `v0.2.15` at the exact merged release commit;
-10. publish GitHub Release `RemoteOrbit v0.2.15` with `RemoteOrbit-0.2.15.dmg` and the release notes;
-11. verify the published asset digest and release/tag/commit provenance.
-
-No hosted CI status is assumed; if none exists, report `NO_HOSTED_CI` rather than PASS.
-
-## Current next action
-
-Prepare the v0.2.15 release branch/metadata, then hand the exact branch to the local macOS release executor for build/package/release verification. Do not publish a release artifact that has not been built and inspected on macOS.
+Local executor implements the bounded simplification on `codex/mapping-config-simplify-040`, verifies import/export and mapping regressions, pushes the exact branch, and stops at `WAITING_FOR_INDEPENDENT_WEB_AUDIT` without merge/release.
