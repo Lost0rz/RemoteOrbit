@@ -214,7 +214,7 @@ After implementation and verification:
 - Corrective verification: focused mapping/recording 21/21, full `swift test` 431/431, release build PASS, and `git diff --check` PASS.
 - Corrective PR: `#26` Draft/Open/Unmerged — `https://github.com/Lost0rz/RemoteOrbit/pull/26`.
 - Structured-evidence follow-up commit: `21255f3`.
-- Final control reconciliation is the paired update to `CURRENT_STATUS.md` and `CURRENT_TASK.md`; its exact published SHA and resulting remote head are recorded in the completion receipt.
+- Final control reconciliation is the paired update to `CURRENT_STATUS.md` and `CURRENT_TASK.md`; it is published and its exact final SHA and resulting remote head are recorded in the completion receipt.
 - Pre-follow-up control/remote head: `d0c11d7b74d70f3ba5e4fbb9b70f1d451644df66`.
 - do not merge;
 - do not tag or release;

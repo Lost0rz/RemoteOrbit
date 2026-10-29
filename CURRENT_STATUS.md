@@ -66,7 +66,7 @@ This task must not change:
 - `RO-OBSERVABILITY-039` changed: NO.
 - PR #25 changed: NO.
 - Old backup files deleted: NO.
-- Remote delivery: final paired control update is ready for publication; exact final local/control/remote heads are verified after push in the completion receipt.
+- Remote delivery: `PUSHED_VERIFIED`; local and `origin/codex/mapping-config-simplify-040` point to the published final control snapshot. Exact final local/control/remote heads are reported in the completion receipt.
 - Corrective PR: `#26` Draft/Open/Unmerged — `https://github.com/Lost0rz/RemoteOrbit/pull/26`.
 - Independent Web audit: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; no independent Web PASS is claimed.
 - AI-rendered inspection: not part of this corrective; existing accepted Settings / Control Center UI is frozen.
