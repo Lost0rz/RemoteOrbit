@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-29
-State: AIR_VALIDATION_PREP — READY_FOR_AIR_VALIDATION — RO-OBSERVABILITY-039
+State: READY_FOR_AIR_VALIDATION — AIR_VALIDATION_PREP COMPLETE — RO-OBSERVABILITY-039
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -57,9 +57,25 @@ Repository: Lost0rz/RemoteOrbit
 - Source review confirms the second corrective adds no AudioPipe render/BLE callback disk I/O, formatting, authority call, or new contended diagnostic lock; BLE/audio callbacks do not synchronously write the journal; normal sessions emit summary-only and anomaly traces are emitted off-path.
 - Focused evidence covers first-writer-wins cross-producer incident identity/anchor, production-path material BLE gap and AudioPipe starvation coordination, transport-to-render retention after both recent rings wrap, strict main-queue >50 ms threshold alignment, actual trace drop, exact export-limit truncation, existing journal/export/receiver/late-lifecycle behavior, and product-freeze preservation.
 
+## MacBook Air candidate receipt
+
+- Independent Web audit: `PASS`; no root-cause claim is made for the prior natural-use omission.
+- Candidate build source/control HEAD: `9200a9f8e21715038a07d64bb6a607f550b4f765`.
+- Candidate semantic implementation HEAD: `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d`.
+- Candidate artifact: `/private/tmp/remoteorbit-air-validation-20261029/RemoteOrbit-0.2.14-AIR-VALIDATION.dmg`.
+- Artifact SHA-256: `63ccb29361260437a9d77444c9ce07c1568603399b859eb67d5a2aae1e112825`.
+- App executable SHA-256: `80caecc29f57aef52c2afd37182ed28b093ce807d9f0fb1e379df8a282128aed`.
+- App version/build: `0.2.14 (43)`.
+- App and embedded driver architectures: `x86_64 arm64` (Universal 2).
+- Embedded `RemoteOrbitDiagnosticSourceHead`: `9200a9f8e21715038a07d64bb6a607f550b4f765`.
+- App and driver code identity: ad-hoc signatures verified; App designated requirement is `identifier "com.lost0rz.RemoteOrbit"`; no Team ID, Developer ID, or notarization is claimed.
+- DMG verification: read-only mount/content check passed; top-level App, `/Applications` link, and Documentation were present; embedded App signature and source revision read back successfully.
+- Packaging note: the repository DMG script's pinned driver build required a current-Xcode-only `MACOSX_DEPLOYMENT_TARGET=13.0` command-line override, and its SwiftPM x86 slice required `--triple x86_64-apple-macos13.0`; neither the source nor packaging scripts were modified.
+- Tracked worktree is clean after packaging; generated build outputs remain ignored and no Mac mini runtime was installed or launched.
+
 ## Current next action
 
-The verified pre-HID lifecycle corrective is pushed on `codex/observability-039`; the independent Web audit is PASS. Build the exact candidate from the reconciled branch lineage, record artifact provenance, and hand off exact owner-run MacBook Air installation/natural-use instructions. Air installation and natural-use acceptance remain owner-controlled and are not performed by this task.
+The exact candidate is built and provenance-verified from the reconciled `codex/observability-039` lineage. Hand off the artifact hash and exact owner-run MacBook Air Finder/Login Item installation/natural-use instructions. Air installation and natural-use acceptance remain owner-controlled and are not performed by this task.
 
 ## Stop conditions
 

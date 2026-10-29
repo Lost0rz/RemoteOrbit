@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `AIR_VALIDATION_PREP / READY_FOR_AIR_VALIDATION`
+Status: `READY_FOR_AIR_VALIDATION`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -61,6 +61,23 @@ The second independent Web audit was blocked by bounded cross-layer incident-win
 - Record source/control HEAD, semantic implementation HEAD, app version/build, architecture, code identity, executable/artifact SHA-256, and embedded source revision when supported.
 - Verify Swift tests, release build, protocol self-tests, packaging, artifact contents, signatures, checksums, `git diff --check`, and clean worktree.
 - Provide owner-run Finder/Login Item installation and natural-use instructions for the MacBook Air. Do not install or launch the Air candidate from the Mac mini. Do not upload evidence automatically.
+
+## Air-validation candidate receipt
+
+- Independent Web audit: `PASS`; no root-cause claim is made for the prior natural-use omission.
+- Candidate build source/control HEAD: `9200a9f8e21715038a07d64bb6a607f550b4f765`.
+- Candidate semantic implementation HEAD: `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d`.
+- Candidate artifact: `/private/tmp/remoteorbit-air-validation-20261029/RemoteOrbit-0.2.14-AIR-VALIDATION.dmg`.
+- Artifact SHA-256: `63ccb29361260437a9d77444c9ce07c1568603399b859eb67d5a2aae1e112825`.
+- App executable SHA-256: `80caecc29f57aef52c2afd37182ed28b093ce807d9f0fb1e379df8a282128aed`.
+- App version/build: `0.2.14 (43)`; App and embedded driver architectures: `x86_64 arm64`.
+- Embedded `RemoteOrbitDiagnosticSourceHead`: `9200a9f8e21715038a07d64bb6a607f550b4f765`.
+- App and driver ad-hoc signatures verified; App designated requirement is `identifier "com.lost0rz.RemoteOrbit"`; no Developer ID/notarization claim.
+- Read-only DMG mount/content check passed with the top-level App, `/Applications` link, Documentation, embedded signature, and source revision present.
+- Packaging used only ephemeral current-toolchain overrides for the pinned driver deployment target and SwiftPM x86 triple; no source, tests, or packaging scripts changed.
+- `swift test`: 466 passed, 0 failed. `swift build -c release`: passed for the native build and the manual x86 `--triple` build. Protocol self-tests: 3/3 PASS. `git diff --check`: passed. Worktree: clean.
+
+The candidate is now `READY_FOR_OWNER_AIR_INSTALL`. The owner must verify the artifact SHA-256 on the MacBook Air before Finder installation, run it through the normal Finder/Login Item path without a continuity environment variable, use natural RemoteOrbit behavior without artificial jitter or A/B changes, and manually export the bounded evidence if needed. No automatic upload is performed.
 
 ## Corrective gate
 
