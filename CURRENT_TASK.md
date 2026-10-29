@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTIC-HARDENING-041 — One-shot Incident Evidence Closure
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `AUTHORIZED / AUDIT_CORRECTIVE_IMPLEMENTATION`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -254,5 +254,17 @@ explicitly unavailable; human/Air runtime validation and the independent Web
 audit remain outside this executor's evidence.
 
 No merge, tag, public release, Air install, driver install, TCC change, or automatic runtime mutation is authorized.
+
+## Audit corrective authorization
+
+The independent Web audit of exact remote head
+`2d699f107b8ebb55b117243f0ac5d5fe1b2dfbc1` found bounded evidence-accuracy
+blockers. The current one-shot corrective is authorized to address all of them
+together: separate `AUDIO_START` and `AUDIO_FIRST` watchdog completion, accurate
+runtime-health lifecycle facts and unknown mapping state, truth-only output
+boundary timestamps plus post-selection input identity, queue-depth and frozen
+incident episode semantics, explicit producer sequence attribution, and tests
+joining existing raw-HID transitions to edges and attempts. No product, driver,
+Air-runtime, import/export, PR #25, or 039 behavior changes are authorized.
 
 After independent audit passes, a separate packaging/install gate may create one unified observation candidate. The intended end state is that no further always-on probe expansion occurs unless a fresh natural incident demonstrates a concrete missing evidence boundary.

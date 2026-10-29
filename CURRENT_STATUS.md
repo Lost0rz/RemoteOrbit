@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: RO-DIAGNOSTIC-HARDENING-041 — WAITING_FOR_INDEPENDENT_WEB_AUDIT
+State: RO-DIAGNOSTIC-HARDENING-041 — AUTHORIZED / AUDIT_CORRECTIVE_IMPLEMENTATION
 Repository: Lost0rz/RemoteOrbit
 
 ## Current authority
@@ -14,6 +14,7 @@ Repository: Lost0rz/RemoteOrbit
 - Post-040 integration HEAD: `069694c925f36a7f16cab6ae6595ca02c3483e8d`.
 - Final implementation HEAD before this paired control update: `1b65135f303fd79d3641766a15462fdc8dcc97c3` (`feat: harden diagnostic evidence boundaries`).
 - The paired control update in this transition is the final control commit; its exact SHA and remote match are verified in the delivery receipt.
+- Independent Web audit blocker receipt: exact remote head `2d699f107b8ebb55b117243f0ac5d5fe1b2dfbc1`; corrective scope is limited to the six evidence-accuracy blockers in the audit.
 - `AGENTS.md` remains the durable repository rule authority and is unchanged by this transition.
 - `CURRENT_TASK.md` is the only authorization for 041 implementation.
 - Local writer worktree: `/private/tmp/remoteorbit-diagnostic-hardening-041`.
@@ -61,4 +62,4 @@ The target is evidence closure, not a production behavior fix. After this packag
 
 ## Current next action
 
-Stop for the independent Web audit. Do not merge, tag, release, package/install an Air candidate, mutate runtime state, or add further probes from this branch until a separately authorized next transition.
+Implement the bounded audit corrective package, rerun every recorded evidence gate, then return to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge, tag, release, package/install an Air candidate, or mutate runtime state.
