@@ -4,6 +4,69 @@ import XCTest
 final class MappingStoreRoutingTests: XCTestCase {
     private let ownBundleIdentifier = "com.lost0rz.RemoteOrbit"
 
+    func testManualConfigurationRoundTripPreservesMappingsWithoutExtraFiles() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("RemoteOrbitMappingStoreTests-\(UUID().uuidString)", isDirectory: true)
+        let configurationURL = directory.appendingPathComponent("mapping-v3.json")
+        let exportURL = directory.appendingPathComponent("exported.json")
+        let suiteName = "RemoteOrbitMappingStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? fileManager.removeItem(at: directory)
+        }
+
+        let store = MappingStore(
+            configurationFileURL: configurationURL,
+            userDefaults: defaults
+        )
+        store.setBinding(.preset(.copy), for: .ok)
+        store.setGestureProfile(
+            ButtonGestureProfile(
+                isEnabled: true,
+                doubleTap: .preset(.paste),
+                longPress: .preset(.deleteBackward),
+                longPressBehavior: .repeatWhileHeld
+            ),
+            for: .ok
+        )
+        store.setGlobalPinning(false, for: .home, slot: .single)
+        store.scrollLinesPerStep = 12
+        let templateID = store.addTemplate(
+            appBundleIdentifier: "com.example.MappingStoreTests",
+            appName: "Mapping Store Tests",
+            templateName: "Imported"
+        )
+        store.setBinding(.preset(.paste), for: .home, templateID: templateID)
+
+        try store.exportCurrentConfiguration(to: exportURL)
+        let exportedData = try Data(contentsOf: exportURL)
+        XCTAssertNotNil(try JSONSerialization.jsonObject(with: exportedData))
+
+        store.setBinding(.preset(.deleteBackward), for: .ok)
+        store.scrollLinesPerStep = 2
+        try store.importConfiguration(from: exportURL)
+
+        XCTAssertEqual(store.binding(for: .ok), .preset(.copy))
+        XCTAssertEqual(store.gestureProfile(for: .ok).doubleTap, .preset(.paste))
+        XCTAssertFalse(store.isGloballyPinned(.home, slot: .single))
+        XCTAssertEqual(store.scrollLinesPerStep, 12)
+        XCTAssertEqual(store.template(withID: templateID)?.bindings[.home], .preset(.paste))
+        XCTAssertEqual(
+            store.activeTemplate(for: "com.example.MappingStoreTests")?.id,
+            templateID
+        )
+
+        let storedFiles = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ).map(\.lastPathComponent).sorted()
+        XCTAssertEqual(storedFiles, ["exported.json", "mapping-v3.json"])
+    }
+
     func testExternalFocusWinsOverFrontmostBridge() {
         let resolved = MappingStore.resolvedApplicationBundleIdentifier(
             focused: "com.openai.codex",

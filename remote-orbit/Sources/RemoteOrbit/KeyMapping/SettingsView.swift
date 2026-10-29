@@ -72,8 +72,6 @@ struct SettingsView: View {
     @State private var installationMessage: String?
     @State private var installationRefreshID = UUID()
     @State private var configurationMessage: String?
-    @State private var backupToRestore: MappingBackup?
-    @State private var showRestoreBackupConfirm = false
 
     init(
         store: MappingStore,
@@ -280,23 +278,6 @@ struct SettingsView: View {
             }
         } message: {
             Text("删除后该 App 将使用通用映射，其他模板不受影响。")
-        }
-        .alert("确认恢复按键配置", isPresented: $showRestoreBackupConfirm) {
-            Button("取消", role: .cancel) {
-                backupToRestore = nil
-            }
-            Button("恢复", role: .destructive) {
-                guard let backup = backupToRestore else { return }
-                do {
-                    try store.restoreMappingBackup(backup)
-                    configurationMessage = "已恢复：\(backup.fileName)"
-                } catch {
-                    configurationMessage = "恢复失败：\(error.localizedDescription)"
-                }
-                backupToRestore = nil
-            }
-        } message: {
-            Text("恢复前会自动备份当前配置，恢复后按键模板和 Active 选择都会切换到这份备份。")
         }
     }
 
@@ -1869,10 +1850,9 @@ struct SettingsView: View {
     }
 
     private var mappingConfigurationCard: some View {
-        let backups = store.mappingBackups()
-        return workspaceCard(title: "按键配置备份", symbolName: "externaldrive.badge.timemachine") {
+        workspaceCard(title: "配置导入与导出", symbolName: "arrow.up.arrow.down") {
             VStack(alignment: .leading, spacing: 12) {
-                Text("配置保存在本机。每次替换配置前会自动保留上一份，损坏配置也会单独备份。")
+                Text("配置保存在本机。需要复制按键映射时请手动导出；导入会替换当前映射、模板和 Active 选择，不会创建自动备份。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -1887,11 +1867,6 @@ struct SettingsView: View {
                         .buttonStyle(.bordered)
                     Button("导入配置…", action: importMappingConfiguration)
                         .buttonStyle(.bordered)
-                    Button("打开备份文件夹") {
-                        AppStorage.ensureDirectory(AppStorage.mappingBackupsDirectory)
-                        NSWorkspace.shared.open(AppStorage.mappingBackupsDirectory)
-                    }
-                    .buttonStyle(.borderless)
                 }
 
                 if let configurationMessage {
@@ -1902,46 +1877,9 @@ struct SettingsView: View {
                         )
                 }
 
-                Divider()
-
-                if backups.isEmpty {
-                    Text("目前还没有自动备份。修改或导入配置后会在这里显示。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("最近备份")
-                        .font(.caption.weight(.medium))
-                    ForEach(Array(backups.prefix(5))) { backup in
-                        HStack(spacing: 8) {
-                            Image(systemName: "doc.circle")
-                                .foregroundStyle(.secondary)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(backup.fileName)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                Text(Self.configurationBackupDateFormatter.string(from: backup.modifiedAt))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button("恢复") {
-                                backupToRestore = backup
-                                showRestoreBackupConfirm = true
-                            }
-                            .buttonStyle(.borderless)
-                        }
-                    }
-                }
             }
         }
     }
-
-    private static let configurationBackupDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter
-    }()
 
     private func exportMappingConfiguration() {
         let panel = NSSavePanel()
