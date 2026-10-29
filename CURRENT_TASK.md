@@ -2,7 +2,7 @@
 
 ## RO-MAPPING-CONFIG-SIMPLIFY-040 — Import/Export-Only Mapping Configuration
 
-Status: `AUTHORIZED / READY_FOR_IMPLEMENTATION`
+Status: `IMPLEMENTED / LOCAL_VERIFICATION_COMPLETE — REMOTE DELIVERY PENDING`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -18,7 +18,7 @@ Remove the overbuilt local mapping-backup/history workflow and replace it with a
 
 This task is simplification/retirement work. It must reduce product and code surface rather than hide the old backup system behind a smaller UI.
 
-## Verified current behavior
+## Historical pre-implementation baseline
 
 Current code contains all of the following:
 
@@ -43,7 +43,15 @@ Current code contains all of the following:
    - automatic historical-backup recovery during load.
 3. `AppStorage` owns and eagerly creates `Backups/Mappings`.
 
-The owner does not want this automatic/history backup workflow.
+The owner does not want this automatic/history backup workflow. The baseline above is historical; the delivered state is recorded below.
+
+## Delivered implementation
+
+- `SettingsView` now presents only the compact `配置导入与导出` surface with manual `导出当前配置…`, `导入配置…`, and concise success/error feedback.
+- `MappingStore` no longer creates, scans, restores, or reports automatic mapping backups; canonical atomic JSON persistence, backward-compatible decoding, manual import/export, and the UserDefaults compatibility mirror remain intact.
+- `AppStorage.prepare()` no longer creates the retired `Backups/Mappings` directory.
+- Existing backup files were not deleted.
+- No BLE/audio/HID/diagnostic/driver/observability code or PR #25 was changed.
 
 ## Authorized product design
 
@@ -148,6 +156,9 @@ Push only `codex/mapping-config-simplify-040`.
 
 After implementation and verification:
 
+- Local verification is complete: focused mapping 11/11, focused keymap presentation 10/10, full `swift test` 422/422, release build PASS, and `git diff --check` PASS.
+- Retired mapping backup/history residue check is PASS; no retired production/test identifiers remain.
+- Remote delivery is still pending this control transition.
 - do not merge;
 - do not tag or release;
 - do not modify PR #25;

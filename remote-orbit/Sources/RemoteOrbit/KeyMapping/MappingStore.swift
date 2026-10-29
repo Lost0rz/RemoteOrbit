@@ -40,14 +40,6 @@ struct AppMappingTemplate: Codable, Equatable, Identifiable {
     }
 }
 
-struct MappingBackup: Identifiable, Equatable {
-    let url: URL
-    let modifiedAt: Date
-
-    var id: String { url.path }
-    var fileName: String { url.lastPathComponent }
-}
-
 /// The application-routing decision captured for one physical button press.
 /// Diagnostic fields explain a global fallback without resolving focus again
 /// during the same press.
@@ -57,17 +49,6 @@ struct ApplicationRouteSnapshot: Equatable {
     let focusedBundleIdentifier: String?
     let frontmostBundleIdentifier: String?
     let cachedBundleIdentifier: String?
-}
-
-enum MappingStoreError: LocalizedError {
-    case backupFailed
-
-    var errorDescription: String? {
-        switch self {
-        case .backupFailed:
-            return "无法创建当前配置备份，已取消本次导入或恢复。"
-        }
-    }
 }
 
 private struct PersistedMappingConfiguration: Codable {
@@ -181,8 +162,15 @@ final class MappingStore: ObservableObject {
     /// Prevent didSet observers from persisting a fallback while load() is
     /// still deciding whether the existing configuration is recoverable.
     private var isLoading = false
+    private let configurationFileURL: URL
+    private let userDefaults: UserDefaults
 
-    init() {
+    init(
+        configurationFileURL: URL = AppStorage.mappingConfigurationFile,
+        userDefaults: UserDefaults = .standard
+    ) {
+        self.configurationFileURL = configurationFileURL
+        self.userDefaults = userDefaults
         load()
     }
 
@@ -769,44 +757,7 @@ final class MappingStore: ObservableObject {
         save()
     }
 
-    // MARK: - 配置备份与迁移
-
-    func mappingBackups() -> [MappingBackup] {
-        AppStorage.ensureDirectory(AppStorage.mappingBackupsDirectory)
-        guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: AppStorage.mappingBackupsDirectory,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
-
-        return urls.compactMap { url in
-            guard url.pathExtension.lowercased() == "json",
-                  (url.lastPathComponent.hasPrefix("mapping-v3-")
-                   || url.lastPathComponent == "mapping-v3.previous.json") else {
-                return nil
-            }
-            let modifiedAt = (try? url.resourceValues(
-                forKeys: [.contentModificationDateKey]
-            ).contentModificationDate) ?? .distantPast
-            return MappingBackup(url: url, modifiedAt: modifiedAt)
-        }
-        .sorted { $0.modifiedAt > $1.modifiedAt }
-    }
-
-    private func latestValidBackup() -> (
-        configuration: PersistedMappingConfiguration,
-        url: URL
-    )? {
-        for backup in mappingBackups() {
-            guard let data = try? Data(contentsOf: backup.url),
-                  let configuration = decodeConfiguration(
-                      data,
-                      source: "backup \(backup.fileName)"
-                  ) else { continue }
-            return (configuration, backup.url)
-        }
-        return nil
-    }
+    // MARK: - 配置导入与导出
 
     func exportCurrentConfiguration(to url: URL) throws {
         let data = try encodedCurrentConfiguration()
@@ -818,16 +769,6 @@ final class MappingStore: ObservableObject {
         let data = try Data(contentsOf: url)
         let decoded = try JSONDecoder().decode(PersistedMappingConfiguration.self, from: data)
         try replaceConfiguration(with: decoded, source: url.lastPathComponent)
-    }
-
-    func restoreMappingBackup(_ backup: MappingBackup) throws {
-        let knownBackup = mappingBackups().contains {
-            $0.url.standardizedFileURL == backup.url.standardizedFileURL
-        }
-        guard knownBackup else {
-            throw CocoaError(.fileNoSuchFile)
-        }
-        try importConfiguration(from: backup.url)
     }
 
     // MARK: - 持久化
@@ -842,31 +783,25 @@ final class MappingStore: ObservableObject {
         // compatibility source for installations created before the file-backed
         // store existed. Replacing the app bundle therefore cannot reset the
         // active configuration.
-        if let data = try? Data(contentsOf: AppStorage.mappingConfigurationFile) {
+        if let data = try? Data(contentsOf: configurationFileURL) {
             if let decoded = decodeConfiguration(data, source: "file") {
                 finishLoad(decoded, source: "file-backed configuration")
                 return
             }
-            backupInvalidConfiguration(data, source: "file")
-            configurationWarning = "配置文件无法读取，已保留损坏文件备份；正在尝试旧版配置或最近备份。"
+            configurationWarning = "配置文件无法读取，正在尝试兼容配置或恢复默认配置。"
         }
 
-        if let data = UserDefaults.standard.data(forKey: Self.storageKey) {
+        if let data = userDefaults.data(forKey: Self.storageKey) {
             if let decoded = decodeConfiguration(data, source: "UserDefaults") {
-                _ = backupMappingData(
-                    data,
-                    fileName: "mapping-v3-before-file-migration-\(timestamp())-\(UUID().uuidString).json"
-                )
                 print("[MappingStore] migrating v3 UserDefaults payload to file-backed configuration")
                 finishLoad(decoded, source: "migrated UserDefaults configuration")
                 return
             }
-            backupInvalidConfiguration(data, source: "UserDefaults")
-            configurationWarning = "旧版配置也无法读取，正在尝试最近的配置备份。"
+            configurationWarning = "旧版配置也无法读取，正在恢复默认配置。"
         }
 
         // 兼容之前只保存全局映射的 v2 数据。
-        if let data = UserDefaults.standard.data(forKey: Self.legacyStorageKey),
+        if let data = userDefaults.data(forKey: Self.legacyStorageKey),
            let decoded = try? JSONDecoder().decode(
                [RemoteButton: ButtonBinding].self,
                from: data
@@ -883,12 +818,6 @@ final class MappingStore: ObservableObject {
                 globalGestureProfiles: nil
             )
             finishLoad(migrated, source: "migrated v2 configuration")
-            return
-        }
-
-        if let backup = latestValidBackup() {
-            configurationWarning = "主配置不可用，已从最近的配置备份恢复。"
-            finishLoad(backup.configuration, source: "backup \(backup.url.lastPathComponent)")
             return
         }
 
@@ -977,14 +906,6 @@ final class MappingStore: ObservableObject {
         with decoded: PersistedMappingConfiguration,
         source: String
     ) throws {
-        let current = try encodedCurrentConfiguration()
-        guard backupMappingData(
-            current,
-            fileName: "mapping-v3-before-restore-\(timestamp())-\(UUID().uuidString).json"
-        ) else {
-            throw MappingStoreError.backupFailed
-        }
-
         isLoading = true
         apply(decoded)
         hasLoaded = true
@@ -1370,23 +1291,13 @@ final class MappingStore: ObservableObject {
         guard hasLoaded, !isLoading else { return }
         do {
             let data = try encodedCurrentConfiguration()
-            let canonicalURL = AppStorage.mappingConfigurationFile
-            if let previous = try? Data(contentsOf: canonicalURL),
-                   previous != data,
-               !backupMappingData(
-                   previous,
-                   fileName: "mapping-v3-before-save-\(timestamp())-\(UUID().uuidString).json"
-               ) {
-                print("[MappingStore] refusing to replace configuration without a backup")
-                return
-            }
-
-            AppStorage.ensureDirectory(AppStorage.configurationDirectory)
+            let canonicalURL = configurationFileURL
+            AppStorage.ensureDirectory(canonicalURL.deletingLastPathComponent())
             try data.write(to: canonicalURL, options: .atomic)
             // Keep a compatibility mirror so an older signed build can still
             // start with the latest user configuration. The file above remains
             // the source of truth for current builds.
-            UserDefaults.standard.set(data, forKey: Self.storageKey)
+            userDefaults.set(data, forKey: Self.storageKey)
             print("[MappingStore] saved canonical configuration: \(canonicalURL.path)")
         } catch {
             print("[MappingStore] save failed: \(error)")
@@ -1422,35 +1333,4 @@ final class MappingStore: ObservableObject {
         Set(RemoteButton.allCases.filter { isGloballyPinned($0) })
     }
 
-    private func timestamp() -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [
-            .withInternetDateTime,
-            .withDashSeparatorInDate,
-            .withColonSeparatorInTime,
-        ]
-        return formatter.string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
-    }
-
-    private func backupInvalidConfiguration(_ data: Data, source: String) {
-        _ = backupMappingData(
-            data,
-            fileName: "mapping-v3-invalid-\(source)-\(timestamp())-\(UUID().uuidString).json"
-        )
-    }
-
-    @discardableResult
-    private func backupMappingData(_ data: Data, fileName: String) -> Bool {
-        let url = AppStorage.mappingBackupsDirectory.appendingPathComponent(fileName)
-        do {
-            AppStorage.ensureDirectory(AppStorage.mappingBackupsDirectory)
-            try data.write(to: url, options: .atomic)
-            print("[MappingStore] configuration backup: \(url.path)")
-            return true
-        } catch {
-            print("[MappingStore] configuration backup failed: \(error)")
-            return false
-        }
-    }
 }

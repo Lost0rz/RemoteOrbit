@@ -26,17 +26,6 @@ enum AppStorage {
             )
     }()
 
-    /// Mapping snapshots are kept outside UserDefaults so a failed decode or
-    /// an accidental reset cannot make the only copy of a user's templates
-    /// unrecoverable.
-    static let mappingBackupsDirectory: URL = {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(
-                "Library/Application Support/RemoteOrbit/Backups/Mappings",
-                isDirectory: true
-            )
-    }()
-
     /// Canonical user-owned configuration storage. Keep this outside the app
     /// bundle so replacing `/Applications/RemoteOrbit.app` cannot replace or
     /// reset the user's mappings.
@@ -60,7 +49,6 @@ enum AppStorage {
         migrateVoiceTriggerKeys(from: UserDefaults.standard)
         ensureDirectory(logsDirectory)
         ensureDirectory(recordingsDirectory)
-        ensureDirectory(mappingBackupsDirectory)
         ensureDirectory(configurationDirectory)
 
         // The app uses ~/Library/Logs as its single persistent log location.
