@@ -19,6 +19,7 @@ Repository: Lost0rz/RemoteOrbit
 - Pre-HID lifecycle corrective implementation HEAD: `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d` (`diagnostics: preserve pre-HID incident generation`).
 - Remote-delivery verification before this corrective: `origin/codex/observability-039` matched `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
 - Remote-delivery verification for this corrective: `origin/codex/observability-039` matched `e703e16554e98e69ed6fb4e84ccce542c4169b20` before this receipt.
+- Remote-delivery verification for the pre-HID lifecycle corrective: `origin/codex/observability-039` matched `593a488cad186d02485ea821fb41f966a135ac77` before this delivery receipt.
 - PR #25 (`Release RemoteOrbit v0.2.15`) is Draft/Open/Unmerged; public release is blocked and no merge, tag, or release is authorized by this task.
 - The former release-control branch `codex/release-v0.2.15` remains at `f049e6eb7f0e5625b807fba1860d04c048b638ca` in `/private/tmp/remoteorbit-release-v0.2.15-local-soak`; it is retained for provenance and is not an active writer for this task.
 - The owner's MacBook Air natural-use observation reported substantial final-text omission. This records the release decision as `RELEASE_BLOCKED / SOAK_FAILED`; it does not claim a technical root cause.
@@ -53,7 +54,7 @@ Repository: Lost0rz/RemoteOrbit
 
 ## Current next action
 
-Push the verified pre-HID lifecycle corrective `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d` on `codex/observability-039`, verify the remote ref, and await another independent Web audit. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
+The verified pre-HID lifecycle corrective is pushed on `codex/observability-039` and the remote ref has been read back; await another independent Web audit. Later MacBook Air installation/natural-use acceptance remains owner-controlled and is not performed by this task.
 
 ## Stop conditions
 
