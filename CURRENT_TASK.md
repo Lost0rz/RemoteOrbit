@@ -2,7 +2,7 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `READY_FOR_AIR_VALIDATION`
+Status: `AIR_VALIDATION_ACTIVE / EXPORTER_CORRECTIVE_ACTIVE`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -28,6 +28,9 @@ Build production-safe, low-overhead, always-on RemoteOrbit observability before 
 - Air-validation preparation source/control authority before this transition: `e524b636021b4af407dffae6b1b5c2c5baab718d`.
 - Independent Web audit: `PASS` for the exact pushed candidate, as authorized by the current Air-validation preparation card.
 - The prior natural-use omission remains an observed release-blocking result; this task makes no root-cause claim.
+- Air validation is active under the owner-controlled candidate workflow. The first real Air export failed repeatedly with `diagnostics: export failed: evidenceTooLarge` and produced no archive.
+- The observed Air `RemoteOrbit.log` was approximately 4.86 MB / 29,813 lines. Source review shows approved application logs are currently copied whole-file and an individual copied file above 2 MiB fails the export.
+- This exporter corrective remains under `RO-OBSERVABILITY-039`; it does not authorize an audio or root-cause corrective.
 - PR #25 remains Draft/Open/Unmerged and must not be merged, tagged, or released.
 
 ## Authorized scope
@@ -77,7 +80,16 @@ The second independent Web audit was blocked by bounded cross-layer incident-win
 - Packaging used only ephemeral current-toolchain overrides for the pinned driver deployment target and SwiftPM x86 triple; no source, tests, or packaging scripts changed.
 - `swift test`: 466 passed, 0 failed. `swift build -c release`: passed for the native build and the manual x86 `--triple` build. Protocol self-tests: 3/3 PASS. `git diff --check`: passed. Worktree: clean.
 
-The candidate is now `READY_FOR_OWNER_AIR_INSTALL`. The owner must verify the artifact SHA-256 on the MacBook Air before Finder installation, run it through the normal Finder/Login Item path without a continuity environment variable, use natural RemoteOrbit behavior without artificial jitter or A/B changes, and manually export the bounded evidence if needed. No automatic upload is performed.
+The candidate was installed and used by the owner under the prior Air-validation handoff. The next authorized step is an exporter-only corrective: reproduce the large-log/three-hour-window failure shape in a fixture, implement bounded time-windowed log evidence and source-specific manifest status, preserve journal/receiver integrity, and re-run the full verification set. Preserve the existing Air runtime and raw evidence; do not automatically upload or delete it.
+
+## Exporter corrective gate
+
+- Before implementation, this control transition records independent observability source audit `PASS`, active Air validation, the real `evidenceTooLarge` export failure, and the exporter-only scope.
+- Make `--since-unix-ms` / `--until-unix-ms` materially constrain timestamped `RemoteOrbit.log` evidence where parseable; use an honest bounded fallback for unparseable lines.
+- A single oversized `RemoteOrbit.log`, journal segment, or receiver evidence source must not destroy otherwise useful archive evidence. Bound or mark unavailable with source-specific machine-readable manifest status, reason, original size, and exported size when available.
+- Preserve journal rotation, partial-tail recovery, interior-corruption fail-closed behavior, schema validation, receiver privacy boundaries, allowlists, checksums, pagination, and exact 10,000-event semantics.
+- Add realistic focused regressions for large log, time window, bounded fallback, receiver oversize partial success, source-specific manifest status, normal export, and checksums. Keep the full observability/audio/gesture regression green.
+- Return to independent Web audit after remote delivery. Do not claim an independent Web-audit result in this corrective receipt.
 
 ## Corrective gate
 

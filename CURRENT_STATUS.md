@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-29
-State: READY_FOR_AIR_VALIDATION — AIR_VALIDATION_PREP COMPLETE — RO-OBSERVABILITY-039
+State: AIR_VALIDATION_ACTIVE — EXPORTER_CORRECTIVE_ACTIVE — RO-OBSERVABILITY-039
 Repository: Lost0rz/RemoteOrbit
 
 ## Repository authority
@@ -20,6 +20,8 @@ Repository: Lost0rz/RemoteOrbit
 - Air-validation preparation source/control authority before this transition: `e524b636021b4af407dffae6b1b5c2c5baab718d`.
 - Air-validation preparation semantic implementation authority: `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d`.
 - Independent Web audit: PASS, as authorized by the RO-OBSERVABILITY-039 Air-validation preparation card; this does not establish a root cause for the prior natural-use omission.
+- Air validation is active under the owner-controlled candidate workflow. The first real Air export reported `diagnostics: export failed: evidenceTooLarge` and produced no archive.
+- Exporter corrective source audit: the exporter currently copies approved application logs wholesale and rejects any individual copied file over 2 MiB; the requested export window therefore does not bound `RemoteOrbit.log`.
 - Remote-delivery verification before this corrective: `origin/codex/observability-039` matched `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
 - Remote-delivery verification for this corrective: `origin/codex/observability-039` matched `e703e16554e98e69ed6fb4e84ccce542c4169b20` before this receipt.
 - Remote-delivery verification for the pre-HID lifecycle corrective: `origin/codex/observability-039` matched `593a488cad186d02485ea821fb41f966a135ac77` before this delivery receipt.
@@ -33,7 +35,7 @@ Repository: Lost0rz/RemoteOrbit
 ## Task transition
 
 - Previous active task: `RO-RELEASE-V0.2.15`, state `LOCAL_SOAK_ACTIVE`.
-- Current active task: `RO-OBSERVABILITY-039`, state `AIR_VALIDATION_PREP / READY_FOR_AIR_VALIDATION`.
+- Current active task: `RO-OBSERVABILITY-039`, state `AIR_VALIDATION_ACTIVE / EXPORTER_CORRECTIVE_ACTIVE`.
 - Transition parent: `79406f17be3fbee77b4492687f63431434b23998`.
 - `CURRENT_STATUS.md` and `CURRENT_TASK.md` were updated together in the control-transition commit immediately following that parent.
 - Corrective transition start HEAD: `24d08c64abf5832a89957241713fb50cfd60da04`.
@@ -42,6 +44,7 @@ Repository: Lost0rz/RemoteOrbit
 - The second independent-audit corrective is bounded to one shared incident identity/anchor across the existing service and AudioPipe traces, production-path material-trigger alignment, exact export-limit semantics, and ADR capacity accuracy. It must not change product/audio behavior.
 - The next independent Web audit found one remaining lifecycle boundary: HID `begin(sessionID:)` can reset a material incident created during a valid pre-HID transport capture. The completed corrective establishes one shared coordinator generation at the earliest authoritative gesture/transport capture boundary, preserves it when HID later binds the session, and resets it only for a genuinely new logical capture. It does not change product/audio behavior.
 - The independent Web audit is now recorded as PASS for the exact pushed candidate. This authorizes only Air-validation preparation: build and provenance verification of a candidate from the current branch lineage, followed by owner-run MacBook Air installation and natural-use validation. It does not authorize merge, tag, release, PR #25 mutation, or Mac mini installation.
+- The first real Air validation exposed an exporter-only failure: a roughly 4.86 MB / 29,813-line `RemoteOrbit.log` caused a three-hour export to fail with `evidenceTooLarge`. The corrective is bounded to exporter time-window semantics, source-specific bounded/unavailable manifest evidence, and archive integrity. It makes no audio or root-cause claim and does not authorize an audio/receiver corrective.
 
 ## Product and runtime boundaries
 
@@ -75,9 +78,10 @@ Repository: Lost0rz/RemoteOrbit
 
 ## Current next action
 
-The exact candidate is built and provenance-verified from the reconciled `codex/observability-039` lineage. Hand off the artifact hash and exact owner-run MacBook Air Finder/Login Item installation/natural-use instructions. Air installation and natural-use acceptance remain owner-controlled and are not performed by this task.
+Air validation is active, but the first evidence export failed before producing an archive. Correct the exporter on the existing `codex/observability-039` lineage, preserve the observed Air runtime/evidence, and return to independent Web audit after remote delivery. No audio/root-cause corrective is authorized.
 
 ## Stop conditions
 
 Stop and report if the control plane drifts, a concurrent diagnostic writer appears, a unique local work conflicts, or the requested evidence cannot be implemented without changing product audio/gesture semantics, adding invasive text capture, or adding hot-path disk/lock/allocation behavior.
 Stop and report if the source/control or semantic implementation heads drift before packaging, if the artifact cannot be tied to an exact source revision, or if packaging would require changing product/audio semantics.
+Stop and report if exporter correction requires changing audio/gesture/receiver behavior, deleting Air evidence, weakening diagnostic integrity, or adding invasive text capture.
