@@ -2,152 +2,89 @@
 
 ## RO-OBSERVABILITY-039 — Long-Term Production-Safe Observability
 
-Status: `AIR_VALIDATION_PREP / UPDATED_AIR_CANDIDATE_PACKAGED / OWNER_AIR_INSTALL_PENDING`
+Status: `AIR_VALIDATION_ACTIVE / OWNER_NATURAL_USE`
 
 Repository: `Lost0rz/RemoteOrbit`
-
 Canonical repository: `/Volumes/Jack-Dev/Projects/remoteorbit`
+Active branch: `codex/observability-039`
 
 ## Objective
 
-Build production-safe, low-overhead, always-on RemoteOrbit observability before any further audio corrective. Ordinary launches must retain compact machine-readable session summaries; material anomalies may retain bounded high-resolution evidence; the owner must have one explicit manual export workflow for later MacBook Air natural-use evidence.
+Use the independently audited production-safe observability build during ordinary MacBook Air use, then export bounded structured diagnostics that can distinguish where real omission/stall/latency incidents arise before any further audio corrective is authorized.
 
-## Authority and transition
+## Current authority
 
-- Transitioned from `RO-RELEASE-V0.2.15` / `LOCAL_SOAK_ACTIVE` after the owner's natural-use result showed substantial final-text omission.
-- Release decision: `RELEASE_BLOCKED / SOAK_FAILED`; no root cause is inferred from that observation.
-- Audited parent: `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9`.
-- Active branch: `codex/observability-039`.
-- Active worktree: `/private/tmp/remoteorbit-longterm-observability-039`.
-- Corrective transition start HEAD: `24d08c64abf5832a89957241713fb50cfd60da04`.
-- Corrected implementation baseline HEAD: `ad223e4b5f35653abe1014697cb50a87d3db05ad`.
-- Second corrective transition parent: `bcecd35e47d7a21df3f1213395970a6c8e4073da`.
-- Second corrective implementation HEAD: `447b3b9`.
-- Pre-HID lifecycle corrective start HEAD: `c6cc2918ab9314507ad85f8e82fac58c74f26674`.
-- Pre-HID lifecycle corrective implementation HEAD: `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d`.
-- Air-validation preparation source/control authority before this transition: `e524b636021b4af407dffae6b1b5c2c5baab718d`.
-- Independent Web audit: `PASS` for the exact pushed candidate, as authorized by the current Air-validation preparation card.
-- The prior natural-use omission remains an observed release-blocking result; this task makes no root-cause claim.
-- Air validation is active under the owner-controlled candidate workflow. The first real Air export failed repeatedly with `diagnostics: export failed: evidenceTooLarge` and produced no archive.
-- The observed Air `RemoteOrbit.log` was approximately 4.86 MB / 29,813 lines. The pre-corrective source review showed approved application logs were copied whole-file and an individual copied file above 2 MiB failed the export.
-- This exporter corrective remains under `RO-OBSERVABILITY-039`; it does not authorize an audio or root-cause corrective.
-- Exporter corrective implementation: `d366646` (`diagnostics: bound long-term export evidence`). It applies parseable time windows to `RemoteOrbit.log`, uses an honest bounded fallback for unparseable lines, and preserves archives with source-specific bounded/unavailable/failed manifest receipts for sessions, journals, application logs, and receiver evidence.
-- Exporter corrective independent Web audit: `PASS` for the exact pushed lineage; no audio/root-cause claim is made.
-- Export-recency audit finding at observed remote head `3f8136280be450f74a83569684922baf0173ca68`: when a timestamp-filtered window exceeds the 2 MiB evidence bound, `boundedLineData` retains the beginning of the selected window and drops newer lines. The audit sample measured a roughly 4.63 MiB log and a roughly 2.33 MiB three-hour window, making latest incident evidence losable. This is exporter-only and makes no audio/root-cause claim.
-- Export-recency implementation HEAD: `62d5876` (`diagnostics: retain recent export evidence`); exact corrective lineage is remotely verified at `3eca563795db4fb927e5c73c4ffd737851307763`.
-- PR #25 remains Draft/Open/Unmerged and must not be merged, tagged, or released.
+- Semantic implementation HEAD: `62d58765c6a0bffbd7853861eae50cdf094bb586`.
+- Packaged candidate source/control HEAD: `bc5a7c19b212d18d4fd67184e8ed7fbb94dabe74`.
+- Candidate DMG: `/private/tmp/remoteorbit-air-validation-20261029-export-recency/RemoteOrbit-0.2.14-AIR-VALIDATION-EXPORT-RECENCY.dmg`.
+- DMG SHA-256: `4887595e28ea4aacf9fa567c73d3bb46be2b70c647f7ce51e9565f7c9b935e72`.
+- Executable SHA-256: `958d9db4d126b43b2afe00df8e209eb83563e6442e86acb81d8ef4a5a74ea670`.
+- Embedded source revision: `bc5a7c19b212d18d4fd67184e8ed7fbb94dabe74`.
+- App version/build: `0.2.14 (43)`; architectures: `x86_64 arm64`.
+- Independent Web audit: `PASS` for observability plus exporter and export-recency correctives.
+- PR #25 remains `OPEN / DRAFT / UNMERGED`; this task does not authorize merge/tag/release.
 
-## Authorized scope
+## Verification gate
 
-1. Extend the existing Diagnostics authority with an always-on compact session summary correlated by process instance, voice session/capture identity, anomaly/incident, time window, event type, and subsystem.
-2. Account for gesture/control, transport, decode, supply, playout, and runtime identity fields already owned by the relevant subsystems.
-3. Add a fixed-capacity/reused in-memory temporal trace preserving startup/front-edge and rolling recent observations for BLE arrival → decode → PCM submission → queue depth → render request/fill/starvation; persist it only after anomaly classification and only off hot paths.
-4. Centralize and test anomaly thresholds; classify evidence-worth-preserving only, never root cause.
-5. Add a low-overhead main-queue responsiveness probe with aggregate count/max/percentile or histogram and incident-only timestamped detail.
-6. Preserve RemoteOrbit receiver boundaries without Accessibility polling or raw dictated-text collection; export bounded best-effort receiver unified-log evidence and explicitly record unavailable evidence.
-7. Replace indefinite whole-file JSONL authority with a simple crash-tolerant bounded rotation/retention policy, preserving asynchronous/best-effort producer behavior and visible drop/write-failure metrics.
-8. Provide one explicit manual `RemoteOrbit-diagnostics-<timestamp>.tar.gz` export with manifest, provenance, summaries, frozen traces, selected journal segments/logs, unavailable-evidence errors, and `SHA256SUMS`; never upload automatically or create settings backups.
-9. Add focused tests for summary accounting, anomaly classification, fixed-capacity wrap/freeze/drop behavior, queue-lag aggregation, active-versus-tail underrun semantics, journal rotation/querying, export correctness, unavailable receiver evidence, and existing audio/gesture contract preservation.
-10. Document L1/L2 architecture, retention, export/correlation workflow, probe limits, observer-effect boundaries, and questions requiring A/B/HCI/PacketLogger evidence.
+- Focused exporter tests: `10/10 PASS`.
+- Release build: `PASS`.
+- x86 build: `PASS`.
+- Protocol self-tests: `3/3 PASS`.
+- `git diff --check`: `PASS`.
+- DMG provenance/content/signature/architecture checks: `PASS`.
+- Packaging run historical caveat: one failure in `VoicePersistentSessionTests.testPersistentSessionAcceptsMultipleAudioOnlySegmentsThenClosesByTap` after a fixed 0.85-second timing wait.
+- Follow-up exact-candidate verification: target test `30/30 PASS`; one full Swift suite `471/471 PASS`; no source/test/DMG/runtime changes.
+- Classification: `CONSISTENT_WITH_ONE_OFF_TIMING_FLAKE`; current Air validation is not blocked by that historical single failure.
+
+## Active validation workflow
+
+1. Run the packaged candidate naturally on the MacBook Air.
+2. Do not enable special continuity environment variables, artificial jitter, ATVV A/B, debug launch flags, or speculative audio changes.
+3. Preserve existing logs/evidence; do not clear or rotate them manually merely to make export succeed.
+4. Use normal SHORT, LONG, and Persistent flows.
+5. If a visible omission, text-update stall, trigger delay, or persistent-session anomaly occurs, keep using the app naturally unless the product becomes unusable; do not immediately restart or change configuration solely to clean the incident.
+6. After enough samples accumulate, export a recent bounded diagnostics window and provide the resulting archive for independent Web analysis.
+
+### Air diagnostics export
+
+```bash
+OUTPUT_DIR="$HOME/Desktop/RemoteOrbit-diagnostics-$(date +%Y%m%d-%H%M%S)"
+END_MS=$(( $(date +%s) * 1000 ))
+START_MS=$(( END_MS - 3 * 60 * 60 * 1000 ))
+mkdir -p "$OUTPUT_DIR"
+
+/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit diagnostics export \
+  --output "$OUTPUT_DIR" \
+  --host-role TEST_HOST \
+  --since-unix-ms "$START_MS" \
+  --until-unix-ms "$END_MS"
+```
+
+Expected result: a `RemoteOrbit-diagnostics-<timestamp>.tar.gz` archive in the output directory. The exporter may honestly mark individual evidence sources bounded/unavailable in `manifest.json`; a single oversized source must not destroy the whole archive.
+
+## Evidence questions for the next review
+
+Correlate real incidents across the existing chain:
+
+`HID/lifecycle → AUDIO_START → BLE cadence → decode → PCM submit → AudioPipe queue → render/starvation → main-queue lag → receiver timing`
+
+The next review should determine what the evidence supports; it must not preselect a root cause. In particular, distinguish upstream BLE/remote delivery gaps from host main-queue scheduling delay before considering an audio corrective.
 
 ## Frozen non-goals
 
-- No ATVV MIC_OPEN mode, BLE command/protocol, codec, sample rate, jitter, AudioPipe buffer/queue/playout, gain, HID, gesture, Option/Control, persistent-session, driver, or Doubao behavior changes.
-- No speculative corrective, Accessibility polling, continuous raw text capture, automatic upload, automatic settings backup, database introduction, package/install/release/tag/PR lifecycle mutation, Air runtime mutation, TCC/permission mutation, or LaunchAgent mutation.
-- Do not unconditionally allocate the existing 8192-bucket opt-in ledger if that creates meaningful normal-runtime cost.
-- Do not synchronously write disk, format strings, allocate, or acquire a new shared diagnostic lock in CoreAudio render or CoreBluetooth audio hot callbacks.
+- No ATVV MIC_OPEN mode change.
+- No BLE protocol/scheduling corrective.
+- No ADPCM/decode change.
+- No AudioPipe jitter/buffer/playout/gain change.
+- No HID/gesture/Option/Control or persistent-session behavior change.
+- No receiver behavior change or invasive Accessibility/raw-text capture.
+- No automatic upload or automatic settings/key backup.
+- No merge, tag, GitHub Release, PR #25 mutation, or release claim.
 
-## Corrective gate
+## Stop conditions
 
-The second independent Web audit was blocked by bounded cross-layer incident-window findings and then identified one remaining pre-HID lifecycle boundary. The completed corrective establishes the shared incident coordinator generation exactly once at the earliest authoritative gesture/transport capture boundary; a later HID session binding preserves incident identity, anchor, and producer synchronization state; a genuinely new capture receives a clean generation. It preserves first-writer-wins, pre-HID BLE/decode/PCM/render evidence, AudioPipe-first evidence, wrap survival, and all existing journal/export/receiver/late-lifecycle behavior. It preserves the product/audio freeze and adds no hot-path disk I/O, formatting, authority emission, or new contended diagnostic lock. Focused lifecycle tests, full Swift regression, release build, self-tests, `git diff --check`, and exact source/product-freeze review pass locally. The candidate is pushed on `codex/observability-039`; remote readback matched `593a488cad186d02485ea821fb41f966a135ac77` before the delivery receipt, and receipt `93f1b91ad06f9717251b09653557aebe4ff44910` was also pushed and read back before this factual control correction. The independent Web audit is now PASS, including the exporter-recency corrective at exact remote head `3eca563795db4fb927e5c73c4ffd737851307763`. This authorizes exact updated candidate packaging and owner-run Air validation preparation only; it does not authorize merge, tag, release, PR #25 mutation, or Mac mini/Air runtime installation.
+Stop and report if evidence integrity is compromised, runtime identity does not match the packaged candidate, a new reproducible Persistent Session failure appears, or analysis would require changing frozen product behavior before the current natural-use evidence is reviewed.
 
-## Air-validation preparation gate
+## Current completion condition
 
-- Reconcile `origin/codex/observability-039`, the active worktree, and these authority files before packaging.
-- Build the exact candidate from the current branch lineage without changing product/audio semantics.
-- Record source/control HEAD, semantic implementation HEAD, app version/build, architecture, code identity, executable/artifact SHA-256, and embedded source revision when supported.
-- Verify Swift tests, release build, protocol self-tests, packaging, artifact contents, signatures, checksums, `git diff --check`, and clean worktree.
-- Provide owner-run Finder/Login Item installation and natural-use instructions for the MacBook Air. Do not install or launch the Air candidate from the Mac mini. Do not upload evidence automatically.
-
-## Prior Air-validation candidate receipt
-
-- Independent Web audit: `PASS`; no root-cause claim is made for the prior natural-use omission.
-- Candidate build source/control HEAD: `9200a9f8e21715038a07d64bb6a607f550b4f765`.
-- Candidate semantic implementation HEAD: `ae8265108c6b8cdff1ef67cb7b4ac3555a9f5a7d`.
-- Candidate artifact: `/private/tmp/remoteorbit-air-validation-20261029/RemoteOrbit-0.2.14-AIR-VALIDATION.dmg`.
-- Artifact SHA-256: `63ccb29361260437a9d77444c9ce07c1568603399b859eb67d5a2aae1e112825`.
-- App executable SHA-256: `80caecc29f57aef52c2afd37182ed28b093ce807d9f0fb1e379df8a282128aed`.
-- App version/build: `0.2.14 (43)`; App and embedded driver architectures: `x86_64 arm64`.
-- Embedded `RemoteOrbitDiagnosticSourceHead`: `9200a9f8e21715038a07d64bb6a607f550b4f765`.
-- App and driver ad-hoc signatures verified; App designated requirement is `identifier "com.lost0rz.RemoteOrbit"`; no Developer ID/notarization claim.
-- Read-only DMG mount/content check passed with the top-level App, `/Applications` link, Documentation, embedded signature, and source revision present.
-- Packaging used only ephemeral current-toolchain overrides for the pinned driver deployment target and SwiftPM x86 triple; no source, tests, or packaging scripts changed.
-- `swift test`: 466 passed, 0 failed. `swift build -c release`: passed for the native build and the manual x86 `--triple` build. Protocol self-tests: 3/3 PASS. `git diff --check`: passed. Worktree: clean.
-
-The candidate was installed and used by the owner under the prior Air-validation handoff. The next authorized step is an exporter-only corrective: reproduce the large-log/three-hour-window failure shape in a fixture, implement bounded time-windowed log evidence and source-specific manifest status, preserve journal/receiver integrity, and re-run the full verification set. Preserve the existing Air runtime and raw evidence; do not automatically upload or delete it.
-
-## Exporter corrective gate
-
-- Before implementation, this control transition records independent observability source audit `PASS`, active Air validation, the real `evidenceTooLarge` export failure, and the exporter-only scope.
-- Make `--since-unix-ms` / `--until-unix-ms` materially constrain timestamped `RemoteOrbit.log` evidence where parseable; use an honest bounded fallback for unparseable lines.
-- A single oversized `RemoteOrbit.log`, journal segment, or receiver evidence source must not destroy otherwise useful archive evidence. Bound or mark unavailable with source-specific machine-readable manifest status, reason, original size, and exported size when available.
-- Preserve journal rotation, partial-tail recovery, interior-corruption fail-closed behavior, schema validation, receiver privacy boundaries, allowlists, checksums, pagination, and exact 10,000-event semantics.
-- Add realistic focused regressions for large log, time window, bounded fallback, receiver oversize partial success, source-specific manifest status, normal export, and checksums. Keep the full observability/audio/gesture regression green.
-- Return to independent Web audit after remote delivery. Do not claim an independent Web-audit result in this corrective receipt.
-
-## Corrective gate
-
-- Start from literal HEAD `c6cc2918ab9314507ad85f8e82fac58c74f26674`.
-- Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together before implementation.
-- Do not reset the shared incident coordinator merely because a HID UUID becomes available if an active pre-HID capture already owns the generation.
-- Do not add a hot-path lock or change ATVV, BLE, AudioPipe, HID, gesture, driver, Doubao, packaging, installation, release, PR, or Air runtime behavior.
-
-## Exporter corrective verification receipt
-
-- Root failure reproduced by an oversized `RemoteOrbit.log` fixture with a requested time window; the prior implementation raised `evidenceTooLarge` before creating an archive.
-- Focused exporter regressions: 9 passed, including large-log windowing, bounded journal/receiver evidence, provider oversize fallback, session-query failure status, allowlist, pagination, exact event-limit semantics, and checksum verification.
-- Full Swift regression: 470 passed, 0 failed. Release build passed. Protocol self-tests: 3/3 PASS. `git diff --check` passed before the implementation commit.
-- Product/audio freeze review: changed product source is limited to `Diagnostics/DiagnosticExport.swift`; no audio, BLE, HID, gesture, receiver behavior, driver, install, or runtime files changed.
-- Next action: hand off the updated candidate and owner-run Air replacement/natural-use instructions. Air validation remains owner-controlled; preserve the observed Air runtime/evidence and keep the full-suite verification caveat explicit.
-
-## Export-recency corrective gate
-
-- Corrective start HEAD: `3f8136280be450f74a83569684922baf0173ca68`.
-- For a timestamp-filtered `RemoteOrbit.log` window over the existing 2 MiB bound, keep newest complete lines first, preserve chronological order, and record that older selected-window evidence was dropped.
-- Keep the existing honest fallback for unparseable/non-UTF-8 logs. Do not broaden journal/receiver behavior unless shared bounded-line refactoring requires it.
-- Add production-facing recency and realistic multi-hour-like oversize regressions; keep all existing exporter/observability/audio/gesture tests green.
-- No DMG, Air installation, merge, PR #25 mutation, tag, or release.
-
-## Export-recency corrective verification receipt
-
-- Red proof: before the change, the production-facing exporter test retained `EARLY_IN_WINDOW` and dropped `LATE_IN_WINDOW` when the selected window exceeded 2 MiB.
-- Recency regression: 10 focused exporter tests passed, including a multi-hour-like oversized window; newest complete lines were retained in chronological order and older selected-window evidence was reported as dropped.
-- Full Swift regression: an immediate rerun passed 471 tests with 0 failures after one earlier run reported 2 non-reproduced failures; release build passed; protocol self-tests passed 3/3; `git diff --check` passed.
-- Manifest evidence: `selected_window_bytes`, `selected_window_truncated`, and `truncation_direction=older_selected_window_evidence_dropped` are recorded per exported application-log file.
-- Product/audio freeze review: only `Diagnostics/DiagnosticExport.swift`, its tests, and control files changed; no ATVV, BLE, decode, AudioPipe, HID, gesture, persistent-session, receiver, driver, install, or Air-runtime files changed.
-
-## Updated Air candidate packaging receipt
-
-- Packaging control/source HEAD used for the candidate: `bc5a7c19b212d18d4fd67184e8ed7fbb94dabe74`.
-- Semantic implementation HEAD: `62d58765c6a0bffbd7853861eae50cdf094bb586`.
-- Artifact: `/private/tmp/remoteorbit-air-validation-20261029-export-recency/RemoteOrbit-0.2.14-AIR-VALIDATION-EXPORT-RECENCY.dmg`.
-- Artifact SHA-256: `4887595e28ea4aacf9fa567c73d3bb46be2b70c647f7ce51e9565f7c9b935e72`.
-- App executable SHA-256: `958d9db4d126b43b2afe00df8e209eb83563e6442e86acb81d8ef4a5a74ea670`.
-- App version/build: `0.2.14 (43)`; app and embedded driver architectures: `x86_64 arm64` (Universal 2).
-- Embedded `RemoteOrbitDiagnosticSourceHead`: `bc5a7c19b212d18d4fd67184e8ed7fbb94dabe74`.
-- App signature: ad-hoc and valid, designated requirement `identifier "com.lost0rz.RemoteOrbit"`; embedded driver signature: ad-hoc and valid. No Developer ID, Team ID, notarization, or release identity is claimed.
-- Exporter corrective included: `YES`; recency corrective included: `YES`; source markers and manifest fields were verified before packaging.
-- Focused `DiagnosticExportTests`: `10 passed, 0 failed`.
-- Full Swift suite: `471 executed, 1 failure`; exact failure `VoicePersistentSessionTests.testPersistentSessionAcceptsMultipleAudioOnlySegmentsThenClosesByTap` (`XCTAssertNil` failed because a UUID remained). No repeat was used to mask it.
-- Release build: `PASS`; x86 `swift build --triple x86_64-apple-macos13.0`: `PASS`; protocol self-tests: `3/3 PASS`; `git diff --check`: `PASS`.
-- DMG mount/content: `PASS`; top-level app, Applications link, Documentation, embedded driver, signatures, architectures, version/build, and embedded source revision all read back successfully.
-- Packaging fallback: current Xcode rejected the pinned driver deployment target 10.10 until a temporary `MACOSX_DEPLOYMENT_TARGET=13.0` xcconfig was supplied; the existing package-app x86 `-Xswiftc -target` path failed under current SwiftPM, so packaging used the supported explicit `--triple` x86 slice and preserved the existing bundle/DMG layout. No source, tests, or packaging scripts changed.
-- No Mac mini installation or launch occurred; the Air runtime/evidence was preserved.
-
-## Prior final verification receipt
-
-- `swift test`: 466 passed, 0 failed.
-- `swift build -c release`: passed.
-- `./run-self-tests.sh`: passed all 3 protocol self-tests.
-- `git diff --check`: passed.
-- PR #25 remains Draft/Open/Unmerged; no merge, tag, release, install, or Air runtime mutation is authorized by this corrective.
+This task remains active until owner natural-use evidence is exported and independently reviewed. A successful diagnostics archive does not by itself establish root cause or release readiness.
