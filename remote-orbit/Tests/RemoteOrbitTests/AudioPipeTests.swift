@@ -62,6 +62,21 @@ final class AudioPipeTests: XCTestCase {
         pipe.endRemoteCandidate()
     }
 
+    func testPrebufferPromotedOnPhysicalStreamAdoption() {
+        let pipe = AudioPipe.shared
+        pipe.setRemoteActive(false)
+        pipe.endRemoteCandidate()
+        pipe.beginRemoteCandidate()
+
+        let samples = Array(repeating: Int16(11), count: 160)
+        pipe.feed(samples: samples)
+        pipe.beginRemoteCandidate()
+
+        XCTAssertEqual(pipe.setRemoteActive(true), samples.count)
+        pipe.setRemoteActive(false)
+        pipe.endRemoteCandidate()
+    }
+
     func testPendingRemotePCMIsDiscardedWhenCandidateEndsBeforeNextGesture() {
         let pipe = AudioPipe.shared
         pipe.setRemoteActive(false)

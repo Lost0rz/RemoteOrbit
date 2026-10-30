@@ -20,6 +20,12 @@ enum BLEAudioStartDisposition: Equatable {
     )
 }
 
+enum BLEStreamOwnership: Equatable {
+    case none
+    case preHIDPhysical
+    case voiceSession
+}
+
 enum BLEVoiceConnectionState: String, Equatable {
     case disconnected = "disconnected"
     case connecting = "connecting"
@@ -200,6 +206,9 @@ final class BLEBridge: NSObject {
 
     /// Called whenever the bridge produces or stops producing audio (true = streaming).
     var onStreamingChanged: ((Bool, Int /* sampleRate */) -> Void)?
+    /// Called for a physical HTT stream that exists before the matching HID
+    /// press. This is candidate transport state, not VoicePress ownership.
+    var onPreHIDPhysicalStreamChanged: ((Bool, Int /* sampleRate */) -> Void)?
     /// Called after a decoded remote audio frame is available. A stream can be
     /// announced before its first frame; the voice UI waits for this callback
     /// before opening the external voice dialog.
@@ -251,6 +260,7 @@ final class BLEBridge: NSObject {
     private let protocolHandler = ATVVProtocol()
     private var streamID: UInt8 = 0
     private var isStreaming = false
+    private var streamOwnership: BLEStreamOwnership = .none
     private var levelSumSq: Int64 = 0
     private var levelCount: Int = 0
     private var levelPeak: Int = 0
@@ -268,6 +278,7 @@ final class BLEBridge: NSObject {
     private var streamStartedUptime: TimeInterval = 0
     private var streamSessionID = "NA"
     private var streamSessionOrigin: ATVVSessionOrigin = .unknown
+    private var micOpenRequestCountForTestingStorage = 0
     private var keepAliveSequence = 0
     private var lastKeepAliveElapsedMilliseconds: Double?
     private var firstAudioAt: Date?
@@ -315,6 +326,39 @@ final class BLEBridge: NSObject {
         }
     }
 
+    var streamOwnershipForTesting: BLEStreamOwnership {
+        bleQueue.sync { streamOwnership }
+    }
+
+    var micOpenRequestedForTesting: Bool {
+        bleQueue.sync { transportState.micOpenRequested }
+    }
+
+    var micOpenRequestCountForTesting: Int {
+        bleQueue.sync { micOpenRequestCountForTestingStorage }
+    }
+
+    func beginPreHIDPhysicalStreamForTesting() {
+        performOnBLEQueueSynchronously {
+            AudioPipe.shared.beginRemoteCandidate()
+            self.isStreaming = true
+            self.streamOwnership = .preHIDPhysical
+            self.streamSessionOrigin = .physicalHTT
+            self.notifyPreHIDPhysicalStreaming(true)
+        }
+    }
+
+    func requestVoiceActivationForTesting() {
+        performOnBLEQueueSynchronously {
+            self.transportState.prepareTransport()
+            self.transportState.connectionState = .ready
+            self.transportState.transportPrepared = true
+            self.transportState.atvvReady = true
+            self.transportState.requestVoiceInput()
+            self.requestMicOpenIfReady()
+        }
+    }
+
     // Test seams exercise the real drain-retirement and transport-reset paths
     // without requiring a live CoreBluetooth peripheral.
     func beginAudioStopDrainForTesting() {
@@ -340,6 +384,9 @@ final class BLEBridge: NSObject {
     func beginAudioStartForTesting() {
         performOnBLEQueueSynchronously {
             self.isStreaming = true
+            if self.streamOwnership == .none {
+                self.streamOwnership = .voiceSession
+            }
             self.wavRecorder = self.createRecordingIfEnabled(reason: "AUDIO_START_TEST")
         }
     }
@@ -407,6 +454,21 @@ final class BLEBridge: NSObject {
             )
         }
         return .accepted
+    }
+
+    static func streamOwnershipForAudioStart(
+        micOpenRequested: Bool,
+        voiceInputRequested: Bool
+    ) -> BLEStreamOwnership {
+        switch ATVVKeepAliveTelemetry.sessionOrigin(
+            micOpenRequested: micOpenRequested,
+            voiceInputRequested: voiceInputRequested
+        ) {
+        case .physicalHTT:
+            return .preHIDPhysical
+        case .hostMicOpen, .unknown:
+            return .voiceSession
+        }
     }
 
     func start() {
@@ -935,9 +997,11 @@ final class BLEBridge: NSObject {
             wavRecorder = nil
         }
         let wasStreaming = isStreaming
+        let wasStreamOwnership = streamOwnership
         let hadVoiceIntent = transportState.voiceInputRequested
             || transportState.micOpenRequested
         isStreaming = false
+        streamOwnership = .none
         pendingAudioStopReason = nil
         protocolHandler.endAudioStream()
         audioChar = nil
@@ -949,7 +1013,12 @@ final class BLEBridge: NSObject {
         let wasReady = transportState.atvvReady
         transportState.markDisconnected()
         if wasStreaming || notify {
-            notifyStreaming(false)
+            if wasStreamOwnership == .preHIDPhysical {
+                AudioPipe.shared.endRemoteCandidate()
+                notifyPreHIDPhysicalStreaming(false)
+            } else {
+                notifyStreaming(false)
+            }
         }
         if wasReady || (notify && hadVoiceIntent) {
             notifyConnectionChanged(false)
@@ -1001,8 +1070,13 @@ final class BLEBridge: NSObject {
     }
 
     private func requestMicOpenIfReady() {
-        guard transportState.shouldRequestMicOpen,
-              transportState.canReuseReadyTransport else { return }
+        guard transportState.voiceInputRequested,
+              !transportState.micOpenRequested else { return }
+        if adoptPreHIDPhysicalStreamIfNeeded() {
+            return
+        }
+        guard transportState.canReuseReadyTransport else { return }
+        micOpenRequestCountForTestingStorage += 1
         VoiceAttemptDiagnostics.shared.stage("MIC_OPEN_REQUEST")
         do {
             protocolHandler.prepareForAudioStream()
@@ -1145,6 +1219,28 @@ final class BLEBridge: NSObject {
         DispatchQueue.main.async {
             callback(on, sr)
         }
+    }
+
+    private func notifyPreHIDPhysicalStreaming(_ on: Bool) {
+        let sr = (protocolHandler.codec == .adpcm16k) ? 16_000 : 8_000
+        updateDiagnosticTransportState()
+        guard let callback = onPreHIDPhysicalStreamChanged else { return }
+        DispatchQueue.main.async {
+            callback(on, sr)
+        }
+    }
+
+    private func adoptPreHIDPhysicalStreamIfNeeded() -> Bool {
+        guard isStreaming, streamOwnership == .preHIDPhysical else { return false }
+        streamOwnership = .voiceSession
+        streamSessionID = VoiceTimingLogger.currentSessionID?.uuidString ?? streamSessionID
+        updateDiagnosticTransportState()
+        print(
+            "[BLE] adopted active PHYSICAL_HTT stream into voice session "
+                + "session_id=\(streamSessionID)"
+        )
+        notifyStreaming(true)
+        return true
     }
 
     private func notifyAudioFrame() {
@@ -1488,7 +1584,19 @@ extension BLEBridge: CBPeripheralDelegate {
             AudioPipe.shared.beginRemoteCandidate()
             streamID = sid
             isStreaming = true
-            notifyStreaming(true)
+            streamSessionOrigin = ATVVKeepAliveTelemetry.sessionOrigin(
+                micOpenRequested: transportState.micOpenRequested,
+                voiceInputRequested: transportState.voiceInputRequested
+            )
+            streamOwnership = Self.streamOwnershipForAudioStart(
+                micOpenRequested: transportState.micOpenRequested,
+                voiceInputRequested: transportState.voiceInputRequested
+            )
+            if streamOwnership == .preHIDPhysical {
+                notifyPreHIDPhysicalStreaming(true)
+            } else {
+                notifyStreaming(true)
+            }
             diagFrameCount = 0
             streamFrameCount = 0
             streamSampleCount = 0
@@ -1515,10 +1623,6 @@ extension BLEBridge: CBPeripheralDelegate {
             streamStartedAt = Date()
             streamStartedUptime = ProcessInfo.processInfo.systemUptime
             streamSessionID = VoiceTimingLogger.currentSessionID?.uuidString ?? "NA"
-            streamSessionOrigin = ATVVKeepAliveTelemetry.sessionOrigin(
-                micOpenRequested: transportState.micOpenRequested,
-                voiceInputRequested: transportState.voiceInputRequested
-            )
             keepAliveSequence = 0
             lastKeepAliveElapsedMilliseconds = nil
             audioStopReceivedAt = nil
@@ -1814,13 +1918,20 @@ extension BLEBridge: CBPeripheralDelegate {
             lastAudioAt: lastAudioAt?.timeIntervalSinceReferenceDate,
             drainFinishedAt: drainFinishedAt?.timeIntervalSinceReferenceDate
         )
+        let endedStreamOwnership = streamOwnership
         isStreaming = false
+        streamOwnership = .none
         protocolHandler.endAudioStream()
         if lastAudioAt != nil {
             VoiceTimingLogger.mark("LAST_AUDIO_FRAME")
         }
         VoiceTimingLogger.mark("DRAIN_FINISH")
-        notifyStreaming(false)
+        if endedStreamOwnership == .preHIDPhysical {
+            AudioPipe.shared.endRemoteCandidate()
+            notifyPreHIDPhysicalStreaming(false)
+        } else {
+            notifyStreaming(false)
+        }
         levelSumSq = 0
         levelCount = 0
         levelPeak = 0

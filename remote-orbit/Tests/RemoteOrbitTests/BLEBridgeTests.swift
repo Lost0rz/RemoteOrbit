@@ -36,6 +36,9 @@ final class BLEBridgeTests: XCTestCase {
             bridge.onStreamingChanged = { [weak press] streaming, _ in
                 press?.setRemoteStreaming(streaming)
             }
+            bridge.onPreHIDPhysicalStreamChanged = { [weak press] streaming, _ in
+                press?.setPreHIDPhysicalStreaming(streaming)
+            }
             bridge.onConnectionChanged = { [weak press] connected in
                 if !connected {
                     press?.handleTransportLoss()
@@ -178,6 +181,91 @@ final class BLEBridgeTests: XCTestCase {
 
         XCTAssertFalse(state.voiceInputRequested)
         XCTAssertFalse(state.shouldRequestMicOpen)
+    }
+
+    func testPhysicalAudioStartBeforeHIDUsesPreHIDStreamOwnership() {
+        XCTAssertEqual(
+            BLEBridge.streamOwnershipForAudioStart(
+                micOpenRequested: false,
+                voiceInputRequested: false
+            ),
+            .preHIDPhysical
+        )
+        XCTAssertEqual(
+            BLEBridge.streamOwnershipForAudioStart(
+                micOpenRequested: true,
+                voiceInputRequested: true
+            ),
+            .voiceSession
+        )
+    }
+
+    func testPhysicalAudioStartBeforeHIDThenMatchingHIDIsAdmissible() {
+        let harness = AdmissionHarness()
+        defer { harness.shutdown() }
+
+        harness.bridge.beginPreHIDPhysicalStreamForTesting()
+        harness.wait()
+
+        XCTAssertTrue(
+            harness.press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertEqual(harness.press.currentStateForTesting, .opening)
+        XCTAssertTrue(harness.press.hasReleaseOrTailOwnershipForReconfiguration)
+    }
+
+    func testAdoptPhysicalStreamWithoutDuplicateMicOpen() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.beginPreHIDPhysicalStreamForTesting()
+        bridge.requestVoiceActivationForTesting()
+
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .voiceSession)
+        XCTAssertFalse(bridge.micOpenRequestedForTesting)
+    }
+
+    func testHostMicOpenPathRemainsForReadyTransportWithoutPhysicalStream() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.requestVoiceActivationForTesting()
+
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .none)
+        XCTAssertEqual(bridge.micOpenRequestCountForTesting, 1)
+    }
+
+    func testAdoptedStreamRetirementClearsOwnership() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.beginPreHIDPhysicalStreamForTesting()
+        bridge.requestVoiceActivationForTesting()
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .voiceSession)
+
+        bridge.beginAudioStopDrainForTesting()
+        bridge.completeAudioStopDrainForTesting()
+
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .none)
+    }
+
+    func testRapidNextSessionAfterAdoptedStreamUsesHostMicOpenWhenNeeded() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.beginPreHIDPhysicalStreamForTesting()
+        bridge.requestVoiceActivationForTesting()
+        bridge.beginAudioStopDrainForTesting()
+        bridge.completeAudioStopDrainForTesting()
+        bridge.requestVoiceActivationForTesting()
+
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .none)
+        XCTAssertEqual(bridge.micOpenRequestCountForTesting, 1)
     }
 
     func testStartSearchDuringPreparationCannotRequestMicOpen() {

@@ -2,6 +2,54 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoicePipelineSimplificationTests: XCTestCase {
+    func testPhysicalAudioStartBeforeHIDIsAdmissible() {
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { _, _ in }
+        )
+        press.setPreHIDPhysicalStreaming(true)
+
+        XCTAssertFalse(press.hasReleaseOrTailOwnershipForReconfiguration)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertEqual(press.currentStateForTesting, .opening)
+    }
+
+    func testPreHIDAudioIsCandidateNotSessionOwnership() {
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { _, _ in }
+        )
+
+        press.setPreHIDPhysicalStreaming(true)
+
+        XCTAssertTrue(press.preHIDPhysicalStreamingForTesting)
+        XCTAssertFalse(press.hasActiveVoiceOwnershipForTriggerReconfiguration)
+        XCTAssertFalse(press.diagnosticStateFields["remote_streaming"] as? Bool ?? true)
+    }
+
+    func testUnownedPhysicalStreamStopClearsBusyState() {
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { _, _ in }
+        )
+        press.setPreHIDPhysicalStreaming(true)
+        press.setPreHIDPhysicalStreaming(false)
+
+        XCTAssertFalse(press.preHIDPhysicalStreamingForTesting)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+    }
+
     func testVoiceDownStartsImmediatelyAndCapturesOneProfile() {
         var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
         var states: [VoicePressCoordinator.State] = []
@@ -28,6 +76,34 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         XCTAssertEqual(press.capturedVoiceProfileForTesting, profile)
         XCTAssertEqual(press.capturedTriggerKeyForTesting, profile.triggerKey)
         XCTAssertEqual(press.diagnosticStateFields["voice_session_state"] as? String, "opening")
+    }
+
+    func testAdoptedStreamRetirementLeavesCoordinatorReadyForRapidNextSession() {
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { _, _ in }
+        )
+        press.setPreHIDPhysicalStreaming(true)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        press.setPreHIDPhysicalStreaming(false)
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
     }
 
     func testVoiceUpDrainsOutputBeforeSyntheticTriggerUp() {

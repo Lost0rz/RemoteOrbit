@@ -435,6 +435,7 @@ final class VoicePressCoordinator {
     private var tailWorkItem: DispatchWorkItem?
     private var tailSessionID: UUID?
     private var remoteStreaming = false
+    private var preHIDPhysicalStreaming = false
     private var remoteAudioAvailable = false
     private var remoteRouted = false
     private var longInputStarted = false
@@ -535,6 +536,10 @@ final class VoicePressCoordinator {
         capturedVoiceProfile?.triggerKey
     }
 
+    var preHIDPhysicalStreamingForTesting: Bool {
+        preHIDPhysicalStreaming
+    }
+
     var persistentSessionActiveForTesting: Bool {
         voiceSessionMode == .persistentOpen
     }
@@ -602,6 +607,7 @@ final class VoicePressCoordinator {
             "pending_persistent_toggle_gate_owner": pendingPersistentToggle?.waitingGateOwner.uuidString ?? "none",
             "remote_routed": remoteRouted,
             "remote_streaming": remoteStreaming,
+            "pre_hid_physical_streaming": preHIDPhysicalStreaming,
             "transport_stop_observed": directTransportStopObserved,
             "remote_audio_available": remoteAudioAvailable,
             "long_input_started": longInputStarted,
@@ -1659,8 +1665,27 @@ final class VoicePressCoordinator {
         mode == .persistentOpen ? "persistent_open" : "idle"
     }
 
+    func setPreHIDPhysicalStreaming(_ streaming: Bool) {
+        preHIDPhysicalStreaming = streaming
+        diagnosticLogger?.log(
+            category: "voice",
+            event: streaming ? "PHYSICAL_HTT_CANDIDATE_START" : "PHYSICAL_HTT_CANDIDATE_STOP",
+            gestureID: gestureID,
+            key: capturedVoiceProfile?.triggerKey,
+            fields: [
+                "pre_hid_physical_streaming": streaming,
+                "voice_session_ownership": false,
+            ]
+        )
+        print(
+            "[PRESS] PHYSICAL_HTT candidate streaming=\(streaming); "
+                + "voice_session_ownership=\(remoteStreaming)"
+        )
+    }
+
     func setRemoteStreaming(_ streaming: Bool) {
         if directSession {
+            preHIDPhysicalStreaming = false
             remoteStreaming = streaming
             directTransportStopObserved = !streaming
             diagnosticLogger?.log(
@@ -5895,6 +5920,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         ble.onStreamingChanged = { [weak self] streaming, _ in
             self?.voicePress.setRemoteStreaming(streaming)
+            self?.remoteStreaming = streaming
+            DiagnosticRuntimeHealthRegistry.shared.setBool("atvv_streaming", streaming)
+            self?.updateStatus()
+        }
+        ble.onPreHIDPhysicalStreamChanged = { [weak self] streaming, _ in
+            self?.voicePress.setPreHIDPhysicalStreaming(streaming)
             self?.remoteStreaming = streaming
             DiagnosticRuntimeHealthRegistry.shared.setBool("atvv_streaming", streaming)
             self?.updateStatus()

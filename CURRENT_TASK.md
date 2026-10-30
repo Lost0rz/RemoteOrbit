@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Physical-HTT Admission Corrective
 
-Status: `READY_FOR_LOCAL_CORRECTIVE`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
@@ -167,6 +167,38 @@ Explicitly report:
 - GATE_D_45MS_CHANGED: YES/NO — expected NO
 - DRIVER_RUNTIME_CHANGED: YES/NO — expected NO
 - GATE_F_CREATED: YES/NO — expected NO
+
+## Implementation receipt
+
+Implemented from the reconciled local/remote HEAD
+`8d92fd6382b0bca9f1c5808c497df68590f2934d`.
+
+The implementation separates pre-HID physical transport state from
+`VoicePressCoordinator` session ownership, routes pre-HID streaming through a
+candidate-only callback, adopts an active physical stream before host
+`MIC_OPEN`, and preserves the existing candidate prebuffer, route, tail, drain,
+and session retirement paths.
+
+Observed validation:
+
+- focused corrective suites: `64/64` passed;
+- full Swift test suite: `574/574` passed;
+- arm64 and x86_64 Release builds completed;
+- protocol self-tests: `3/3` passed;
+- `git diff --check` passed.
+
+Changed paths are limited to:
+
+- `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`
+- `remote-orbit/Sources/RemoteOrbit/main.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/AudioPipeTests.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`
+
+No package/install, driver/TCC/runtime mutation, merge/tag/release, or Gate F
+operation is authorized or performed. The next control-plane action is push of
+this existing branch followed by exact local/remote equality verification and
+independent Web audit.
 
 ## Delivery / stop state
 

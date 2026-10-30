@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — INCIDENT_BOUNDARY_IDENTIFIED / READY_FOR_LOCAL_CORRECTIVE`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — CORRECTIVE_IMPLEMENTED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -28,6 +28,9 @@ Human runtime acceptance FAILED on installed candidate `0.2.14 (43)`:
 - there is no usable remote-microphone waveform/audio.
 
 The preserved diagnostic bundle is sufficient. No new probe is required.
+
+The installed candidate remains the previously accepted runtime candidate and
+was not rebuilt, packaged, installed, or retested by this source corrective.
 
 ## Confirmed incident boundary
 
@@ -67,8 +70,41 @@ Required behavior:
 - after adoption, normal streaming, tail, drain, trigger-up, stale-callback and rapid-next-session rules remain unchanged;
 - unrelated/stale prior-session ownership must still block admission where appropriate.
 
+## Local corrective receipt
+
+The bounded corrective is implemented from audited control HEAD
+`8d92fd6382b0bca9f1c5808c497df68590f2934d`.
+
+- `BLEBridge` now distinguishes `preHIDPhysical` transport ownership from
+  session-owned streaming, publishes pre-HID state through a separate callback,
+  and adopts an active physical stream before the host `MIC_OPEN` path.
+- `VoicePressCoordinator` treats pre-HID physical streaming as candidate-only
+  state; it is excluded from release/tail admission ownership.
+- Existing `AudioPipe` candidate buffering and route activation promote the
+  pre-HID PCM without a second audio pipeline.
+- Unowned physical retirement clears candidate state; adopted retirement keeps
+  the existing Gate A-E stop/tail/drain/session-ID lifecycle.
+- Deterministic corrective coverage was added for pre-HID admission, candidate
+  ownership, adoption without duplicate `MIC_OPEN`, prebuffer promotion,
+  strict READY host `MIC_OPEN`, unowned stop, adopted retirement, and rapid
+  next-session behavior.
+
+Validation receipt:
+
+- focused corrective suites: `64/64` passed;
+- full Swift test suite: `574/574` passed;
+- arm64 Release build: completed;
+- x86_64 Release build: completed;
+- protocol self-tests: `3/3` passed;
+- `git diff --check`: passed.
+
+No package/install, driver, TCC, runtime, merge, tag, release, or Gate F
+operation was performed.
+
 ## Stop / next
 
-Execute only the bounded corrective in `CURRENT_TASK.md`, push the same 042 branch, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+The bounded corrective is complete locally. Publish the same 042 branch,
+verify exact local/remote equality, then stop at
+`WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
 Do not merge, tag, release, change the 45 ms reserve, change the 96,000-frame ring, modify the driver/TCC, or create Gate F.
