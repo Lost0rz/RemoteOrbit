@@ -1,107 +1,182 @@
 # RemoteOrbit Current Task
 
-## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Runtime Audio-No-Waveform Incident Diagnosis
+## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Physical-HTT Admission Corrective
 
-Status: `HUMAN_RUNTIME_ACCEPTANCE_FAILED / INCIDENT_EVIDENCE_REQUIRED`
+Status: `READY_FOR_LOCAL_CORRECTIVE`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
 
 Frozen evidence baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`
-Accepted source candidate: `2d09b6d77f9f75aa46bb4a13838cd22d5589f524`
-Installed candidate: `0.2.14 (43)`, Bundle ID `com.lost0rz.RemoteOrbit`
+Accepted source candidate before runtime failure: `2d09b6d77f9f75aa46bb4a13838cd22d5589f524`
+Incident record: `docs/incidents/2026-10-30-042-no-waveform-physical-htt-admission-race.md`
 
 ## Objective
 
-Determine the first failed runtime boundary for the human-observed candidate regression:
+Fix one confirmed runtime ordering defect:
 
-- voice key invokes Doubao successfully;
-- Doubao shows no audio waveform / no usable remote-microphone audio.
+A Gate B long-lived READY transport can receive `AUDIO_START reason=0x03 / PHYSICAL_HTT` before the matching HID voice-key down. Current code publishes that transport-level stream as coordinator-owned `remoteStreaming=true`, causing the same physical HID press to fail `voice_session_busy`; the remote route never activates even though BLE audio and decoded PCM are present.
 
-Root cause is UNKNOWN. This task currently authorizes evidence capture and diagnosis only, not a product fix.
+This is a bounded corrective inside Task 042. It is not Gate F and is not authorization for broader redesign.
 
-## Current incident hypothesis boundary
+## Evidence-supported root cause
 
-The trigger/IME path is proven alive by the human observation. The first missing fact is where the remote-audio chain stops:
+The failed runtime bundle proves:
 
-```text
-VOICE DOWN / trigger ownership
-→ strict READY / MIC_OPEN request
-→ AUDIO_START
-→ BLE audio notifications
-→ ATVV decode
-→ PCM submit / AudioPipe feed
-→ Gate D reserve start or tail bypass
-→ CoreAudio render / RemoteOrbit Mic
-```
+- Doubao trigger/profile path is alive;
+- ATVV READY is alive;
+- later physical presses produce pre-HID `PHYSICAL_HTT` `AUDIO_START`;
+- BLE notifications and ADPCM decode can succeed;
+- WAV capture contains decoded PCM;
+- the matching HID press is repeatedly rejected as `voice_session_busy`;
+- `AudioPipe` remains non-routed / reserve waiting / no active render fill while CoreAudio idle callbacks continue.
 
-The next decision depends on identifying the first absent or contradictory stage in the failed runtime session.
+Current source explains the contradiction:
 
-## Authorized work
+- `BLEBridge.handleControl(.audioStart)` calls `AudioPipe.beginRemoteCandidate()`, sets internal `isStreaming=true`, then calls `notifyStreaming(true)` even when the stream is only pre-HID physical transport state;
+- main forwards every `onStreamingChanged(true)` to `voicePress.setRemoteStreaming(true)`;
+- `VoicePressCoordinator.hasReleaseOrTailOwnershipForReconfiguration` includes `remoteStreaming`;
+- direct-session admission therefore rejects the matching HID press.
 
-1. Preserve the currently installed candidate and failed runtime evidence.
-2. Use the existing read-only DiagnosticAuthority CLI only.
-3. Verify diagnostic storage is readable.
-4. Export the existing bounded diagnostic evidence bundle from the failed runtime window; a full current bounded export is acceptable if the exact failure timestamps are not yet known.
-5. Query/snapshot existing events only as needed to establish whether the failed session contains:
-   - trigger/session opening evidence;
-   - `MIC_OPEN` request/transmit evidence;
-   - `AUDIO_START`;
-   - BLE audio ingress / frame continuity evidence;
-   - decoded/submitted PCM evidence;
-   - reserve start/tail-bypass evidence;
-   - rendered/underrun/output-drain evidence;
-   - transport reset/loss evidence.
-6. Return the evidence bundle and a factual first-missing-boundary classification if supported.
-7. If existing evidence cannot discriminate the boundary, name exactly one missing fact and the minimum probe that would resolve it; stop before adding the probe.
+No additional probe is authorized or required before correction.
+
+## Authorized corrective
+
+Implement the smallest design that separates:
+
+1. transport-level/pre-HID ATVV streaming used for bounded pre-roll; and
+2. session-owned streaming used by `VoicePressCoordinator` admission/retirement ownership.
+
+Required semantics:
+
+### A. Pre-HID physical stream must not poison admission
+
+When `AUDIO_START` is observed before HID admission and the stream is not yet owned by a current direct voice session:
+
+- BLE internal stream state may become active;
+- decode/recording/diagnostics may proceed;
+- `AudioPipe.beginRemoteCandidate()` may retain the existing bounded pre-roll;
+- but this fact alone must NOT make `VoicePressCoordinator.hasReleaseOrTailOwnershipForReconfiguration` true for the matching press.
+
+The matching HID down must remain admissible unless there is genuine prior-session release/tail ownership or the existing AUDIO_STOP drain barrier is active.
+
+### B. Adopt an already-active physical stream
+
+If the HID press is admitted while BLE is already streaming from the same physical press:
+
+- establish the normal direct-session/profile/trigger ownership;
+- activate the remote route (`AudioPipe.remoteActive=true`) through the existing coordinator path;
+- preserve and promote the bounded pre-HID PCM candidate into the active route;
+- bind/associate the live transport stream with the current session as needed for truthful diagnostics/retirement;
+- do NOT issue a duplicate host `MIC_OPEN` merely because `voiceInputRequested` became true after physical streaming had already started.
+
+The implementation may expose a bounded BLE query/adoption seam or equivalent session-owned streaming state. Do not create a second audio pipeline or a parallel session authority.
+
+### C. Preserve normal host-MIC_OPEN path
+
+When no physical stream is already active, existing direct admission must continue to:
+
+- request voice input;
+- require strict READY;
+- send exactly one host `MIC_OPEN`;
+- receive AUDIO_START;
+- enter normal session-owned streaming.
+
+### D. Retirement remains Gate A-E compatible
+
+After a stream is adopted/owned:
+
+- `AUDIO_STOP` / transport loss still retire the session;
+- physical UP still enters normal retirement;
+- route-off preserves queued tail;
+- Gate D reserve tail-bypass remains intact;
+- actual ring-empty/output-drain remains the trigger-UP boundary;
+- duplicate/stale callbacks cannot release the next session;
+- no duplicate trigger UP.
+
+If an unowned physical stream stops before HID admission, it must clear its transport/pre-roll state without leaving coordinator ownership or a permanent busy condition.
 
 ## Explicitly not authorized
 
 Do NOT:
 
-- modify product source or tests;
-- change Gate A-E semantics;
-- change the 45 ms reserve;
-- change BLE/ATVV, AudioPipe, ring, driver, mappings, or profile behavior;
-- rebuild, repackage, reinstall, or replace the candidate before preserving current evidence;
-- restart the candidate merely to clear the symptom unless evidence capture is impossible otherwise;
-- reset TCC;
-- reinstall/reload the CoreAudio driver;
-- merge, tag, release, publish, or create Gate F;
-- add probes/instrumentation before proving the existing diagnostics are insufficient;
-- claim a root cause from the symptom alone.
+- disable Gate B long-lived READY transport;
+- disconnect after every session as a workaround;
+- change strict READY;
+- change ATVV packet/codec/framing/capability semantics;
+- change the 45 ms Gate D reserve;
+- change the Gate C 96,000-frame ring or overflow policy;
+- change gain/limiter/resampling;
+- restore SHORT/LONG/Persistent semantics;
+- change driver/install/TCC/Air policy;
+- merge/tag/release/package/install in this corrective;
+- create Gate F;
+- add broad new probes or diagnostic authorities.
 
-## Immediate evidence commands
+## Required tests
 
-Use the installed binary's read-only diagnostic CLI:
+Add deterministic coverage for at least:
 
-```bash
-/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit diagnostics status
-/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit diagnostics verify
-mkdir -p ~/Desktop/RemoteOrbit-Incident-042
-/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit diagnostics export --output ~/Desktop/RemoteOrbit-Incident-042 --host-role controller
-```
+1. `PHYSICAL_AUDIO_START_BEFORE_HID_IS_ADMISSIBLE`
+   - transport reports physical/pre-HID streaming;
+   - matching HID direct press is accepted, not `voice_session_busy`.
 
-The CLI has no restart/reset/repair/install/clear side effects.
+2. `PRE_HID_AUDIO_IS_CANDIDATE_NOT_SESSION_OWNERSHIP`
+   - pre-HID stream does not set coordinator release/tail ownership by itself.
 
-## Evidence decision table
+3. `ADOPT_PHYSICAL_STREAM_WITHOUT_DUPLICATE_MIC_OPEN`
+   - HID admission during already-active physical stream activates route/session ownership;
+   - no host `MIC_OPEN` is transmitted for adoption.
 
-Classify only what the evidence supports:
+4. `PREBUFFER_PROMOTED_ON_ADOPTION`
+   - decoded PCM received before HID admission is retained within existing bounded candidate semantics and becomes renderable after route activation.
 
-- `MIC_OPEN` absent → Gate B/session-intent/READY handoff boundary.
-- `MIC_OPEN` present but `AUDIO_START` absent → ATVV remote/control-stream startup boundary.
-- `AUDIO_START` present but no BLE audio ingress → notification/transport delivery boundary.
-- BLE audio ingress present but no decode/PCM submit → decode/submission boundary.
-- PCM submit present but no reserve/render → AudioPipe/reserve/render boundary.
-- render present but Doubao still has no waveform → virtual-device/consumer routing boundary.
+5. `HOST_MIC_OPEN_PATH_UNCHANGED`
+   - absent pre-existing physical stream, strict READY path still sends one MIC_OPEN and streams normally.
 
-These are classification buckets, not root-cause claims.
+6. `UNOWNED_PHYSICAL_STREAM_STOP_CLEARS_BUSY_STATE`
+   - physical stream that ends before HID admission cannot strand `remoteStreaming`/ownership.
 
-## Completion / stop state
+7. `ADOPTED_STREAM_RETIREMENT`
+   - physical UP/AUDIO_STOP → route inactive → tail/ring drain → exactly-once trigger UP.
 
-Stop after evidence capture and classification at one of:
+8. `RAPID_NEXT_SESSION_AFTER_ADOPTED_STREAM`
+   - next press is admitted after prior drain and stale callbacks cannot affect it.
 
-- `INCIDENT_BOUNDARY_IDENTIFIED / WAITING_FOR_CORRECTIVE_AUTHORIZATION`, or
-- `INCIDENT_EVIDENCE_INSUFFICIENT / MINIMUM_PROBE_REQUIRED`.
+Run relevant regressions:
 
-Do not implement a corrective in the same execution unless Project Governance explicitly re-authorizes source mutation after evidence review.
+- VoicePipelineSimplificationTests;
+- VoiceBoundaryOrderingTests;
+- VoiceTriggerRuntimeTests;
+- BLEBridgeTests including strict READY/reuse;
+- PostReleaseCaptureGraceTests;
+- AudioPipe / AudioPipeRealtime / playout reserve tests;
+- ATVV tests;
+- 041 DiagnosticHardening/continuity/export tests.
+
+Also run full Swift tests, arm64/x86_64 Release builds, protocol self-tests, and `git diff --check`.
+
+## Final diff constraints
+
+Explicitly report:
+
+- LONG_LIVED_READY_CHANGED: YES/NO — expected NO
+- STRICT_READY_CHANGED: YES/NO — expected NO
+- MIC_OPEN_PROTOCOL_CHANGED: YES/NO — expected NO protocol change; only eligibility/adoption semantics may change
+- GATE_C_RING_CHANGED: YES/NO — expected NO
+- GATE_D_45MS_CHANGED: YES/NO — expected NO
+- DRIVER_RUNTIME_CHANGED: YES/NO — expected NO
+- GATE_F_CREATED: YES/NO — expected NO
+
+## Delivery / stop state
+
+After implementation:
+
+1. update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
+2. push only `codex/voice-pipeline-simplification-042`;
+3. verify local/remote exact equality;
+4. stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`;
+5. do not package/install the corrective candidate yet;
+6. do not merge/tag/release.
+
+Return actual evidence only. Do not predeclare PASS.

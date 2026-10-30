@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — HUMAN_RUNTIME_ACCEPTANCE_FAILED / INCIDENT_EVIDENCE_REQUIRED`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — INCIDENT_BOUNDARY_IDENTIFIED / READY_FOR_LOCAL_CORRECTIVE`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -17,42 +17,58 @@ Repository: `Lost0rz/RemoteOrbit`
 - Gate B: `ae0bf10874d34ce556b4b73a506b22f6a9a1a412` — CLOSED / INDEPENDENT AUDIT PASS.
 - Gate C: `9abdebc21a1e03c79ab0ac960bf2d9902c24b1d5` — CLOSED / INDEPENDENT AUDIT PASS.
 - Gate D: `9cdbf6f5190d9ed453d7f15cf2e8192973cc62ad` — CLOSED / INDEPENDENT AUDIT PASS.
-- Gate E / final source candidate: `2d09b6d77f9f75aa46bb4a13838cd22d5589f524` — CLOSED / INDEPENDENT SOURCE AUDIT PASS.
+- Gate E / accepted source candidate: `2d09b6d77f9f75aa46bb4a13838cd22d5589f524` — CLOSED / INDEPENDENT SOURCE AUDIT PASS before runtime acceptance.
 
-## Candidate identity
+## Runtime acceptance result
 
-- Installed candidate: `/Applications/RemoteOrbit.app`.
-- Version/build: `0.2.14 (43)`.
-- Bundle ID: `com.lost0rz.RemoteOrbit`.
-- Candidate preparation previously proved source/control provenance and installed app-bundle equivalence.
-- No merge, tag, release, TCC reset, driver replacement, or source mutation has been authorized after candidate preparation.
+Human runtime acceptance FAILED on installed candidate `0.2.14 (43)`:
 
-## Human runtime acceptance result
+- the RC003 voice key still invokes the configured Doubao trigger;
+- Doubao opens;
+- there is no usable remote-microphone waveform/audio.
 
-Human runtime acceptance is **FAILED**.
+The preserved diagnostic bundle is sufficient. No new probe is required.
 
-Observed failure on the installed candidate:
+## Confirmed incident boundary
 
-- the RC003 voice key still invokes the configured Doubao input-method trigger path;
-- Doubao opens, so the trigger/profile/IME invocation path is alive;
-- there is no visible audio waveform / no usable voice input from the remote microphone.
+Root cause is a session-admission ordering defect exposed by the Gate B long-lived READY transport.
 
-This is a real runtime blocker. Root cause is currently **UNKNOWN**.
+After the first routed attempt, ATVV remains READY with notifications subscribed. On later physical presses, the remote can emit:
 
-The failure narrows the first investigation boundary to the remote-audio path after trigger ownership, especially:
+`AUDIO_START reason=0x03 / session_origin=PHYSICAL_HTT`
 
-`MIC_OPEN request → AUDIO_START → BLE audio notification delivery → ATVV decode → AudioPipe feed / reserve / render`
+before the matching HID voice-key down is admitted.
 
-Do not infer which stage failed until the existing diagnostic journal is inspected.
+Current source behavior then does:
 
-## Current phase — Runtime incident evidence capture
+1. `BLEBridge` accepts the physical `AUDIO_START`, begins bounded remote candidate pre-roll, sets internal `isStreaming=true`, and calls `notifyStreaming(true)`.
+2. The main callback forwards this into `voicePress.setRemoteStreaming(true)`.
+3. `VoicePressCoordinator.hasReleaseOrTailOwnershipForReconfiguration` includes `remoteStreaming`.
+4. The matching HID press is rejected as `voice_session_busy`.
+5. `remoteRouted` / `AudioPipe.remoteActive` never become true for that press.
+6. BLE notifications and ADPCM decode can still succeed, but decoded PCM is not promoted into the active AudioPipe render route.
 
-Freeze the installed candidate and current failure evidence. Do not merge, release, rebuild, reinstall, reset TCC, reload/replace the driver, change the 45 ms reserve, or modify product source.
+Runtime evidence includes repeated physical streams with valid decoded audio while the route remains inactive. Examples include stream 35 with 84 frames / 20,160 samples and stream 44 with 115 frames / 27,600 samples. Their `AUDIOPIPE_SUMMARY` records no active render/fill while idle callbacks continue.
 
-Use the existing read-only DiagnosticAuthority / diagnostic export path first. The immediate goal is to identify the first missing boundary in the failed session without adding probes.
+The detailed incident record is:
+
+`docs/incidents/2026-10-30-042-no-waveform-physical-htt-admission-race.md`
+
+## Corrective direction
+
+Preserve Gate B long-lived READY and Gate C/D/E audio semantics. Separate transport-level pre-HID streaming/pre-roll from session-owned streaming.
+
+Required behavior:
+
+- a pre-HID `PHYSICAL_HTT` stream may decode and retain bounded candidate pre-roll;
+- it must not by itself make the matching HID press fail admission;
+- once the HID press is admitted, the already-active physical stream must be adopted/bound to that session and the remote route activated;
+- adopting an already-active physical stream must not send a duplicate host `MIC_OPEN`;
+- after adoption, normal streaming, tail, drain, trigger-up, stale-callback and rapid-next-session rules remain unchanged;
+- unrelated/stale prior-session ownership must still block admission where appropriate.
 
 ## Stop / next
 
-Perform one read-only diagnostic export/query against the existing failed runtime sample and stop for evidence review.
+Execute only the bounded corrective in `CURRENT_TASK.md`, push the same 042 branch, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
-If existing evidence is sufficient, classify the minimum fault boundary before any corrective source authorization. If existing evidence is insufficient, identify exactly one missing fact and one minimum probe; do not add instrumentation until separately authorized.
+Do not merge, tag, release, change the 45 ms reserve, change the 96,000-frame ring, modify the driver/TCC, or create Gate F.
