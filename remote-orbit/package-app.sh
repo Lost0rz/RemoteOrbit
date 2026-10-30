@@ -6,24 +6,46 @@ APP="$SCRIPT_DIR/dist/RemoteOrbit.app"
 CONTENTS="$APP/Contents"
 
 cd "$SCRIPT_DIR"
-swift build -c release
-ARM64_BINARY="$(swift build -c release --show-bin-path)/RemoteOrbit"
+ARM64_TRIPLE="arm64-apple-macosx13.0"
+X86_64_TRIPLE="x86_64-apple-macosx13.0"
+ARM64_SCRATCH="$(mktemp -d /private/tmp/remoteorbit-arm64.XXXXXX)"
+X86_64_SCRATCH="$(mktemp -d /private/tmp/remoteorbit-x86_64.XXXXXX)"
+trap 'rm -rf "$ARM64_SCRATCH" "$X86_64_SCRATCH"' EXIT
 
 # Keep the distributable app compatible with both Apple Silicon and Intel Macs.
-# SwiftPM builds for the host architecture by default, so compile the second
-# slice in an isolated temporary scratch directory and combine the two slices
-# after the application bundle has been assembled.
-X86_SCRATCH="$(mktemp -d /private/tmp/remoteorbit-x86.XXXXXX)"
-trap 'rm -rf "$X86_SCRATCH"' EXIT
+# Each slice has its own SwiftPM graph and explicit target triple so no host
+# architecture or shared .build output can contaminate the other link.
 swift build \
   -c release \
-  --scratch-path "$X86_SCRATCH" \
-  -Xswiftc -target \
-  -Xswiftc x86_64-apple-macos13.0
+  --scratch-path "$ARM64_SCRATCH" \
+  --triple "$ARM64_TRIPLE"
+ARM64_BINARY="$(swift build \
+  -c release \
+  --scratch-path "$ARM64_SCRATCH" \
+  --triple "$ARM64_TRIPLE" \
+  --show-bin-path)/RemoteOrbit"
+ARM64_ARCHS="$(lipo -archs "$ARM64_BINARY")"
+if [[ "$ARM64_ARCHS" != "arm64" ]]; then
+  print -u2 "Expected arm64-only source binary, got: $ARM64_ARCHS"
+  exit 1
+fi
+print "ARM64 source binary: $ARM64_BINARY ($ARM64_ARCHS)"
+
+swift build \
+  -c release \
+  --scratch-path "$X86_64_SCRATCH" \
+  --triple "$X86_64_TRIPLE"
 X86_BINARY="$(swift build \
   -c release \
-  --scratch-path "$X86_SCRATCH" \
+  --scratch-path "$X86_64_SCRATCH" \
+  --triple "$X86_64_TRIPLE" \
   --show-bin-path)/RemoteOrbit"
+X86_64_ARCHS="$(lipo -archs "$X86_BINARY")"
+if [[ "$X86_64_ARCHS" != "x86_64" ]]; then
+  print -u2 "Expected x86_64-only source binary, got: $X86_64_ARCHS"
+  exit 1
+fi
+print "X86_64 source binary: $X86_BINARY ($X86_64_ARCHS)"
 
 # Generate the native macOS icon as part of every reproducible app build.
 "$SCRIPT_DIR/Packaging/generate-icon.sh" "$SCRIPT_DIR/dist"
@@ -31,6 +53,12 @@ X86_BINARY="$(swift build \
 rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 lipo -create "$ARM64_BINARY" "$X86_BINARY" -output "$CONTENTS/MacOS/RemoteOrbit"
+COMBINED_ARCHS="$(lipo -archs "$CONTENTS/MacOS/RemoteOrbit")"
+if [[ "$COMBINED_ARCHS" != "arm64 x86_64" && "$COMBINED_ARCHS" != "x86_64 arm64" ]]; then
+  print -u2 "Expected Universal2 executable, got: $COMBINED_ARCHS"
+  exit 1
+fi
+print "Universal2 executable: $COMBINED_ARCHS"
 cp "$SCRIPT_DIR/Packaging/Info.plist" "$CONTENTS/Info.plist"
 SOURCE_HEAD="$(git -C "$SCRIPT_DIR" rev-parse HEAD)"
 /usr/libexec/PlistBuddy \
