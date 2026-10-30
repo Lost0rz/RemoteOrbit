@@ -1,109 +1,102 @@
 # RemoteOrbit Current Task
 
-## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Fresh Runtime Incident Evidence Capture
+## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Adopted Physical Grace Intent Corrective
 
-Status: `HUMAN_CORRECTIVE_RUNTIME_RETEST_FAILED / FRESH_INCIDENT_EVIDENCE_REQUIRED`
+Status: `READY_FOR_LOCAL_CORRECTIVE`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
-Accepted corrective source: `7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c`
-Installed candidate: `0.2.14 (43)`
+Accepted corrective source before this incident: `7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c`
+Incident record: `docs/incidents/2026-10-30-042-adopted-physical-grace-intent-race.md`
 Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`
-
-## Observation
-
-The corrective candidate first passed six consecutive human RC003 voice sessions. During later frequent open/close testing, a new failure appeared:
-
-- Doubao still opens;
-- waveform is visible;
-- speech audio is no longer captured / recognized.
-
-This is not the previous no-waveform Physical-HTT admission failure. Root cause is UNKNOWN.
 
 ## Objective
 
-Preserve and inspect the fresh failed runtime window using existing read-only evidence. Determine the first failed or contradictory boundary among:
+Fix one evidence-confirmed lifecycle race left after the first Physical-HTT admission corrective.
 
-1. session/trigger admission;
-2. `MIC_OPEN` / `AUDIO_START`;
-3. BLE audio frame ingress;
-4. ADPCM decode and whether decoded PCM is non-zero/credible;
-5. AudioPipe feed/submission and queue depth;
-6. Gate D reserve start/tail-bypass;
-7. CoreAudio render callbacks and whether rendered remote frames/samples are non-zero;
-8. virtual microphone / consumer-side readiness where already observable.
+An adopted physical stream can finish healthy AUDIO_STOP/tail retirement after physical release while its BLE post-release grace still retains stale `voiceInputRequested=true`. A rapid next physical AUDIO_START then becomes `session_origin=UNKNOWN`, is treated as session-owned streaming, and poisons the matching HID admission with `voice_session_busy` even though BLE continues decoding real PCM.
 
-The immediate decision is whether the failure is transport/content, AudioPipe/render, or downstream virtual-mic consumption.
+This is a bounded corrective inside Task 042. It is not Gate F and does not authorize broader redesign.
 
-## Authorized work
+## Evidence-supported root cause
 
-Evidence capture/diagnosis only:
+The fresh runtime window establishes:
 
-- preserve the currently running failed candidate state;
-- use the existing installed `diagnostics status`, `diagnostics verify`, and `diagnostics export` path;
-- copy the current `~/Library/Logs/RemoteOrbit/RemoteOrbit.log` if present;
-- inspect existing journal/runtime evidence for the fresh failure window;
-- compare the six successful corrective sessions against the first failed post-smoke session if timestamps/events allow;
-- classify the minimum evidence-supported fault boundary;
-- if existing evidence is insufficient, identify exactly one missing fact and one minimum probe, then STOP before adding it.
+- the preceding adopted physical session rendered audio successfully and returned coordinator state to idle;
+- physical release had started the existing post-release grace;
+- healthy AUDIO_STOP/tail retirement completed before that grace expired;
+- the next physical AUDIO_START occurred while stale BLE `voiceInputRequested=true` remained;
+- `micOpenRequested=false && voiceInputRequested=true` maps to `ATVVSessionOrigin.UNKNOWN`;
+- current ownership mapping treats UNKNOWN as `voiceSession`;
+- `notifyStreaming(true)` therefore made the coordinator busy before matching HID DOWN;
+- matching HID was rejected `voice_session_busy`;
+- BLE still decoded credible non-zero PCM, while AudioPipe remained unrouted with zero render callbacks.
+
+Existing evidence is sufficient. Do not add a probe.
+
+## Authorized corrective
+
+Implement the smallest lifecycle correction for an **adopted physical stream only**.
+
+After all of the following are true:
+
+1. the live stream was originally `PHYSICAL_HTT` and was adopted into the direct session;
+2. no host `MIC_OPEN` was issued for that stream;
+3. physical release occurred and the post-release grace is currently waiting for that session;
+4. healthy `AUDIO_STOP` tail/drain has completed;
+
+then:
+
+- cancel/retire only that obsolete post-release grace;
+- retire the old BLE voice intent (`voiceInputRequested`) for that adopted physical session;
+- keep the Gate B READY transport reusable;
+- do not send host `MIC_CLOSE`, because no host MIC_OPEN was issued;
+- do not alter coordinator tail/ring-empty/output-drain/trigger-UP ordering.
+
+Prefer the lifecycle point where healthy AUDIO_STOP drain completion already owns stream retirement. Keep the mutation session/stream-specific and stale-callback-safe.
+
+### Important negative case
+
+If AUDIO_STOP completes **before physical release**, do not retire the voice intent merely because the stream was physical. The later physical release still owns the session close transition.
+
+### Do not solve this by broad UNKNOWN reclassification
+
+`UNKNOWN` is a state observation, not proof that every such stream belongs to pre-HID physical transport. Do not globally map UNKNOWN to `preHIDPhysical`.
+
+## Required deterministic tests
+
+Add focused coverage for at least:
+
+1. `ADOPTED_PHYSICAL_RELEASE_AND_AUDIO_STOP_RETIRES_STALE_INTENT`;
+2. `ADOPTED_PHYSICAL_RETIREMENT_PRESERVES_READY`;
+3. `RAPID_NEXT_PHYSICAL_STREAM_DURING_FORMER_GRACE_IS_ADMISSIBLE`;
+4. `HOST_MIC_OPEN_GRACE_UNCHANGED`;
+5. `AUDIO_STOP_BEFORE_PHYSICAL_RELEASE_DOES_NOT_RETIRE_INTENT`;
+6. `STALE_GRACE_CALLBACK_CANNOT_MUTATE_NEXT_SESSION`;
+7. `REPEATED_RAPID_ADOPTED_PHYSICAL_SESSIONS_REMAIN_ADMISSIBLE`.
+
+Run relevant BLEBridge, VoicePipelineSimplification, VoiceBoundaryOrdering, VoiceTriggerRuntime, PostReleaseCaptureGrace, AudioPipe/realtime/reserve, ATVV, and diagnostic regressions, plus full Swift tests, arm64/x86_64 Release builds, protocol self-tests, and `git diff --check`.
 
 ## Explicitly not authorized
 
-Do NOT:
+Do NOT broadly remap UNKNOWN; disable long-lived READY; disconnect per session; change strict READY, ATVV protocol/codec, Gate C ring, Gate D 45 ms, gain/resampling, driver/TCC/install/runtime policy; package/install; merge/tag/release; create Gate F; or add broad probes.
 
-- modify product source/tests/package scripts;
-- restart RemoteOrbit merely to clear the symptom;
-- disconnect/reconnect RC003/ATVV merely to clear the symptom;
-- reinstall/repackage;
-- reset TCC;
-- replace/reload the CoreAudio driver;
-- change Gate B long-lived READY/strict READY;
-- change Gate C ring;
-- change Gate D 45 ms reserve;
-- change ATVV protocol/codec;
-- merge/tag/release/publish;
-- create Gate F;
-- add probes before proving one missing fact requires them.
+If the minimal fix requires changing preserved architecture, STOP and report the dependency.
 
-## Immediate evidence capture
+## Final diff requirements
 
-Run against the currently installed failed runtime:
+Explicitly report:
 
-```bash
-mkdir -p ~/Desktop/RemoteOrbit-Incident-042-AudioSilent
+- UNKNOWN_GLOBAL_RECLASSIFICATION: YES/NO — expected NO
+- LONG_LIVED_READY_CHANGED: YES/NO — expected NO
+- STRICT_READY_CHANGED: YES/NO — expected NO
+- HOST_MIC_OPEN_GRACE_CHANGED: YES/NO — expected NO
+- MIC_CLOSE_PROTOCOL_CHANGED: YES/NO — expected NO
+- GATE_C_RING_CHANGED: YES/NO — expected NO
+- GATE_D_45MS_CHANGED: YES/NO — expected NO
+- DRIVER_RUNTIME_CHANGED: YES/NO — expected NO
+- GATE_F_CREATED: YES/NO — expected NO
 
-"/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit" diagnostics status
-"/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit" diagnostics verify
-"/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit" diagnostics export \
-  --output ~/Desktop/RemoteOrbit-Incident-042-AudioSilent \
-  --host-role controller
+## Delivery / stop state
 
-cp ~/Library/Logs/RemoteOrbit/RemoteOrbit.log \
-  ~/Desktop/RemoteOrbit-Incident-042-AudioSilent/ 2>/dev/null || true
-```
-
-Do not restart before capture.
-
-## Return contract
-
-Return only observed evidence:
-
-- candidate PID/path/version if still observable;
-- export artifact path/name;
-- diagnostic verify result;
-- failure-window timestamps if available;
-- last successful session before failure;
-- first failed session;
-- `MIC_OPEN` / `AUDIO_START` presence;
-- BLE frame/sample counts;
-- decode reject/error counts;
-- decoded PCM content evidence if existing diagnostics expose it;
-- AudioPipe submitted/queued/rendered frame counts;
-- reserve state/start reason;
-- underrun/starvation counts;
-- transport reset/loss events;
-- virtual-mic/IOProc readiness evidence already present;
-- factual first-missing/contradictory boundary, or `UNKNOWN` if evidence cannot discriminate;
-- one minimum missing fact/probe only if needed.
-
-Stop after evidence capture/diagnosis. No product correction is authorized yet.
+After implementation, update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together with actual evidence, commit/push only the existing 042 branch, verify local/remote equality, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, merge, tag, release, or start another gate.

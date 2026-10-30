@@ -1,46 +1,37 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — HUMAN_CORRECTIVE_RUNTIME_RETEST_FAILED / FRESH_INCIDENT_EVIDENCE_REQUIRED`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — SECOND_RUNTIME_INCIDENT_BOUNDARY_IDENTIFIED / READY_FOR_LOCAL_CORRECTIVE`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
 
 - Active branch: `codex/voice-pipeline-simplification-042`.
-- Accepted corrective source: `7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c` — independent CODE_DIFF audit PASS.
-- Installed corrective candidate: `0.2.14 (43)`, previously prepared/provenance-locked from that accepted corrective lineage.
+- Accepted corrective source before the second runtime incident: `7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c` — independent CODE_DIFF audit PASS.
+- Installed corrective candidate: `0.2.14 (43)`.
+- Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`.
+- Incident record: `docs/incidents/2026-10-30-042-adopted-physical-grace-intent-race.md`.
 - `AGENTS.md` remains durable repository authority.
 - `CURRENT_TASK.md` is the sole active execution authorization.
-- Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`.
 
-## Runtime retest result
+## Confirmed second incident boundary
 
-The first corrective smoke retest passed `6/6` real RC003 sessions without restarting RemoteOrbit or intentionally reconnecting ATVV.
+The prior corrective passed six consecutive RC003 sessions. In later rapid open/close use, fresh evidence showed that a healthy adopted physical session could finish AUDIO_STOP and return the coordinator to idle while the BLE post-release grace still retained `voiceInputRequested=true`.
 
-A later high-frequency open/close test then produced a new runtime failure mode:
+The next physical AUDIO_START therefore observed `micOpenRequested=false && voiceInputRequested=true`, became `session_origin=UNKNOWN`, was published as session-owned streaming, and caused the matching HID DOWN to be rejected `voice_session_busy`. BLE still decoded credible non-zero PCM while AudioPipe remained unrouted with zero render callbacks.
 
-- Doubao still opens;
-- an input waveform is visible;
-- but usable speech audio is no longer captured / recognized.
+This is an admission/lifecycle race, not a downstream PCM/virtual-mic silence defect.
 
-This is different from the prior incident where Doubao opened with no waveform. The earlier Physical-HTT admission corrective therefore remains source-accepted, but overall runtime acceptance is FAILED again.
+## Corrective boundary
 
-Root cause for the new failure is currently **UNKNOWN**.
+Do not broadly reclassify UNKNOWN.
 
-The observed symptom suggests the session/route/UI path may still be alive, but it does not prove whether the decoded PCM is non-zero, whether AudioPipe receives/queues/renders valid non-zero samples, or whether the virtual microphone consumer receives them.
+For an adopted physical stream only, after physical release and healthy AUDIO_STOP tail/drain completion, retire the stale BLE voice intent and obsolete grace immediately while retaining Gate B READY. Host-MIC_OPEN grace/MIC_CLOSE behavior must remain unchanged.
 
-## Incident boundary
+Preserve strict READY, long-lived READY, ATVV protocol/codec, Gate C ring, Gate D 45 ms reserve, trigger/tail/output-drain ordering, driver and TCC policy.
 
-Freeze the currently running corrective candidate and preserve this fresh failure. Do not restart RemoteOrbit, disconnect/reconnect RC003/ATVV, reinstall, change TCC/driver, change the 45 ms reserve, merge, tag, or release before evidence capture unless evidence collection is otherwise impossible.
-
-Use the existing diagnostic/runtime evidence first. No new probe is authorized yet.
-
-Immediate question:
-
-`AUDIO_START / BLE ingress → decoded PCM content → AudioPipe feed/queue → reserve/render → RemoteOrbit Mic consumer`
-
-Identify the first stage that is absent, zero-valued, stalled, or contradictory in this fresh failure window.
+No additional probe is required.
 
 ## Stop / next
 
-Perform read-only fresh-incident evidence capture under `CURRENT_TASK.md` and stop for independent review. Do not modify product source until the fault boundary is evidence-supported.
+Execute only the bounded corrective in `CURRENT_TASK.md`; push the existing 042 branch and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, merge, tag, release, or create Gate F.
