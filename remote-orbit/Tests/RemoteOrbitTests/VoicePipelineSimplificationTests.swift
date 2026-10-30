@@ -236,6 +236,103 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         XCTAssertEqual(harness.press.currentStateForTesting, .idle)
     }
 
+    func testTransportSupersessionRetiresAThenPromotesBWithCandidatePreserved() throws {
+        let harness = try HardwareRapidRepressHarness()
+        let candidateSamples: [Int16] = [101, 202, 303, 404]
+        _ = AudioPipe.shared.setRemoteActive(false)
+        AudioPipe.shared.endRemoteCandidate()
+        defer {
+            _ = AudioPipe.shared.setRemoteActive(false)
+            AudioPipe.shared.endRemoteCandidate()
+        }
+
+        XCTAssertTrue(
+            harness.press.keyDown(
+                sessionID: harness.sessionA,
+                usesHardwareOption: true,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        let oldDown = try XCTUnwrap(harness.makeMappedEvent(keyDown: true))
+        XCTAssertTrue(
+            harness.filter.captureDeferredHardwareOptionEdge(
+                .down,
+                copiedEvent: oldDown
+            )
+        )
+        harness.filter.releaseDeferredOption(
+            gestureID: harness.sessionA,
+            reason: "test-long-ready"
+        )
+        harness.press.setRemoteStreaming(true)
+        XCTAssertTrue(harness.press.keyUp())
+        let oldUp = try XCTUnwrap(harness.makeMappedEvent(keyDown: false))
+        XCTAssertEqual(
+            harness.filter.captureHeldHardwareOptionUpEvent(oldUp, type: oldUp.type),
+            .captured
+        )
+
+        // B's physical AUDIO_START has already established candidate ownership
+        // before the coordinator receives A's terminal transport boundary.
+        AudioPipe.shared.beginRemoteCandidate(replacingExisting: true)
+        AudioPipe.shared.feedCandidate(samples: candidateSamples)
+        harness.press.setPreHIDPhysicalStreaming(true)
+        XCTAssertEqual(
+            AudioPipe.shared.pendingRemoteCandidateSamplesForTesting,
+            candidateSamples.count
+        )
+        harness.press.handlePhysicalTransportSupersession()
+        XCTAssertNotNil(harness.completeDrain)
+
+        let sessionB = UUID()
+        XCTAssertTrue(
+            harness.press.keyDown(
+                sessionID: sessionB,
+                usesHardwareOption: true,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        let newDown = try XCTUnwrap(harness.makeMappedEvent(keyDown: true))
+        XCTAssertEqual(
+            harness.filter.capturePendingHardwareOptionRepressEvent(
+                newDown,
+                type: newDown.type
+            ),
+            .captured
+        )
+        XCTAssertEqual(harness.press.currentGestureIDForDiagnostics, harness.sessionA)
+        XCTAssertEqual(
+            AudioPipe.shared.pendingRemoteCandidateSamplesForTesting,
+            candidateSamples.count,
+            "A terminal teardown must not clear B candidate PCM"
+        )
+
+        let promoted = expectation(description: "B promotes after A trigger ACK")
+        harness.press.onStateChanged = { state in
+            if state == .opening {
+                promoted.fulfill()
+            }
+        }
+        harness.completeOldOutputDrain()
+        let replayedOldUp = try XCTUnwrap(harness.replayedEvents.first)
+        XCTAssertTrue(
+            harness.filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+                replayedOldUp,
+                type: replayedOldUp.type
+            )
+        )
+        wait(for: [promoted], timeout: 1)
+
+        XCTAssertEqual(harness.press.currentGestureIDForDiagnostics, sessionB)
+        XCTAssertEqual(
+            AudioPipe.shared.pendingRemoteCandidateSamplesForTesting,
+            0,
+            "promoted B must adopt and flush its preserved candidate PCM"
+        )
+    }
+
     func testAdmissionBlockedPromotedHardwareRepressDoesNotReplayOrLeakOwnership() throws {
         let harness = try HardwareRapidRepressHarness()
         let sessionB = try harness.preparePendingHardwareRepress()

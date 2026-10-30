@@ -508,6 +508,7 @@ final class VoicePressCoordinator {
     private var capturedVoiceProfile: VoiceInputProfile?
     private var directPhysicalUp = false
     private var directTransportStopObserved = false
+    private var preserveCandidateForDirectTransportStop = false
     private var directOutputDrainRequested = false
     private var directOutputDrained = false
     private var pendingDirectHardwareRepressAwaitingOldUp = false
@@ -949,6 +950,7 @@ final class VoicePressCoordinator {
         capturedVoiceProfile = profile
         directPhysicalUp = false
         directTransportStopObserved = false
+        preserveCandidateForDirectTransportStop = false
         directOutputDrainRequested = false
         directOutputDrained = false
         usesHardwareOptionPath = usesHardwareOption
@@ -1044,7 +1046,9 @@ final class VoicePressCoordinator {
               directTransportStopObserved,
               directPhysicalUp || allowWithoutPhysicalUp else { return }
         setMode(.draining)
-        AudioPipe.shared.endRemoteCandidate()
+        if !(preserveCandidateForDirectTransportStop && livePhysicalCandidateForAdmission) {
+            AudioPipe.shared.endRemoteCandidate()
+        }
         _ = setRemoteRouted(false)
         requestDirectOutputDrain(
             sessionID: sessionID,
@@ -1107,6 +1111,7 @@ final class VoicePressCoordinator {
         directSession = false
         directPhysicalUp = false
         directTransportStopObserved = false
+        preserveCandidateForDirectTransportStop = false
         directOutputDrainRequested = false
         directOutputDrained = false
         capturedVoiceProfile = nil
@@ -1121,7 +1126,7 @@ final class VoicePressCoordinator {
         pendingVoiceUIHidden = false
         gestureID = nil
         _ = syntheticOptionTrigger.abort(sessionID: sessionID)
-        if !preHIDPhysicalStreaming {
+        if !preHIDPhysicalStreaming && !livePhysicalCandidateForAdmission {
             AudioPipe.shared.endRemoteCandidate()
         }
         _ = setRemoteRouted(false)
@@ -1909,6 +1914,32 @@ final class VoicePressCoordinator {
             "[PRESS] ATVV streaming=\(streaming); " +
             "gesture=\(modeName); routed=\(remoteRouted)"
         )
+    }
+
+    /// Retire the old direct session's transport ownership when a distinct
+    /// physical AUDIO_START supersedes its BLE drain. This is intentionally a
+    /// separate event from `setRemoteStreaming(false)`: A must begin its
+    /// existing output/trigger-UP lifecycle while B's candidate remains live.
+    func handlePhysicalTransportSupersession() {
+        guard directSession, let sessionID = gestureID else { return }
+        remoteStreaming = false
+        directTransportStopObserved = true
+        preserveCandidateForDirectTransportStop = true
+        onRemoteAudioChanged?(false)
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "PHYSICAL_TRANSPORT_SUPERSEDED",
+            gestureID: sessionID,
+            key: capturedVoiceProfile?.triggerKey,
+            fields: [
+                "voice_session_state": modeName,
+                "preserve_replacement_candidate": true,
+                "physical_up_seen": directPhysicalUp,
+            ]
+        )
+        if directPhysicalUp {
+            finishDirectTransportStop(sessionID: sessionID)
+        }
     }
 
     /// The BLE transport may announce AUDIO_START before delivering any PCM.
@@ -6401,6 +6432,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.remoteStreaming = streaming
             DiagnosticRuntimeHealthRegistry.shared.setBool("atvv_streaming", streaming)
             self?.updateStatus()
+        }
+        ble.onPhysicalTransportSuperseded = { [weak self] in
+            self?.voicePress.handlePhysicalTransportSupersession()
         }
         ble.onPreHIDPhysicalStreamChanged = { [weak self] streaming, _ in
             self?.voicePress.setPreHIDPhysicalStreaming(streaming)

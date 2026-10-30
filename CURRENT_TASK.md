@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Rapid Re-press Transport-Epoch Corrective
 
-Status: `CORRECTIVE_REQUIRED`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
@@ -25,6 +25,26 @@ the A teardown path can clear B's candidate/prebuffer.
 This task now authorizes only the bounded A-terminal/B-preservation corrective
 below. The current source, tests, and control records must be updated together
 again after implementation.
+
+## A-terminal/B-preservation implementation evidence (2026-10-31)
+
+- BLE now emits a dedicated physical-transport-supersession event after B's
+  candidate epoch is installed.
+- The direct coordinator terminally retires A transport ownership while a live
+  BLE candidate exists, so the existing A output-drain and trigger-UP/
+  replay-ACK lifecycle can complete without destroying B prebuffer.
+- A completion checks BLE-owned candidate truth before candidate teardown; B
+  promotion then adopts and flushes the preserved candidate PCM.
+- The complete deterministic A→B lifecycle regression is GREEN.
+- RED: the lifecycle test failed before implementation because the coordinator
+  had no physical-transport-supersession API.
+- Focused boundary tests: 96 passed, 0 failed.
+- Full Swift tests: 604 passed, 0 failed.
+- ARM64 Release and x86_64 Release builds passed with exact single-arch
+  validation.
+- ATVV protocol self-tests passed 3/3; `git diff --check` passed.
+- No package/install/runtime retest, driver/TCC mutation, merge/tag/release, or
+  Gate F was performed.
 
 ## Objective
 
@@ -99,7 +119,7 @@ The test must also prove stale A retirement cannot clear or mutate B. If this
 cannot be separated within the existing coordinator/AudioPipe ownership model,
 stop and report the exact dependency instead of broadening the architecture.
 
-## Delivered implementation evidence (2026-10-31)
+## Prior corrective implementation evidence (2026-10-31)
 
 - Finding validated: the old source rejected all AUDIO_START events during a
   physical AUDIO_STOP drain, allowed candidate PCM to consult the old active

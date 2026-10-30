@@ -1,13 +1,13 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — CORRECTIVE_REQUIRED`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
 
 - Active branch: `codex/voice-pipeline-simplification-042`.
-- Live branch before this control transition: `4902223a28d1b051dd36608df16eb946377aa3fe`.
+- Live branch before this corrective transition: `492b8a41b3e5655e8b960f94554920b58e6c56b4`.
 - Independent Web `CODE_DIFF` audit reviewed `f1b0f700fe618d744afdb0a3350b33cc87880d53` and returned `STOP`.
 - Independent Web `CODE_DIFF` audit PASS remains valid for the prior admission-atomic source through `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`.
 - Installed RC003 candidate: `0.2.14 (43)`, packaged from control state `00106e6d02b6fc21030737cd660b456976db68e9`; this candidate FAILED final Task 042 human runtime acceptance under extreme rapid re-press.
@@ -29,6 +29,32 @@ The newly authorized bounded corrective is to publish an explicit A transport
 supersession terminal event that preserves B candidate ownership, then let the
 existing output-drain and trigger-UP/ACK serialization promote B. No protocol,
 driver, TCC, READY, tail, debounce, Gate C, or Gate D change is authorized.
+
+## A-terminal/B-preservation corrective evidence
+
+The source-audit STOP is addressed within the existing ownership model:
+
+- BLE emits a dedicated physical-transport-supersession event after B's
+  candidate epoch is installed.
+- The direct coordinator marks A transport terminal, preserves the live B
+  candidate, and enters the existing A output-drain and hardware trigger-UP/
+  replay-ACK lifecycle.
+- A completion and stale-callback paths retain B candidate PCM; B promotion
+  reuses the candidate path and flushes the preserved prebuffer only when the
+  B route becomes active.
+- The complete deterministic A→B lifecycle regression is GREEN.
+
+Verification evidence for this corrective:
+
+- Focused Task 042 boundary suite: 96 tests, 0 failures.
+- Full Swift test suite: 604 tests, 0 failures.
+- ARM64 Release build: PASS; single `arm64` binary verified.
+- x86_64 Release build: PASS; single `x86_64` binary verified.
+- ATVV protocol self-tests: 3/3 PASS; `git diff --check`: PASS.
+- RED evidence: the new lifecycle test failed before implementation because the
+  coordinator had no physical-transport-supersession API.
+- No package/install/runtime retest, driver, CoreAudio, or TCC mutation was
+  performed.
 
 ## RC003 corrective implementation evidence
 
@@ -147,8 +173,6 @@ Keep generic 180 ms debounce behavior. For the microphone voice key only, a rapi
 
 ## Next
 
-Implement and test the bounded A-terminal/B-preservation corrective, update
-these controls with the implementation evidence, push only the existing 042
-branch, verify exact local/remote equality, and stop at
-`WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install or perform the
-human RC003 runtime retest.
+Push only the existing 042 branch, verify exact local/remote equality, and
+stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install or perform
+the human RC003 runtime retest.

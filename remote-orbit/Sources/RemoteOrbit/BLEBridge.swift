@@ -221,6 +221,10 @@ final class BLEBridge: NSObject {
     /// Called for a physical HTT stream that exists before the matching HID
     /// press. This is candidate transport state, not VoicePress ownership.
     var onPreHIDPhysicalStreamChanged: ((Bool, Int /* sampleRate */) -> Void)?
+    /// Called when a new physical transport epoch supersedes an old physical
+    /// AUDIO_STOP drain. The coordinator must retire A's transport ownership
+    /// without clearing B's already-live candidate/prebuffer.
+    var onPhysicalTransportSuperseded: (() -> Void)?
     /// Called after a decoded remote audio frame is available. A stream can be
     /// announced before its first frame; the voice UI waits for this callback
     /// before opening the external voice dialog.
@@ -1429,6 +1433,11 @@ final class BLEBridge: NSObject {
         }
     }
 
+    private func notifyPhysicalTransportSuperseded() {
+        guard let callback = onPhysicalTransportSuperseded else { return }
+        DispatchQueue.main.async(execute: callback)
+    }
+
     private func adoptPreHIDPhysicalStreamIfNeeded() -> Bool {
         guard isStreaming, streamOwnership == .preHIDPhysical else { return false }
         streamOwnership = .voiceSession
@@ -1814,6 +1823,9 @@ extension BLEBridge: CBPeripheralDelegate {
                     micOpenRequested: transportState.micOpenRequested,
                     voiceInputRequested: transportState.voiceInputRequested
                 )
+            if supersedingPhysicalDrain {
+                notifyPhysicalTransportSuperseded()
+            }
             if streamOwnership == .preHIDPhysical {
                 notifyPreHIDPhysicalStreaming(true)
             } else {
