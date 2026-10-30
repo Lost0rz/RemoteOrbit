@@ -1,8 +1,8 @@
 # RemoteOrbit Current Task
 
-## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Gate C Realtime-safe Audio Data Plane
+## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Gate D Small Measured Jitter Reserve
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `READY_FOR_LOCAL_GATE_D`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -10,13 +10,15 @@ Active branch: `codex/voice-pipeline-simplification-042`
 
 Frozen evidence baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`
 
-Gate A accepted semantic head: `50b1d9efabe15f04d5479b39af227d0e6f43a4e3`
+Accepted semantic heads:
 
-Gate B accepted semantic head: `ae0bf10874d34ce556b4b73a506b22f6a9a1a412`
+- Gate A: `50b1d9efabe15f04d5479b39af227d0e6f43a4e3`
+- Gate B: `ae0bf10874d34ce556b4b73a506b22f6a9a1a412`
+- Gate C: `9abdebc21a1e03c79ab0ac960bf2d9902c24b1d5`
 
 ## Objective
 
-Continue the already-decided single-path voice architecture by making the PCM playback data plane realtime-safe and bounded without changing BLE/ATVV semantics or introducing jitter tuning.
+Continue the accepted single-path voice architecture by adding one small, explicit, measurable playout-start reserve that can absorb short BLE arrival jitter while preserving Gate A/B/C semantics and keeping permanent upstream delivery deficit a separate problem.
 
 The user-facing product contract remains:
 
@@ -24,170 +26,188 @@ The user-facing product contract remains:
 VOICE DOWN
 → trigger + remote voice opening
 → BLE/ATVV decode
-→ PCM playback
+→ Gate C PCM ring
+→ bounded Gate D startup reserve
+→ CoreAudio playout
 
 VOICE UP
 → BLE/audio-stop tail completes
-→ queued output drains
+→ queued output drains fully
 → same trigger UP
 ```
-
-Gate C changed only the decoded-PCM → CoreAudio data plane. The local
-implementation and required verification are complete; the branch is waiting
-for the independent Web audit required by the control plane.
 
 ## Prior accepted gates
 
 ### Gate A — CLOSED / PASS
 
-Single direct voice-session path; no production SHORT/LONG/DOUBLE/Persistent/Receiver-A-B mode; captured VoiceInputProfile owns the whole session; tail trigger release remains downstream of BLE/audio and output drain.
+Single direct voice-session path; no primary SHORT/LONG/DOUBLE/Persistent/Receiver-A-B mode; one captured VoiceInputProfile/trigger owns the complete session; tail release remains downstream of BLE/audio/output drain.
 
 ### Gate B — CLOSED / PASS
 
-Accepted head: `ae0bf10874d34ce556b4b73a506b22f6a9a1a412`.
+Long-lived strict-READY ATVV transport on dedicated BLE queue; healthy transport reuse across sessions; stale/reset state rejected; Gate A tail/admission ordering preserved.
 
-- dedicated serial BLE queue `com.remoteorbit.ble`;
-- strict ATVV READY and healthy READY reuse across sessions;
-- main callback isolation;
-- genuine failure clears stale transport state;
-- post-release grace / 350 ms AUDIO_STOP drain / admission barrier preserved;
-- no AudioPipe architecture or jitter change.
+### Gate C — CLOSED / PASS
 
-## Gate C — Realtime-safe audio data plane — LOCAL IMPLEMENTATION COMPLETE
+Accepted head: `9abdebc21a1e03c79ab0ac960bf2d9902c24b1d5`.
+
+- preallocated 96,000-frame structural PCM ring;
+- direct ring-to-`AudioBufferList` realtime render;
+- no producer `stateLock` in CoreAudio callback;
+- no dynamic PCM queue growth/compaction in render;
+- bounded atomic realtime diagnostics/mailbox;
+- explicit underflow/overflow policy;
+- normal tail retained, new session/reset clears stale PCM;
+- output drain requires actual ring empty;
+- no jitter/startup reserve was introduced in Gate C.
+
+Independent Web `CODE_DIFF` audit accepted Gate C source semantics. Installed/hardware/Air natural-use acceptance remains pending and is not implied by this source acceptance.
+
+## Gate D — Small measured jitter reserve — AUTHORIZED
 
 ### Goal
 
-Replace the current dynamic, lock-sharing PCM queue/render path with a bounded fixed-capacity producer/consumer path so the CoreAudio realtime callback does not allocate, compact Swift Arrays, perform formatting/I/O, or acquire the current ordinary producer lock.
+Add the smallest practical startup playout reserve needed to absorb short BLE arrival jitter without hiding or reclassifying permanent upstream delivery deficit.
 
-### Required target model
+Gate D is latency/jitter policy only. It must not redesign the Gate C ring, BLE transport, ATVV protocol, trigger/session ownership, or tail shutdown.
 
-Producer side:
+### Required model
 
-```text
-BLE queue
-→ ATVV decode
-→ existing gain/limiter/resample semantics
-→ fixed-capacity PCM ring write
-```
-
-Consumer side:
+Per new remote voice stream:
 
 ```text
-CoreAudio IOProc
-→ fixed-capacity PCM ring read
-→ copy directly to output buffers
-→ zero-fill true underflow
-→ return
+OPENING / remote active
+→ PCM begins entering Gate C ring immediately
+→ playout waits only until the selected reserve threshold is reached
+→ playout starts once
+→ after start, render consumes normally at CoreAudio rate
+→ no automatic rebuffer/re-arm during the same stream
 ```
 
-Single producer is the existing BLE/audio submission path. Single consumer is the CoreAudio render callback.
+Tail behavior:
+
+```text
+remote route inactive / draining
+→ reserve gate is permanently bypassed for that stream
+→ every queued tail frame remains renderable
+→ output drain completes only when actual ring is empty
+```
+
+### Candidate reserve values
+
+The authorized evidence range is:
+
+- `0 ms` control;
+- `45 ms`;
+- `75 ms`;
+- `100 ms`.
+
+No Gate D implementation/default above 100 ms is authorized.
+
+The executor must implement the reserve as one explicit, testable configuration/constant seam and compare these candidates with deterministic arrival-pattern tests. A bounded default may be selected only from this set and must be justified by the recorded synthetic/evidence comparison, not by guesswork.
+
+The current project evidence motivating the range is short arrival jitter commonly in the tens of milliseconds, with observed material gaps extending into roughly the 30–80 ms range. This reserve is not expected to repair sustained/missing-delivery deficit.
 
 ### Authorized work
 
-1. Introduce one fixed-capacity SPSC PCM ring or equivalently bounded single-writer/single-reader structure for remote PCM playout.
-2. Preallocate storage needed by the realtime render path before callbacks begin.
-3. Remove dynamic `pendingOutput` growth/compaction from the active realtime path.
-4. Remove the ordinary shared producer/consumer `NSLock` from the realtime callback path. If a minimal atomic/index mechanism is required, keep it bounded and realtime-appropriate.
-5. Preserve current submitted/rendered/queue-depth/underrun/tail/overflow diagnostic meaning. Adapt counters only where necessary to remain truthful with the new representation.
-6. Preserve existing AudioPipe public behavior used by Gate A/B, including remote candidate/routing, output-drain completion, diagnostics snapshots, local-mic behavior, gain/limiter/resample semantics, and virtual-device output contract.
-7. Keep output drain event-driven by actual queued PCM becoming empty, not by introducing a new arbitrary fixed delay.
-8. Keep explicit bounded overflow behavior. If the fixed ring becomes full, record the drop truthfully; do not silently overwrite unread PCM unless the current task implementation explicitly proves that policy is required and tests it.
-9. Preserve one canonical writer and existing 041 observability authority.
+1. Add one explicit per-stream playout-start state such as `waitingForReserve → started` around the accepted Gate C consumer path.
+2. Convert the selected reserve milliseconds to output frames at the existing 48 kHz output rate.
+3. While remote is active and playout has not started, output silence without consuming queued remote PCM until the threshold is reached.
+4. Once threshold is reached, start consuming immediately and never re-arm the reserve during that stream.
+5. If the stream enters tail/draining before threshold is reached, bypass the threshold and drain all queued PCM; do not strand short utterances.
+6. Reset the reserve state only at a truthful new-session/reset boundary.
+7. Add truthful diagnostics for configured reserve, actual playout-start queue depth, and reserve wait duration using existing diagnostic authority; do not add a second always-on authority/ring.
+8. Keep the selected reserve/default centralized and easily auditable.
+9. Preserve the accepted Gate C fixed-capacity ring and realtime constraints.
 
 ### Realtime requirements
 
-The production CoreAudio render callback must not perform:
+The CoreAudio callback must remain within Gate C realtime constraints. Gate D reserve checks may use only fixed scalar/atomic state and queue-depth reads. Do not add:
 
-- heap allocation for per-callback sample arrays;
-- Swift Array append/removeFirst/compaction/growth;
-- ordinary blocking `NSLock` acquisition shared with the producer;
-- disk/file I/O;
-- JSON/string formatting/log printing;
+- ordinary blocking locks;
+- allocation;
+- dynamic collections;
+- string/JSON/log formatting;
+- file I/O;
 - main-thread dispatch/waits.
 
-The callback may perform fixed-size/index arithmetic, bounded memory copies, zero-fill, and realtime-safe counter updates needed for existing diagnostics.
+### Required evidence tests
+
+At minimum provide deterministic tests for:
+
+1. `0 ms` control begins consuming the first available PCM immediately.
+2. `45/75/100 ms` candidates do not consume before their threshold and start exactly once when threshold is reached.
+3. After playout starts, a later queue dip/underflow does not re-arm or pause into a second reserve cycle.
+4. A short utterance released before reserve threshold bypasses the gate during drain and renders all queued tail PCM.
+5. Tail/output-drain completion remains based on actual ring empty, not reserve state.
+6. New session resets the reserve state; stale previous-session state cannot carry forward.
+7. Existing underflow/overflow accounting remains truthful after playout start.
+8. Candidate simulation with representative burst/gap patterns records underflow counts/frames and added startup latency for `0/45/75/100 ms` so the chosen default is evidence-backed.
+9. Permanent supply deficit test demonstrates the reserve delays but does not falsely claim to repair sustained deficit.
+10. Gate A tail, Gate B BLE/READY, Gate C ring/realtime, ATVV, and 041 diagnostic/export regressions remain green.
+
+### Default-selection rule
+
+Select the smallest candidate from `45/75/100 ms` that materially reduces the authorized synthetic short-jitter underflow scenario without requiring rebuffering and without exceeding 100 ms startup latency. Keep `0 ms` as the control path in tests.
+
+If the evidence does not clearly distinguish a smallest useful candidate, do not invent a default. Stop at the audit boundary with the comparison results and report the unresolved selection.
 
 ### Semantics that must remain unchanged
 
-- ATVV v0.4/v1.0 command/framing/capability/codec semantics;
-- ADPCM decode and sample-rate selection;
-- CoreBluetooth dedicated queue and strict READY model from Gate B;
-- keepalive/reconnect/discovery/subscription behavior;
-- Gate A direct voice/session/profile/trigger ownership;
+- Gate A voice key/profile/trigger ownership;
+- Gate B BLE queue, strict READY, connection reuse, reconnect/keepalive/discovery/subscription;
+- ATVV v0.4/v1.0 commands/framing/capabilities/codec/ADPCM/AUDIO_SYNC/sample-rate selection;
+- Gate C ring capacity and overflow policy;
+- gain/limiter/resampling;
+- remote candidate/prebuffer semantics except the minimum Gate D playout-start gate;
 - physical-UP post-release grace and 350 ms AUDIO_STOP drain;
-- current gain/limiter behavior;
-- current 16 kHz/8 kHz → output-rate resampling behavior unless a purely mechanical buffer-interface adaptation is required;
-- virtual audio driver behavior and format;
-- current user-visible start/tail policy.
+- output-drain and trigger-UP ordering;
+- virtual audio driver format/behavior.
 
-### Forbidden in Gate C
+### Forbidden in Gate D
 
 Do NOT:
 
-- add or tune a jitter reserve / playout startup threshold;
-- add a multi-frame intentional latency buffer beyond the ring capacity needed for bounded transport between producer/consumer;
-- change BLE/ATVV protocol or connection lifecycle;
-- change codec, gain, limiter, sample-rate policy, or speech processing;
-- change menu/profile/voice-key semantics;
-- redesign Gate A/B state machines;
-- add new always-on diagnostic authorities/rings unrelated to the PCM transport structure;
-- package/install/replace the app, reload CoreAudio, mutate TCC, or alter Air runtime;
-- merge, tag, release, close preserved PRs, or mutate 039/040/041;
-- begin Gate D or Gate E automatically.
+- increase or reinterpret the 96,000-frame structural ring capacity as a jitter target;
+- add adaptive/dynamic jitter estimation;
+- rebuffer/re-arm after playout has started;
+- time-stretch, resample-rate-shift, duplicate, synthesize, or conceal missing PCM;
+- claim permanent BLE delivery deficit is fixed by reserve;
+- change BLE/ATVV lifecycle or protocol;
+- change Gate A/B/C state ownership;
+- change Gate E start/tail trigger policy;
+- package/install/replace the app, reload CoreAudio, mutate TCC, or change Air runtime;
+- merge, tag, release, or mutate historical 039/040/041 branches;
+- begin Gate E automatically.
 
-If a desired change materially alters playout latency/jitter policy, STOP and leave it for Gate D.
+If the implementation appears to require upstream transport changes or adaptive rebuffering, STOP and report the dependency.
 
-## Gate C verification requirements
+## Verification
 
-At minimum prove:
+Run at minimum:
 
-1. exact live branch/head and clean canonical writer before mutation;
-2. one fixed-capacity PCM producer/consumer structure owns the active remote playout queue;
-3. producer and consumer have one clear ownership model with no ordinary blocking lock in the CoreAudio realtime callback;
-4. render callback performs no per-callback heap allocation or dynamic collection mutation;
-5. ordered PCM written by the producer is rendered in order without duplication/reordering;
-6. true underflow zero-fills only the missing output portion and increments truthful underrun evidence;
-7. ring-full/overflow policy is bounded, deterministic, tested, and reflected in existing overflow evidence;
-8. queue-depth diagnostics are derived truthfully from the new ring state;
-9. output-drain completion fires only after the submitted queue has actually drained and preserves Gate A trigger-up ordering;
-10. tail PCM submitted before transport stop remains renderable after remote route deactivation until the queue is empty;
-11. rapid session transitions do not leak stale PCM from one session into another;
-12. local-mic/non-remote behavior remains unchanged where covered;
-13. Gate B BLE queue/READY tests pass unchanged in semantic expectation;
-14. ATVV protocol tests pass unchanged in semantic expectation;
-15. 041 continuity/diagnostic/export tests remain truthful;
-16. focused AudioPipe tests include wraparound, partial read/write, exact-full/empty, underflow, overflow, drain, reset/session boundary, and counter behavior;
-17. full Swift tests pass;
-18. arm64 release build passes;
-19. x86_64 release build passes;
-20. protocol self-tests pass;
-21. `git diff --check` passes;
-22. final diff proves no Gate D jitter tuning and no Gate E start/tail policy change leaked into Gate C.
+- new Gate D reserve/candidate tests;
+- Gate C ring/AudioPipe realtime tests;
+- AudioPipe diagnostics/measurement tests;
+- VoicePipelineSimplification / VoiceBoundaryOrdering / VoiceTriggerRuntime;
+- BLEBridge strict READY / transport tests;
+- PostReleaseCaptureGrace;
+- ATVV tests;
+- relevant 041 continuity/DiagnosticHardening/DiagnosticExporter suites;
+- full Swift tests;
+- arm64 Release build;
+- x86_64 Release build;
+- protocol self-tests;
+- `git diff --check`.
 
-## Evidence to return
-
-The executor receipt must report:
-
-- old vs new AudioPipe queue model;
-- ring capacity and why it is structural capacity rather than intentional jitter reserve;
-- producer/consumer ownership;
-- realtime callback operations after the change;
-- overflow/underflow policy;
-- output-drain semantics;
-- diagnostics/counter mapping;
-- exact changed paths;
-- focused and full verification results;
-- explicit confirmation that BLE/ATVV, jitter policy, Gate A/B semantics, driver/runtime were not changed.
+Final diff must prove no Gate E, BLE/ATVV, driver/runtime/install/TCC, or unrelated product behavior leaked into Gate D.
 
 ## Completion / stop state
 
-Gate C local implementation and required verification are complete in the
-transition commit that is a direct child of
-`8fe9c5f9e0fcc29b769892fa6e4fa0daa1462c01`. The receipt is recorded in
-`CURRENT_STATUS.md`; the branch must be pushed and verified at exact
-local/remote equality, then remains stopped at
-`WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+After Gate D implementation and verification:
 
-Independent Web/code audit is still required. Do not begin Gate D/E
-automatically. Do not merge, tag, release, install, mutate TCC, or change the
-Air runtime.
+- update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
+- commit all authorized Gate D changes;
+- push only `codex/voice-pipeline-simplification-042` and verify exact remote identity;
+- stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`;
+- do not begin Gate E automatically;
+- do not merge, tag, release, install, mutate TCC, or change Air runtime.
