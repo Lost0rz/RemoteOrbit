@@ -357,3 +357,26 @@ verify its mounted app, source stamp, Universal2 executable, embedded driver,
 signatures, checksums, and contents, then update both control files together with
 the packaging receipt and push this same branch. A later control-only commit must
 not be reported as the source identity stamped into an already-built app.
+
+## Universal2 application packaging corrective
+
+The deployment-target corrective passed for local packaging HEAD
+`1631bd25ded1080fa04b823bcf77f9e0250a867c`, but the existing
+`package-app.sh` then failed during its x86_64 build: the `-Xswiftc -target`
+arguments did not keep the full SwiftPM graph/link invocation architecture
+consistent, arm64 objects reached the x86_64 link, and `_main` was undefined.
+
+This second bounded corrective is authorized before script mutation:
+
+- modify only `remote-orbit/package-app.sh` and these two control files;
+- use SwiftPM's supported `--triple` option after validating it with the installed toolchain;
+- build arm64 and x86_64 in separate scratch directories using explicit macOS 13 triples;
+- obtain each binary using the same architecture/triple arguments used for its build;
+- prove arm64-only and x86_64-only inputs before lipo, then verify the combined Universal2 executable;
+- remove the old `-Xswiftc -target` method without changing `Package.swift`, Swift source, app version semantics, driver semantics, or runtime behavior.
+
+After package-app verification passes, run the existing
+`package-dmg.sh --reuse-driver` path, verify the mounted DMG and embedded driver,
+then update both control files together with the complete packaging receipt and
+push the full local 041 lineage. If Universal2 build or DMG generation fails,
+preserve the exact blocker and do not claim packaging success.
