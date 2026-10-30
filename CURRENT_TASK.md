@@ -1,214 +1,121 @@
 # RemoteOrbit Current Task
 
-## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Physical-HTT Admission Corrective
+## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Corrective Candidate Preparation
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `READY_FOR_LOCAL_CORRECTIVE_CANDIDATE_PREPARATION`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
 
 Frozen evidence baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`
-Accepted source candidate before runtime failure: `2d09b6d77f9f75aa46bb4a13838cd22d5589f524`
+Previous failed runtime candidate source: `2d09b6d77f9f75aa46bb4a13838cd22d5589f524`
+Accepted corrective source: `7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c`
 Incident record: `docs/incidents/2026-10-30-042-no-waveform-physical-htt-admission-race.md`
 
 ## Objective
 
-Fix one confirmed runtime ordering defect:
+Prepare and install one provenance-locked runtime candidate from the independently accepted Physical-HTT admission corrective, without changing product source, so the user can retest the original no-waveform failure on real RC003 hardware.
 
-A Gate B long-lived READY transport can receive `AUDIO_START reason=0x03 / PHYSICAL_HTT` before the matching HID voice-key down. Current code publishes that transport-level stream as coordinator-owned `remoteStreaming=true`, causing the same physical HID press to fail `voice_session_busy`; the remote route never activates even though BLE audio and decoded PCM are present.
+This is not Gate F and is not a source-construction phase.
 
-This is a bounded corrective inside Task 042. It is not Gate F and is not authorization for broader redesign.
+## Corrective identity contract
 
-## Evidence-supported root cause
+Product source is frozen at:
 
-The failed runtime bundle proves:
+`7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c`
 
-- Doubao trigger/profile path is alive;
-- ATVV READY is alive;
-- later physical presses produce pre-HID `PHYSICAL_HTT` `AUDIO_START`;
-- BLE notifications and ADPCM decode can succeed;
-- WAV capture contains decoded PCM;
-- the matching HID press is repeatedly rejected as `voice_session_busy`;
-- `AudioPipe` remains non-routed / reserve waiting / no active render fill while CoreAudio idle callbacks continue.
+The live branch may contain later control-only descendants. Before building, prove that the diff from the accepted corrective source to the live control HEAD contains no product-source/package-script change beyond governance files. If false, STOP.
 
-Current source explains the contradiction:
+Use only the repository's established build/package/install flow. Do not modify source or packaging machinery to make this preparation succeed.
 
-- `BLEBridge.handleControl(.audioStart)` calls `AudioPipe.beginRemoteCandidate()`, sets internal `isStreaming=true`, then calls `notifyStreaming(true)` even when the stream is only pre-HID physical transport state;
-- main forwards every `onStreamingChanged(true)` to `voicePress.setRemoteStreaming(true)`;
-- `VoicePressCoordinator.hasReleaseOrTailOwnershipForReconfiguration` includes `remoteStreaming`;
-- direct-session admission therefore rejects the matching HID press.
+## Authorized work
 
-No additional probe is authorized or required before correction.
-
-## Authorized corrective
-
-Implement the smallest design that separates:
-
-1. transport-level/pre-HID ATVV streaming used for bounded pre-roll; and
-2. session-owned streaming used by `VoicePressCoordinator` admission/retirement ownership.
-
-Required semantics:
-
-### A. Pre-HID physical stream must not poison admission
-
-When `AUDIO_START` is observed before HID admission and the stream is not yet owned by a current direct voice session:
-
-- BLE internal stream state may become active;
-- decode/recording/diagnostics may proceed;
-- `AudioPipe.beginRemoteCandidate()` may retain the existing bounded pre-roll;
-- but this fact alone must NOT make `VoicePressCoordinator.hasReleaseOrTailOwnershipForReconfiguration` true for the matching press.
-
-The matching HID down must remain admissible unless there is genuine prior-session release/tail ownership or the existing AUDIO_STOP drain barrier is active.
-
-### B. Adopt an already-active physical stream
-
-If the HID press is admitted while BLE is already streaming from the same physical press:
-
-- establish the normal direct-session/profile/trigger ownership;
-- activate the remote route (`AudioPipe.remoteActive=true`) through the existing coordinator path;
-- preserve and promote the bounded pre-HID PCM candidate into the active route;
-- bind/associate the live transport stream with the current session as needed for truthful diagnostics/retirement;
-- do NOT issue a duplicate host `MIC_OPEN` merely because `voiceInputRequested` became true after physical streaming had already started.
-
-The implementation may expose a bounded BLE query/adoption seam or equivalent session-owned streaming state. Do not create a second audio pipeline or a parallel session authority.
-
-### C. Preserve normal host-MIC_OPEN path
-
-When no physical stream is already active, existing direct admission must continue to:
-
-- request voice input;
-- require strict READY;
-- send exactly one host `MIC_OPEN`;
-- receive AUDIO_START;
-- enter normal session-owned streaming.
-
-### D. Retirement remains Gate A-E compatible
-
-After a stream is adopted/owned:
-
-- `AUDIO_STOP` / transport loss still retire the session;
-- physical UP still enters normal retirement;
-- route-off preserves queued tail;
-- Gate D reserve tail-bypass remains intact;
-- actual ring-empty/output-drain remains the trigger-UP boundary;
-- duplicate/stale callbacks cannot release the next session;
-- no duplicate trigger UP.
-
-If an unowned physical stream stops before HID admission, it must clear its transport/pre-roll state without leaving coordinator ownership or a permanent busy condition.
+1. Fetch the live 042 branch and read `AGENTS.md`, `CURRENT_STATUS.md`, and this file.
+2. Reuse one clean canonical writer/worktree and fast-forward to the live branch.
+3. Verify local/remote exact alignment and prove the accepted corrective source identity above.
+4. Prove any descendant drift after `7dfd2e0...` is governance-only before building.
+5. Build/package using the established repository flow (including `./package-dmg.sh` if still canonical) without changing product/package source.
+6. Record exact build/package commands and results.
+7. Record app/DMG artifact paths, hashes, bundle ID, version/build, architectures, signing result, accepted corrective source HEAD and live control HEAD.
+8. Quit the currently running old RemoteOrbit candidate cleanly.
+9. Install/replace only `/Applications/RemoteOrbit.app` with the exact corrective candidate if the established flow supports it.
+10. Do NOT replace/reload the installed CoreAudio driver.
+11. Do NOT reset or manipulate TCC.
+12. Verify installed app provenance against the packaged corrective candidate using the strongest existing repository-supported identity checks.
+13. Launch the installed corrective candidate and verify process identity/basic runtime readiness: app path/PID/version, RemoteOrbit Mic process-level readiness, RC003 BLE/HID readiness, and existing diagnostics availability.
+14. Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together with the actual candidate-preparation receipt and stop at `READY_FOR_HUMAN_CORRECTIVE_RUNTIME_RETEST`.
 
 ## Explicitly not authorized
 
 Do NOT:
 
-- disable Gate B long-lived READY transport;
-- disconnect after every session as a workaround;
-- change strict READY;
-- change ATVV packet/codec/framing/capability semantics;
-- change the 45 ms Gate D reserve;
-- change the Gate C 96,000-frame ring or overflow policy;
+- modify product source or tests;
+- modify package scripts;
+- change Physical-HTT corrective semantics;
+- change Gate A-E semantics;
+- change Gate B long-lived READY or strict READY;
+- change ATVV protocol/codec/framing/capabilities;
+- change Gate C ring/capacity/overflow policy;
+- change Gate D 45 ms reserve;
 - change gain/limiter/resampling;
-- restore SHORT/LONG/Persistent semantics;
-- change driver/install/TCC/Air policy;
-- merge/tag/release/package/install in this corrective;
+- reset TCC;
+- install/reload/replace the CoreAudio driver;
+- merge, tag, release, publish, or create a release PR;
 - create Gate F;
-- add broad new probes or diagnostic authorities.
+- self-approve the human runtime retest;
+- perform speculative source repair if candidate preparation or runtime readiness fails.
 
-## Required tests
+If candidate preparation requires a source/package/driver/TCC change, STOP and report the exact dependency.
 
-Add deterministic coverage for at least:
+## Required preparation verification
 
-1. `PHYSICAL_AUDIO_START_BEFORE_HID_IS_ADMISSIBLE`
-   - transport reports physical/pre-HID streaming;
-   - matching HID direct press is accepted, not `voice_session_busy`.
+Report at minimum:
 
-2. `PRE_HID_AUDIO_IS_CANDIDATE_NOT_SESSION_OWNERSHIP`
-   - pre-HID stream does not set coordinator release/tail ownership by itself.
+1. live branch/control HEAD;
+2. accepted corrective source HEAD;
+3. proof that post-corrective descendants are governance-only;
+4. clean worktree before/after;
+5. exact build/package commands;
+6. Release/package result;
+7. artifact paths and SHA-256;
+8. Bundle ID/version/build/architectures;
+9. codesign verification;
+10. installed app path and identity;
+11. installed/package provenance method and result;
+12. running executable path/PID/version;
+13. RemoteOrbit Mic readiness without driver mutation;
+14. BLE/HID readiness;
+15. diagnostic journal/CLI readiness;
+16. `SOURCE_CHANGED=NO`;
+17. `PACKAGE_SCRIPT_CHANGED=NO`;
+18. `DRIVER_CHANGED=NO`;
+19. `TCC_RESET=NO`;
+20. `MERGE_TAG_RELEASE=NO`.
 
-3. `ADOPT_PHYSICAL_STREAM_WITHOUT_DUPLICATE_MIC_OPEN`
-   - HID admission during already-active physical stream activates route/session ownership;
-   - no host `MIC_OPEN` is transmitted for adoption.
+## Human retest boundary
 
-4. `PREBUFFER_PROMOTED_ON_ADOPTION`
-   - decoded PCM received before HID admission is retained within existing bounded candidate semantics and becomes renderable after route activation.
+After successful preparation, STOP. The user owns the runtime retest.
 
-5. `HOST_MIC_OPEN_PATH_UNCHANGED`
-   - absent pre-existing physical stream, strict READY path still sends one MIC_OPEN and streams normally.
+The first human retest must target the exact regression rather than broad feature acceptance:
 
-6. `UNOWNED_PHYSICAL_STREAM_STOP_CLEARS_BUSY_STATE`
-   - physical stream that ends before HID admission cannot strand `remoteStreaming`/ownership.
+1. confirm the first RC003 voice press produces Doubao waveform/audio;
+2. release and allow normal retirement;
+3. without restarting RemoteOrbit or disconnecting ATVV, perform at least 5 subsequent voice presses while Gate B READY transport is reused;
+4. each press must be admitted and must produce usable waveform/audio;
+5. include at least one immediate-speech press and one short utterance;
+6. if any press opens Doubao with no waveform, preserve that fresh failure and export diagnostics before changing runtime state.
 
-7. `ADOPTED_STREAM_RETIREMENT`
-   - physical UP/AUDIO_STOP → route inactive → tail/ring drain → exactly-once trigger UP.
-
-8. `RAPID_NEXT_SESSION_AFTER_ADOPTED_STREAM`
-   - next press is admitted after prior drain and stale callbacks cannot affect it.
-
-Run relevant regressions:
-
-- VoicePipelineSimplificationTests;
-- VoiceBoundaryOrderingTests;
-- VoiceTriggerRuntimeTests;
-- BLEBridgeTests including strict READY/reuse;
-- PostReleaseCaptureGraceTests;
-- AudioPipe / AudioPipeRealtime / playout reserve tests;
-- ATVV tests;
-- 041 DiagnosticHardening/continuity/export tests.
-
-Also run full Swift tests, arm64/x86_64 Release builds, protocol self-tests, and `git diff --check`.
-
-## Final diff constraints
-
-Explicitly report:
-
-- LONG_LIVED_READY_CHANGED: YES/NO — expected NO
-- STRICT_READY_CHANGED: YES/NO — expected NO
-- MIC_OPEN_PROTOCOL_CHANGED: YES/NO — expected NO protocol change; only eligibility/adoption semantics may change
-- GATE_C_RING_CHANGED: YES/NO — expected NO
-- GATE_D_45MS_CHANGED: YES/NO — expected NO
-- DRIVER_RUNTIME_CHANGED: YES/NO — expected NO
-- GATE_F_CREATED: YES/NO — expected NO
-
-## Implementation receipt
-
-Implemented from the reconciled local/remote HEAD
-`8d92fd6382b0bca9f1c5808c497df68590f2934d`.
-
-The implementation separates pre-HID physical transport state from
-`VoicePressCoordinator` session ownership, routes pre-HID streaming through a
-candidate-only callback, adopts an active physical stream before host
-`MIC_OPEN`, and preserves the existing candidate prebuffer, route, tail, drain,
-and session retirement paths.
-
-Observed validation:
-
-- focused corrective suites: `64/64` passed;
-- full Swift test suite: `574/574` passed;
-- arm64 and x86_64 Release builds completed;
-- protocol self-tests: `3/3` passed;
-- `git diff --check` passed.
-
-Changed paths are limited to:
-
-- `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`
-- `remote-orbit/Sources/RemoteOrbit/main.swift`
-- `remote-orbit/Tests/RemoteOrbitTests/AudioPipeTests.swift`
-- `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift`
-- `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`
-
-No package/install, driver/TCC/runtime mutation, merge/tag/release, or Gate F
-operation is authorized or performed. The next control-plane action is push of
-this existing branch followed by exact local/remote equality verification and
-independent Web audit.
+A human PASS plus evidence from the corrective candidate is required before merge/release consideration.
 
 ## Delivery / stop state
 
-After implementation:
+If candidate preparation succeeds:
 
-1. update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
-2. push only `codex/voice-pipeline-simplification-042`;
-3. verify local/remote exact equality;
-4. stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`;
-5. do not package/install the corrective candidate yet;
-6. do not merge/tag/release.
+- update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
+- commit/push only governance/evidence records on the existing 042 branch if required;
+- verify exact local/remote equality;
+- stop at `READY_FOR_HUMAN_CORRECTIVE_RUNTIME_RETEST`;
+- do not perform the human acceptance on the user's behalf;
+- do not merge/tag/release.
 
-Return actual evidence only. Do not predeclare PASS.
+Return actual observed evidence only. Do not predeclare successful runtime repair.
