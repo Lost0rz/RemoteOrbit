@@ -372,22 +372,38 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         var prebuffer: [Int16] = []
         stateLock.lock()
         remoteActive = active
-        realtimeDiagnostics.setRemoteActive(active)
-        if active, remoteDiagnosticsActive {
-            remoteDiagnosticsSawActiveRoute = true
-        }
         if active {
             // A new voice session must never inherit a previous session's
             // samples. On deactivation, however, keep the already queued
             // frames alive so the BLE tail-drain window can render them.
-            remoteOutputDrainWaiter = nil
-            realtimeDiagnostics.setDrainWaiterRequested(false)
-            outputRing.reset()
-            playoutReserve.reset(at: P1A4MonotonicClock.nowNanoseconds())
-            lastRemoteSubmittedMonotonicNanoseconds = nil
-            prebuffer = pendingRemotePrebuffer
-            pendingRemotePrebuffer.removeAll(keepingCapacity: true)
+            AudioPipeRemoteActivationTransition.perform(
+                withdrawRealtimeActive: {
+                    realtimeDiagnostics.setRemoteActive(false)
+                },
+                clearPriorDrainWaiter: {
+                    remoteOutputDrainWaiter = nil
+                    realtimeDiagnostics.setDrainWaiterRequested(false)
+                },
+                resetOutputRing: {
+                    outputRing.reset()
+                },
+                resetPlayoutReserve: {
+                    playoutReserve.reset(at: P1A4MonotonicClock.nowNanoseconds())
+                },
+                resetSessionBookkeeping: {
+                    lastRemoteSubmittedMonotonicNanoseconds = nil
+                    prebuffer = pendingRemotePrebuffer
+                    pendingRemotePrebuffer.removeAll(keepingCapacity: true)
+                },
+                publishRealtimeActive: {
+                    realtimeDiagnostics.setRemoteActive(true)
+                    if remoteDiagnosticsActive {
+                        remoteDiagnosticsSawActiveRoute = true
+                    }
+                }
+            )
         } else {
+            realtimeDiagnostics.setRemoteActive(false)
             pendingRemotePrebuffer.removeAll(keepingCapacity: true)
         }
         stateLock.unlock()

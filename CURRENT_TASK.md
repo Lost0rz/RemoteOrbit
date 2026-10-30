@@ -173,6 +173,34 @@ no-rearm, and new-session reset are covered by focused tests. The existing
 diagnostic authority exposes candidate/configured frames, start depth, wait
 duration, start reason, and selected default.
 
+### Gate D publication-order corrective result
+
+The independent Web audit blocker was reproduced from the source ordering:
+the old activation path published realtime active before the new-session ring
+and reserve reset, and the old reserve path published `STARTED` before all
+start metadata. The corrective path is now executable and test-pinned:
+
+```text
+withdraw realtime active
+→ clear prior drain waiter
+→ reset Gate C output ring
+→ reset Gate D reserve
+→ reset session-owned consumer bookkeeping
+→ publish realtime active
+```
+
+`remoteActive=false` with zero queued frames no longer tail-bypasses or starts
+the reserve. Inactive queued tail PCM still tail-bypasses once and drains to
+actual ring empty. Reserve publication uses a scalar intermediate state and
+publishes timestamp, depth, and reason before `STARTED`; concurrent decision
+coverage confirms no partial-start snapshot. The new-session race remains in
+`WAITING_FOR_RESERVE` below threshold, consumes zero PCM, and emits no active
+underrun or first-render marker.
+
+Corrective focused suites passed `22/22`; the full Swift suite passed `552/552`.
+Both release builds, protocol self-tests, and diff check passed. No accepted
+Gate D candidate metric or policy changed.
+
 ### Semantics that must remain unchanged
 
 - Gate A voice key/profile/trigger ownership;
@@ -225,7 +253,7 @@ Final diff must prove no Gate E, BLE/ATVV, driver/runtime/install/TCC, or unrela
 
 ## Completion / stop state
 
-Gate D implementation and verification are complete:
+Gate D corrective implementation and verification are complete:
 
 - update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
 - commit all authorized Gate D changes;

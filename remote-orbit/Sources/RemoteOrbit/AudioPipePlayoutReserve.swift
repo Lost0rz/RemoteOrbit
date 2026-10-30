@@ -47,6 +47,10 @@ struct AudioPipePlayoutReserveSnapshot: Equatable {
 final class AudioPipePlayoutReserve: @unchecked Sendable {
     let candidate: AudioPipePlayoutReserveCandidate
 
+    // 0 = waiting, 1 = metadata publication in progress, 2 = started.
+    // AudioPipe has one CoreAudio render-side writer. The intermediate scalar
+    // state also keeps an off-path snapshot from exposing partial metadata if
+    // another caller is ever added.
     private var state: Int32 = 0
     private var resetTimestampNanoseconds: Int64 = 0
     private var startTimestampNanoseconds: Int64 = 0
@@ -58,11 +62,13 @@ final class AudioPipePlayoutReserve: @unchecked Sendable {
     }
 
     func reset(at timestampNanoseconds: UInt64) {
+        // Withdraw STARTED before clearing its metadata. A concurrent snapshot
+        // can therefore only observe the old coherent state or fresh waiting.
+        atomicStore32(0, to: &state)
         atomicStore64(safeInt64(timestampNanoseconds), to: &resetTimestampNanoseconds)
         atomicStore64(0, to: &startTimestampNanoseconds)
         atomicStore64(0, to: &startDepthFrames)
         atomicStore32(0, to: &startReason)
-        atomicStore32(0, to: &state)
     }
 
     func decision(
@@ -70,9 +76,17 @@ final class AudioPipePlayoutReserve: @unchecked Sendable {
         queuedFrames: Int,
         now timestampNanoseconds: UInt64
     ) -> AudioPipePlayoutReserveDecision {
-        guard atomicLoad32(&state) == 0 else { return .consume }
+        let currentState = atomicLoad32(&state)
+        guard currentState == 0 else {
+            return currentState == 1 ? .wait : .consume
+        }
 
         if !remoteActive {
+            guard queuedFrames > 0 else {
+                // An inactive empty ring has no tail to drain. In particular,
+                // it must not publish a new session's reserve as STARTED.
+                return .consume
+            }
             if startOnce(
                 reason: .tailBypass,
                 depthFrames: queuedFrames,
@@ -96,20 +110,28 @@ final class AudioPipePlayoutReserve: @unchecked Sendable {
     }
 
     func snapshot(at timestampNanoseconds: UInt64) -> AudioPipePlayoutReserveSnapshot {
-        let reset = UInt64(max(0, atomicLoad64(&resetTimestampNanoseconds)))
-        let startedAt = UInt64(max(0, atomicLoad64(&startTimestampNanoseconds)))
-        let waitEnd = startedAt > 0 ? startedAt : timestampNanoseconds
-        return AudioPipePlayoutReserveSnapshot(
-            candidate: candidate,
-            configuredReserveFrames: candidate.frames,
-            selectedDefaultCandidate: .defaultCandidate,
-            state: atomicLoad32(&state) == 0 ? .waitingForReserve : .started,
-            startDepthFrames: startedAt > 0
-                ? Int(max(0, atomicLoad64(&startDepthFrames)))
-                : nil,
-            waitDurationNanoseconds: waitEnd >= reset ? waitEnd - reset : 0,
-            startReason: Self.reason(rawValue: atomicLoad32(&startReason))
-        )
+        while true {
+            let stateBefore = atomicLoad32(&state)
+            let reset = UInt64(max(0, atomicLoad64(&resetTimestampNanoseconds)))
+            let startedAt = UInt64(max(0, atomicLoad64(&startTimestampNanoseconds)))
+            let depth = Int(max(0, atomicLoad64(&startDepthFrames)))
+            let reason = Self.reason(rawValue: atomicLoad32(&startReason))
+            let stateAfter = atomicLoad32(&state)
+
+            guard stateBefore == stateAfter else { continue }
+
+            let started = stateAfter == 2
+            let waitEnd = startedAt > 0 ? startedAt : timestampNanoseconds
+            return AudioPipePlayoutReserveSnapshot(
+                candidate: candidate,
+                configuredReserveFrames: candidate.frames,
+                selectedDefaultCandidate: .defaultCandidate,
+                state: started ? .started : .waitingForReserve,
+                startDepthFrames: started ? depth : nil,
+                waitDurationNanoseconds: waitEnd >= reset ? waitEnd - reset : 0,
+                startReason: started ? reason : nil
+            )
+        }
     }
 
     private func startOnce(
@@ -120,12 +142,16 @@ final class AudioPipePlayoutReserve: @unchecked Sendable {
         guard OSAtomicCompareAndSwap32Barrier(0, 1, &state) else {
             return false
         }
+        // Publish all start evidence before the externally visible STARTED
+        // state. The single render-side writer assumption is covered by the
+        // AudioPipeRealtime reserve tests and preserved by this scalar claim.
         atomicStore64(
             safeInt64(timestampNanoseconds),
             to: &startTimestampNanoseconds
         )
         atomicStore64(Int64(max(0, depthFrames)), to: &startDepthFrames)
         atomicStore32(Self.rawValue(for: reason), to: &startReason)
+        atomicStore32(2, to: &state)
         return true
     }
 

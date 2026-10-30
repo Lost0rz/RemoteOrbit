@@ -3,6 +3,31 @@ import AudioToolbox
 @testable import RemoteOrbit
 
 final class AudioPipeTests: XCTestCase {
+    func testActivePublicationOrderInitializesConsumerStateBeforeRealtimeActive() {
+        var observed: [AudioPipeActivationStep] = []
+
+        AudioPipeRemoteActivationTransition.perform(
+            withdrawRealtimeActive: { observed.append(.withdrawRealtimeActive) },
+            clearPriorDrainWaiter: { observed.append(.clearPriorDrainWaiter) },
+            resetOutputRing: { observed.append(.resetOutputRing) },
+            resetPlayoutReserve: { observed.append(.resetPlayoutReserve) },
+            resetSessionBookkeeping: { observed.append(.resetSessionBookkeeping) },
+            publishRealtimeActive: { observed.append(.publishRealtimeActive) }
+        )
+
+        XCTAssertEqual(
+            observed,
+            [
+                .withdrawRealtimeActive,
+                .clearPriorDrainWaiter,
+                .resetOutputRing,
+                .resetPlayoutReserve,
+                .resetSessionBookkeeping,
+                .publishRealtimeActive
+            ]
+        )
+    }
+
     func testOutputDrainRequiresInactiveRouteAndEmptyQueue() {
         XCTAssertFalse(
             AudioPipe.isOutputDrained(remoteActive: true, queuedFrames: 0)

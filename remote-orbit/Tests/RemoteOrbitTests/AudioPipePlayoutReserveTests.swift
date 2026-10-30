@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import RemoteOrbit
 
@@ -7,6 +8,36 @@ final class AudioPipePlayoutReserveTests: XCTestCase {
         XCTAssertEqual(AudioPipePlayoutReserveCandidate.milliseconds45.frames, 2_160)
         XCTAssertEqual(AudioPipePlayoutReserveCandidate.milliseconds75.frames, 3_600)
         XCTAssertEqual(AudioPipePlayoutReserveCandidate.milliseconds100.frames, 4_800)
+    }
+
+    func testInactiveEmptyDoesNotTailBypassOrStartReserve() {
+        let reserve = AudioPipePlayoutReserve(candidate: .milliseconds45)
+        reserve.reset(at: 1_000)
+
+        XCTAssertEqual(
+            reserve.decision(remoteActive: false, queuedFrames: 0, now: 2_000),
+            .consume
+        )
+
+        let snapshot = reserve.snapshot(at: 2_000)
+        XCTAssertEqual(snapshot.state, .waitingForReserve)
+        XCTAssertNil(snapshot.startDepthFrames)
+        XCTAssertNil(snapshot.startReason)
+    }
+
+    func testInactiveTailStillBypassesReserveExactlyOnce() {
+        let reserve = AudioPipePlayoutReserve(candidate: .milliseconds45)
+        reserve.reset(at: 1_000)
+
+        XCTAssertEqual(
+            reserve.decision(remoteActive: false, queuedFrames: 320, now: 2_000),
+            .tailBypass
+        )
+        XCTAssertEqual(
+            reserve.decision(remoteActive: false, queuedFrames: 320, now: 3_000),
+            .consume
+        )
+        XCTAssertEqual(reserve.snapshot(at: 3_000).startReason, .tailBypass)
     }
 
     func testZeroMillisecondControlStartsOnFirstAvailablePCM() {
@@ -104,6 +135,71 @@ final class AudioPipePlayoutReserveTests: XCTestCase {
             reserve.decision(remoteActive: true, queuedFrames: 2_159, now: 11_000),
             .wait
         )
+    }
+
+    func testNewSessionResetAfterPreviousStartDoesNotStartDuringInactiveEmptyWindow() {
+        let reserve = AudioPipePlayoutReserve(candidate: .milliseconds45)
+        reserve.reset(at: 1_000)
+        XCTAssertEqual(
+            reserve.decision(remoteActive: true, queuedFrames: 2_160, now: 2_000),
+            .consume
+        )
+
+        reserve.reset(at: 10_000)
+        XCTAssertEqual(
+            reserve.decision(remoteActive: false, queuedFrames: 0, now: 11_000),
+            .consume
+        )
+        XCTAssertEqual(reserve.snapshot(at: 11_000).state, .waitingForReserve)
+
+        XCTAssertEqual(
+            reserve.decision(remoteActive: true, queuedFrames: 480, now: 12_000),
+            .wait
+        )
+        let snapshot = reserve.snapshot(at: 12_000)
+        XCTAssertEqual(snapshot.state, .waitingForReserve)
+        XCTAssertNil(snapshot.startReason)
+    }
+
+    func testStartedSnapshotPublishesCoherentStartMetadata() {
+        let reserve = AudioPipePlayoutReserve(candidate: .milliseconds45)
+        reserve.reset(at: 1_000)
+
+        XCTAssertEqual(
+            reserve.decision(remoteActive: true, queuedFrames: 2_160, now: 3_000),
+            .consume
+        )
+
+        let snapshot = reserve.snapshot(at: 4_000)
+        XCTAssertEqual(snapshot.state, .started)
+        XCTAssertNotNil(snapshot.startDepthFrames)
+        XCTAssertEqual(snapshot.startDepthFrames, 2_160)
+        XCTAssertEqual(snapshot.startReason, .threshold)
+        XCTAssertGreaterThan(snapshot.waitDurationNanoseconds, 0)
+    }
+
+    func testConcurrentRenderDecisionsCannotPublishPartialStartMetadata() {
+        let reserve = AudioPipePlayoutReserve(candidate: .milliseconds45)
+        reserve.reset(at: 1_000)
+        let decisionsLock = NSLock()
+        var decisions = [AudioPipePlayoutReserveDecision]()
+        DispatchQueue.concurrentPerform(iterations: 32) { index in
+            let decision = reserve.decision(
+                remoteActive: true,
+                queuedFrames: 2_160,
+                now: UInt64(2_000 + index)
+            )
+            decisionsLock.lock()
+            decisions.append(decision)
+            decisionsLock.unlock()
+        }
+
+        XCTAssertTrue(decisions.allSatisfy { $0 == .wait || $0 == .consume })
+        let snapshot = reserve.snapshot(at: 3_000)
+        XCTAssertEqual(snapshot.state, .started)
+        XCTAssertNotNil(snapshot.startDepthFrames)
+        XCTAssertNotNil(snapshot.startReason)
+        XCTAssertGreaterThan(snapshot.waitDurationNanoseconds, 0)
     }
 
     func testCandidateComparisonShowsSmallestUsefulCandidateAndSustainedDeficitLimit() {

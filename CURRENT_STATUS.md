@@ -43,7 +43,7 @@ Accepted properties:
 
 Executor evidence at the accepted head recorded focused Gate C/regression tests `196/196`, full Swift `534/534`, arm64/x86_64 Release builds, protocol self-tests `3/3`, and `git diff --check` passing. This source acceptance does not claim installed/hardware/Air natural-use acceptance.
 
-## Gate D — LOCAL IMPLEMENTATION COMPLETE
+## Gate D — CORRECTIVE IMPLEMENTATION COMPLETE / WAITING FOR INDEPENDENT WEB AUDIT
 
 Gate D added one explicit per-stream startup playout reserve around the
 accepted Gate C consumer. PCM enters the existing 96,000-frame ring
@@ -94,26 +94,46 @@ no dropped or stranded PCM. `SELECTION_AMBIGUOUS=NO`.
   adaptive jitter, rebuffering, BLE/ATVV, Gate E, driver, runtime, install,
   TCC, Air, merge, tag, or release behavior changed.
 
+### Gate D independent-audit blocker and corrective result
+
+The independent Web audit identified a publication-order race in the original
+Gate D implementation: realtime `remoteActive=true` was published before the
+new session's ring and playout reserve reset completed. The same audit found
+that reserve `STARTED` was published before its start metadata was complete.
+
+The corrective implementation now withdraws the CoreAudio-visible active bit,
+clears the prior drain waiter, resets the Gate C ring, resets the Gate D
+reserve, resets session-owned bookkeeping, and only then publishes active.
+The executable `AudioPipeRemoteActivationTransition` contract and focused test
+pin this order. An inactive empty ring now remains
+`WAITING_FOR_RESERVE`; inactive queued tail PCM still gets one tail bypass.
+Reserve start uses scalar states `waiting → publishing metadata → started`;
+timestamp, depth, and reason are written before `STARTED` becomes observable,
+and snapshots retry across a concurrent state change. The CoreAudio path still
+uses no ordinary lock, allocation, queue, wait, or dynamic collection.
+
+This is source/test evidence only. No installed, hardware, Air, or natural-use
+acceptance is claimed.
+
 ### Gate D verification receipt
 
-- Focused Gate D/regression suites: `178/178` passed.
-- Full Swift test suite: `546/546` passed.
+- Focused corrective AudioPipe/reserve suites: `22/22` passed.
+- Full Swift test suite: `552/552` passed.
 - arm64 Release build: passed.
 - x86_64 Release build: passed.
 - Protocol self-tests: `3/3` passed.
 - `git diff --check`: passed.
 
-Changed paths are the Gate D reserve seam, AudioPipe/render accounting and
-existing diagnostic summary/runtime-health integration, focused tests, the
-protocol self-test source list, and the Gate D design/plan documents. No
-product packaging, installation, driver, TCC, Air, merge, tag, or release
-operation was performed.
+Changed paths are the Gate D reserve seam, the executable activation-order
+contract, AudioPipe/render accounting, focused tests, the protocol self-test
+source list, and the Gate D design/plan documents. No product packaging,
+installation, driver, TCC, Air, merge, tag, or release operation was performed.
 
 ## Stop / next
 
-Gate D local implementation and required verification are complete on the
+Gate D corrective implementation and required verification are complete on the
 canonical writer. The branch must be committed/pushed with exact local/remote
 equality, then remains stopped at `WAITING_FOR_INDEPENDENT_WEB_AUDIT` for a
-fresh independent Web/code audit of the Gate D head.
+fresh independent Web/code audit of the corrective head.
 
 Do not begin Gate E automatically. Do not merge, tag, release, package/install, mutate TCC, or change Air runtime.
