@@ -13,6 +13,7 @@ Repository: `Lost0rz/RemoteOrbit`
 - Human steady-state high-frequency retest: PASS.
 - Source implementation now includes the bounded promoted-B owner correction; merge/release remains stopped pending independent Web source audit and human corrective runtime acceptance.
 - The admission-atomic promotion correction is now implemented and locally validated; merge/release remains stopped pending independent Web source audit and human corrective runtime acceptance.
+- Transition commit `ea126c4c1742bfb3aa5e800e0cf7023771a5b08f` is remotely delivered on the existing 042 branch; local and remote refs are equal and the worktree is clean.
 - Evidence/design record: `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`.
 - Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`.
 - `AGENTS.md` remains durable repository authority.

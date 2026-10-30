@@ -213,8 +213,8 @@ After successful implementation, update `CURRENT_STATUS.md` and `CURRENT_TASK.md
 - x86_64 Release: exit `0` using `swift build -c release --scratch-path /private/tmp/remoteorbit-042-x86-release --triple x86_64-apple-macos14.0`.
 - Protocol self-tests: `3/3`, exit `0`. `git diff --check`: exit `0`. Build warnings were limited to existing macOS deprecations.
 - Product source/test changes are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`. No BLE/protocol ownership expansion, Gate C/D change, driver/TCC/runtime change, package/install, merge, tag, release, or Gate F action occurred.
-- Control transition audited at start HEAD `251536d1d46e73680140b10b2f8d6cb9d21b3e7f`; both controls are being updated together for the transition commit and will be pushed only on the existing 042 branch.
+- Control transition audited at start HEAD `251536d1d46e73680140b10b2f8d6cb9d21b3e7f`; both controls were updated together in transition commit `ea126c4c1742bfb3aa5e800e0cf7023771a5b08f`, pushed only on the existing 042 branch, and verified equal to its remote ref.
 
 ## Stop state
 
-This task remains `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The bounded admission-atomic promotion correction is implemented and will be remotely delivered on the existing 042 branch after the paired control update commit; the next safe action is the independent source audit. Human corrective runtime acceptance remains pending and is not claimed by this execution.
+This task remains `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The bounded admission-atomic promotion correction is committed and remotely delivered on the existing 042 branch at `ea126c4c1742bfb3aa5e800e0cf7023771a5b08f`; the next safe action is the independent source audit. Human corrective runtime acceptance remains pending and is not claimed by this execution.
