@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — READY_FOR_LOCAL_GATE_B`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -45,11 +45,13 @@ The voice key is transport control, not mode control:
 
 The product goal is one deterministic Xiaomi RC003 → ATVV → PCM → `RemoteOrbit Mic 2ch` path with minimal control-state noise and measurable start/continuity/tail behavior.
 
-## Current authorized next gate
+## Gate B — locally implemented and verified; independent audit pending
 
-`Gate B — Long-lived ATVV transport + dedicated BLE ingestion queue` is now authorized.
+Gate B implementation is complete on the authorized branch. The completion commit is
+the direct child of the audited Gate B control transition `4b742848457448308efb0f60e480fa400ca12eab`.
 
-Gate B must preserve the Gate A direct voice-session contract while changing only the transport/control scheduling architecture required to:
+The implementation preserves the Gate A direct voice-session contract while changing only
+the transport/control scheduling architecture required to:
 
 1. separate app-lifetime ATVV connection readiness from per-press voice-stream lifetime;
 2. keep a prepared/ready ATVV connection alive across normal voice sessions where CoreBluetooth/device state permits;
@@ -57,8 +59,19 @@ Gate B must preserve the Gate A direct voice-session contract while changing onl
 4. marshal only lightweight control/UI state back to the main queue;
 5. preserve ATVV command/framing/codec/sample-rate/AUDIO_SYNC semantics, existing 041 observability, existing tail-drain semantics, and the current AudioPipe data plane.
 
-Gate B must NOT implement Gate C/D/E: no SPSC audio ring, no CoreAudio render rewrite, no jitter-buffer tuning, no codec/gain/resampler change, no new start/tail delay policy, no driver/package/install/TCC/Air runtime change, and no merge/tag/release.
+Verified implementation receipt:
 
-## Next action
+- `BLEBridge` owns CoreBluetooth delegates, notification parsing/decoding, ATVV state, and BLE state mutation on the dedicated serial `com.remoteorbit.ble` queue; UI/control callbacks explicitly hop to `DispatchQueue.main`.
+- Transport diagnostics expose `disconnected → connecting → ready`; voice stream diagnostics remain `idle → opening → streaming → idle`, with the existing `350 ms` AUDIO_STOP drain and Gate A admission barrier preserved.
+- Normal release sends per-session `MIC_CLOSE` after the existing post-release grace, retains healthy discovery/subscription/capability state `READY`, and does not cancel the healthy peripheral. A missing AUDIO_STOP uses the bounded existing `600 ms` safety window to clear stale transport state and enter recovery.
+- A ready transport is reusable for a subsequent `MIC_OPEN` without repeating connection, discovery, subscription, or capability setup. Fatal/reset paths clear stale transport state before reconnect.
+- ATVV protocol semantics, codecs, ADPCM/sample rates, AUDIO_SYNC, keepalive, 041 diagnostics/privacy, AudioPipe architecture/render path, Gate A trigger/profile/tail semantics, driver/package/install/TCC/Air, and Gates C/D/E remain unchanged.
+- Verification: full Swift tests `514/514` passed; arm64 release build passed; x86_64 release build passed; protocol self-tests `3/3` passed; `git diff --check` passed.
 
-Local construction should fetch the exact live 042 branch, reconcile against this control state, establish one canonical writer, and execute Gate B only. After implementation/verification, push the same authorized branch and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not begin Gate C automatically.
+Gate C/D/E remain unauthorized. Human natural-use/UI acceptance, installed runtime/TCC,
+hardware behavior, and independent Web audit remain pending and are not claimed here.
+
+## Stop state
+
+`WAITING_FOR_INDEPENDENT_WEB_AUDIT` — do not begin Gate C, merge, tag, release, install,
+mutate TCC, or change the Air runtime.

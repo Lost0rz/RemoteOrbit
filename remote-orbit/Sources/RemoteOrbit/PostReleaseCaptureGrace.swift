@@ -9,12 +9,17 @@ final class PostReleaseCaptureGraceController {
     let duration: TimeInterval
     var onExpire: ((String, UInt64) -> Void)?
 
+    private let queue: DispatchQueue
     private var workItem: DispatchWorkItem?
     private var activeSessionID: String?
     private var generation: UInt64 = 0
 
-    init(duration: TimeInterval = PostReleaseCaptureGraceController.defaultDuration) {
+    init(
+        duration: TimeInterval = PostReleaseCaptureGraceController.defaultDuration,
+        queue: DispatchQueue = .main
+    ) {
         self.duration = duration
+        self.queue = queue
     }
 
     @discardableResult
@@ -28,7 +33,7 @@ final class PostReleaseCaptureGraceController {
             _ = self?.expire(sessionID: sessionID, generation: token)
         }
         workItem = work
-        DispatchQueue.main.asyncAfter(
+        queue.asyncAfter(
             deadline: .now() + duration,
             execute: work
         )

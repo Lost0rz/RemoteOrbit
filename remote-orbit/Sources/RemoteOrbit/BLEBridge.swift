@@ -20,6 +20,12 @@ enum BLEAudioStartDisposition: Equatable {
     )
 }
 
+enum BLEVoiceConnectionState: String, Equatable {
+    case disconnected = "disconnected"
+    case connecting = "connecting"
+    case ready = "ready"
+}
+
 /// Transport preparation and user-visible voice activation are separate
 /// intents. The classifier may prepare ATVV, but only long confirmation may
 /// request micOpen and create an audio stream.
@@ -30,6 +36,7 @@ struct BLEVoiceTransportState {
     var voiceInputRequested = false
     var atvvReady = false
     var micOpenRequested = false
+    var connectionState: BLEVoiceConnectionState = .disconnected
 
     var isPreparing: Bool {
         isStarted && !transportPrepared
@@ -37,7 +44,29 @@ struct BLEVoiceTransportState {
 
     mutating func prepareTransport() {
         isStarted = true
+        if connectionState != .ready {
+            transportPrepared = false
+            connectionState = .disconnected
+            atvvReady = false
+        }
+    }
+
+    mutating func beginConnection() {
+        connectionState = .connecting
         transportPrepared = false
+        atvvReady = false
+    }
+
+    mutating func markReady() {
+        connectionState = .ready
+        transportPrepared = true
+        atvvReady = true
+    }
+
+    mutating func markDisconnected() {
+        connectionState = .disconnected
+        transportPrepared = false
+        atvvReady = false
     }
 
     mutating func requestPendingPreCapture() {
@@ -63,6 +92,17 @@ struct BLEVoiceTransportState {
     mutating func commitVoiceInputClose() {
         cancelVoiceInput()
         micOpenRequested = false
+    }
+
+    mutating func finishVoiceSession() {
+        commitVoiceInputClose()
+    }
+
+    var canReuseReadyTransport: Bool {
+        isStarted
+            && connectionState == .ready
+            && transportPrepared
+            && atvvReady
     }
 
     mutating func cancelTransportPreparation() {
@@ -122,6 +162,8 @@ final class BLEBridge: NSObject {
     /// deferred physical press may be admitted on a fresh lifecycle.
     var onVoiceSessionAdmissionAvailable: (() -> Void)?
 
+    private let bleQueue: DispatchQueue
+    private let bleQueueKey = DispatchSpecificKey<Void>()
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
     private var audioChar: CBCharacteristic?
@@ -140,10 +182,9 @@ final class BLEBridge: NSObject {
     private var scanTimeoutWorkItem: DispatchWorkItem?
     private var connectTimeoutWorkItem: DispatchWorkItem?
     private var handshakeTimeoutWorkItem: DispatchWorkItem?
-    private var stopAfterVoiceWorkItem: DispatchWorkItem?
+    private var voiceCloseTimeoutWorkItem: DispatchWorkItem?
     private var audioStopDrainWorkItem: DispatchWorkItem?
-    private lazy var postReleaseGrace = PostReleaseCaptureGraceController()
-    private var stopTransportAfterRemoteAudioStop = false
+    private lazy var postReleaseGrace = PostReleaseCaptureGraceController(queue: bleQueue)
     private let reconnectDelays: [TimeInterval] = [1, 2, 4, 8, 15, 30]
     private let scanTimeout: TimeInterval = 8
     private let connectTimeout: TimeInterval = 12
@@ -152,8 +193,10 @@ final class BLEBridge: NSObject {
     /// reach CoreBluetooth. Keep the decoder and output path alive briefly so
     /// those packets can still be recorded and rendered.
     private let audioStopDrainDelay: TimeInterval = 0.35
-    private let transportCloseDelay: TimeInterval = 0.60
-    private let prewarmCloseDelay: TimeInterval = 0.15
+    /// Preserve the existing bounded post-close safety window, but use it only
+    /// to classify a missing AUDIO_STOP as a transport failure. A healthy
+    /// session retires through the normal AUDIO_STOP drain and keeps READY.
+    private let voiceCloseTimeout: TimeInterval = 0.60
 
     private let protocolHandler = ATVVProtocol()
     private var streamID: UInt8 = 0
@@ -204,44 +247,84 @@ final class BLEBridge: NSObject {
     /// still owns the AUDIO_STOP drain barrier. Otherwise its AUDIO_START can
     /// be rejected as a late packet and the physical press disappears.
     var isVoiceSessionAdmissionBlocked: Bool {
-        audioStopDrainWorkItem != nil
+        if DispatchQueue.getSpecific(key: bleQueueKey) != nil {
+            return audioStopDrainWorkItem != nil
+        }
+        return bleQueue.sync { audioStopDrainWorkItem != nil }
+    }
+
+    func queueIdentityForTesting() -> (label: String, isDedicatedQueue: Bool) {
+        bleQueue.sync {
+            (bleQueue.label, DispatchQueue.getSpecific(key: bleQueueKey) != nil)
+        }
+    }
+
+    func deliverAudioFrameCallbackForTesting() {
+        bleQueue.async { [weak self] in
+            self?.notifyAudioFrame()
+        }
     }
 
     // Test seams exercise the real drain-retirement and transport-reset paths
     // without requiring a live CoreBluetooth peripheral.
     func beginAudioStopDrainForTesting() {
-        audioStopDrainWorkItem?.cancel()
-        isStreaming = true
-        audioStopDrainWorkItem = DispatchWorkItem { }
+        performOnBLEQueueSynchronously {
+            self.audioStopDrainWorkItem?.cancel()
+            self.isStreaming = true
+            self.audioStopDrainWorkItem = DispatchWorkItem { }
+        }
     }
 
     func completeAudioStopDrainForTesting() {
-        finishAudioStopAfterDrain()
+        performOnBLEQueueSynchronously {
+            self.finishAudioStopAfterDrain()
+        }
     }
 
     func resetTransportForTesting() {
-        clearTransportState(notify: true)
+        performOnBLEQueueSynchronously {
+            self.clearTransportState(notify: true)
+        }
     }
 
     func beginAudioStartForTesting() {
-        isStreaming = true
-        wavRecorder = createRecordingIfEnabled(reason: "AUDIO_START_TEST")
+        performOnBLEQueueSynchronously {
+            self.isStreaming = true
+            self.wavRecorder = self.createRecordingIfEnabled(reason: "AUDIO_START_TEST")
+        }
     }
 
     func appendRecordingDataForTesting(rawData: Data, samples: [Int16]) {
-        wavRecorder?.appendRawBytes(rawData)
-        wavRecorder?.appendSamples(samples)
+        performOnBLEQueueSynchronously {
+            self.wavRecorder?.appendRawBytes(rawData)
+            self.wavRecorder?.appendSamples(samples)
+        }
     }
 
     func closeRecordingForTesting() {
-        wavRecorder?.close()
-        wavRecorder = nil
-        isStreaming = false
+        performOnBLEQueueSynchronously {
+            self.wavRecorder?.close()
+            self.wavRecorder = nil
+            self.isStreaming = false
+        }
+    }
+
+    private func performOnBLEQueueSynchronously(_ work: () -> Void) {
+        if DispatchQueue.getSpecific(key: bleQueueKey) != nil {
+            work()
+        } else {
+            bleQueue.sync(execute: work)
+        }
     }
 
     override init() {
+        bleQueue = DispatchQueue(
+            label: "com.remoteorbit.ble",
+            qos: .userInitiated
+        )
         super.init()
-        central = CBCentralManager(delegate: self, queue: .main)
+        bleQueue.setSpecific(key: bleQueueKey, value: ())
+        central = CBCentralManager(delegate: self, queue: bleQueue)
         postReleaseGrace.onExpire = { [weak self] sessionID, generation in
             self?.expirePostReleaseGrace(sessionID: sessionID, generation: generation)
         }
@@ -264,6 +347,12 @@ final class BLEBridge: NSObject {
     }
 
     func start() {
+        bleQueue.async { [weak self] in
+            self?.startOnBLEQueue()
+        }
+    }
+
+    private func startOnBLEQueue() {
         if !transportState.isStarted {
             transportState.prepareTransport()
             reconnectAttempt = 0
@@ -273,10 +362,20 @@ final class BLEBridge: NSObject {
             print("[BLE] 等待蓝牙就绪…")
             return
         }
+        if !transportState.transportPrepared {
+            transportState.beginConnection()
+            updateDiagnosticTransportState()
+        }
         tryDirectConnect()
     }
 
     func stop() {
+        performOnBLEQueueSynchronously {
+            self.stopOnBLEQueue()
+        }
+    }
+
+    private func stopOnBLEQueue() {
         cancelPostReleaseGrace(reason: "transport_stop")
         transportState.isStarted = false
         transportState.transportPrepared = false
@@ -284,9 +383,6 @@ final class BLEBridge: NSObject {
         transportState.voiceInputRequested = false
         transportState.micOpenRequested = false
         prewarmVoiceInputActive = false
-        stopAfterVoiceWorkItem?.cancel()
-        stopAfterVoiceWorkItem = nil
-        stopTransportAfterRemoteAudioStop = false
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
         scanTimeoutWorkItem?.cancel()
@@ -295,6 +391,8 @@ final class BLEBridge: NSObject {
         connectTimeoutWorkItem = nil
         handshakeTimeoutWorkItem?.cancel()
         handshakeTimeoutWorkItem = nil
+        voiceCloseTimeoutWorkItem?.cancel()
+        voiceCloseTimeoutWorkItem = nil
         central.stopScan()
         isScanning = false
         if let peripheral {
@@ -308,40 +406,34 @@ final class BLEBridge: NSObject {
     /// Prepare ATVV while the short-vs-long classifier is pending. This is
     /// transport-only: it must never request micOpen or start an audio stream.
     func prepareVoiceTransport() {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.prepareVoiceTransport()
-            }
-            return
+        bleQueue.async { [weak self] in
+            self?.prepareVoiceTransportOnBLEQueue()
         }
+    }
+
+    private func prepareVoiceTransportOnBLEQueue() {
         cancelPostReleaseGrace(reason: "new_transport_session")
-        stopTransportAfterRemoteAudioStop = false
         prewarmVoiceInputActive = true
         transportState.requestPendingPreCapture()
         updateDiagnosticTransportState()
-        stopAfterVoiceWorkItem?.cancel()
-        stopAfterVoiceWorkItem = nil
-        start()
+        startOnBLEQueue()
         print("[BLE] transport prewarm requested; micOpen deferred until long confirmation")
     }
 
     /// Activate ATVV after long-press confirmation. This is the only
     /// production entry point that may request micOpen.
     func activateVoiceInput() {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.activateVoiceInput()
-            }
-            return
+        bleQueue.async { [weak self] in
+            self?.activateVoiceInputOnBLEQueue()
         }
+    }
+
+    private func activateVoiceInputOnBLEQueue() {
         cancelPostReleaseGrace(reason: "new_voice_session")
-        stopTransportAfterRemoteAudioStop = false
         prewarmVoiceInputActive = false
         transportState.requestVoiceInput()
         updateDiagnosticTransportState()
-        stopAfterVoiceWorkItem?.cancel()
-        stopAfterVoiceWorkItem = nil
-        start()
+        startOnBLEQueue()
         if transportState.shouldRetryConnection(
             peripheralState: peripheral?.state,
             isScanning: isScanning,
@@ -357,41 +449,44 @@ final class BLEBridge: NSObject {
     /// activation has occurred in this state, so stopping the prepared link
     /// is sufficient to restore HID-only operation.
     func cancelVoiceTransportPreparation() {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.cancelVoiceTransportPreparation()
-            }
-            return
+        bleQueue.async { [weak self] in
+            self?.cancelVoiceTransportPreparationOnBLEQueue()
         }
+    }
+
+    private func cancelVoiceTransportPreparationOnBLEQueue() {
         cancelPostReleaseGrace(reason: "transport_preparation_cancelled")
         guard !transportState.voiceInputRequested,
               !transportState.micOpenRequested else { return }
         transportState.cancelTransportPreparation()
         prewarmVoiceInputActive = false
-        stopAfterVoiceWorkItem?.cancel()
-        stopAfterVoiceWorkItem = nil
         guard transportState.isStarted else { return }
-        stop()
-        print("[BLE] prepared transport cancelled; HID-only restored")
+        if transportState.canReuseReadyTransport {
+            updateDiagnosticTransportState()
+            print("[BLE] prepared transport retained READY after prewarm cancellation")
+        } else {
+            stopOnBLEQueue()
+            print("[BLE] prepared transport cancelled; HID-only restored")
+        }
     }
 
     /// Release the ATVV transport shortly after the physical voice key is
     /// released. The small drain window lets the remote deliver AUDIO_STOP,
-    /// then returns the radio to HID-only operation.
+    /// then closes only the current voice stream while retaining READY.
     func stopVoiceInput() {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.stopVoiceInput()
-            }
-            return
+        bleQueue.async { [weak self] in
+            self?.stopVoiceInputOnBLEQueue()
         }
+    }
+
+    private func stopVoiceInputOnBLEQueue() {
         if !transportState.voiceInputRequested,
            !transportState.micOpenRequested {
-            cancelVoiceTransportPreparation()
+            cancelVoiceTransportPreparationOnBLEQueue()
             return
         }
         guard transportState.deferVoiceInputCloseForPostReleaseGrace() else {
-            cancelVoiceTransportPreparation()
+            cancelVoiceTransportPreparationOnBLEQueue()
             return
         }
         guard !postReleaseGrace.isWaiting else { return }
@@ -475,10 +570,8 @@ final class BLEBridge: NSObject {
             return
         }
 
-        stopAfterVoiceWorkItem?.cancel()
-        stopAfterVoiceWorkItem = nil
         let hadMicOpen = transportState.micOpenRequested
-        transportState.commitVoiceInputClose()
+        transportState.finishVoiceSession()
         if hadMicOpen, transportState.atvvReady {
             do {
                 let command = try protocolHandler.micCloseCommand(streamID: streamID)
@@ -493,38 +586,43 @@ final class BLEBridge: NSObject {
                 print("[BLE] micClose error: \(error.localizedDescription)")
             }
         }
-        scheduleTransportStopAfterVoiceClose(hadMicOpen: hadMicOpen)
+        scheduleVoiceCloseTimeoutIfNeeded()
+        updateDiagnosticTransportState()
+        print("[BLE] voice session closed; ATVV transport remains READY")
     }
 
-    private func scheduleTransportStopAfterVoiceClose(hadMicOpen: Bool) {
-        let closeDelay = prewarmVoiceInputActive
-            ? prewarmCloseDelay
-            : (hadMicOpen ? transportCloseDelay : prewarmCloseDelay)
+    private func scheduleVoiceCloseTimeoutIfNeeded() {
+        guard isStreaming else { return }
+        voiceCloseTimeoutWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            self.stopAfterVoiceWorkItem = nil
-            self.stop()
-            print("[BLE] 语音释放，ATVV 链路已关闭（恢复 HID-only）")
+            self.voiceCloseTimeoutWorkItem = nil
+            guard self.isStreaming, self.audioStopDrainWorkItem == nil else { return }
+            print("[BLE] AUDIO_STOP timeout after MIC_CLOSE; clearing stale transport state")
+            let oldPeripheral = self.peripheral
+            self.clearTransportState(notify: true)
+            if let oldPeripheral {
+                self.central.cancelPeripheralConnection(oldPeripheral)
+                self.peripheral = nil
+            }
         }
-        stopAfterVoiceWorkItem?.cancel()
-        stopAfterVoiceWorkItem = work
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + closeDelay,
-            execute: work
-        )
+        voiceCloseTimeoutWorkItem = work
+        bleQueue.asyncAfter(deadline: .now() + voiceCloseTimeout, execute: work)
     }
 
     func setRecordingEnabled(_ enabled: Bool) {
-        AppStorage.recordingEnabled = enabled
-        print(
-            "[RECORDING] setRecordingEnabled enabled=\(enabled) "
-                + "persisted=\(AppStorage.recordingEnabled) isStreaming=\(isStreaming)"
-        )
-        if enabled, isStreaming, wavRecorder == nil {
-            wavRecorder = createRecordingIfEnabled(reason: "recording_toggle")
-        } else if !enabled, let recorder = wavRecorder {
-            recorder.close()
-            wavRecorder = nil
+        performOnBLEQueueSynchronously {
+            AppStorage.recordingEnabled = enabled
+            print(
+                "[RECORDING] setRecordingEnabled enabled=\(enabled) "
+                    + "persisted=\(AppStorage.recordingEnabled) isStreaming=\(self.isStreaming)"
+            )
+            if enabled, self.isStreaming, self.wavRecorder == nil {
+                self.wavRecorder = self.createRecordingIfEnabled(reason: "recording_toggle")
+            } else if !enabled, let recorder = self.wavRecorder {
+                recorder.close()
+                self.wavRecorder = nil
+            }
         }
     }
 
@@ -563,11 +661,13 @@ final class BLEBridge: NSObject {
     }
 
     func clearRecordings() {
-        if let recorder = wavRecorder {
-            recorder.close()
-            wavRecorder = nil
+        performOnBLEQueueSynchronously {
+            if let recorder = self.wavRecorder {
+                recorder.close()
+                self.wavRecorder = nil
+            }
+            AppStorage.clearFiles(in: AppStorage.recordingsDirectory)
         }
-        AppStorage.clearFiles(in: AppStorage.recordingsDirectory)
     }
 
     /// If we have a saved UUID from a previous scan, ask CoreBluetooth for
@@ -577,6 +677,10 @@ final class BLEBridge: NSObject {
         guard transportState.isStarted,
               !transportState.transportPrepared,
               central.state == .poweredOn else { return }
+        if transportState.connectionState != .connecting {
+            transportState.beginConnection()
+            updateDiagnosticTransportState()
+        }
         if let peripheral {
             if peripheral.state == .connected {
                 discoverATVVServices(on: peripheral)
@@ -634,7 +738,7 @@ final class BLEBridge: NSObject {
             self.scheduleReconnect(reason: "scan-timeout")
         }
         scanTimeoutWorkItem = work
-        DispatchQueue.main.asyncAfter(
+        bleQueue.asyncAfter(
             deadline: .now() + scanTimeout,
             execute: work
         )
@@ -667,6 +771,8 @@ final class BLEBridge: NSObject {
         connectTimeoutWorkItem?.cancel()
         connectTimeoutWorkItem = nil
         clearTransportState(notify: false)
+        transportState.beginConnection()
+        updateDiagnosticTransportState()
 
         // CoreBluetooth may return a live peripheral from
         // retrieveConnectedPeripherals(). Calling connect() again is not a
@@ -689,7 +795,7 @@ final class BLEBridge: NSObject {
             self.connectionSetupFailed("connect-timeout")
         }
         connectTimeoutWorkItem = work
-        DispatchQueue.main.asyncAfter(
+        bleQueue.asyncAfter(
             deadline: .now() + connectTimeout,
             execute: work
         )
@@ -723,19 +829,18 @@ final class BLEBridge: NSObject {
             self.tryDirectConnect()
         }
         reconnectWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        bleQueue.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func markATVVReady() {
         handshakeTimeoutWorkItem?.cancel()
         handshakeTimeoutWorkItem = nil
         guard !transportState.atvvReady else { return }
-        transportState.atvvReady = true
-        transportState.transportPrepared = true
+        transportState.markReady()
         reconnectAttempt = 0
         updateDiagnosticTransportState()
         print("[BLE] ATVV 语音链路已就绪")
-        onConnectionChanged?(true)
+        notifyConnectionChanged(true)
         requestMicOpenIfReady()
     }
 
@@ -745,9 +850,11 @@ final class BLEBridge: NSObject {
         connectTimeoutWorkItem = nil
         handshakeTimeoutWorkItem?.cancel()
         handshakeTimeoutWorkItem = nil
+        voiceCloseTimeoutWorkItem?.cancel()
+        voiceCloseTimeoutWorkItem = nil
         let continuitySnapshot = AudioPipe.shared.endRemoteAudioDiagnostics()
         VoiceTimingLogger.mergeContinuityRenderSnapshot(continuitySnapshot)
-        keepAliveTimer?.invalidate()
+        keepAliveTimer?.cancel()
         keepAliveTimer = nil
         if let recorder = wavRecorder {
             recorder.close()
@@ -763,15 +870,13 @@ final class BLEBridge: NSObject {
         discoveredATVVCharacteristics.removeAll()
         capabilitiesRequested = false
         transportState.micOpenRequested = false
-        stopTransportAfterRemoteAudioStop = false
         let wasReady = transportState.atvvReady
-        transportState.atvvReady = false
-        transportState.transportPrepared = false
+        transportState.markDisconnected()
         if wasStreaming || notify {
             notifyStreaming(false)
         }
         if wasReady {
-            onConnectionChanged?(false)
+            notifyConnectionChanged(false)
         }
         updateDiagnosticTransportState()
         retireAudioStopDrainBarrier()
@@ -904,13 +1009,12 @@ final class BLEBridge: NSObject {
 
     /// Start a periodic timer that keeps the ATVV voice stream alive while
     /// the remote thinks the user is holding the voice button.
-    private var keepAliveTimer: Timer?
+    private var keepAliveTimer: DispatchSourceTimer?
     private func startKeepAliveTimer() {
         stopKeepAliveTimer()
-        keepAliveTimer = Timer.scheduledTimer(
-            withTimeInterval: 4.0,
-            repeats: true
-        ) { [weak self] _ in
+        let timer = DispatchSource.makeTimerSource(queue: bleQueue)
+        timer.schedule(deadline: .now() + 4.0, repeating: 4.0)
+        timer.setEventHandler { [weak self] in
             guard let self else { return }
             print(ATVVKeepAliveTelemetry.timerLine(
                 event: "KEEPALIVE_TIMER_FIRED",
@@ -920,6 +1024,8 @@ final class BLEBridge: NSObject {
             ))
             self.sendKeepAlive()
         }
+        timer.resume()
+        keepAliveTimer = timer
         print(ATVVKeepAliveTelemetry.timerLine(
             event: "KEEPALIVE_TIMER_STARTED",
             sessionID: streamSessionID,
@@ -929,7 +1035,7 @@ final class BLEBridge: NSObject {
     }
     private func stopKeepAliveTimer() {
         guard keepAliveTimer != nil else { return }
-        keepAliveTimer?.invalidate()
+        keepAliveTimer?.cancel()
         keepAliveTimer = nil
         print(ATVVKeepAliveTelemetry.timerLine(
             event: "KEEPALIVE_TIMER_STOPPED",
@@ -947,25 +1053,40 @@ final class BLEBridge: NSObject {
     private func notifyStreaming(_ on: Bool) {
         let sr = (protocolHandler.codec == .adpcm16k) ? 16_000 : 8_000
         updateDiagnosticTransportState()
-        onStreamingChanged?(on, sr)
+        guard let callback = onStreamingChanged else { return }
+        DispatchQueue.main.async {
+            callback(on, sr)
+        }
+    }
+
+    private func notifyAudioFrame() {
+        guard let callback = onAudioFrame else { return }
+        DispatchQueue.main.async(execute: callback)
+    }
+
+    private func notifyConnectionChanged(_ connected: Bool) {
+        guard let callback = onConnectionChanged else { return }
+        DispatchQueue.main.async {
+            callback(connected)
+        }
+    }
+
+    private func notifyLevel(_ db: Double, peak: Int) {
+        guard let callback = onLevel else { return }
+        DispatchQueue.main.async {
+            callback(db, peak)
+        }
     }
 
     private func updateDiagnosticTransportState() {
-        let transportStateName: String
+        let transportStateName = transportState.connectionState.rawValue
+        let streamStateName: String
         if isStreaming {
-            transportStateName = "streaming"
+            streamStateName = "streaming"
         } else if transportState.micOpenRequested {
-            transportStateName = "mic_open_requested"
-        } else if transportState.voiceInputRequested {
-            transportStateName = "voice_requested"
-        } else if transportState.pendingPreCaptureRequested {
-            transportStateName = "prewarming"
-        } else if transportState.transportPrepared {
-            transportStateName = "prepared"
-        } else if transportState.isStarted {
-            transportStateName = "started"
+            streamStateName = "opening"
         } else {
-            transportStateName = "idle"
+            streamStateName = "idle"
         }
         DiagnosticRuntimeHealthRegistry.shared.setString(
             "ble_peripheral_state",
@@ -974,6 +1095,10 @@ final class BLEBridge: NSObject {
         DiagnosticRuntimeHealthRegistry.shared.setString(
             "ble_transport_state",
             transportStateName
+        )
+        DiagnosticRuntimeHealthRegistry.shared.setString(
+            "ble_voice_stream_state",
+            streamStateName
         )
         DiagnosticRuntimeHealthRegistry.shared.setBool(
             "transport_prepared",
@@ -1009,7 +1134,7 @@ extension BLEBridge: CBCentralManagerDelegate {
             central.stopScan()
             isScanning = false
             clearTransportState(notify: true)
-            onConnectionChanged?(false)
+            notifyConnectionChanged(false)
         default:
             break
         }
@@ -1142,7 +1267,7 @@ extension BLEBridge: CBPeripheralDelegate {
                 self.connectionSetupFailed("capabilities-timeout")
             }
             handshakeTimeoutWorkItem = work
-            DispatchQueue.main.asyncAfter(
+            bleQueue.asyncAfter(
                 deadline: .now() + handshakeTimeout,
                 execute: work
             )
@@ -1315,6 +1440,8 @@ extension BLEBridge: CBPeripheralDelegate {
                 print("[BLE] AUDIO_STOP duplicate ignored reason=0x\(String(format: "%02x", reason))")
                 return
             }
+            voiceCloseTimeoutWorkItem?.cancel()
+            voiceCloseTimeoutWorkItem = nil
             if audioStopDrainWorkItem != nil {
                 print("[BLE] AUDIO_STOP duplicate during drain ignored reason=0x\(String(format: "%02x", reason))")
                 return
@@ -1334,8 +1461,7 @@ extension BLEBridge: CBPeripheralDelegate {
                 millisecondsSinceLastKeepAlive: sinceLastKeepAlive
             ))
             if cancelPostReleaseGrace(reason: "remote_audio_stop") {
-                stopTransportAfterRemoteAudioStop = true
-                transportState.commitVoiceInputClose()
+                transportState.finishVoiceSession()
             }
             stopKeepAliveTimer()
             VoiceTimingLogger.mark("AUDIO_STOP")
@@ -1349,7 +1475,7 @@ extension BLEBridge: CBPeripheralDelegate {
                 self?.finishAudioStopAfterDrain()
             }
             audioStopDrainWorkItem = work
-            DispatchQueue.main.asyncAfter(
+            bleQueue.asyncAfter(
                 deadline: .now() + audioStopDrainDelay,
                 execute: work
             )
@@ -1529,7 +1655,7 @@ extension BLEBridge: CBPeripheralDelegate {
 
         // Queue the decoded frame before opening the external voice dialog.
         AudioPipe.shared.feed(samples: frame.samples)
-        onAudioFrame?()
+        notifyAudioFrame()
         let needsLevel = onLevel != nil || Self.diagnosticsEnabled
         if needsLevel {
             levelSumSq += frame.samples.reduce(into: 0) {
@@ -1550,7 +1676,7 @@ extension BLEBridge: CBPeripheralDelegate {
                 print(String(format: "[LVL] %@ ATVV rms=%.0f peak=%d  %.0f dBFS",
                              bar, rms, peak, db))
             }
-            onLevel?(db, peak)
+            notifyLevel(db, peak: peak)
             levelSumSq = 0
             levelCount = 0
             levelPeak = 0
@@ -1560,6 +1686,8 @@ extension BLEBridge: CBPeripheralDelegate {
 
     private func finishAudioStopAfterDrain() {
         guard audioStopDrainWorkItem != nil else { return }
+        voiceCloseTimeoutWorkItem?.cancel()
+        voiceCloseTimeoutWorkItem = nil
         guard isStreaming else {
             retireAudioStopDrainBarrier()
             return
@@ -1582,7 +1710,7 @@ extension BLEBridge: CBPeripheralDelegate {
         levelSumSq = 0
         levelCount = 0
         levelPeak = 0
-        onLevel?(-120, 0)
+        notifyLevel(-120, peak: 0)
         diagFrameCount = 0
         if let w = wavRecorder {
             let wavPath = w.wavPath
@@ -1739,10 +1867,6 @@ extension BLEBridge: CBPeripheralDelegate {
         let reason = pendingAudioStopReason ?? 0
         pendingAudioStopReason = nil
         print("[BLE] AUDIO_STOP drained reason=0x\(String(format: "%02x", reason))")
-        if stopTransportAfterRemoteAudioStop {
-            stopTransportAfterRemoteAudioStop = false
-            scheduleTransportStopAfterVoiceClose(hadMicOpen: true)
-        }
         retireAudioStopDrainBarrier()
     }
 
@@ -1760,8 +1884,8 @@ extension BLEBridge: CBPeripheralDelegate {
     }
 
     private func notifyVoiceSessionAdmissionAvailable() {
-        guard let onVoiceSessionAdmissionAvailable else { return }
-        DispatchQueue.main.async(execute: onVoiceSessionAdmissionAvailable)
+        guard let callback = onVoiceSessionAdmissionAvailable else { return }
+        DispatchQueue.main.async(execute: callback)
     }
 
     private func formatMilliseconds(_ value: Double?) -> String {

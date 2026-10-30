@@ -82,4 +82,16 @@ final class PostReleaseCaptureGraceTests: XCTestCase {
         XCTAssertTrue(grace.isWaitingForTesting)
         XCTAssertTrue(grace.cancel(sessionID: "session-a"))
     }
+
+    func testInjectedQueuePreservesOneShotGenerationSemantics() {
+        let queue = DispatchQueue(label: "com.remoteorbit.tests.grace")
+        let grace = PostReleaseCaptureGraceController(queue: queue)
+        var expirations: [String] = []
+        grace.onExpire = { sessionID, _ in expirations.append(sessionID) }
+
+        let generation = grace.start(sessionID: "session-a")
+        XCTAssertTrue(grace.expireForTesting(sessionID: "session-a", generation: generation))
+        XCTAssertEqual(expirations, ["session-a"])
+        XCTAssertFalse(grace.expireForTesting(sessionID: "session-a", generation: generation))
+    }
 }

@@ -229,6 +229,64 @@ final class BLEBridgeTests: XCTestCase {
         XCTAssertFalse(state.shouldRequestMicOpen)
     }
 
+    func testReadyTransportSurvivesVoiceSessionCloseAndCanReuseMicOpen() {
+        var state = BLEVoiceTransportState()
+
+        state.prepareTransport()
+        state.beginConnection()
+        XCTAssertEqual(state.connectionState, .connecting)
+
+        state.markReady()
+        XCTAssertEqual(state.connectionState, .ready)
+        XCTAssertTrue(state.canReuseReadyTransport)
+
+        state.requestVoiceInput()
+        state.micOpenRequested = true
+        state.finishVoiceSession()
+
+        XCTAssertEqual(state.connectionState, .ready)
+        XCTAssertTrue(state.canReuseReadyTransport)
+        XCTAssertFalse(state.voiceInputRequested)
+        XCTAssertFalse(state.micOpenRequested)
+
+        state.requestVoiceInput()
+        XCTAssertTrue(state.shouldRequestMicOpen)
+    }
+
+    func testFatalTransportResetClearsReadyStateBeforeReconnect() {
+        var state = BLEVoiceTransportState()
+
+        state.prepareTransport()
+        state.beginConnection()
+        state.markReady()
+        state.requestVoiceInput()
+
+        state.markDisconnected()
+
+        XCTAssertEqual(state.connectionState, .disconnected)
+        XCTAssertFalse(state.canReuseReadyTransport)
+        XCTAssertFalse(state.atvvReady)
+        XCTAssertFalse(state.transportPrepared)
+    }
+
+    func testBLEBridgeUsesDedicatedSerialQueueAndMarshalsCallbacksToMain() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        let queueIdentity = bridge.queueIdentityForTesting()
+        XCTAssertEqual(queueIdentity.label, "com.remoteorbit.ble")
+        XCTAssertTrue(queueIdentity.isDedicatedQueue)
+
+        let callback = expectation(description: "audio callback returns to main")
+        bridge.onAudioFrame = {
+            XCTAssertTrue(Thread.isMainThread)
+            callback.fulfill()
+        }
+        bridge.deliverAudioFrameCallbackForTesting()
+
+        wait(for: [callback], timeout: 1.0)
+    }
+
     func testVoiceActivationRequestsMicAfterAStartedPrewarm() {
         var state = BLEVoiceTransportState()
 

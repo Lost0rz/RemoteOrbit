@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Single-Path Voice Pipeline
 
-Status: `READY_FOR_LOCAL_GATE_B`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -66,7 +66,7 @@ Recorded executor verification at that semantic head: full Swift tests 510/510, 
 
 This Gate A source acceptance does not claim installed/Air natural-use acceptance or final release readiness.
 
-## Gate B — Long-lived ATVV transport + dedicated BLE ingestion queue — AUTHORIZED
+## Gate B — Long-lived ATVV transport + dedicated BLE ingestion queue — IMPLEMENTED / WAITING_FOR_INDEPENDENT_WEB_AUDIT
 
 ### Goal
 
@@ -110,6 +110,16 @@ A real disconnect, Bluetooth power/state change, notification/service failure, e
 10. Adapt diagnostics/tests only as required to truthfully distinguish transport readiness from per-session streaming state.
 11. Preserve safe reconnect after genuine disconnect/failure, sleep/wake/Bluetooth transitions insofar as the existing implementation already handles them; do not weaken current recovery in order to keep a connection alive.
 12. Preserve one canonical writer and push only the authorized 042 branch.
+
+### Gate B implementation receipt
+
+- Transport lifetime is explicit: `DISCONNECTED → CONNECTING → READY`; voice-stream lifetime remains `IDLE → OPENING → STREAMING → DRAINING → IDLE`.
+- `CBCentralManager` and associated peripheral delegate/notification handling use one dedicated serial `com.remoteorbit.ble` queue. BLE/ATVV state writes and timers are queue-owned; UI/control callbacks explicitly marshal to the main queue, while audio frame decode and `AudioPipe.feed` do not wait on main.
+- Normal release sends `MIC_CLOSE` after the existing post-release grace, completes the existing `350 ms` AUDIO_STOP drain/admission barrier, and retains a healthy peripheral's discovery/subscription/capability state as `READY`. The bounded `600 ms` safety timeout only clears stale transport state when AUDIO_STOP is missing.
+- A second session can request `MIC_OPEN` from `READY` without repeating connect, service/characteristic discovery, subscription, or capability negotiation. Genuine reset/disconnect paths still clear stale state and use bounded reconnect logic.
+- Gate A tail ordering, stale `AUDIO_START` admission rejection, AudioPipe architecture/render path, ATVV v0.4/v1.0 and codec/ADPCM/sample-rate/AUDIO_SYNC/keepalive behavior, and 041 diagnostics/privacy remain preserved.
+- Verification receipt: full Swift tests `514/514` passed; arm64 release build passed; x86_64 release build passed; protocol self-tests `3/3` passed; `git diff --check` passed.
+- No Gate C/D/E, driver/package/install/TCC/Air, merge, tag, or release work was performed.
 
 ### Gate B state/ownership requirements
 
@@ -179,7 +189,7 @@ No Gate C/D/E mutation is authorized by the current task phase.
 
 ## Gate B completion / stop state
 
-After Gate B implementation and verification:
+Gate B implementation and verification are complete locally:
 
 - update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
 - commit all authorized Gate B changes;
