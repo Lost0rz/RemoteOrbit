@@ -67,6 +67,13 @@ final class DiagnosticRuntimeHealthRegistry: @unchecked Sendable {
         "audio_pipe_output_ready": .bool(false),
         "audio_pipe_queue_depth_frames": .unsignedInteger(0),
         "audio_pipe_queue_has_remote_frames": .bool(false),
+        "audio_pipe_reserve_ms": .unsignedInteger(0),
+        "audio_pipe_reserve_frames": .unsignedInteger(0),
+        "audio_pipe_reserve_state": .string("waiting_for_reserve"),
+        "audio_pipe_reserve_start_depth_frames": .unsignedInteger(0),
+        "audio_pipe_reserve_wait_ms": .double(0),
+        "audio_pipe_reserve_start_reason": .string("unavailable"),
+        "audio_pipe_reserve_selected_default_ms": .unsignedInteger(0),
         "output_device_identity": .string("unavailable"),
         "selected_input_identity": .string("unavailable"),
         "last_hid_report_uptime_ms": .unsignedInteger(0),
@@ -109,6 +116,27 @@ final class DiagnosticRuntimeHealthRegistry: @unchecked Sendable {
         )
         values["audio_pipe_remote_active"] = .bool(snapshot.remoteActive)
         values["audio_pipe_queue_has_remote_frames"] = .bool(snapshot.queueHasRemoteFrames)
+        values["audio_pipe_reserve_ms"] = .unsignedInteger(
+            UInt64(max(0, snapshot.reserveConfiguredMilliseconds))
+        )
+        values["audio_pipe_reserve_frames"] = .unsignedInteger(
+            UInt64(max(0, snapshot.reserveConfiguredFrames))
+        )
+        values["audio_pipe_reserve_state"] = .string(
+            snapshot.reserveState == .started ? "started" : "waiting_for_reserve"
+        )
+        values["audio_pipe_reserve_start_depth_frames"] = .unsignedInteger(
+            UInt64(max(0, snapshot.reserveStartDepthFrames ?? 0))
+        )
+        values["audio_pipe_reserve_wait_ms"] = .double(
+            snapshot.reserveWaitDurationMilliseconds
+        )
+        values["audio_pipe_reserve_start_reason"] = .string(
+            snapshot.reserveStartReason.map(String.init(describing:)) ?? "unavailable"
+        )
+        values["audio_pipe_reserve_selected_default_ms"] = .unsignedInteger(
+            UInt64(max(0, snapshot.reserveSelectedDefaultCandidate.milliseconds))
+        )
         lock.unlock()
     }
 

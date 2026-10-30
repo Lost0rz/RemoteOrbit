@@ -245,6 +245,54 @@ final class AudioPipeRealtimeTests: XCTestCase {
         XCTAssertNotNil(diagnostics.markers().firstRemoteRenderedMonotonicNanoseconds)
     }
 
+    func testReserveWaitIsIntentionalSilenceNotAnActiveUnderrun() {
+        let diagnostics = AudioPipeRealtimeDiagnostics()
+        diagnostics.setRemoteActive(true)
+        diagnostics.beginDiagnostics(remoteActive: true)
+        let accounting = AudioPipeRenderAccounting.measure(
+            requestedFrames: 480,
+            availableRemoteFrames: 480,
+            pendingRemoteFrames: 480,
+            remoteActive: true,
+            remoteWasActive: true,
+            reserveWaiting: true
+        )
+        let readResult = AudioPipePCMReadResult(
+            requestedFrames: 480,
+            filledFrames: 0,
+            unfilledFrames: 0,
+            remoteFramesConsumed: 0,
+            queueDepthBeforeFrames: 480,
+            remoteQueueDepthBeforeFrames: 480,
+            queueDepthAfterFrames: 480,
+            remoteQueueDepthAfterFrames: 480,
+            peak: 0
+        )
+
+        XCTAssertEqual(accounting.state, .reserveWait)
+        XCTAssertEqual(accounting.activeUnderrunCallbacks, 0)
+        XCTAssertEqual(accounting.activeUnderrunFrames, 0)
+
+        XCTAssertTrue(diagnostics.beginRenderDiagnosticsIfActive())
+        diagnostics.recordRender(
+            accounting,
+            requestedFrames: 480,
+            readResult: readResult,
+            remoteWasActive: true,
+            timestampNanoseconds: 1_000
+        )
+        diagnostics.endRenderDiagnostics()
+
+        let snapshot = diagnostics.snapshot(reset: false)
+        XCTAssertEqual(snapshot.underrunCallbackCount, 0)
+        XCTAssertEqual(snapshot.renderedRemoteFrames, 0)
+
+        var observations = [AudioPipeRealtimeObservation]()
+        diagnostics.drainObservations { observations.append($0) }
+        XCTAssertEqual(observations.map(\.kind), [.render])
+        XCTAssertNil(diagnostics.markers(reset: false).firstRemoteRenderedMonotonicNanoseconds)
+    }
+
     func testRenderCallbackSourceHasNoDynamicBufferLockOrDispatch() throws {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

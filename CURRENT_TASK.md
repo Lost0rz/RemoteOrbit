@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Gate D Small Measured Jitter Reserve
 
-Status: `READY_FOR_LOCAL_GATE_D`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -62,7 +62,7 @@ Accepted head: `9abdebc21a1e03c79ab0ac960bf2d9902c24b1d5`.
 
 Independent Web `CODE_DIFF` audit accepted Gate C source semantics. Installed/hardware/Air natural-use acceptance remains pending and is not implied by this source acceptance.
 
-## Gate D — Small measured jitter reserve — AUTHORIZED
+## Gate D — Small measured jitter reserve — LOCAL IMPLEMENTATION COMPLETE
 
 ### Goal
 
@@ -151,6 +151,28 @@ Select the smallest candidate from `45/75/100 ms` that materially reduces the au
 
 If the evidence does not clearly distinguish a smallest useful candidate, do not invent a default. Stop at the audit boundary with the comparison results and report the unresolved selection.
 
+### Gate D executor result
+
+The implementation uses one `AudioPipePlayoutReserve` seam around the accepted
+Gate C ring consumer. The candidate thresholds are exactly `0`, `2,160`,
+`3,600`, and `4,800` frames at 48 kHz. The selected default is `45 ms` and
+`SELECTION_AMBIGUOUS=NO`: in the deterministic short-jitter simulation the
+control recorded `3/1,440` active underrun callbacks/frames, while 45/75/100
+ms each recorded `0/0`; 45 ms was the smallest positive candidate and 75/100
+ms added latency without further reduction. Startup latency/start depth were
+`0/480`, `40/4,080`, `40/4,080`, and `60/5,280` ms/frames for
+`0/45/75/100 ms`; tail bypass and dropped/stranded PCM were zero for every
+candidate.
+
+The sustained-deficit control recorded `6` active underrun callbacks and
+`1,440` active underrun frames for every candidate, proving the finite reserve
+does not repair permanent supply deficit. Reserve wait is intentional silence:
+it consumes no PCM and does not count active underrun, starvation, front-edge,
+rendered PCM, or first-render markers. Tail bypass, actual-ring-empty drain,
+no-rearm, and new-session reset are covered by focused tests. The existing
+diagnostic authority exposes candidate/configured frames, start depth, wait
+duration, start reason, and selected default.
+
 ### Semantics that must remain unchanged
 
 - Gate A voice key/profile/trigger ownership;
@@ -203,7 +225,7 @@ Final diff must prove no Gate E, BLE/ATVV, driver/runtime/install/TCC, or unrela
 
 ## Completion / stop state
 
-After Gate D implementation and verification:
+Gate D implementation and verification are complete:
 
 - update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
 - commit all authorized Gate D changes;

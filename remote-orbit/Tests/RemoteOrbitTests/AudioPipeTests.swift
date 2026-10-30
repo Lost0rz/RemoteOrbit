@@ -108,4 +108,87 @@ final class AudioPipeTests: XCTestCase {
         _ = pipe.setRemoteActive(true)
         _ = pipe.setRemoteActive(false)
     }
+
+    func testReserveWaitDoesNotConsumePCMOrAdvanceDiagnosticsMarkers() {
+        let pipe = AudioPipe.shared
+        _ = pipe.setRemoteActive(false)
+        _ = pipe.setRemoteActive(true)
+        pipe.feed(samples: Array(repeating: Int16(3), count: 160))
+
+        let output = render(pipe, frames: 480)
+
+        XCTAssertTrue(output.allSatisfy { $0 == 0 })
+        XCTAssertEqual(pipe.queuedOutputFrames, 480)
+        let snapshot = pipe.takeAudioDiagnosticsSnapshot()
+        XCTAssertEqual(snapshot.reserveState, .waitingForReserve)
+        XCTAssertEqual(snapshot.reserveConfiguredFrames, 2_160)
+        XCTAssertEqual(snapshot.underrunCallbackCount, 0)
+        XCTAssertEqual(snapshot.renderedRemoteFrames, 0)
+
+        _ = pipe.setRemoteActive(false)
+    }
+
+    func testThresholdStartConsumesPCMAndThenCountsARealUnderflowWithoutRearm() {
+        let pipe = AudioPipe.shared
+        _ = pipe.setRemoteActive(false)
+        pipe.beginRemoteAudioDiagnostics()
+        _ = pipe.setRemoteActive(true)
+        pipe.feed(samples: Array(repeating: Int16(3), count: 720))
+
+        let firstOutput = render(pipe, frames: 480)
+        XCTAssertTrue(firstOutput.contains { abs($0) > 0.0001 })
+
+        let beforeUnderflow = pipe.takeAudioDiagnosticsSnapshot()
+        XCTAssertEqual(beforeUnderflow.reserveState, .started)
+        XCTAssertEqual(beforeUnderflow.reserveStartReason, .threshold)
+
+        for _ in 0..<4 {
+            _ = render(pipe, frames: 480)
+        }
+        let afterUnderflow = pipe.takeAudioDiagnosticsSnapshot()
+        XCTAssertEqual(afterUnderflow.reserveState, .started)
+        XCTAssertGreaterThan(afterUnderflow.underrunCallbackCount, 0)
+
+        _ = pipe.setRemoteActive(false)
+        _ = pipe.endRemoteAudioDiagnostics()
+    }
+
+    func testTailBypassRendersShortUtteranceBeforeReserveThresholdAndDrains() {
+        let pipe = AudioPipe.shared
+        _ = pipe.setRemoteActive(false)
+        _ = pipe.setRemoteActive(true)
+        pipe.feed(samples: Array(repeating: Int16(3), count: 160))
+        _ = pipe.setRemoteActive(false)
+
+        let completion = expectation(description: "tail drain completion")
+        pipe.waitForOutputDrain { completion.fulfill() }
+        let output = render(pipe, frames: 480)
+
+        XCTAssertTrue(output.contains { abs($0) > 0.0001 })
+        XCTAssertEqual(pipe.queuedOutputFrames, 0)
+        wait(for: [completion], timeout: 1)
+
+        let snapshot = pipe.takeAudioDiagnosticsSnapshot()
+        XCTAssertEqual(snapshot.reserveState, .started)
+        XCTAssertEqual(snapshot.reserveStartReason, .tailBypass)
+    }
+
+    private func render(_ pipe: AudioPipe, frames: Int) -> [Float] {
+        var output = [Float](repeating: -1, count: frames * 2)
+        output.withUnsafeMutableBytes { rawBuffer in
+            let buffer = AudioBuffer(
+                mNumberChannels: 2,
+                mDataByteSize: UInt32(rawBuffer.count),
+                mData: rawBuffer.baseAddress
+            )
+            var outputData = AudioBufferList(
+                mNumberBuffers: 1,
+                mBuffers: buffer
+            )
+            withUnsafeMutablePointer(to: &outputData) { pointer in
+                pipe.render(pointer)
+            }
+        }
+        return output
+    }
 }

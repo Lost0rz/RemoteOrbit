@@ -203,6 +203,50 @@ final class DiagnosticHardeningTests: XCTestCase {
         XCTAssertEqual(state["audio_pipe_queue_has_remote_frames"], .bool(false))
     }
 
+    func testReserveEvidenceAppearsInExistingRuntimeHealthAuthority() {
+        let registry = DiagnosticRuntimeHealthRegistry()
+        let reserve = AudioPipePlayoutReserveSnapshot(
+            candidate: .milliseconds45,
+            configuredReserveFrames: 2_160,
+            selectedDefaultCandidate: .milliseconds45,
+            state: .started,
+            startDepthFrames: 2_400,
+            waitDurationNanoseconds: 45_000_000,
+            startReason: .threshold
+        )
+        let snapshot = AudioPipeDiagnosticsSnapshot(
+            renderCallbackCount: 0,
+            renderRequestedFrames: 0,
+            renderFilledFrames: 0,
+            renderUnfilledFrames: 0,
+            underrunCallbackCount: 0,
+            maxUnderrunFrames: 0,
+            currentQueueDepthFrames: 0,
+            audioQueueDepthFrames: 0,
+            pendingRemoteFrames: 0,
+            submittedRemoteFrames: 0,
+            renderedRemoteFrames: 0,
+            minQueueDepthFrames: 0,
+            maxQueueDepthFrames: 0,
+            overflowDroppedFrames: 0,
+            compactionCount: 0,
+            tailRenderedFrames: 0,
+            tailEmptyCallbackCount: 0,
+            idleRenderCallbackCount: 0,
+            sampleRate: 48_000,
+            reserve: reserve
+        )
+
+        registry.updateAudioPipe(snapshot)
+
+        let state = registry.snapshot()
+        XCTAssertEqual(state["audio_pipe_reserve_ms"], .unsignedInteger(45))
+        XCTAssertEqual(state["audio_pipe_reserve_frames"], .unsignedInteger(2_160))
+        XCTAssertEqual(state["audio_pipe_reserve_state"], .string("started"))
+        XCTAssertEqual(state["audio_pipe_reserve_start_depth_frames"], .unsignedInteger(2_400))
+        XCTAssertEqual(state["audio_pipe_reserve_start_reason"], .string("threshold"))
+    }
+
     func testSelectedInputIdentityIsRefreshedAfterRemoteVoiceSelection() {
         let registry = DiagnosticRuntimeHealthRegistry()
         registry.recordSelectedInputIdentity("uid:remoteorbit-after-selection")

@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — READY_FOR_LOCAL_GATE_D`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -43,18 +43,77 @@ Accepted properties:
 
 Executor evidence at the accepted head recorded focused Gate C/regression tests `196/196`, full Swift `534/534`, arm64/x86_64 Release builds, protocol self-tests `3/3`, and `git diff --check` passing. This source acceptance does not claim installed/hardware/Air natural-use acceptance.
 
-## Current authorized gate
+## Gate D — LOCAL IMPLEMENTATION COMPLETE
 
-`Gate D — Small measured jitter reserve` is now authorized for local construction.
+Gate D added one explicit per-stream startup playout reserve around the
+accepted Gate C consumer. PCM enters the existing 96,000-frame ring
+immediately; active render remains in `WAITING_FOR_RESERVE` until the selected
+threshold, then transitions once to `STARTED`. Tail/drain bypasses the reserve
+before threshold and preserves the existing actual-ring-empty completion.
 
-Gate D may add only a small, explicit, measurable startup playout reserve on top of the accepted Gate C ring so short BLE arrival jitter can be absorbed without redesigning BLE/ATVV, AudioPipe transport capacity, Gate A/B ownership, or tail semantics.
+Candidate frame thresholds at the existing 48 kHz output rate are fixed and
+centralized: `0 ms = 0`, `45 ms = 2,160`, `75 ms = 3,600`, `100 ms = 4,800`.
+The selected bounded default is `45 ms`. It is the smallest positive candidate
+that removed the deterministic short-jitter active underflow without tail
+bypass; `75 ms` and `100 ms` provided no further underflow reduction and added
+startup latency. The comparison was deterministic synthetic evidence only and
+does not claim hardware or natural-use acceptance.
 
-The reserve must be a true playout-start threshold, not a larger ring, not adaptive rebuffering, and not a claim to repair permanent BLE delivery deficit. The implementation must make the added latency explicit and measurable.
+### Gate D candidate comparison evidence
 
-Initial candidate values for evidence-driven evaluation are `0 ms`, `45 ms`, `75 ms`, and `100 ms`; source authority may choose one bounded default only after tests/recorded evidence justify it. No value above 100 ms is authorized in Gate D.
+The short-jitter simulation used 10 ms / 480-frame CoreAudio callbacks, an
+initial 480-frame arrival, a 30 ms gap, a 3,600-frame burst, and then a
+sufficient 600-frame/tick supply. `dropped_or_stranded_pcm` was zero for every
+candidate.
+
+| candidate | startup latency | actual start depth | active underrun callbacks | active underrun frames | tail bypass |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 ms | 0 ms | 480 | 3 | 1,440 | 0 |
+| 45 ms | 40 ms | 4,080 | 0 | 0 | 0 |
+| 75 ms | 40 ms | 4,080 | 0 | 0 | 0 |
+| 100 ms | 60 ms | 5,280 | 0 | 0 | 0 |
+
+The separate sustained-deficit control began with 4,800 frames and then
+supplied 240 frames/tick against 480-frame consumption. All candidates still
+recorded 6 active underflow callbacks and 1,440 active underflow frames, with
+no dropped or stranded PCM. `SELECTION_AMBIGUOUS=NO`.
+
+### Gate D implementation properties
+
+- Reserve wait outputs direct silence, consumes zero remote PCM, and emits no
+  active underrun, queue-starvation, or front-edge-underrun evidence.
+- Actual remote consumption remains the only source for output-boundary and
+  F5/F8 first-rendered markers; meter rendered-frame counts exclude reserve
+  silence.
+- A later queue dip does not re-arm reserve. New remote activation is the
+  reset boundary.
+- Existing diagnostics expose configured milliseconds/frames, candidate and
+  selected default, state, start depth, wait duration, and threshold/tail
+  start reason through the existing snapshot/runtime-health/summary authority.
+- Gate C ring capacity and newest-drop overflow policy are unchanged; no
+  adaptive jitter, rebuffering, BLE/ATVV, Gate E, driver, runtime, install,
+  TCC, Air, merge, tag, or release behavior changed.
+
+### Gate D verification receipt
+
+- Focused Gate D/regression suites: `178/178` passed.
+- Full Swift test suite: `546/546` passed.
+- arm64 Release build: passed.
+- x86_64 Release build: passed.
+- Protocol self-tests: `3/3` passed.
+- `git diff --check`: passed.
+
+Changed paths are the Gate D reserve seam, AudioPipe/render accounting and
+existing diagnostic summary/runtime-health integration, focused tests, the
+protocol self-test source list, and the Gate D design/plan documents. No
+product packaging, installation, driver, TCC, Air, merge, tag, or release
+operation was performed.
 
 ## Stop / next
 
-Local construction must fetch this branch, read `AGENTS.md`, this file, and `CURRENT_TASK.md`, reuse one canonical writer, execute Gate D only, push the same branch, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+Gate D local implementation and required verification are complete on the
+canonical writer. The branch must be committed/pushed with exact local/remote
+equality, then remains stopped at `WAITING_FOR_INDEPENDENT_WEB_AUDIT` for a
+fresh independent Web/code audit of the Gate D head.
 
 Do not begin Gate E automatically. Do not merge, tag, release, package/install, mutate TCC, or change Air runtime.

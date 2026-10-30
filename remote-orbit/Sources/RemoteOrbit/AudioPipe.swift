@@ -53,6 +53,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let outputRing = FixedCapacityPCMFrameRing(
         capacity: AudioPipe.pcmRingCapacityFrames
     )
+    private let playoutReserve = AudioPipePlayoutReserve()
     private let realtimeDiagnostics = AudioPipeRealtimeDiagnostics()
     private var remoteOutputDrainWaiter: (() -> Void)?
     private let outputDrainSignal = DispatchSemaphore(value: 0)
@@ -251,6 +252,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             audioQueueDepthFrames: totalDepth,
             pendingRemoteFrames: outputRing.queuedRemoteFrames,
             sampleRate: Self.outputSampleRate,
+            reserve: playoutReserve.snapshot(
+                at: P1A4MonotonicClock.nowNanoseconds()
+            ),
             lastRemoteSubmittedMonotonicNanoseconds:
                 lastRemoteSubmittedMonotonicNanoseconds,
             lastRemoteRenderedMonotonicNanoseconds:
@@ -379,6 +383,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             remoteOutputDrainWaiter = nil
             realtimeDiagnostics.setDrainWaiterRequested(false)
             outputRing.reset()
+            playoutReserve.reset(at: P1A4MonotonicClock.nowNanoseconds())
             lastRemoteSubmittedMonotonicNanoseconds = nil
             prebuffer = pendingRemotePrebuffer
             pendingRemotePrebuffer.removeAll(keepingCapacity: true)
@@ -901,19 +906,33 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         let localMicrophoneActive = realtimeDiagnostics.currentLocalMicrophoneActive()
         let remoteWasActive = realtimeDiagnostics.currentRemoteWasActive()
         let diagnosticsActive = realtimeDiagnostics.beginRenderDiagnosticsIfActive()
-        let readResult = outputRing.read(
-            into: outputData,
-            requestedFrames: frameCount
+        let renderTimestamp = P1A4MonotonicClock.nowNanoseconds()
+        let reserveDecision = playoutReserve.decision(
+            remoteActive: remoteActive,
+            queuedFrames: outputRing.queuedRemoteFrames,
+            now: renderTimestamp
         )
+        let readResult: AudioPipePCMReadResult
+        if reserveDecision == .wait {
+            readResult = outputRing.writeReserveSilence(
+                into: outputData,
+                requestedFrames: frameCount
+            )
+        } else {
+            readResult = outputRing.read(
+                into: outputData,
+                requestedFrames: frameCount
+            )
+        }
         let renderAccounting = AudioPipeRenderAccounting.measure(
             requestedFrames: frameCount,
             availableRemoteFrames: readResult.remoteQueueDepthBeforeFrames,
             pendingRemoteFrames: readResult.remoteQueueDepthBeforeFrames,
             remoteActive: remoteActive,
             remoteWasActive: remoteWasActive,
-            localMicrophoneActive: localMicrophoneActive
+            localMicrophoneActive: localMicrophoneActive,
+            reserveWaiting: reserveDecision == .wait
         )
-        let renderTimestamp = P1A4MonotonicClock.nowNanoseconds()
         realtimeDiagnostics.recordMeter(
             filledFrames: readResult.filledFrames,
             peak: readResult.peak
@@ -1040,7 +1059,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         for rawValue: Int32
     ) -> LongTermObservationSemanticMarker {
         switch rawValue {
-        case 0: return .active
+        case 0, 4: return .active
         case 1: return .tail
         default: return .unclassified
         }
@@ -1050,6 +1069,18 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         for observation: AudioPipeRealtimeObservation
     ) -> AudioPipeRenderAccounting {
         switch observation.marker {
+        case 4:
+            return AudioPipeRenderAccounting(
+                state: .reserveWait,
+                accounted: false,
+                activeRequestedFrames: 0,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 0,
+                activeUnderrunCallbacks: 0,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 0,
+                idleRenderCallbacks: 0
+            )
         case 0:
             return AudioPipeRenderAccounting(
                 state: .activeRemote,

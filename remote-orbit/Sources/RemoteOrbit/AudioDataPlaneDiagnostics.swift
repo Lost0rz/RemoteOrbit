@@ -93,6 +93,7 @@ struct AudioDeliveryAccounting {
 }
 
 enum AudioPipeRenderState: Equatable {
+    case reserveWait
     case activeRemote
     case tailDrain
     case idle
@@ -116,13 +117,16 @@ struct AudioPipeRenderAccounting: Equatable {
         pendingRemoteFrames: Int,
         remoteActive: Bool,
         remoteWasActive: Bool,
-        localMicrophoneActive: Bool = false
+        localMicrophoneActive: Bool = false,
+        reserveWaiting: Bool = false
     ) -> AudioPipeRenderAccounting {
         let requested = max(0, requestedFrames)
         let pending = max(0, pendingRemoteFrames)
         let available = min(max(0, availableRemoteFrames), pending)
         let filled = min(requested, available)
-        let state: AudioPipeRenderState = if remoteActive {
+        let state: AudioPipeRenderState = if remoteActive, reserveWaiting {
+            .reserveWait
+        } else if remoteActive {
             .activeRemote
         } else if pending > 0 {
             .tailDrain
@@ -133,7 +137,7 @@ struct AudioPipeRenderAccounting: Equatable {
         } else {
             .idle
         }
-        let accounted = remoteActive || pending > 0
+        let accounted = state != .reserveWait && (remoteActive || pending > 0)
         let underrunFrames = state == .activeRemote ? requested - filled : 0
 
         return AudioPipeRenderAccounting(
@@ -863,6 +867,14 @@ struct AudioPipeDiagnosticsSnapshot {
     let tailRenderedFrames: Int
     let tailEmptyCallbackCount: Int
     let idleRenderCallbackCount: Int
+    let reserveCandidate: AudioPipePlayoutReserveCandidate
+    let reserveConfiguredMilliseconds: Int
+    let reserveConfiguredFrames: Int
+    let reserveState: AudioPipePlayoutReserveState
+    let reserveStartDepthFrames: Int?
+    let reserveWaitDurationMilliseconds: Double
+    let reserveStartReason: AudioPipePlayoutReserveStartReason?
+    let reserveSelectedDefaultCandidate: AudioPipePlayoutReserveCandidate
     let lastRemoteSubmittedMonotonicNanoseconds: UInt64?
     let lastRemoteRenderedMonotonicNanoseconds: UInt64?
 
@@ -887,6 +899,7 @@ struct AudioPipeDiagnosticsSnapshot {
         tailEmptyCallbackCount: Int,
         idleRenderCallbackCount: Int,
         sampleRate: Double,
+        reserve: AudioPipePlayoutReserveSnapshot? = nil,
         lastRemoteSubmittedMonotonicNanoseconds: UInt64? = nil,
         lastRemoteRenderedMonotonicNanoseconds: UInt64? = nil
     ) {
@@ -916,6 +929,26 @@ struct AudioPipeDiagnosticsSnapshot {
         self.tailRenderedFrames = tailRenderedFrames
         self.tailEmptyCallbackCount = tailEmptyCallbackCount
         self.idleRenderCallbackCount = idleRenderCallbackCount
+        let reserveSnapshot = reserve
+            ?? AudioPipePlayoutReserveSnapshot(
+                candidate: .defaultCandidate,
+                configuredReserveFrames: AudioPipePlayoutReserveCandidate.defaultCandidate.frames,
+                selectedDefaultCandidate: .defaultCandidate,
+                state: .waitingForReserve,
+                startDepthFrames: nil,
+                waitDurationNanoseconds: 0,
+                startReason: nil
+            )
+        self.reserveCandidate = reserveSnapshot.candidate
+        self.reserveConfiguredMilliseconds = reserveSnapshot.candidate.milliseconds
+        self.reserveConfiguredFrames = reserveSnapshot.configuredReserveFrames
+        self.reserveState = reserveSnapshot.state
+        self.reserveStartDepthFrames = reserveSnapshot.startDepthFrames
+        self.reserveWaitDurationMilliseconds = Double(
+            reserveSnapshot.waitDurationNanoseconds
+        ) / 1_000_000
+        self.reserveStartReason = reserveSnapshot.startReason
+        self.reserveSelectedDefaultCandidate = reserveSnapshot.selectedDefaultCandidate
         self.lastRemoteSubmittedMonotonicNanoseconds =
             lastRemoteSubmittedMonotonicNanoseconds
         self.lastRemoteRenderedMonotonicNanoseconds =
@@ -960,6 +993,8 @@ struct AudioPipeDiagnosticsCounters {
 
     mutating func recordRender(_ accounting: AudioPipeRenderAccounting) {
         switch accounting.state {
+        case .reserveWait:
+            break
         case .activeRemote:
             renderCallbackCount += 1
             renderRequestedFrames += accounting.activeRequestedFrames
@@ -1010,6 +1045,7 @@ struct AudioPipeDiagnosticsCounters {
         audioQueueDepthFrames: Int,
         pendingRemoteFrames: Int,
         sampleRate: Double,
+        reserve: AudioPipePlayoutReserveSnapshot? = nil,
         lastRemoteSubmittedMonotonicNanoseconds: UInt64? = nil,
         lastRemoteRenderedMonotonicNanoseconds: UInt64? = nil
     ) -> AudioPipeDiagnosticsSnapshot {
@@ -1034,6 +1070,7 @@ struct AudioPipeDiagnosticsCounters {
             tailEmptyCallbackCount: tailEmptyCallbackCount,
             idleRenderCallbackCount: idleRenderCallbackCount,
             sampleRate: sampleRate,
+            reserve: reserve,
             lastRemoteSubmittedMonotonicNanoseconds:
                 lastRemoteSubmittedMonotonicNanoseconds,
             lastRemoteRenderedMonotonicNanoseconds:

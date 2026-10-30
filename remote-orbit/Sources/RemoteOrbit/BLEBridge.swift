@@ -1927,7 +1927,7 @@ extension BLEBridge: CBPeripheralDelegate {
             streamNotificationTelemetry.gapOver100Milliseconds
         ))
         print(String(
-            format: "[AUDIO-PATH] AUDIOPIPE_SUMMARY stream=%d session_id=%@ render_callback_count=%d render_requested_frames=%d render_filled_frames=%d render_unfilled_frames=%d underrun_callbacks=%d underrun_duration_ms=%.1f max_underrun_frames=%d active_remote_underrun_frames=%d active_remote_underrun_callbacks=%d tail_rendered_frames=%d tail_empty_callbacks=%d idle_render_callbacks=%d queue_depth_current_ms=%.1f queue_depth_min_ms=%.1f queue_depth_max_ms=%.1f overflow_dropped_frames=%d overflow_dropped_ms=%.1f compaction_count=%d",
+            format: "[AUDIO-PATH] AUDIOPIPE_SUMMARY stream=%d session_id=%@ render_callback_count=%d render_requested_frames=%d render_filled_frames=%d render_unfilled_frames=%d underrun_callbacks=%d underrun_duration_ms=%.1f max_underrun_frames=%d active_remote_underrun_frames=%d active_remote_underrun_callbacks=%d tail_rendered_frames=%d tail_empty_callbacks=%d idle_render_callbacks=%d queue_depth_current_ms=%.1f queue_depth_min_ms=%.1f queue_depth_max_ms=%.1f overflow_dropped_frames=%d overflow_dropped_ms=%.1f compaction_count=%d reserve_candidate_ms=%d reserve_configured_frames=%d reserve_state=%@ reserve_start_depth_frames=%d reserve_wait_ms=%.1f reserve_start_reason=%@ reserve_selected_default_ms=%d",
             streamID,
             streamSessionID,
             pipe.renderCallbackCount,
@@ -1947,7 +1947,14 @@ extension BLEBridge: CBPeripheralDelegate {
             queueDepthMaxMS,
             pipe.overflowDroppedFrames,
             pipe.overflowDroppedMilliseconds,
-            pipe.compactionCount
+            pipe.compactionCount,
+            pipe.reserveCandidate.milliseconds,
+            pipe.reserveConfiguredFrames,
+            pipe.reserveState == .started ? "started" : "waiting_for_reserve",
+            pipe.reserveStartDepthFrames ?? 0,
+            pipe.reserveWaitDurationMilliseconds,
+            pipe.reserveStartReason.map(String.init(describing:)) ?? "unavailable",
+            pipe.reserveSelectedDefaultCandidate.milliseconds
         ))
         let continuitySnapshot = AudioPipe.shared.endRemoteAudioDiagnostics()
         VoiceTimingLogger.mergeContinuityRenderSnapshot(continuitySnapshot)

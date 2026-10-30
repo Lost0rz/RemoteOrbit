@@ -275,6 +275,33 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
         return result
     }
 
+    /// Emits intentional reserve silence without advancing either ring index.
+    /// The result deliberately reports no unfilled frames: reserve silence is
+    /// not a true output underflow.
+    func writeReserveSilence(
+        into outputData: UnsafeMutablePointer<AudioBufferList>,
+        requestedFrames: Int
+    ) -> AudioPipePCMReadResult {
+        let requested = max(0, requestedFrames)
+        let queueDepth = queuedFrames
+        let remoteDepth = queuedRemoteFrames
+        zeroFill(
+            UnsafeMutableAudioBufferListPointer(outputData),
+            requestedFrames: requested
+        )
+        return AudioPipePCMReadResult(
+            requestedFrames: requested,
+            filledFrames: 0,
+            unfilledFrames: 0,
+            remoteFramesConsumed: 0,
+            queueDepthBeforeFrames: queueDepth,
+            remoteQueueDepthBeforeFrames: remoteDepth,
+            queueDepthAfterFrames: queueDepth,
+            remoteQueueDepthAfterFrames: remoteDepth,
+            peak: 0
+        )
+    }
+
     /// Explicit session/device reset. It waits off the realtime callback for
     /// an in-flight reader, then resets both indices and source attribution.
     func reset() {
@@ -613,6 +640,8 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
     ) {
         let marker = marker(for: accounting.state)
         switch accounting.state {
+        case .reserveWait:
+            break
         case .activeRemote:
             atomicAdd64(
                 Int64(accounting.activeRequestedFrames),
@@ -868,6 +897,7 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
 
     private func marker(for state: AudioPipeRenderState) -> Int32 {
         switch state {
+        case .reserveWait: return 4
         case .activeRemote: return 0
         case .tailDrain: return 1
         case .idle: return 2
