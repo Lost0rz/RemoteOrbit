@@ -11,7 +11,7 @@ Repository: `Lost0rz/RemoteOrbit`
 - Audited source before promoted-B ownership correction: `d54bfd56a3f098766ed1013116928e1f77822277`.
 - Installed candidate: `0.2.14 (43)`.
 - Human steady-state high-frequency retest: PASS.
-- Final evidence review: STOP for merge/release because two HOST_MIC_OPEN rapid-repress admission failures remain.
+- Source implementation now includes the bounded promoted-B owner correction; merge/release remains stopped pending independent Web source audit and human corrective runtime acceptance.
 - Evidence/design record: `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`.
 - Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`.
 - `AGENTS.md` remains durable repository authority.
@@ -111,4 +111,4 @@ This is a serialization mechanism, not overlapping session ownership.
 
 ## Next
 
-Commit and push the bounded promoted-B hardware-owner correction on the existing 042 branch, verify exact local/remote equality, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, perform human runtime retest, merge, tag, release, or create Gate F before the independent source audit.
+Await the independent Web source audit at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, perform human runtime retest, merge, tag, release, or create Gate F before that audit.

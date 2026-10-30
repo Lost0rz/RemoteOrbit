@@ -204,4 +204,4 @@ After successful implementation, update `CURRENT_STATUS.md` and `CURRENT_TASK.md
 
 ## Stop state
 
-This task remains `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The next safe action is to commit and push this bounded promoted-B hardware-owner correction on the existing 042 branch, verify exact local/remote equality, and await the independent source audit. Human corrective runtime acceptance remains pending and is not claimed by this execution.
+This task remains `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The bounded promoted-B hardware-owner correction is committed and remotely delivered on the existing 042 branch; the next safe action is the independent source audit. Human corrective runtime acceptance remains pending and is not claimed by this execution.
