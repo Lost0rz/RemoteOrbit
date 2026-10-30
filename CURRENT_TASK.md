@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — HOST_MIC_OPEN Rapid Re-press Corrective
 
-Status: `SOURCE_AUDIT_PASS / HUMAN_RUNTIME_ACCEPTANCE_PENDING`
+Status: `READY_FOR_HUMAN_RUNTIME_ACCEPTANCE`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
@@ -232,6 +232,16 @@ After successful runtime preparation, update `CURRENT_STATUS.md` and `CURRENT_TA
 - GitHub had no independent CI status/workflow run for that HEAD; the source-audit gate accepted the code-diff based on the verified local validation receipt and direct source review.
 - This PASS does not constitute RC003 runtime acceptance or merge/release approval.
 
+## Runtime preparation evidence
+
+- Start reconciliation: local control HEAD `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`; fetched remote `00106e6d02b6fc21030737cd660b456976db68e9`; canonical writer fast-forwarded to `00106e6d02b6fc21030737cd660b456976db68e9`. `git diff --quiet 6fb609e..00106e6 -- remote-orbit` passed; the control-only descendant introduced no product-source drift after the independent audit target.
+- `./remote-orbit/package-app.sh` exited `0`. It produced `/private/tmp/remoteorbit-voice-pipeline-simplification-042/remote-orbit/dist/RemoteOrbit.app` with Bundle ID `com.lost0rz.RemoteOrbit`, version `0.2.14`, build `43`, Universal2 architectures `x86_64 arm64`, source stamp `00106e6d02b6fc21030737cd660b456976db68e9`, and executable SHA-256 `31f303aedc18d0e91c0350d886b939d2a1ce01e4542222a8bf7a4e1ac99d9633`. Deep strict code-sign verification passed.
+- Old PID `38260` exited cleanly through the app quit path. `./remote-orbit/install-app.sh` exited `0` and installed only `/Applications/RemoteOrbit.app`. Installed provenance and executable hash match the package. The new candidate launched as PID `31899` at `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`.
+- Runtime readiness evidence: `RemoteOrbit.log` records BLE ready, RC003 HID connected/monitored, HID suppressor ready, and `RemoteOrbit Mic 2ch IOProc` started. `system_profiler SPAudioDataType` reports `RemoteOrbit Mic 2ch` as the default input with `Transport: USB`.
+- Diagnostics readiness: app `diagnostics status` returned the existing journal-backed read-only JSON; `diagnostics verify` returned `{"ok":true,"schema_version":1}`. Evidence paths are `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log`, `/Users/ox_miles/Library/Logs/RemoteOrbit/diagnostic-events-v1.jsonl`, and its rotated segments.
+- Driver CDHash before and after app replacement remained `b6eb041c314201064a58c4913ad6eebbcc0dd154b3298ac23018c3cd859e60ed`; no driver build/install/unload/reload and no TCC/privacy mutation occurred. No product source or package script changed.
+- Human RC003 acceptance was not performed or inferred from preparation evidence.
+
 ## Stop state
 
-Task 042 is `SOURCE_AUDIT_PASS / HUMAN_RUNTIME_ACCEPTANCE_PENDING`. The next safe action is app-only runtime preparation from the current 042 branch, followed by user-owned RC003 testing. Audio driver/TCC changes remain prohibited. Merge/tag/release remain blocked until human runtime acceptance and evidence reconciliation are complete.
+Task 042 is `READY_FOR_HUMAN_RUNTIME_ACCEPTANCE`. The next safe action is user-owned RC003 rapid re-press testing against PID `31899`. Audio driver/TCC changes remain prohibited. Merge/tag/release remain blocked until human runtime acceptance and evidence reconciliation are complete.

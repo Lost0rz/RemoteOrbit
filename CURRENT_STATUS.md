@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — SOURCE_AUDIT_PASS / HUMAN_RUNTIME_ACCEPTANCE_PENDING`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — READY_FOR_HUMAN_RUNTIME_ACCEPTANCE`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -9,12 +9,13 @@ Repository: `Lost0rz/RemoteOrbit`
 - Active branch: `codex/voice-pipeline-simplification-042`.
 - Accepted corrective source before the remaining host edge: `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332`.
 - Audited source before promoted-B ownership correction: `d54bfd56a3f098766ed1013116928e1f77822277`.
-- Installed candidate: `0.2.14 (43)`; historical and not valid for final Task 042 runtime acceptance.
+- Installed candidate: `0.2.14 (43)` from source `00106e6d02b6fc21030737cd660b456976db68e9`; freshly packaged, installed, and running for final Task 042 human runtime acceptance.
 - Human steady-state high-frequency retest: PASS for the historical candidate only.
 - Admission-atomic promotion source corrective is `ea126c4c1742bfb3aa5e800e0cf7023771a5b08f`.
 - Independent Web `CODE_DIFF` audit PASS was issued against branch state `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`; no source blocker remains for Task 042.
 - The audited branch state preserves the promoted-B owner lifecycle, admission-before-promotion ordering, bounded blocked-promotion tombstone, HOST_MIC_OPEN supersession, READY, Gate C and Gate D behavior.
 - Package/build/install of the latest RemoteOrbit app candidate and RC003 human runtime retest are now authorized. Audio driver and TCC mutation remain out of scope.
+- App-only runtime preparation completed; the installed/running candidate is provenance-matched to the current control HEAD and the next action is user-owned RC003 testing.
 - Merge/tag/release remain blocked until human corrective runtime acceptance passes and controls are reconciled.
 - Evidence/design record: `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`.
 - Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`.
@@ -143,6 +144,18 @@ This is a serialization mechanism, not overlapping session ownership.
 - Passed claims include HOST grace supersession, A-UP-before-B-DOWN, pending hardware DOWN capture, promoted-B full lifecycle, admission-before-promotion, blocked-promotion no-DOWN leak, blocked-promotion no-owner leak, early-UP tombstone, and one-pending-owner behavior.
 - This source audit does not constitute RC003 hardware runtime acceptance or merge/release acceptance.
 
+## Runtime preparation evidence
+
+- Start reconciliation: local `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`; fetched remote `00106e6d02b6fc21030737cd660b456976db68e9`; fast-forwarded canonical writer to `00106e6d02b6fc21030737cd660b456976db68e9`. The remote commit is control-only; `git diff --quiet 6fb609e..00106e6 -- remote-orbit` passed with no product-source drift.
+- Build/package: `./remote-orbit/package-app.sh` exited `0`, producing `/private/tmp/remoteorbit-voice-pipeline-simplification-042/remote-orbit/dist/RemoteOrbit.app`. The established flow built arm64 and x86_64 release slices, combined Universal2, stamped source `00106e6d02b6fc21030737cd660b456976db68e9`, and passed deep strict code-sign verification.
+- Packaged app identity: Bundle ID `com.lost0rz.RemoteOrbit`; version `0.2.14`; build `43`; architectures `x86_64 arm64`; executable SHA-256 `31f303aedc18d0e91c0350d886b939d2a1ce01e4542222a8bf7a4e1ac99d9633`.
+- Old candidate PID `38260` exited through the app quit path. Install: `./remote-orbit/install-app.sh` exited `0`; installed path `/Applications/RemoteOrbit.app` matches the packaged executable hash and provenance stamp. New candidate launched successfully as PID `31899` from `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`.
+- Process/runtime readiness: `RemoteOrbit.log` records BLE ready, RC003 HID connected in monitored mode, HID event suppressor ready, and `RemoteOrbit Mic 2ch IOProc` started. `system_profiler SPAudioDataType` reports `RemoteOrbit Mic 2ch`, `Default Input Device: Yes`, `Transport: USB`.
+- Diagnostics readiness: `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit diagnostics status` returned journal-backed read-only JSON with journal path `/Users/ox_miles/Library/Logs/RemoteOrbit/diagnostic-events-v1.jsonl`; `diagnostics verify` returned `{"ok":true,"schema_version":1}`.
+- Runtime/log evidence remains at `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log`, `/Users/ox_miles/Library/Logs/RemoteOrbit/diagnostic-events-v1.jsonl`, and the existing rotated journal files. No RC003 voice-session acceptance was performed.
+- Driver identity before and after app installation remained `audio.local.RemoteOrbitAudio2chXX` CDHash `b6eb041c314201064a58c4913ad6eebbcc0dd154b3298ac23018c3cd859e60ed`; no driver build/install/unload/reload or TCC/privacy mutation was executed.
+- No product-source, package-script, driver, or TCC files changed in the repository; only the paired control files require the runtime-preparation receipt commit.
+
 ## Next
 
-Build/package/install the latest RemoteOrbit app candidate from the current 042 branch while preserving the audited product source. Do not reinstall or mutate the audio driver and do not reset TCC. Then stop at `READY_FOR_HUMAN_RUNTIME_ACCEPTANCE` so the user can run the RC003 rapid re-press retest. Capture the resulting runtime/log evidence before any merge/tag/release decision.
+Stop at `READY_FOR_HUMAN_RUNTIME_ACCEPTANCE`. The user owns the RC003 rapid re-press runtime test. Do not merge, tag, release, reinstall/reload the driver, or mutate TCC before human acceptance and evidence reconciliation.
