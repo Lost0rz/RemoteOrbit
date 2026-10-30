@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — READY_FOR_LOCAL_GATE_C`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -40,16 +40,57 @@ Recorded executor verification at the accepted Gate B head: BLE strict-readiness
 
 Human natural-use, installed runtime/TCC, and Air acceptance remain pending and are not implied by the source audit.
 
-## Current authorized gate
+## Gate C — LOCAL IMPLEMENTATION COMPLETE
 
-`Gate C — Realtime-safe audio data plane` is now authorized for local construction.
+Gate C replaced only the decoded-PCM → CoreAudio data plane with one
+preallocated `FixedCapacityPCMFrameRing` and an off-path diagnostic mailbox.
+The ring capacity is 96,000 frames at the existing 48 kHz output rate: a
+structural bound matching the previous two-second maximum queue, not a
+startup reserve, jitter threshold, or intentional playout delay. The ring
+starts empty and rejects newest input when full without overwriting unread
+PCM.
 
-Gate C is limited to replacing the current dynamic/locking PCM queue/render path with a fixed-capacity single-producer/single-consumer data plane and a preallocated realtime render path while preserving audio semantics and diagnostics.
+The producer remains the existing serialized AudioPipe submission path after
+the existing gain/limiter/resampling. The CoreAudio callback reads directly
+into the supplied `AudioBufferList`, zero-fills only a true suffix underflow,
+and publishes bounded scalar evidence. It does not acquire `stateLock`,
+allocate a sample array, mutate a dynamic PCM queue, format/log/I/O, or
+dispatch/wait. Output drain is signaled only by inactive route plus actual
+ring emptiness; normal tail PCM is retained, while activation/reset clears
+stale PCM before a new session.
 
-Gate C must not change BLE connection/queue/readiness behavior, ATVV protocol/codec, gain/resampling policy, jitter reserve policy, Gate A control semantics, start/tail user policy, driver, packaging/install/TCC/Air runtime, merge/tag/release, or historical branches.
+Existing counters and 041 continuity/export evidence are merged off-path;
+`compaction_count` remains present and is frozen at zero because compaction no
+longer exists. No BLE/ATVV/codec/gain/limiter/resampling, Gate A/B, jitter,
+driver, packaging, install, TCC, Air runtime, merge, tag, or release behavior
+was changed.
+
+### Gate C verification receipt
+
+- Focused Gate C/regression suites: `196/196` passed.
+- Full Swift test suite: `534/534` passed.
+- Protocol self-tests: `3/3` passed.
+- arm64 Release build: passed.
+- x86_64 Release build: passed.
+- `git diff --check`: passed.
+- Canonical writer: `/private/tmp/remoteorbit-voice-pipeline-simplification-042`.
+- Audited parent: `8fe9c5f9e0fcc29b769892fa6e4fa0daa1462c01`; this control transition is its direct child.
+
+### Changed paths
+
+- `remote-orbit/Sources/RemoteOrbit/AudioPipe.swift`
+- `remote-orbit/Sources/RemoteOrbit/AudioPipeRealtime.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/AudioPipeTests.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/AudioPipeRealtimeTests.swift`
+- `docs/superpowers/specs/2026-10-30-voice-pipeline-gate-c-design.md`
+- `docs/superpowers/plans/2026-10-30-voice-pipeline-gate-c.md`
 
 ## Stop / next
 
-Local construction must fetch this branch, read `AGENTS.md`, this file, and `CURRENT_TASK.md`, reuse one canonical writer, execute Gate C only, push the same branch, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+The Gate C implementation is delivered on this branch and is now stopped at
+`WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Independent Web/code audit is still
+required; local tests and builds do not claim natural-use, installed-runtime,
+TCC, hardware, or Air acceptance.
 
-Do not begin Gate D/E automatically.
+Do not begin Gate D/E automatically. Do not merge, tag, release, install,
+mutate TCC, or change the Air runtime.

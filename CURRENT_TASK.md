@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Gate C Realtime-safe Audio Data Plane
 
-Status: `READY_FOR_LOCAL_GATE_C`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -32,7 +32,9 @@ VOICE UP
 → same trigger UP
 ```
 
-Gate C changes only the decoded-PCM → CoreAudio data plane.
+Gate C changed only the decoded-PCM → CoreAudio data plane. The local
+implementation and required verification are complete; the branch is waiting
+for the independent Web audit required by the control plane.
 
 ## Prior accepted gates
 
@@ -51,7 +53,7 @@ Accepted head: `ae0bf10874d34ce556b4b73a506b22f6a9a1a412`.
 - post-release grace / 350 ms AUDIO_STOP drain / admission barrier preserved;
 - no AudioPipe architecture or jitter change.
 
-## Gate C — Realtime-safe audio data plane — AUTHORIZED
+## Gate C — Realtime-safe audio data plane — LOCAL IMPLEMENTATION COMPLETE
 
 ### Goal
 
@@ -179,11 +181,13 @@ The executor receipt must report:
 
 ## Completion / stop state
 
-After Gate C implementation and verification:
+Gate C local implementation and required verification are complete in the
+transition commit that is a direct child of
+`8fe9c5f9e0fcc29b769892fa6e4fa0daa1462c01`. The receipt is recorded in
+`CURRENT_STATUS.md`; the branch must be pushed and verified at exact
+local/remote equality, then remains stopped at
+`WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
-- update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
-- commit all authorized Gate C changes;
-- push only `codex/voice-pipeline-simplification-042` and verify exact remote identity;
-- stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`;
-- do not begin Gate D/E automatically;
-- do not merge, tag, release, install, mutate TCC, or change the Air runtime.
+Independent Web/code audit is still required. Do not begin Gate D/E
+automatically. Do not merge, tag, release, install, mutate TCC, or change the
+Air runtime.

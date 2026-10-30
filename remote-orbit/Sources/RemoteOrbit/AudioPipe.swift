@@ -20,6 +20,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private static let targetDeviceNames = ["RemoteOrbit Mic 2ch"]
     private static let outputSampleRate: Double = 48_000
     private static let outputChannels: AVAudioChannelCount = 2
+    /// Structural transport capacity only. The ring starts empty; this is
+    /// not a startup reserve or a jitter/playout threshold.
+    static let pcmRingCapacityFrames = 96_000
     /// The remote's decoded ATVV signal is intentionally quiet. Add roughly
     /// +26 dB and use a soft limiter so a nearby speaker does not hard-clip.
     private static let remoteGain: Float = 20.0
@@ -47,16 +50,20 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var outputIOProcID: AudioDeviceIOProcID?
     private var outputDeviceName: String?
     private var outputDeviceReady = false
-    private var pendingOutput: [Float] = []
-    private var pendingOutputIndex = 0
-    private var pendingRemoteOutputFrames = 0
+    private let outputRing = FixedCapacityPCMFrameRing(
+        capacity: AudioPipe.pcmRingCapacityFrames
+    )
+    private let realtimeDiagnostics = AudioPipeRealtimeDiagnostics()
     private var remoteOutputDrainWaiter: (() -> Void)?
+    private let outputDrainSignal = DispatchSemaphore(value: 0)
+    private let outputDrainMonitorQueue = DispatchQueue(
+        label: "com.lost0rz.RemoteOrbit.audio-drain",
+        qos: .userInteractive
+    )
+    private var outputDrainMonitorStarted = false
     private var scheduledMacBuffers = 0
     private var scheduledRemoteBuffers = 0
     private var scheduledPeak: Float = 0
-    private var renderCallbackCount = 0
-    private var renderedFrames = 0
-    private var renderedPeak: Float = 0
     private var lastIdleMeterAt: TimeInterval = 0
     private var diagnosticsCumulative = AudioPipeDiagnosticsCounters()
     private var diagnosticsWindow = AudioPipeDiagnosticsCounters()
@@ -77,10 +84,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var mainQueueResponsivenessProbe: MainQueueResponsivenessProbe?
     private var continuityRenderLedger: AudioContinuityRenderLedger?
     private var lastRemoteSubmittedMonotonicNanoseconds: UInt64?
-    private var lastRemoteRenderedMonotonicNanoseconds: UInt64?
     private var diagnosticStreamIdentity: UInt64 = 0
     private var diagnosticObservationSequence: UInt64 = 0
-    private var p1A5StableRenderIntervals = 0
 
     private override init() {
         super.init()
@@ -122,12 +127,13 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     var queuedOutputFrames: Int {
         stateLock.lock()
         defer { stateLock.unlock() }
-        return max(0, pendingOutput.count - pendingOutputIndex)
+        return outputRing.queuedFrames
     }
 
     func beginRemoteAudioDiagnostics(
         continuityContext: AudioContinuityCaptureContext? = nil
     ) {
+        realtimeDiagnostics.endDiagnosticsAndWait()
         DiagnosticOutputBoundaryClock.shared.reset()
         // AUDIO_START can precede HID. Establish the shared observability
         // generation before this producer can publish any pre-HID evidence;
@@ -144,6 +150,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         )
         let previousMainQueueProbe: MainQueueResponsivenessProbe?
         stateLock.lock()
+        flushRealtimeEvidenceLocked()
         previousMainQueueProbe = mainQueueResponsivenessProbe
         if longTermPrimaryTraceIsActive {
             longTermPrimaryTrace.reset()
@@ -153,16 +160,13 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         diagnosticStreamIdentity = 0
         diagnosticObservationSequence = 0
         mainQueueResponsivenessProbe = nextMainQueueProbe
-        let totalDepth = max(0, pendingOutput.count - pendingOutputIndex)
-        let currentDepth = AudioRemoteQueueAttribution.remoteQueueDepth(
-            totalQueueFrames: totalDepth,
-            pendingRemoteFrames: pendingRemoteOutputFrames
-        )
+        let currentDepth = outputRing.queuedRemoteFrames
         remoteDiagnosticsActive = true
         remoteDiagnosticsSawActiveRoute = remoteActive
         continuityRenderLedger = nextContinuityLedger
         diagnosticsCumulative.reset(currentQueueDepthFrames: currentDepth)
         diagnosticsWindow.reset(currentQueueDepthFrames: currentDepth)
+        realtimeDiagnostics.beginDiagnostics(remoteActive: remoteActive)
         stateLock.unlock()
         _ = previousMainQueueProbe?.stop()
         nextMainQueueProbe.start()
@@ -192,7 +196,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 
     func endRemoteAudioDiagnostics() -> AudioContinuityRenderSnapshot? {
+        realtimeDiagnostics.endDiagnosticsAndWait()
         stateLock.lock()
+        flushRealtimeEvidenceLocked()
         let detachedContinuityLedger = continuityRenderLedger
         continuityRenderLedger = nil
         remoteDiagnosticsActive = false
@@ -205,6 +211,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         let detachedTrace: FixedCapacityObservationTrace
         let probe: MainQueueResponsivenessProbe?
         stateLock.lock()
+        flushRealtimeEvidenceLocked()
         if longTermPrimaryTraceIsActive {
             detachedTrace = longTermPrimaryTrace
             longTermPrimaryTrace = longTermSecondaryTrace
@@ -231,22 +238,23 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         resettingWindow: Bool = false
     ) -> AudioPipeDiagnosticsSnapshot {
         stateLock.lock()
-        let totalDepth = max(0, pendingOutput.count - pendingOutputIndex)
-        let currentDepth = AudioRemoteQueueAttribution.remoteQueueDepth(
-            totalQueueFrames: totalDepth,
-            pendingRemoteFrames: pendingRemoteOutputFrames
-        )
+        flushRealtimeEvidenceLocked()
+        let totalDepth = outputRing.queuedFrames
+        let currentDepth = outputRing.queuedRemoteFrames
         let counters = resettingWindow ? diagnosticsWindow : diagnosticsCumulative
-        let snapshot = counters.snapshot(
+        let realtimeSnapshot = realtimeDiagnostics.snapshot(reset: resettingWindow)
+        var mergedCounters = counters
+        mergedCounters.mergeRealtime(realtimeSnapshot)
+        let snapshot = mergedCounters.snapshot(
             remoteActive: remoteActive,
             currentQueueDepthFrames: currentDepth,
             audioQueueDepthFrames: totalDepth,
-            pendingRemoteFrames: pendingRemoteOutputFrames,
+            pendingRemoteFrames: outputRing.queuedRemoteFrames,
             sampleRate: Self.outputSampleRate,
             lastRemoteSubmittedMonotonicNanoseconds:
                 lastRemoteSubmittedMonotonicNanoseconds,
             lastRemoteRenderedMonotonicNanoseconds:
-                lastRemoteRenderedMonotonicNanoseconds
+                realtimeSnapshot.lastRemoteRenderedMonotonicNanoseconds
         )
         if resettingWindow {
             diagnosticsWindow.reset(currentQueueDepthFrames: currentDepth)
@@ -304,21 +312,25 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     /// The caller owns session identity validation for the completion.
     func waitForOutputDrain(completion: @escaping () -> Void) {
         stateLock.lock()
-        let queuedFrames = pendingOutput.count - pendingOutputIndex
+        let queuedFrames = outputRing.queuedFrames
         let drained = Self.isOutputDrained(
             remoteActive: remoteActive,
             queuedFrames: queuedFrames
         )
         if !drained {
             remoteOutputDrainWaiter = completion
+            realtimeDiagnostics.setDrainWaiterRequested(true)
         }
         stateLock.unlock()
 
         if drained {
+            realtimeDiagnostics.setDrainWaiterRequested(false)
             VoiceTimingLogger.recordQueueEmpty(
                 timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
             )
             DispatchQueue.main.async(execute: completion)
+        } else {
+            startOutputDrainMonitorIfNeeded()
         }
     }
 
@@ -356,6 +368,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         var prebuffer: [Int16] = []
         stateLock.lock()
         remoteActive = active
+        realtimeDiagnostics.setRemoteActive(active)
         if active, remoteDiagnosticsActive {
             remoteDiagnosticsSawActiveRoute = true
         }
@@ -364,12 +377,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             // samples. On deactivation, however, keep the already queued
             // frames alive so the BLE tail-drain window can render them.
             remoteOutputDrainWaiter = nil
-            pendingOutput.removeAll(keepingCapacity: true)
-            pendingOutputIndex = 0
-            pendingRemoteOutputFrames = 0
+            realtimeDiagnostics.setDrainWaiterRequested(false)
+            outputRing.reset()
             lastRemoteSubmittedMonotonicNanoseconds = nil
-            lastRemoteRenderedMonotonicNanoseconds = nil
-            p1A5StableRenderIntervals = 0
             prebuffer = pendingRemotePrebuffer
             pendingRemotePrebuffer.removeAll(keepingCapacity: true)
         } else {
@@ -427,6 +437,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     ) {
         stateLock.lock()
         localMicrophoneCaptureRequested = enabled
+        realtimeDiagnostics.setLocalMicrophoneActive(enabled)
         if !enabled {
             localMicrophonePermissionRequestInFlight = false
             pendingLocalMicrophoneReady = nil
@@ -464,9 +475,10 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         outputDeviceName = nil
         stateLock.lock()
         outputDeviceReady = false
-        pendingOutput.removeAll(keepingCapacity: true)
-        pendingOutputIndex = 0
-        pendingRemoteOutputFrames = 0
+        outputRing.reset()
+        realtimeDiagnostics.setRemoteActive(false)
+        realtimeDiagnostics.setLocalMicrophoneActive(false)
+        realtimeDiagnostics.setDrainWaiterRequested(false)
         remoteOutputDrainWaiter = nil
         localMicrophoneCaptureRequested = false
         localMicrophonePermissionRequestInFlight = false
@@ -741,53 +753,72 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             stateLock.unlock()
             return
         }
-        compactOutputBufferIfNeeded(
-            recordRemoteDiagnostics: expectedRemoteMode
+        let remoteQueueBeforeSubmission = outputRing.queuedRemoteFrames
+        let writeResult = outputRing.write(
+            resampled,
+            source: expectedRemoteMode ? .remote : .local
         )
-        let remoteQueueBeforeSubmission = pendingRemoteOutputFrames
-        pendingOutput.append(contentsOf: resampled)
         if expectedRemoteMode {
             scheduledRemoteBuffers += 1
-            pendingRemoteOutputFrames += resampled.count
-            if remoteDiagnosticsActive {
-                diagnosticsCumulative.recordSubmittedRemoteFrames(resampled.count)
-                diagnosticsWindow.recordSubmittedRemoteFrames(resampled.count)
-            }
-            let submissionTimestamp = P1A4MonotonicClock.nowNanoseconds()
-            lastRemoteSubmittedMonotonicNanoseconds = submissionTimestamp
-            if remoteDiagnosticsActive {
-                appendLongTermObservationLocked(
-                    LongTermObservationPoint(
-                        timestampNanoseconds: submissionTimestamp,
-                        kind: .pcmSubmitted,
-                        requestedFrames: UInt64(resampled.count),
-                        filledFrames: UInt64(resampled.count),
-                        unfilledFrames: 0,
-                        queueDepthFrames: UInt64(max(0, pendingRemoteOutputFrames)),
-                        byteOrSampleCount: UInt64(resampled.count),
-                        marker: .active,
-                        queueDepthBeforeFrames: UInt64(max(0, remoteQueueBeforeSubmission))
-                    )
+            if writeResult.acceptedFrames > 0, remoteDiagnosticsActive {
+                diagnosticsCumulative.recordSubmittedRemoteFrames(
+                    writeResult.acceptedFrames
+                )
+                diagnosticsWindow.recordSubmittedRemoteFrames(
+                    writeResult.acceptedFrames
                 )
             }
-            if VoiceTimingLogger.p1A5Enabled {
-                VoiceTimingLogger.recordIfAbsent(
-                    "F4_first_pcm_submitted",
-                    timestampNanoseconds: submissionTimestamp
-                )
-                if VoiceTimingLogger.hasEvent("F6_first_voiced_pcm_decoded") {
-                    VoiceTimingLogger.recordIfAbsent(
-                        "F7_first_voiced_pcm_submitted",
-                        timestampNanoseconds: submissionTimestamp
+            if writeResult.droppedFrames > 0, remoteDiagnosticsActive {
+                diagnosticsCumulative.recordOverflow(writeResult.droppedFrames)
+                diagnosticsWindow.recordOverflow(writeResult.droppedFrames)
+                if VoiceTimingLogger.continuityEvidenceEnabled {
+                    continuityRenderLedger?.recordOverflow(
+                        timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds(),
+                        frames: writeResult.droppedFrames
                     )
                 }
             }
-            if VoiceTimingLogger.continuityEvidenceEnabled {
-                continuityRenderLedger?.recordSubmitted(
-                    timestampNanoseconds: submissionTimestamp,
-                    frames: resampled.count,
-                    queueDepthFrames: pendingRemoteOutputFrames
-                )
+            if writeResult.acceptedFrames > 0 {
+                let submissionTimestamp = P1A4MonotonicClock.nowNanoseconds()
+                lastRemoteSubmittedMonotonicNanoseconds = submissionTimestamp
+                if VoiceTimingLogger.p1A5Enabled {
+                    VoiceTimingLogger.recordIfAbsent(
+                        "F4_first_pcm_submitted",
+                        timestampNanoseconds: submissionTimestamp
+                    )
+                    if VoiceTimingLogger.hasEvent("F6_first_voiced_pcm_decoded") {
+                        VoiceTimingLogger.recordIfAbsent(
+                            "F7_first_voiced_pcm_submitted",
+                            timestampNanoseconds: submissionTimestamp
+                        )
+                    }
+                }
+                if remoteDiagnosticsActive {
+                    appendLongTermObservationLocked(
+                        LongTermObservationPoint(
+                            timestampNanoseconds: submissionTimestamp,
+                            kind: .pcmSubmitted,
+                            requestedFrames: UInt64(writeResult.acceptedFrames),
+                            filledFrames: UInt64(writeResult.acceptedFrames),
+                            unfilledFrames: 0,
+                            queueDepthFrames: UInt64(
+                                max(0, writeResult.remoteQueueDepthAfterFrames)
+                            ),
+                            byteOrSampleCount: UInt64(writeResult.acceptedFrames),
+                            marker: .active,
+                            queueDepthBeforeFrames: UInt64(
+                                max(0, remoteQueueBeforeSubmission)
+                            )
+                        )
+                    )
+                    if VoiceTimingLogger.continuityEvidenceEnabled {
+                        continuityRenderLedger?.recordSubmitted(
+                            timestampNanoseconds: submissionTimestamp,
+                            frames: writeResult.acceptedFrames,
+                            queueDepthFrames: writeResult.remoteQueueDepthAfterFrames
+                        )
+                    }
+                }
             }
         } else {
             scheduledMacBuffers += 1
@@ -796,7 +827,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             scheduledPeak,
             resampled.reduce(0) { max($0, abs($1)) }
         )
-        recordQueueDepthLocked(pendingRemoteOutputFrames)
+        recordQueueDepthLocked(outputRing.queuedRemoteFrames)
         stateLock.unlock()
     }
 
@@ -857,7 +888,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
 
     }
 
-    private func render(_ outputData: UnsafeMutablePointer<AudioBufferList>) {
+    func render(_ outputData: UnsafeMutablePointer<AudioBufferList>) {
         let buffers = UnsafeMutableAudioBufferListPointer(outputData)
         guard let first = buffers.first else { return }
         let firstChannels = max(1, Int(first.mNumberChannels))
@@ -866,260 +897,246 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             firstChannels
         guard frameCount > 0 else { return }
 
-        var mono = [Float](repeating: 0, count: frameCount)
-        var drainCompletion: (() -> Void)?
-        stateLock.lock()
-        let available = max(0, pendingOutput.count - pendingOutputIndex)
-        let availableRemoteFrames = AudioRemoteQueueAttribution.remoteQueueDepth(
-            totalQueueFrames: available,
-            pendingRemoteFrames: pendingRemoteOutputFrames
+        let remoteActive = realtimeDiagnostics.currentRemoteActive()
+        let localMicrophoneActive = realtimeDiagnostics.currentLocalMicrophoneActive()
+        let remoteWasActive = realtimeDiagnostics.currentRemoteWasActive()
+        let diagnosticsActive = realtimeDiagnostics.beginRenderDiagnosticsIfActive()
+        let readResult = outputRing.read(
+            into: outputData,
+            requestedFrames: frameCount
         )
         let renderAccounting = AudioPipeRenderAccounting.measure(
             requestedFrames: frameCount,
-            availableRemoteFrames: availableRemoteFrames,
-            pendingRemoteFrames: pendingRemoteOutputFrames,
+            availableRemoteFrames: readResult.remoteQueueDepthBeforeFrames,
+            pendingRemoteFrames: readResult.remoteQueueDepthBeforeFrames,
             remoteActive: remoteActive,
-            remoteWasActive: remoteDiagnosticsSawActiveRoute,
-            localMicrophoneActive: localMicrophoneCaptureRequested
+            remoteWasActive: remoteWasActive,
+            localMicrophoneActive: localMicrophoneActive
         )
-        let recordRemoteCompaction = AudioRemoteQueueAttribution
-            .shouldRecordCompaction(
-                remoteActive: remoteActive,
-                pendingRemoteFrames: pendingRemoteOutputFrames
-            )
-        let fill = AudioRenderFillAccounting.measure(
-            requestedFrames: frameCount,
-            availableFrames: available
+        let renderTimestamp = P1A4MonotonicClock.nowNanoseconds()
+        realtimeDiagnostics.recordMeter(
+            filledFrames: readResult.filledFrames,
+            peak: readResult.peak
         )
-        var frontEdgeUnderrun: (timestamp: UInt64, before: Int, after: Int)?
-        var reachedPlayoutStableTimestamp: UInt64?
-        if fill.filledFrames > 0 {
-            if remoteDiagnosticsSawActiveRoute {
-                let renderTimestamp = P1A4MonotonicClock.nowNanoseconds()
-                lastRemoteRenderedMonotonicNanoseconds = renderTimestamp
-                if VoiceTimingLogger.p1A5Enabled {
-                    VoiceTimingLogger.recordIfAbsent(
-                        "F5_first_pcm_rendered",
-                        timestampNanoseconds: renderTimestamp
-                    )
-                    if VoiceTimingLogger.hasEvent("F6_first_voiced_pcm_decoded") {
-                        VoiceTimingLogger.recordIfAbsent(
-                            "F8_first_voiced_pcm_rendered",
-                            timestampNanoseconds: renderTimestamp
-                        )
-                    }
-                }
-            }
-            let take = fill.filledFrames
-            let start = pendingOutputIndex
-            let end = start + take
-            mono.replaceSubrange(
-                0..<take,
-                with: pendingOutput[start..<end]
+        if diagnosticsActive {
+            realtimeDiagnostics.recordRender(
+                renderAccounting,
+                requestedFrames: frameCount,
+                readResult: readResult,
+                remoteWasActive: remoteWasActive,
+                timestampNanoseconds: renderTimestamp
             )
-            renderedFrames += take
-            let renderedRemoteFrames = min(take, pendingRemoteOutputFrames)
-            pendingRemoteOutputFrames -= renderedRemoteFrames
-            if remoteDiagnosticsActive, renderedRemoteFrames > 0 {
-                diagnosticsCumulative.recordRenderedRemoteFrames(renderedRemoteFrames)
-                diagnosticsWindow.recordRenderedRemoteFrames(renderedRemoteFrames)
-            }
-            let callbackPeak = pendingOutput[start..<end].reduce(0) { max($0, abs($1)) }
-            renderedPeak = max(renderedPeak, callbackPeak)
-            let remoteEnd = min(start + renderedRemoteFrames, end)
-            let remoteCallbackPeak = renderedRemoteFrames > 0
-                ? pendingOutput[start..<remoteEnd].reduce(0) { max($0, abs($1)) }
-                : 0
-            if remoteDiagnosticsActive, renderedRemoteFrames > 0, remoteCallbackPeak > 0 {
-                DiagnosticOutputBoundaryClock.shared.record(
-                    timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
-                )
-            }
-            pendingOutputIndex = end
-            compactOutputBufferIfNeeded(
-                recordRemoteDiagnostics: recordRemoteCompaction
-            )
-        }
-        let remaining = max(0, pendingOutput.count - pendingOutputIndex)
-        let queuedRemoteFramesAfter = AudioRemoteQueueAttribution.remoteQueueDepth(
-            totalQueueFrames: remaining,
-            pendingRemoteFrames: pendingRemoteOutputFrames
-        )
-        if remoteDiagnosticsActive {
-            let observationTimestamp = P1A4MonotonicClock.nowNanoseconds()
-            let marker: LongTermObservationSemanticMarker = switch renderAccounting.state {
-            case .activeRemote: .active
-            case .tailDrain: .tail
-            case .idle, .localMicrophone: .unclassified
-            }
-            appendLongTermObservationLocked(
-                LongTermObservationPoint(
-                    timestampNanoseconds: observationTimestamp,
-                    kind: .render,
-                    requestedFrames: UInt64(frameCount),
-                    filledFrames: UInt64(fill.filledFrames),
-                    unfilledFrames: UInt64(fill.unfilledFrames),
-                    queueDepthFrames: UInt64(max(0, queuedRemoteFramesAfter)),
-                    byteOrSampleCount: UInt64(max(0, fill.filledFrames)),
-                    marker: marker,
-                    queueDepthBeforeFrames: UInt64(max(0, availableRemoteFrames))
-                )
-            )
-            if renderAccounting.activeUnderrunFrames > 0 || renderAccounting.tailEmptyCallbacks > 0 {
-                appendLongTermObservationLocked(
-                    LongTermObservationPoint(
-                        timestampNanoseconds: observationTimestamp,
-                        kind: .queueStarvation,
-                        requestedFrames: UInt64(frameCount),
-                        filledFrames: UInt64(fill.filledFrames),
-                        unfilledFrames: UInt64(fill.unfilledFrames),
-                        queueDepthFrames: UInt64(max(0, queuedRemoteFramesAfter)),
-                        byteOrSampleCount: UInt64(max(0, renderAccounting.activeUnderrunFrames)),
-                        marker: marker,
-                        queueDepthBeforeFrames: UInt64(max(0, availableRemoteFrames))
-                    )
-                )
-            }
-            if renderAccounting.activeUnderrunFrames > 0 {
-                markLongTermMaterialAnomalyLocked(
-                    trigger: .renderStarvation,
-                    timestampNanoseconds: observationTimestamp
-                )
-            }
-        }
-        if remoteDiagnosticsActive,
-           VoiceTimingLogger.continuityEvidenceEnabled {
-            continuityRenderLedger?.recordRender(
-                timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds(),
-                accounting: renderAccounting,
-                queueDepthBefore: availableRemoteFrames,
-                queueDepthAfter: queuedRemoteFramesAfter
-            )
-        }
-        if VoiceTimingLogger.p1A5Enabled,
-           remoteActive,
-           remoteDiagnosticsActive {
-            if renderAccounting.activeUnderrunFrames > 0 {
-                p1A5StableRenderIntervals = 0
-                frontEdgeUnderrun = (
-                    P1A4MonotonicClock.nowNanoseconds(),
-                    availableRemoteFrames,
-                    queuedRemoteFramesAfter
-                )
-            } else if VoiceTimingLogger.hasEvent("F8_first_voiced_pcm_rendered") {
-                p1A5StableRenderIntervals += 1
-                if p1A5StableRenderIntervals >= 3 {
-                    reachedPlayoutStableTimestamp =
-                        P1A4MonotonicClock.nowNanoseconds()
-                }
-            }
-        }
-        if Self.isOutputDrained(
-            remoteActive: remoteActive,
-            queuedFrames: remaining
-        ) {
-            if remoteOutputDrainWaiter != nil {
-                VoiceTimingLogger.recordQueueEmpty(
-                    timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
-                )
-            }
-            drainCompletion = remoteOutputDrainWaiter
-            remoteOutputDrainWaiter = nil
-        }
-        if remoteDiagnosticsActive {
-            diagnosticsCumulative.recordRender(renderAccounting)
-            diagnosticsWindow.recordRender(renderAccounting)
-            recordQueueDepthLocked(pendingRemoteOutputFrames)
-        }
-        renderCallbackCount += 1
-        stateLock.unlock()
-
-        if let frontEdgeUnderrun {
-            VoiceTimingLogger.recordFrontEdgeUnderrun(
-                timestampNanoseconds: frontEdgeUnderrun.timestamp,
-                durationMilliseconds: Double(frameCount) / Self.outputSampleRate * 1_000,
-                queuedFramesBefore: frontEdgeUnderrun.before,
-                queuedFramesAfter: frontEdgeUnderrun.after
-            )
-        }
-        if let reachedPlayoutStableTimestamp {
-            VoiceTimingLogger.recordIfAbsent(
-                "F9_playout_stable",
-                timestampNanoseconds: reachedPlayoutStableTimestamp
-            )
-        }
-        if let drainCompletion {
-            DispatchQueue.main.async(execute: drainCompletion)
+            realtimeDiagnostics.endRenderDiagnostics()
         }
 
-        for buffer in buffers {
-            guard let data = buffer.mData else { continue }
-            let channelCount = max(1, Int(buffer.mNumberChannels))
-            let writableFrames = min(
-                frameCount,
-                Int(buffer.mDataByteSize) /
-                    MemoryLayout<Float>.size /
-                    channelCount
+        if diagnosticsActive,
+           readResult.remoteFramesConsumed > 0,
+           readResult.peak > 0 {
+            DiagnosticOutputBoundaryClock.shared.record(
+                timestampNanoseconds: renderTimestamp
             )
-            let output = data.assumingMemoryBound(to: Float.self)
-            for frame in 0..<writableFrames {
-                for channel in 0..<channelCount {
-                    output[frame * channelCount + channel] = mono[frame]
-                }
-            }
         }
-    }
-
-    private func compactOutputBufferIfNeeded(recordRemoteDiagnostics: Bool) {
-        if pendingOutputIndex > 4_096 {
-            pendingOutput.removeFirst(pendingOutputIndex)
-            pendingOutputIndex = 0
-            if remoteDiagnosticsActive, recordRemoteDiagnostics {
-                diagnosticsCumulative.recordCompaction()
-                diagnosticsWindow.recordCompaction()
-            }
+        if !remoteActive,
+           readResult.queueDepthAfterFrames == 0,
+           realtimeDiagnostics.hasDrainWaiterRequested() {
+            outputDrainSignal.signal()
         }
-        let maximumQueuedFrames = Int(Self.outputSampleRate * 2)
-        let available = max(0, pendingOutput.count - pendingOutputIndex)
-        let overflow = AudioQueueOverflowAccounting.measure(
-            availableBefore: available,
-            maximumQueuedFrames: maximumQueuedFrames,
-            sampleRate: Int(Self.outputSampleRate)
-        )
-        if overflow.droppedFrames > 0 {
-            let remoteDroppedFrames = AudioRemoteQueueAttribution.remoteDroppedFrames(
-                totalDroppedFrames: overflow.droppedFrames,
-                pendingRemoteFrames: pendingRemoteOutputFrames,
-                sourceIsRemote: recordRemoteDiagnostics
-            )
-            pendingOutputIndex += overflow.droppedFrames
-            pendingRemoteOutputFrames = max(
-                0,
-                pendingRemoteOutputFrames - overflow.droppedFrames
-            )
-            if remoteDiagnosticsActive, remoteDroppedFrames > 0 {
-                diagnosticsCumulative.recordOverflow(remoteDroppedFrames)
-                diagnosticsWindow.recordOverflow(remoteDroppedFrames)
-                if VoiceTimingLogger.continuityEvidenceEnabled {
-                    continuityRenderLedger?.recordOverflow(
-                        timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds(),
-                        frames: remoteDroppedFrames
-                    )
-                }
-            }
-        }
-        recordQueueDepthLocked(pendingRemoteOutputFrames)
     }
 
     private func recordQueueDepthLocked(_ pendingRemoteFrames: Int) {
         guard remoteDiagnosticsActive else { return }
-        let totalQueueFrames = max(0, pendingOutput.count - pendingOutputIndex)
-        let remoteQueueDepth = AudioRemoteQueueAttribution.remoteQueueDepth(
-            totalQueueFrames: totalQueueFrames,
-            pendingRemoteFrames: pendingRemoteFrames
+        diagnosticsCumulative.recordQueueDepth(pendingRemoteFrames)
+        diagnosticsWindow.recordQueueDepth(pendingRemoteFrames)
+    }
+
+    private func flushRealtimeEvidenceLocked() {
+        realtimeDiagnostics.drainObservations { [weak self] observation in
+            guard let self else { return }
+            let marker = self.longTermMarker(for: observation.marker)
+            switch observation.kind {
+            case .render:
+                self.appendLongTermObservationLocked(
+                    LongTermObservationPoint(
+                        timestampNanoseconds: observation.timestampNanoseconds,
+                        kind: .render,
+                        requestedFrames: UInt64(max(0, observation.requestedFrames)),
+                        filledFrames: UInt64(max(0, observation.filledFrames)),
+                        unfilledFrames: UInt64(max(0, observation.unfilledFrames)),
+                        queueDepthFrames: UInt64(max(0, observation.queueDepthAfterFrames)),
+                        byteOrSampleCount: UInt64(max(0, observation.byteOrSampleCount)),
+                        marker: marker,
+                        queueDepthBeforeFrames: UInt64(
+                            max(0, observation.queueDepthBeforeFrames)
+                        )
+                    )
+                )
+                if VoiceTimingLogger.continuityEvidenceEnabled {
+                    self.continuityRenderLedger?.recordRender(
+                        timestampNanoseconds: observation.timestampNanoseconds,
+                        accounting: self.renderAccounting(for: observation),
+                        queueDepthBefore: observation.queueDepthBeforeFrames,
+                        queueDepthAfter: observation.queueDepthAfterFrames
+                    )
+                }
+            case .queueStarvation:
+                self.appendLongTermObservationLocked(
+                    LongTermObservationPoint(
+                        timestampNanoseconds: observation.timestampNanoseconds,
+                        kind: .queueStarvation,
+                        requestedFrames: UInt64(max(0, observation.requestedFrames)),
+                        filledFrames: UInt64(max(0, observation.filledFrames)),
+                        unfilledFrames: UInt64(max(0, observation.unfilledFrames)),
+                        queueDepthFrames: UInt64(max(0, observation.queueDepthAfterFrames)),
+                        byteOrSampleCount: UInt64(max(0, observation.byteOrSampleCount)),
+                        marker: marker,
+                        queueDepthBeforeFrames: UInt64(
+                            max(0, observation.queueDepthBeforeFrames)
+                        )
+                    )
+                )
+                if observation.byteOrSampleCount > 0 {
+                    self.markLongTermMaterialAnomalyLocked(
+                        trigger: .renderStarvation,
+                        timestampNanoseconds: observation.timestampNanoseconds
+                    )
+                }
+            case .frontEdgeUnderrun:
+                VoiceTimingLogger.recordFrontEdgeUnderrun(
+                    timestampNanoseconds: observation.timestampNanoseconds,
+                    durationMilliseconds: Double(observation.requestedFrames)
+                        / Self.outputSampleRate * 1_000,
+                    queuedFramesBefore: observation.queueDepthBeforeFrames,
+                    queuedFramesAfter: observation.queueDepthAfterFrames
+                )
+            }
+        }
+
+        let markers = realtimeDiagnostics.markers()
+        if let firstRendered = markers.firstRemoteRenderedMonotonicNanoseconds {
+            VoiceTimingLogger.recordIfAbsent(
+                "F5_first_pcm_rendered",
+                timestampNanoseconds: firstRendered
+            )
+            if VoiceTimingLogger.hasEvent("F6_first_voiced_pcm_decoded") {
+                VoiceTimingLogger.recordIfAbsent(
+                    "F8_first_voiced_pcm_rendered",
+                    timestampNanoseconds: firstRendered
+                )
+            }
+        }
+        if VoiceTimingLogger.p1A5Enabled,
+           let stable = markers.playoutStableMonotonicNanoseconds {
+            VoiceTimingLogger.recordIfAbsent(
+                "F9_playout_stable",
+                timestampNanoseconds: stable
+            )
+        }
+        if markers.droppedObservationCount > 0 {
+            markLongTermMaterialAnomalyLocked(trigger: .traceDrop)
+        }
+    }
+
+    private func longTermMarker(
+        for rawValue: Int32
+    ) -> LongTermObservationSemanticMarker {
+        switch rawValue {
+        case 0: return .active
+        case 1: return .tail
+        default: return .unclassified
+        }
+    }
+
+    private func renderAccounting(
+        for observation: AudioPipeRealtimeObservation
+    ) -> AudioPipeRenderAccounting {
+        switch observation.marker {
+        case 0:
+            return AudioPipeRenderAccounting(
+                state: .activeRemote,
+                accounted: true,
+                activeRequestedFrames: observation.requestedFrames,
+                activeFilledFrames: observation.filledFrames,
+                activeUnderrunFrames: observation.unfilledFrames,
+                activeUnderrunCallbacks: observation.unfilledFrames > 0 ? 1 : 0,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 0,
+                idleRenderCallbacks: 0
+            )
+        case 1:
+            return AudioPipeRenderAccounting(
+                state: .tailDrain,
+                accounted: true,
+                activeRequestedFrames: 0,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 0,
+                activeUnderrunCallbacks: 0,
+                tailRenderedFrames: observation.filledFrames,
+                tailEmptyCallbacks: observation.filledFrames == 0 ? 1 : 0,
+                idleRenderCallbacks: 0
+            )
+        case 3:
+            return AudioPipeRenderAccounting(
+                state: .localMicrophone,
+                accounted: false,
+                activeRequestedFrames: 0,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 0,
+                activeUnderrunCallbacks: 0,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 0,
+                idleRenderCallbacks: 0
+            )
+        default:
+            return AudioPipeRenderAccounting(
+                state: .idle,
+                accounted: false,
+                activeRequestedFrames: 0,
+                activeFilledFrames: 0,
+                activeUnderrunFrames: 0,
+                activeUnderrunCallbacks: 0,
+                tailRenderedFrames: 0,
+                tailEmptyCallbacks: 0,
+                idleRenderCallbacks: 1
+            )
+        }
+    }
+
+    private func startOutputDrainMonitorIfNeeded() {
+        stateLock.lock()
+        guard !outputDrainMonitorStarted else {
+            stateLock.unlock()
+            return
+        }
+        outputDrainMonitorStarted = true
+        stateLock.unlock()
+
+        outputDrainMonitorQueue.async { [weak self] in
+            guard let self else { return }
+            while true {
+                self.outputDrainSignal.wait()
+                self.deliverOutputDrainIfReady()
+            }
+        }
+    }
+
+    private func deliverOutputDrainIfReady() {
+        stateLock.lock()
+        guard let completion = remoteOutputDrainWaiter,
+              Self.isOutputDrained(
+                  remoteActive: remoteActive,
+                  queuedFrames: outputRing.queuedFrames
+              ) else {
+            stateLock.unlock()
+            return
+        }
+        remoteOutputDrainWaiter = nil
+        realtimeDiagnostics.setDrainWaiterRequested(false)
+        stateLock.unlock()
+
+        VoiceTimingLogger.recordQueueEmpty(
+            timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
         )
-        diagnosticsCumulative.recordQueueDepth(remoteQueueDepth)
-        diagnosticsWindow.recordQueueDepth(remoteQueueDepth)
+        DispatchQueue.main.async(execute: completion)
     }
 
     private func appendLongTermObservationLocked(_ point: LongTermObservationPoint) {
@@ -1309,10 +1326,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             let macBuffers = self.scheduledMacBuffers
             let remoteBuffers = self.scheduledRemoteBuffers
             let peak = self.scheduledPeak
-            let renders = self.renderCallbackCount
-            let renderedFrames = self.renderedFrames
-            let renderedPeak = self.renderedPeak
-            let queuedFrames = self.pendingOutput.count - self.pendingOutputIndex
+            let queuedFrames = self.outputRing.queuedFrames
             let now = ProcessInfo.processInfo.systemUptime
             let shouldPrint = DiagnosticAudioMeterCadence.shouldEmit(
                 mode: mode,
@@ -1325,10 +1339,8 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             self.scheduledMacBuffers = 0
             self.scheduledRemoteBuffers = 0
             self.scheduledPeak = 0
-            self.renderCallbackCount = 0
-            self.renderedFrames = 0
-            self.renderedPeak = 0
             self.stateLock.unlock()
+            let meter = self.realtimeDiagnostics.takeMeterSnapshot(reset: true)
             guard shouldPrint else { return }
             print(String(
                 format: "[AUDIO-METER] mode=%@ macBuffers=%d remoteBuffers=%d scheduledPeak=%.4f renders=%d renderedFrames=%d renderedPeak=%.4f queuedFrames=%d",
@@ -1336,11 +1348,30 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 macBuffers,
                 remoteBuffers,
                 peak,
-                renders,
-                renderedFrames,
-                renderedPeak,
+                meter.renderCallbackCount,
+                meter.renderedFrames,
+                meter.renderedPeak,
                 queuedFrames
             ))
         }
+    }
+}
+
+private extension AudioPipeDiagnosticsCounters {
+    mutating func mergeRealtime(_ snapshot: AudioPipeRealtimeCounterSnapshot) {
+        renderCallbackCount += snapshot.renderCallbackCount
+        renderRequestedFrames += snapshot.renderRequestedFrames
+        renderFilledFrames += snapshot.renderFilledFrames
+        renderUnfilledFrames += snapshot.renderUnfilledFrames
+        underrunCallbackCount += snapshot.underrunCallbackCount
+        maxUnderrunFrames = max(maxUnderrunFrames, snapshot.maxUnderrunFrames)
+        renderedRemoteFrames += snapshot.renderedRemoteFrames
+        if let minDepth = snapshot.minQueueDepthFrames {
+            minQueueDepthFrames = min(minQueueDepthFrames ?? minDepth, minDepth)
+        }
+        maxQueueDepthFrames = max(maxQueueDepthFrames, snapshot.maxQueueDepthFrames)
+        tailRenderedFrames += snapshot.tailRenderedFrames
+        tailEmptyCallbackCount += snapshot.tailEmptyCallbackCount
+        idleRenderCallbackCount += snapshot.idleRenderCallbackCount
     }
 }
