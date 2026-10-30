@@ -69,6 +69,30 @@ final class PostReleaseCaptureGraceTests: XCTestCase {
         XCTAssertEqual(expirations, ["new-session"])
     }
 
+    func testStaleGraceCallbackCannotMutateNextSession() {
+        let grace = PostReleaseCaptureGraceController()
+        var expirations: [String] = []
+        grace.onExpire = { sessionID, _ in expirations.append(sessionID) }
+
+        let oldGeneration = grace.start(sessionID: "old-session")
+        let newGeneration = grace.start(sessionID: "new-session")
+
+        XCTAssertFalse(
+            grace.expireForTesting(
+                sessionID: "old-session",
+                generation: oldGeneration
+            )
+        )
+        XCTAssertTrue(grace.isWaitingForTesting)
+        XCTAssertTrue(
+            grace.expireForTesting(
+                sessionID: "new-session",
+                generation: newGeneration
+            )
+        )
+        XCTAssertEqual(expirations, ["new-session"])
+    }
+
     func testMismatchedSessionCannotExpireCurrentGeneration() {
         let grace = PostReleaseCaptureGraceController()
         let generation = grace.start(sessionID: "session-a")

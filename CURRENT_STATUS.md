@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — SECOND_RUNTIME_INCIDENT_BOUNDARY_IDENTIFIED / READY_FOR_LOCAL_CORRECTIVE`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — ADOPTED_PHYSICAL_GRACE_CORRECTIVE_IMPLEMENTED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -32,6 +32,34 @@ Preserve strict READY, long-lived READY, ATVV protocol/codec, Gate C ring, Gate 
 
 No additional probe is required.
 
+## Local corrective evidence
+
+The bounded corrective is implemented in `BLEBridge` with session-specific
+adopted-physical retirement state. It records the adopted session ID, physical
+release, and healthy AUDIO_STOP drain completion. Only when the matching grace
+is still waiting, no host `MIC_OPEN` was issued, and both lifecycle edges are
+observed does it cancel that grace and clear the old `voiceInputRequested`
+intent. It retains ATVV READY and does not issue `MIC_CLOSE`. A stale grace
+generation remains unable to expire or mutate a newer session.
+
+Observed validation on the local corrective source:
+
+- focused BLE/voice boundary/trigger/post-release/AudioPipe/ATVV/diagnostic
+  selection: 291/291 passed;
+- full Swift test suite: 581/581 passed;
+- arm64 Release source build: completed, `lipo -archs` reported `arm64`;
+- x86_64 Release source build: completed, `lipo -archs` reported `x86_64`;
+- protocol self-tests: 3/3 passed;
+- `git diff --check`: passed;
+- changed paths are limited to `BLEBridge.swift` and its two focused test
+  files; packaging, installation, driver, TCC, and runtime state were not
+  changed.
+
+The implementation and tests are in the control transition commit directly
+following audited control HEAD `74611c813887c9ccb489554cb452b390fb5bbff1`.
+No package or install was performed.
+
 ## Stop / next
 
-Execute only the bounded corrective in `CURRENT_TASK.md`; push the existing 042 branch and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, merge, tag, release, or create Gate F.
+Push and verify the existing 042 branch, then wait for the independent Web
+audit. Do not package/install, merge, tag, release, or create Gate F.

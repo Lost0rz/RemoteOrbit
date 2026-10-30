@@ -268,6 +268,128 @@ final class BLEBridgeTests: XCTestCase {
         XCTAssertEqual(bridge.micOpenRequestCountForTesting, 1)
     }
 
+    func testAdoptedPhysicalReleaseAndAudioStopRetiresStaleIntent() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.beginPreHIDPhysicalStreamForTesting()
+        bridge.requestVoiceActivationForTesting()
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .voiceSession)
+        XCTAssertFalse(bridge.micOpenRequestedForTesting)
+
+        bridge.releasePhysicalVoiceInputForTesting()
+        XCTAssertTrue(bridge.postReleaseGraceWaitingForTesting)
+        XCTAssertTrue(bridge.voiceInputRequestedForTesting)
+
+        bridge.beginAudioStopDrainForTesting()
+        bridge.completeAudioStopDrainForTesting()
+
+        XCTAssertFalse(bridge.postReleaseGraceWaitingForTesting)
+        XCTAssertFalse(bridge.voiceInputRequestedForTesting)
+        XCTAssertFalse(bridge.micOpenRequestedForTesting)
+        XCTAssertEqual(bridge.micCloseRequestCountForTesting, 0)
+    }
+
+    func testAdoptedPhysicalRetirementPreservesReady() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.beginPreHIDPhysicalStreamForTesting()
+        bridge.requestVoiceActivationForTesting()
+        bridge.releasePhysicalVoiceInputForTesting()
+        bridge.beginAudioStopDrainForTesting()
+        bridge.completeAudioStopDrainForTesting()
+
+        XCTAssertTrue(bridge.canReuseReadyTransportForTesting)
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .none)
+    }
+
+    func testRapidNextPhysicalStreamDuringFormerGraceIsAdmissible() {
+        let harness = AdmissionHarness()
+        defer { harness.shutdown() }
+
+        harness.bridge.beginPreHIDPhysicalStreamForTesting()
+        harness.bridge.requestVoiceActivationForTesting()
+        harness.bridge.releasePhysicalVoiceInputForTesting()
+        harness.bridge.beginAudioStopDrainForTesting()
+        harness.bridge.completeAudioStopDrainForTesting()
+        harness.wait()
+
+        harness.bridge.beginPreHIDPhysicalStreamForTesting()
+        harness.wait()
+        XCTAssertTrue(
+            harness.press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+
+        harness.bridge.requestVoiceActivationForTesting()
+        harness.wait()
+        XCTAssertEqual(harness.bridge.streamOwnershipForTesting, .voiceSession)
+        XCTAssertFalse(harness.bridge.micOpenRequestedForTesting)
+    }
+
+    func testHostMicOpenGraceUnchanged() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.requestVoiceActivationForTesting()
+        XCTAssertTrue(bridge.micOpenRequestedForTesting)
+        bridge.releasePhysicalVoiceInputForTesting()
+
+        XCTAssertTrue(bridge.postReleaseGraceWaitingForTesting)
+        XCTAssertTrue(bridge.voiceInputRequestedForTesting)
+
+        bridge.completeNoAudioVoiceCloseForTesting()
+
+        XCTAssertFalse(bridge.postReleaseGraceWaitingForTesting)
+        XCTAssertFalse(bridge.voiceInputRequestedForTesting)
+        XCTAssertFalse(bridge.micOpenRequestedForTesting)
+        XCTAssertEqual(bridge.micCloseRequestCountForTesting, 1)
+        XCTAssertTrue(bridge.canReuseReadyTransportForTesting)
+    }
+
+    func testAudioStopBeforePhysicalReleaseDoesNotRetireIntent() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.beginPreHIDPhysicalStreamForTesting()
+        bridge.requestVoiceActivationForTesting()
+        bridge.beginAudioStopDrainForTesting()
+        bridge.completeAudioStopDrainForTesting()
+
+        XCTAssertTrue(bridge.voiceInputRequestedForTesting)
+        XCTAssertFalse(bridge.postReleaseGraceWaitingForTesting)
+
+        bridge.releasePhysicalVoiceInputForTesting()
+
+        XCTAssertFalse(bridge.postReleaseGraceWaitingForTesting)
+        XCTAssertFalse(bridge.voiceInputRequestedForTesting)
+        XCTAssertTrue(bridge.canReuseReadyTransportForTesting)
+    }
+
+    func testRepeatedRapidAdoptedPhysicalSessionsRemainAdmissible() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        for _ in 0..<5 {
+            bridge.beginPreHIDPhysicalStreamForTesting()
+            bridge.requestVoiceActivationForTesting()
+            XCTAssertEqual(bridge.streamOwnershipForTesting, .voiceSession)
+            XCTAssertFalse(bridge.micOpenRequestedForTesting)
+
+            bridge.releasePhysicalVoiceInputForTesting()
+            bridge.beginAudioStopDrainForTesting()
+            bridge.completeAudioStopDrainForTesting()
+
+            XCTAssertFalse(bridge.voiceInputRequestedForTesting)
+            XCTAssertTrue(bridge.canReuseReadyTransportForTesting)
+        }
+    }
+
     func testStartSearchDuringPreparationCannotRequestMicOpen() {
         var state = BLEVoiceTransportState()
 

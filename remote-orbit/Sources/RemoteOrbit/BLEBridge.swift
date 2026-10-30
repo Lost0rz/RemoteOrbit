@@ -188,6 +188,12 @@ struct BLEVoiceTransportState {
 }
 
 final class BLEBridge: NSObject {
+    private struct AdoptedPhysicalRetirement {
+        let sessionID: String
+        var physicalReleaseObserved = false
+        var audioStopDrainCompleted = false
+    }
+
     // ATVV service / characteristic UUIDs (Google Android TV Remote protocol).
     static let serviceUUID  = CBUUID(string: "AB5E0001-5A21-4F05-BC7D-AF01F617B664")
     static let commandUUID  = CBUUID(string: "AB5E0002-5A21-4F05-BC7D-AF01F617B664")  // host writes commands to remote
@@ -279,6 +285,8 @@ final class BLEBridge: NSObject {
     private var streamSessionID = "NA"
     private var streamSessionOrigin: ATVVSessionOrigin = .unknown
     private var micOpenRequestCountForTestingStorage = 0
+    private var micCloseRequestCountForTestingStorage = 0
+    private var adoptedPhysicalRetirement: AdoptedPhysicalRetirement?
     private var keepAliveSequence = 0
     private var lastKeepAliveElapsedMilliseconds: Double?
     private var firstAudioAt: Date?
@@ -338,6 +346,22 @@ final class BLEBridge: NSObject {
         bleQueue.sync { micOpenRequestCountForTestingStorage }
     }
 
+    var micCloseRequestCountForTesting: Int {
+        bleQueue.sync { micCloseRequestCountForTestingStorage }
+    }
+
+    var voiceInputRequestedForTesting: Bool {
+        bleQueue.sync { transportState.voiceInputRequested }
+    }
+
+    var postReleaseGraceWaitingForTesting: Bool {
+        bleQueue.sync { postReleaseGrace.isWaiting }
+    }
+
+    var canReuseReadyTransportForTesting: Bool {
+        bleQueue.sync { transportState.canReuseReadyTransport }
+    }
+
     func beginPreHIDPhysicalStreamForTesting() {
         performOnBLEQueueSynchronously {
             AudioPipe.shared.beginRemoteCandidate()
@@ -350,12 +374,26 @@ final class BLEBridge: NSObject {
 
     func requestVoiceActivationForTesting() {
         performOnBLEQueueSynchronously {
+            try? self.protocolHandler.acceptCapabilities(
+                ATVVCapabilities(
+                    version: .v10,
+                    codecs: ATVVCodec.adpcm16k.rawValue,
+                    interactionModel: 0,
+                    frameSize: 120
+                )
+            )
             self.transportState.prepareTransport()
             self.transportState.connectionState = .ready
             self.transportState.transportPrepared = true
             self.transportState.atvvReady = true
             self.transportState.requestVoiceInput()
             self.requestMicOpenIfReady()
+        }
+    }
+
+    func releasePhysicalVoiceInputForTesting() {
+        performOnBLEQueueSynchronously {
+            self.stopVoiceInputOnBLEQueue()
         }
     }
 
@@ -400,6 +438,7 @@ final class BLEBridge: NSObject {
 
     func completeNoAudioVoiceCloseForTesting() {
         performOnBLEQueueSynchronously {
+            self.cancelPostReleaseGrace(reason: "test_close")
             self.sendMicCloseAfterPostReleaseGrace(sessionID: self.streamSessionID)
         }
     }
@@ -620,12 +659,14 @@ final class BLEBridge: NSObject {
         if sessionID != "NA" {
             streamSessionID = sessionID
         }
+        markAdoptedPhysicalReleaseIfNeeded(sessionID: sessionID)
         _ = postReleaseGrace.start(sessionID: sessionID)
         print(postReleaseGraceLine(
             event: "POST_RELEASE_GRACE_STARTED",
             sessionID: sessionID,
             reason: "physical_release"
         ))
+        retireAdoptedPhysicalVoiceIntentIfReady()
     }
 
     private var postReleaseGraceMilliseconds: Int {
@@ -669,6 +710,36 @@ final class BLEBridge: NSObject {
         _ = cancelPostReleaseGrace(reason: "new_incompatible_audio_session")
     }
 
+    private func markAdoptedPhysicalReleaseIfNeeded(sessionID: String) {
+        guard var retirement = adoptedPhysicalRetirement,
+              retirement.sessionID == sessionID else {
+            return
+        }
+        retirement.physicalReleaseObserved = true
+        adoptedPhysicalRetirement = retirement
+    }
+
+    private func retireAdoptedPhysicalVoiceIntentIfReady() {
+        guard let retirement = adoptedPhysicalRetirement,
+              retirement.physicalReleaseObserved,
+              retirement.audioStopDrainCompleted,
+              postReleaseGrace.currentSessionID == retirement.sessionID,
+              !transportState.micOpenRequested,
+              transportState.voiceInputRequested else {
+            return
+        }
+        guard cancelPostReleaseGrace(reason: "adopted_physical_audio_stop") else {
+            return
+        }
+        transportState.cancelVoiceInput()
+        adoptedPhysicalRetirement = nil
+        updateDiagnosticTransportState()
+        print(
+            "[BLE] adopted PHYSICAL_HTT voice intent retired after AUDIO_STOP drain; "
+                + "ATVV READY retained"
+        )
+    }
+
     private func expirePostReleaseGrace(sessionID: String, generation: UInt64) {
         _ = generation
         let currentLoggerSessionID = VoiceTimingLogger.currentSessionID?.uuidString
@@ -698,10 +769,14 @@ final class BLEBridge: NSObject {
         let wasStreaming = isStreaming
         let hadMicOpen = transportState.micOpenRequested
         transportState.finishVoiceSession()
+        if adoptedPhysicalRetirement?.sessionID == sessionID {
+            adoptedPhysicalRetirement = nil
+        }
         if hadMicOpen, transportState.atvvReady {
             do {
                 let command = try protocolHandler.micCloseCommand(streamID: streamID)
                 writeCommand(command)
+                micCloseRequestCountForTestingStorage += 1
                 print("[BLE] TX micClose")
                 if let sessionUUID = UUID(uuidString: sessionID) {
                     VoiceTimingLogger.markForSession("MIC_CLOSE_TX", sessionID: sessionUUID)
@@ -1000,6 +1075,7 @@ final class BLEBridge: NSObject {
         let wasStreamOwnership = streamOwnership
         let hadVoiceIntent = transportState.voiceInputRequested
             || transportState.micOpenRequested
+        adoptedPhysicalRetirement = nil
         isStreaming = false
         streamOwnership = .none
         pendingAudioStopReason = nil
@@ -1234,6 +1310,7 @@ final class BLEBridge: NSObject {
         guard isStreaming, streamOwnership == .preHIDPhysical else { return false }
         streamOwnership = .voiceSession
         streamSessionID = VoiceTimingLogger.currentSessionID?.uuidString ?? streamSessionID
+        adoptedPhysicalRetirement = AdoptedPhysicalRetirement(sessionID: streamSessionID)
         updateDiagnosticTransportState()
         print(
             "[BLE] adopted active PHYSICAL_HTT stream into voice session "
@@ -1919,6 +1996,15 @@ extension BLEBridge: CBPeripheralDelegate {
             drainFinishedAt: drainFinishedAt?.timeIntervalSinceReferenceDate
         )
         let endedStreamOwnership = streamOwnership
+        let endedStreamSessionID = streamSessionID
+        if endedStreamOwnership == .voiceSession,
+           streamSessionOrigin == .physicalHTT,
+           !transportState.micOpenRequested,
+           var retirement = adoptedPhysicalRetirement,
+           retirement.sessionID == endedStreamSessionID {
+            retirement.audioStopDrainCompleted = true
+            adoptedPhysicalRetirement = retirement
+        }
         isStreaming = false
         streamOwnership = .none
         protocolHandler.endAudioStream()
@@ -2099,6 +2185,7 @@ extension BLEBridge: CBPeripheralDelegate {
         let reason = pendingAudioStopReason ?? 0
         pendingAudioStopReason = nil
         print("[BLE] AUDIO_STOP drained reason=0x\(String(format: "%02x", reason))")
+        retireAdoptedPhysicalVoiceIntentIfReady()
         retireAudioStopDrainBarrier()
     }
 

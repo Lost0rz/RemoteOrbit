@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Adopted Physical Grace Intent Corrective
 
-Status: `READY_FOR_LOCAL_CORRECTIVE`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
@@ -99,4 +99,26 @@ Explicitly report:
 
 ## Delivery / stop state
 
-After implementation, update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together with actual evidence, commit/push only the existing 042 branch, verify local/remote equality, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, merge, tag, release, or start another gate.
+The bounded corrective and its deterministic tests are implemented. Observed
+local evidence:
+
+- focused BLE/voice boundary/trigger/post-release/AudioPipe/ATVV/diagnostic
+  selection: 291/291 passed;
+- full Swift test suite: 581/581 passed;
+- arm64 Release source build completed with `arm64` architecture;
+- x86_64 Release source build completed with `x86_64` architecture;
+- protocol self-tests: 3/3 passed;
+- `git diff --check`: passed;
+- source/test diff is limited to `BLEBridge.swift`, `BLEBridgeTests.swift`,
+  and `PostReleaseCaptureGraceTests.swift`.
+
+The implementation records adopted physical ownership by session ID and
+retires the old BLE voice intent only after matching physical release and
+healthy AUDIO_STOP drain while the matching grace waits. Host-MIC_OPEN grace
+and MIC_CLOSE remain on their existing path. No package/install/runtime,
+driver, TCC, merge, tag, release, or Gate F action was performed.
+
+After this control transition, commit/push only the existing 042 branch,
+verify exact local/remote equality, and stop at
+`WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, merge, tag,
+release, or start another gate.
