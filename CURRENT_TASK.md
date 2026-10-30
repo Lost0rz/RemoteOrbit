@@ -1,124 +1,83 @@
 # RemoteOrbit Current Task
 
-## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Adopted Physical Grace Intent Corrective
+## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Corrective Candidate Preparation
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `READY_FOR_LOCAL_CORRECTIVE_CANDIDATE_PREPARATION`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
-Accepted corrective source before this incident: `7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c`
+Accepted corrective source: `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332`
 Incident record: `docs/incidents/2026-10-30-042-adopted-physical-grace-intent-race.md`
 Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`
 
 ## Objective
 
-Fix one evidence-confirmed lifecycle race left after the first Physical-HTT admission corrective.
+Prepare and install one provenance-locked runtime candidate from the accepted second corrective source. Do not change product semantics.
 
-An adopted physical stream can finish healthy AUDIO_STOP/tail retirement after physical release while its BLE post-release grace still retains stale `voiceInputRequested=true`. A rapid next physical AUDIO_START then becomes `session_origin=UNKNOWN`, is treated as session-owned streaming, and poisons the matching HID admission with `voice_session_busy` even though BLE continues decoding real PCM.
+The purpose is to retest the exact previously failing rapid open/close RC003 pattern after the adopted-physical stale-intent retirement corrective.
 
-This is a bounded corrective inside Task 042. It is not Gate F and does not authorize broader redesign.
+## Source/provenance contract
 
-## Evidence-supported root cause
+Before packaging, prove that any live branch commits after accepted source `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332` are governance/control-only and do not change product source, tests, package scripts, driver code or version/signing behavior.
 
-The fresh runtime window establishes:
+Use the established packaging/install flow only. The previous candidate used `./package-dmg.sh --reuse-driver`; use the current established equivalent if unchanged by authority.
 
-- the preceding adopted physical session rendered audio successfully and returned coordinator state to idle;
-- physical release had started the existing post-release grace;
-- healthy AUDIO_STOP/tail retirement completed before that grace expired;
-- the next physical AUDIO_START occurred while stale BLE `voiceInputRequested=true` remained;
-- `micOpenRequested=false && voiceInputRequested=true` maps to `ATVVSessionOrigin.UNKNOWN`;
-- current ownership mapping treats UNKNOWN as `voiceSession`;
-- `notifyStreaming(true)` therefore made the coordinator busy before matching HID DOWN;
-- matching HID was rejected `voice_session_busy`;
-- BLE still decoded credible non-zero PCM, while AudioPipe remained unrouted with zero render callbacks.
+## Authorized work
 
-Existing evidence is sufficient. Do not add a probe.
-
-## Authorized corrective
-
-Implement the smallest lifecycle correction for an **adopted physical stream only**.
-
-After all of the following are true:
-
-1. the live stream was originally `PHYSICAL_HTT` and was adopted into the direct session;
-2. no host `MIC_OPEN` was issued for that stream;
-3. physical release occurred and the post-release grace is currently waiting for that session;
-4. healthy `AUDIO_STOP` tail/drain has completed;
-
-then:
-
-- cancel/retire only that obsolete post-release grace;
-- retire the old BLE voice intent (`voiceInputRequested`) for that adopted physical session;
-- keep the Gate B READY transport reusable;
-- do not send host `MIC_CLOSE`, because no host MIC_OPEN was issued;
-- do not alter coordinator tail/ring-empty/output-drain/trigger-UP ordering.
-
-Prefer the lifecycle point where healthy AUDIO_STOP drain completion already owns stream retirement. Keep the mutation session/stream-specific and stale-callback-safe.
-
-### Important negative case
-
-If AUDIO_STOP completes **before physical release**, do not retire the voice intent merely because the stream was physical. The later physical release still owns the session close transition.
-
-### Do not solve this by broad UNKNOWN reclassification
-
-`UNKNOWN` is a state observation, not proof that every such stream belongs to pre-HID physical transport. Do not globally map UNKNOWN to `preHIDPhysical`.
-
-## Required deterministic tests
-
-Add focused coverage for at least:
-
-1. `ADOPTED_PHYSICAL_RELEASE_AND_AUDIO_STOP_RETIRES_STALE_INTENT`;
-2. `ADOPTED_PHYSICAL_RETIREMENT_PRESERVES_READY`;
-3. `RAPID_NEXT_PHYSICAL_STREAM_DURING_FORMER_GRACE_IS_ADMISSIBLE`;
-4. `HOST_MIC_OPEN_GRACE_UNCHANGED`;
-5. `AUDIO_STOP_BEFORE_PHYSICAL_RELEASE_DOES_NOT_RETIRE_INTENT`;
-6. `STALE_GRACE_CALLBACK_CANNOT_MUTATE_NEXT_SESSION`;
-7. `REPEATED_RAPID_ADOPTED_PHYSICAL_SESSIONS_REMAIN_ADMISSIBLE`.
-
-Run relevant BLEBridge, VoicePipelineSimplification, VoiceBoundaryOrdering, VoiceTriggerRuntime, PostReleaseCaptureGrace, AudioPipe/realtime/reserve, ATVV, and diagnostic regressions, plus full Swift tests, arm64/x86_64 Release builds, protocol self-tests, and `git diff --check`.
+1. Fetch/reconcile the live 042 branch and read `AGENTS.md`, `CURRENT_STATUS.md`, `CURRENT_TASK.md`.
+2. Use the canonical writer/worktree; require a clean worktree.
+3. Verify accepted corrective source identity and control-only drift.
+4. Build/package the exact corrective candidate with the existing release flow; no source/package-script edits.
+5. Record app/DMG paths, SHA-256, bundle ID, version/build, architectures and signing state.
+6. Quit the currently running older failed candidate cleanly.
+7. Replace only `/Applications/RemoteOrbit.app` with the exact new candidate if the established flow supports it.
+8. Do not replace/reload the installed CoreAudio driver; preserve driver identity.
+9. Do not reset or mutate TCC.
+10. Verify strongest available installed-vs-package provenance.
+11. Launch the candidate and verify PID/executable path/version/build/bundle identity.
+12. Verify existing RemoteOrbit Mic, RC003 BLE/HID and diagnostic journal/CLI readiness without mutation.
+13. Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together with observed preparation evidence.
+14. Push only the existing 042 branch, verify exact local/remote equality and stop at `READY_FOR_HUMAN_CORRECTIVE_RUNTIME_RETEST`.
 
 ## Explicitly not authorized
 
-Do NOT broadly remap UNKNOWN; disable long-lived READY; disconnect per session; change strict READY, ATVV protocol/codec, Gate C ring, Gate D 45 ms, gain/resampling, driver/TCC/install/runtime policy; package/install; merge/tag/release; create Gate F; or add broad probes.
+Do NOT:
 
-If the minimal fix requires changing preserved architecture, STOP and report the dependency.
+- modify product source/tests/package scripts;
+- change adopted-physical retirement logic;
+- globally reclassify UNKNOWN;
+- change long-lived READY or strict READY;
+- change ATVV protocol/codec;
+- change Gate C ring or Gate D 45 ms reserve;
+- replace/reload the driver;
+- reset TCC;
+- merge/tag/release/publish;
+- create Gate F;
+- perform or approve the human runtime retest.
 
-## Final diff requirements
+If packaging/install requires any prohibited mutation, STOP and report the blocker.
 
-Explicitly report:
+## Required preparation receipt
 
-- UNKNOWN_GLOBAL_RECLASSIFICATION: YES/NO — expected NO
-- LONG_LIVED_READY_CHANGED: YES/NO — expected NO
-- STRICT_READY_CHANGED: YES/NO — expected NO
-- HOST_MIC_OPEN_GRACE_CHANGED: YES/NO — expected NO
-- MIC_CLOSE_PROTOCOL_CHANGED: YES/NO — expected NO
-- GATE_C_RING_CHANGED: YES/NO — expected NO
-- GATE_D_45MS_CHANGED: YES/NO — expected NO
-- DRIVER_RUNTIME_CHANGED: YES/NO — expected NO
-- GATE_F_CREATED: YES/NO — expected NO
+Return observed values for:
 
-## Delivery / stop state
+- start/final control HEAD;
+- accepted corrective source;
+- product-source diff from accepted source;
+- clean worktree before/after;
+- build/package commands and result;
+- app/DMG artifact paths and SHA-256;
+- bundle ID/version/build/architectures/signing;
+- install result and installed provenance;
+- running PID/path/version/build;
+- RemoteOrbit Mic readiness;
+- BLE/HID readiness;
+- diagnostic capture readiness;
+- source/package-script/driver/TCC mutation flags;
+- merge/tag/release/Gate F flags;
+- human corrective runtime retest = PENDING;
+- control alignment and unresolved items.
 
-The bounded corrective and its deterministic tests are implemented. Observed
-local evidence:
+## Human boundary
 
-- focused BLE/voice boundary/trigger/post-release/AudioPipe/ATVV/diagnostic
-  selection: 291/291 passed;
-- full Swift test suite: 581/581 passed;
-- arm64 Release source build completed with `arm64` architecture;
-- x86_64 Release source build completed with `x86_64` architecture;
-- protocol self-tests: 3/3 passed;
-- `git diff --check`: passed;
-- source/test diff is limited to `BLEBridge.swift`, `BLEBridgeTests.swift`,
-  and `PostReleaseCaptureGraceTests.swift`.
-
-The implementation records adopted physical ownership by session ID and
-retires the old BLE voice intent only after matching physical release and
-healthy AUDIO_STOP drain while the matching grace waits. Host-MIC_OPEN grace
-and MIC_CLOSE remain on their existing path. No package/install/runtime,
-driver, TCC, merge, tag, release, or Gate F action was performed.
-
-After this control transition, commit/push only the existing 042 branch,
-verify exact local/remote equality, and stop at
-`WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, merge, tag,
-release, or start another gate.
+After candidate preparation, stop. The user owns the RC003 retest. The first retest should reproduce the prior stress condition: rapid repeated press/release/open-close cycles without restarting RemoteOrbit or reconnecting RC003, while checking waveform, recognized speech and continued next-session admission.
