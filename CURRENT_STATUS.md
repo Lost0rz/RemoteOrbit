@@ -75,7 +75,15 @@ Planned Gates B–E remain design intent only and are not authorized for impleme
 - Profile migration reads only the legacy momentary trigger; Persistent and Receiver B preferences remain compatibility projections/non-authorities for the primary path.
 - UI exposes the direct transport contract and a menu-bar profile selector; old microphone short/long/dual cards are no longer rendered.
 - Validation: `swift test --package-path remote-orbit` passed 505/505; arm64 release build passed; x86_64 release build passed; `./remote-orbit/run-self-tests.sh` passed 3/3; `git diff --check` passed.
+- Gate A tail corrective completed from audited implementation parent `718a85f20362c8826305a49fb6c2dc40bf96dff0`: direct physical UP now enters `DRAINING`, arms the captured hardware release, requests the existing AppController/BLE stop flow, and keeps the remote AudioPipe route/candidate active until the existing `onStreamingChanged(false)` transport/audio-stop boundary. Only then does it end the candidate, deactivate the route, request output drain, and release the same trigger after output completion. Transport-loss and no-`AUDIO_START` paths use the same observed-stop boundary; no fixed delay was added.
+- Tail corrective validation: `swift test --package-path remote-orbit` passed 510/510; focused VoicePipelineSimplification, VoiceBoundaryOrdering, VoiceTriggerRuntime, BLEBridge, ATVV telemetry, AudioPipe, AudioDataPlaneDiagnostics, VoiceBoundaryDiagnostics, DiagnosticHardening, and P1A5 suites passed; arm64 and x86_64 release builds passed; protocol self-tests passed 3/3; `git diff --check` passed. `BLEBridge.swift` and `AudioPipe.swift` are unchanged.
 - Human natural-use/UI acceptance, rendered visual inspection, independent Web audit, installed runtime, TCC, and Air-side acceptance remain unverified/user-owned.
+
+## Gate A tail corrective receipt
+
+- The corrected ordering is: `PHYSICAL_UP → DRAINING / hardware release armed → existing AppController stop request → existing transport/audio-stop completion → end remote candidate + route inactive → output drain → captured trigger UP → IDLE`.
+- Focused coverage includes active-release ordering, late-tail PCM eligibility, stream-stop/output-drain trigger ownership, no-`AUDIO_START` release cleanup, rapid next-session admission, hardware-trigger release, and AppController stop-callback ordering.
+- No change was made to BLEBridge post-release grace/AUDIO_STOP duration, CoreBluetooth/ATVV behavior, AudioPipe architecture, jitter, driver, packaging, installation, TCC, Air runtime, menu/profile behavior, or planned Gates B–E.
 
 ## Stop state
 

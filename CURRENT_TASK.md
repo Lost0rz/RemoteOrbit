@@ -188,6 +188,39 @@ The authorized Gate A implementation is complete in canonical writer worktree `/
 - Static checks: `git diff --check` passed; changed paths were inspected.
 - Not performed by this Gate A executor: app packaging/install, installed-runtime replacement, TCC changes, Air runtime mutation, rendered UI inspection, human natural-use acceptance, and independent Web audit.
 
+## Gate A tail corrective receipt
+
+The bounded tail-order corrective was executed from the audited implementation parent
+`718a85f20362c8826305a49fb6c2dc40bf96dff0` in the canonical writer. The direct path now
+keeps `remote_routed` and the AudioPipe candidate active after physical UP. It requests
+the existing stop flow through AppController, waits for the existing
+`onStreamingChanged(false)` / transport-loss completion signal, and only then ends the
+candidate, turns the route off, begins output drain, and releases the captured trigger.
+No arbitrary delay or BLEBridge/AudioPipe change was introduced.
+
+Focused tail coverage proves:
+
+1. `DIRECT_ACTIVE_RELEASE_TAIL_ORDER` — UP enters DRAINING, arms hardware release,
+   keeps the remote route active, and does not request output drain before transport stop.
+2. `DIRECT_LATE_TAIL_PCM` — late PCM remains eligible until streaming false.
+3. `DIRECT_STREAM_STOP_THEN_OUTPUT_DRAIN` — trigger UP remains downstream of output drain.
+4. `NO_AUDIO_START_RELEASE` — a release without AUDIO_START cannot remain in DRAINING.
+5. `RAPID_NEXT_SESSION` — a next session is blocked until the prior output drain completes.
+6. `HARDWARE_TRIGGER_PATH` — hardware DOWN is immediate, physical UP is captured, and
+   the mapped UP follows BLE tail/transport and output drain.
+
+Tail corrective verification:
+
+- `swift test --package-path remote-orbit` — 510/510 passed.
+- Focused VoicePipelineSimplification, VoiceBoundaryOrdering, VoiceTriggerRuntime,
+  BLEBridge, ATVV telemetry, AudioPipe, AudioDataPlaneDiagnostics,
+  VoiceBoundaryDiagnostics, DiagnosticHardening, and P1A5 suites — passed.
+- arm64 and x86_64 release builds — passed.
+- `./remote-orbit/run-self-tests.sh` — 3/3 passed.
+- `git diff --check` — passed.
+- Implementation changed paths are limited to `main.swift` and the two focused test
+  files; `BLEBridge.swift` and `AudioPipe.swift` are unchanged.
+
 ## Gate A completion / stop state
 
 This transition updates `CURRENT_STATUS.md` and `CURRENT_TASK.md` together with the implementation. After the transition commit, push the exact authorized branch, verify remote/local match, and stop at:

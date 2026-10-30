@@ -43,9 +43,13 @@ final class VoiceBoundaryOrderingTests: XCTestCase {
         let press = try XCTUnwrap(pressRecords.first { $0["event"] as? String == "VOICE_PRESS_ENTRY" })
         let gestureID = try XCTUnwrap(press["gesture_id"] as? String)
 
-        var stopObservedIdleState = false
+        var stopObservedDrainingState = false
+        var stopObservedActiveRoute = false
         harness.controller.finishVoicePressRelease(source: .voiceKeyFilterFallback) {
-            stopObservedIdleState = observedStates.last == .idle
+            stopObservedDrainingState = observedStates.last == .draining
+            stopObservedActiveRoute =
+                harness.voicePress.diagnosticStateFields["remote_routed"] as? Bool == true
+            harness.voicePress.setRemoteStreaming(false)
             harness.logger.log(category: "test", event: "TEST_VOICE_STOP_MARKER")
         }
 
@@ -54,7 +58,14 @@ final class VoiceBoundaryOrderingTests: XCTestCase {
         let releaseIndex = try XCTUnwrap(records.firstIndex { $0["event"] as? String == "VOICE_RELEASE_ENTRY" })
         let release = records[releaseIndex]
 
-        XCTAssertTrue(stopObservedIdleState, "keyUp must finish before the stop callback")
+        XCTAssertTrue(
+            stopObservedDrainingState,
+            "keyUp must enter draining before the stop callback"
+        )
+        XCTAssertTrue(
+            stopObservedActiveRoute,
+            "the remote route must remain active until the stop callback completes"
+        )
         XCTAssertLessThan(stop, releaseIndex)
         XCTAssertEqual(release["source"] as? String, "voice_key_filter_fallback")
         XCTAssertEqual(release["gesture_id"] as? String, gestureID)

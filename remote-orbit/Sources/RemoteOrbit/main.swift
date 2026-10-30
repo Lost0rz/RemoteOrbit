@@ -465,6 +465,7 @@ final class VoicePressCoordinator {
     private var directSession = false
     private var capturedVoiceProfile: VoiceInputProfile?
     private var directPhysicalUp = false
+    private var directTransportStopObserved = false
     private var directOutputDrainRequested = false
     private var directOutputDrained = false
     private var pendingShortPreparationID: UUID?
@@ -601,6 +602,7 @@ final class VoicePressCoordinator {
             "pending_persistent_toggle_gate_owner": pendingPersistentToggle?.waitingGateOwner.uuidString ?? "none",
             "remote_routed": remoteRouted,
             "remote_streaming": remoteStreaming,
+            "transport_stop_observed": directTransportStopObserved,
             "remote_audio_available": remoteAudioAvailable,
             "long_input_started": longInputStarted,
             "tail_pending": tailWorkItem != nil,
@@ -826,6 +828,7 @@ final class VoicePressCoordinator {
         directSession = true
         capturedVoiceProfile = profile
         directPhysicalUp = false
+        directTransportStopObserved = false
         directOutputDrainRequested = false
         directOutputDrained = false
         usesHardwareOptionPath = usesHardwareOption
@@ -903,11 +906,22 @@ final class VoicePressCoordinator {
         )
         onHardwareOptionGatePhysicalUp?(sessionID)
         setMode(.draining)
+        VoiceTimingLogger.mark("STOP_REQUESTED", sessionID: sessionID)
+        if directTransportStopObserved {
+            finishDirectTransportStop(sessionID: sessionID)
+        }
+        return true
+    }
+
+    private func finishDirectTransportStop(sessionID: UUID) {
+        guard directSession,
+              gestureID == sessionID,
+              directPhysicalUp,
+              directTransportStopObserved else { return }
+        setMode(.draining)
         AudioPipe.shared.endRemoteCandidate()
         _ = setRemoteRouted(false)
-        VoiceTimingLogger.mark("STOP_REQUESTED", sessionID: sessionID)
         requestDirectOutputDrain(sessionID: sessionID)
-        return true
     }
 
     private func requestDirectOutputDrain(sessionID: UUID) {
@@ -959,6 +973,7 @@ final class VoicePressCoordinator {
         guard directSession, gestureID == sessionID else { return }
         directSession = false
         directPhysicalUp = false
+        directTransportStopObserved = false
         directOutputDrainRequested = false
         directOutputDrained = false
         capturedVoiceProfile = nil
@@ -973,6 +988,8 @@ final class VoicePressCoordinator {
         pendingVoiceUIHidden = false
         gestureID = nil
         _ = syntheticOptionTrigger.abort(sessionID: sessionID)
+        AudioPipe.shared.endRemoteCandidate()
+        _ = setRemoteRouted(false)
         if mode != .idle { setMode(.idle) }
         VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
         VoiceTimingLogger.end(sessionID: sessionID)
@@ -1634,6 +1651,7 @@ final class VoicePressCoordinator {
     func setRemoteStreaming(_ streaming: Bool) {
         if directSession {
             remoteStreaming = streaming
+            directTransportStopObserved = !streaming
             diagnosticLogger?.log(
                 category: "voice",
                 event: streaming ? "AUDIO_START" : "AUDIO_STOP",
@@ -1648,8 +1666,7 @@ final class VoicePressCoordinator {
             if streaming {
                 setMode(.streaming)
             } else if directPhysicalUp, let currentGestureID = gestureID {
-                setMode(.draining)
-                requestDirectOutputDrain(sessionID: currentGestureID)
+                finishDirectTransportStop(sessionID: currentGestureID)
             }
             print(
                 "[PRESS] ATVV streaming=\(streaming); "
@@ -1819,12 +1836,12 @@ final class VoicePressCoordinator {
     func handleTransportLoss(deviceRemoved: Bool = false) {
         if directSession {
             remoteStreaming = false
+            directTransportStopObserved = true
             onRemoteAudioChanged?(false)
             if deviceRemoved, !directPhysicalUp {
                 _ = finishDirectVoicePressRelease()
             } else if directPhysicalUp, let sessionID = gestureID {
-                setMode(.draining)
-                requestDirectOutputDrain(sessionID: sessionID)
+                finishDirectTransportStop(sessionID: sessionID)
             }
             return
         }
