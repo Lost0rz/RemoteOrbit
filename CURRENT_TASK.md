@@ -1,112 +1,102 @@
 # RemoteOrbit Current Task
 
-## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Corrective Candidate Preparation
+## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Final Runtime Evidence Review
 
-Status: `READY_FOR_HUMAN_CORRECTIVE_RUNTIME_RETEST`
+Status: `HUMAN_CORRECTIVE_RUNTIME_ACCEPTANCE_PASS / READY_FOR_FINAL_RUNTIME_EVIDENCE_REVIEW`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
 Accepted corrective source: `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332`
+Installed candidate: `0.2.14 (43)`
+Candidate-preparation control head: `f8e21bb7897c6a9e2ab5647cae5cb14d2777f256`
 Incident record: `docs/incidents/2026-10-30-042-adopted-physical-grace-intent-race.md`
 Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`
 
+## Human acceptance result
+
+The owning user explicitly reported PASS after the high-frequency RC003 stress retest. Rapid repeated press/release/open-close use remained normal, with working waveform, speech recognition, and continued next-session admission. The two previously observed runtime failure modes did not recur during this retest.
+
+Human runtime acceptance is therefore PASS for the installed corrective candidate.
+
 ## Objective
 
-Prepare and install one provenance-locked runtime candidate from the accepted second corrective source. Do not change product semantics.
+Perform one final read-only runtime evidence review for the accepted stress-test window before merge/release decision.
 
-The purpose is to retest the exact previously failing rapid open/close RC003 pattern after the adopted-physical stale-intent retirement corrective.
+Confirm that the human PASS is consistent with the existing diagnostics/logs, especially:
 
-## Source/provenance contract
-
-Before packaging, prove that any live branch commits after accepted source `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332` are governance/control-only and do not change product source, tests, package scripts, driver code or version/signing behavior.
-
-Use the established packaging/install flow only. The previous candidate used `./package-dmg.sh --reuse-driver`; use the current established equivalent if unchanged by authority.
+1. repeated HID/direct-session admission succeeds;
+2. physical pre-HID streams are adopted without duplicate host MIC_OPEN where applicable;
+3. adopted physical sessions retire stale BLE voice intent after matching release + healthy AUDIO_STOP drain;
+4. rapid next sessions are not rejected `voice_session_busy` due stale ownership;
+5. BLE audio decode remains credible/non-zero with no unexpected decode regression;
+6. AudioPipe route/render is active for accepted sessions;
+7. tail/drain/trigger retirement completes and sessions return to reusable idle/READY state;
+8. no transport reset/loss or hidden lifecycle blocker contradicts the human PASS.
 
 ## Authorized work
 
-1. Fetch/reconcile the live 042 branch and read `AGENTS.md`, `CURRENT_STATUS.md`, `CURRENT_TASK.md`.
-2. Use the canonical writer/worktree; require a clean worktree.
-3. Verify accepted corrective source identity and control-only drift.
-4. Build/package the exact corrective candidate with the existing release flow; no source/package-script edits.
-5. Record app/DMG paths, SHA-256, bundle ID, version/build, architectures and signing state.
-6. Quit the currently running older failed candidate cleanly.
-7. Replace only `/Applications/RemoteOrbit.app` with the exact new candidate if the established flow supports it.
-8. Do not replace/reload the installed CoreAudio driver; preserve driver identity.
-9. Do not reset or mutate TCC.
-10. Verify strongest available installed-vs-package provenance.
-11. Launch the candidate and verify PID/executable path/version/build/bundle identity.
-12. Verify existing RemoteOrbit Mic, RC003 BLE/HID and diagnostic journal/CLI readiness without mutation.
-13. Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together with observed preparation evidence.
-14. Push only the existing 042 branch, verify exact local/remote equality and stop at `READY_FOR_HUMAN_CORRECTIVE_RUNTIME_RETEST`.
+Read-only evidence only:
+
+- keep the current installed candidate running if still running;
+- use existing `diagnostics status`, `diagnostics verify`, and `diagnostics export`;
+- copy the current `~/Library/Logs/RemoteOrbit/RemoteOrbit.log` if present;
+- inspect the diagnostic journal/runtime log covering the final stress-test window;
+- compare successful repeated sessions against the two prior incident signatures;
+- return a factual final runtime-evidence verdict.
+
+If the current runtime has already moved on, use the newest available export/log that still covers the accepted stress-test window; do not recreate the test merely for evidence unless the existing evidence cannot cover the decision.
 
 ## Explicitly not authorized
 
 Do NOT:
 
 - modify product source/tests/package scripts;
-- change adopted-physical retirement logic;
-- globally reclassify UNKNOWN;
-- change long-lived READY or strict READY;
-- change ATVV protocol/codec;
-- change Gate C ring or Gate D 45 ms reserve;
-- replace/reload the driver;
+- add probes;
+- rebuild/repackage/reinstall;
+- restart RemoteOrbit merely to collect evidence;
+- disconnect/reconnect RC003 merely to collect evidence;
+- replace/reload driver;
 - reset TCC;
+- change READY/ATVV/Gate C/Gate D semantics;
 - merge/tag/release/publish;
-- create Gate F;
-- perform or approve the human runtime retest.
+- create Gate F.
 
-If packaging/install requires any prohibited mutation, STOP and report the blocker.
+## Final evidence capture
 
-## Required preparation receipt
+Against the current installed candidate, use:
 
-Return observed values for:
+```bash
+mkdir -p ~/Desktop/RemoteOrbit-042-Final-Acceptance
 
-- start/final control HEAD;
-- accepted corrective source;
-- product-source diff from accepted source;
-- clean worktree before/after;
-- build/package commands and result;
-- app/DMG artifact paths and SHA-256;
-- bundle ID/version/build/architectures/signing;
-- install result and installed provenance;
-- running PID/path/version/build;
-- RemoteOrbit Mic readiness;
-- BLE/HID readiness;
-- diagnostic capture readiness;
-- source/package-script/driver/TCC mutation flags;
-- merge/tag/release/Gate F flags;
-- human corrective runtime retest = PENDING;
-- control alignment and unresolved items.
+"/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit" diagnostics status
+"/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit" diagnostics verify
+"/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit" diagnostics export \
+  --output ~/Desktop/RemoteOrbit-042-Final-Acceptance \
+  --host-role controller
 
-## Human boundary
+cp ~/Library/Logs/RemoteOrbit/RemoteOrbit.log \
+  ~/Desktop/RemoteOrbit-042-Final-Acceptance/ 2>/dev/null || true
+```
 
-Candidate preparation is complete and the human corrective runtime retest is
-PENDING. The user owns the RC003 retest. The first retest should reproduce the
-prior stress condition: rapid repeated press/release/open-close cycles without
-restarting RemoteOrbit or reconnecting RC003, while checking waveform,
-recognized speech and continued next-session admission.
+## Return contract
 
-Observed preparation evidence:
+Return observed evidence only:
 
-- accepted source: `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332`;
-- live control HEAD before this transition:
-  `5a14d381267d108724af2acb334ef1e366a72df9`;
-- post-source range contains only the two control files;
-- package command: `./package-dmg.sh --reuse-driver`;
-- App executable SHA-256:
-  `ea55c09a7b5a936ef5bd0d0e0fc9ef30713747ef4e5e0ef79d527497a5b69910`;
-- DMG SHA-256:
-  `2e906bef34d7caf4c6a2d0e886f5d9be95929a73a2f3236b672114731e420ef8`;
-- installed App executable matched the packaged executable byte-for-byte;
-- installed identity: `com.lost0rz.RemoteOrbit`, `0.2.14`, build `43`,
-  Universal2, ad-hoc signature valid;
-- running identity: PID `38260`, executable under
-  `/Applications/RemoteOrbit.app`;
-- RemoteOrbit Mic, RC003 BLE/HID, and diagnostic journal/CLI readiness were
-  observed;
-- only `/Applications/RemoteOrbit.app` was replaced; driver and TCC were not
-  changed.
+- candidate PID/path/version if still observable;
+- export artifact name/path;
+- diagnostic verify result;
+- test-window timestamps where available;
+- repeated-session admission result;
+- occurrence count of `voice_session_busy` in the accepted test window;
+- PHYSICAL_HTT / UNKNOWN / HOST_MIC_OPEN origin observations;
+- adoption observations;
+- stale-intent retirement observations;
+- BLE frames/samples/decode rejects;
+- AudioPipe render callback/filled-frame evidence;
+- reserve/underrun observations if material;
+- session retirement / next-session reuse evidence;
+- transport reset/loss observations;
+- whether either prior incident signature recurred;
+- any blocker or contradiction.
 
-Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together in the transition
-commit, push only the existing 042 branch, verify exact local/remote equality,
-and stop at `READY_FOR_HUMAN_CORRECTIVE_RUNTIME_RETEST`.
+Stop after read-only review. If evidence is consistent with the human PASS and no blocker remains, report readiness for merge/release decision. Do not merge/release without explicit authorization.
