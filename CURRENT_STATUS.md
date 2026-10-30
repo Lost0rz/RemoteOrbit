@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — ADMISSION ATOMIC PROMOTION CORRECTIVE IMPLEMENTED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — SOURCE_AUDIT_PASS / HUMAN_RUNTIME_ACCEPTANCE_PENDING`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -9,11 +9,13 @@ Repository: `Lost0rz/RemoteOrbit`
 - Active branch: `codex/voice-pipeline-simplification-042`.
 - Accepted corrective source before the remaining host edge: `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332`.
 - Audited source before promoted-B ownership correction: `d54bfd56a3f098766ed1013116928e1f77822277`.
-- Installed candidate: `0.2.14 (43)`.
-- Human steady-state high-frequency retest: PASS.
-- Source implementation now includes the bounded promoted-B owner correction; merge/release remains stopped pending independent Web source audit and human corrective runtime acceptance.
-- The admission-atomic promotion correction is now implemented and locally validated; merge/release remains stopped pending independent Web source audit and human corrective runtime acceptance.
-- Transition commit `ea126c4c1742bfb3aa5e800e0cf7023771a5b08f` is remotely delivered on the existing 042 branch; local and remote refs are equal and the worktree is clean.
+- Installed candidate: `0.2.14 (43)`; historical and not valid for final Task 042 runtime acceptance.
+- Human steady-state high-frequency retest: PASS for the historical candidate only.
+- Admission-atomic promotion source corrective is `ea126c4c1742bfb3aa5e800e0cf7023771a5b08f`.
+- Independent Web `CODE_DIFF` audit PASS was issued against branch state `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`; no source blocker remains for Task 042.
+- The audited branch state preserves the promoted-B owner lifecycle, admission-before-promotion ordering, bounded blocked-promotion tombstone, HOST_MIC_OPEN supersession, READY, Gate C and Gate D behavior.
+- Package/build/install of the latest RemoteOrbit app candidate and RC003 human runtime retest are now authorized. Audio driver and TCC mutation remain out of scope.
+- Merge/tag/release remain blocked until human corrective runtime acceptance passes and controls are reconciled.
 - Evidence/design record: `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`.
 - Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`.
 - `AGENTS.md` remains durable repository authority.
@@ -65,7 +67,7 @@ This is a serialization mechanism, not overlapping session ownership.
 - Long-lived READY and strict READY remain unchanged.
 - Gate C ring and Gate D 45 ms reserve remain unchanged.
 - ATVV codec/framing remains unchanged.
-- Driver/TCC/package/install behavior remains unchanged.
+- Driver/TCC behavior remains unchanged.
 - No global UNKNOWN remap.
 - No Gate F.
 
@@ -92,14 +94,14 @@ This is a serialization mechanism, not overlapping session ownership.
   `swift build -c release --scratch-path /private/tmp/remoteorbit-042-x86-release --triple x86_64-apple-macos14.0`.
 - Protocol self-tests: 3/3 passed. `git diff --check`: passed.
 - Changed paths are limited to `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`, `remote-orbit/Sources/RemoteOrbit/PostReleaseCaptureGrace.swift`, `remote-orbit/Sources/RemoteOrbit/main.swift`, `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift`, and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`.
-- No package/install/runtime retest was performed. Installed candidate remains historical `0.2.14 (43)`; human corrective runtime acceptance is pending.
+- No runtime retest was performed after the final corrective. Installed candidate remains historical `0.2.14 (43)`; human corrective runtime acceptance is pending.
 - Long-lived READY, strict READY, ATVV protocol/codec, Gate C ring, Gate D 45 ms reserve, driver, TCC, and Gate F state were not changed.
 
 ### Boundary flags for the hardware corrective
 
 - `GLOBAL_UNKNOWN_RECLASSIFICATION=NO`.
 - `HOST_GRACE_SUPERSESSION_CHANGED=NO`; `SUPERSEDED_MIC_CLOSE_MODEL_CHANGED=NO`; `READY_MODEL_CHANGED=NO`; `PREHID_MODEL_CHANGED=NO`.
-- `GATE_C_RING_CHANGED=NO`; `GATE_D_45MS_CHANGED=NO`; `DRIVER_RUNTIME_CHANGED=NO`; `TCC_RESET=NO`; `PACKAGE_INSTALL=NOT_RUN`; `MERGE_TAG_RELEASE=NO`; `GATE_F_CREATED=NO`.
+- `GATE_C_RING_CHANGED=NO`; `GATE_D_45MS_CHANGED=NO`; `DRIVER_RUNTIME_CHANGED=NO`; `TCC_RESET=NO`; `MERGE_TAG_RELEASE=NO`; `GATE_F_CREATED=NO`.
 
 ### Promoted-B hardware-owner continuation
 
@@ -108,8 +110,8 @@ This is a serialization mechanism, not overlapping session ownership.
 - Deterministic full promoted-B lifecycle: RED observed `pass` for B mapped UP and no pending B replayed UP; GREEN passed `testPromotedHardwareRepressOwnsMappedUpThroughOutputDrain`.
 - Focused requested suites: `239/239`; full Swift tests: `596/596`.
 - arm64 and x86_64 Release builds passed with the established commands below; protocol self-tests passed `3/3`; `git diff --check` passed. Build output contains only existing macOS deprecation warnings.
-- Changed product paths for this continuation are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`; no BLE, package, driver, TCC, or runtime files changed.
-- No package/install/runtime retest was performed. Human corrective runtime acceptance remains pending.
+- Changed product paths for this continuation are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`; no BLE, driver, TCC, or runtime files changed.
+- No runtime retest was performed. Human corrective runtime acceptance remains pending.
 
 ### Admission-atomic promoted-B continuation
 
@@ -124,15 +126,23 @@ This is a serialization mechanism, not overlapping session ownership.
   and
   `swift build -c release --scratch-path /private/tmp/remoteorbit-042-x86-release --triple x86_64-apple-macos14.0`.
 - Protocol self-tests passed `3/3` with exit `0`; `git diff --check` passed. Release output contained only existing macOS deprecation warnings.
-- Product source/test changes for this continuation are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`; control files are updated in the same transition commit. No BLE semantic, packaging, driver, TCC, or runtime files changed.
-- No package, install, runtime retest, merge, tag, release, or Gate F action was performed. Human corrective runtime acceptance remains pending.
+- Product source/test changes for this continuation are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`; no BLE semantic, driver, TCC, or runtime files changed.
+- Human corrective runtime acceptance remains pending.
 
 ### Admission-atomic boundary flags
 
 - `ADMISSION_BEFORE_PROMOTION=YES`; `BLOCKED_PROMOTION_B_DOWN_REPLAY=NO`; `BLOCKED_PROMOTION_OWNER_LEAK=NO`.
 - `GLOBAL_UNKNOWN_RECLASSIFICATION=NO`; `LONG_LIVED_READY_CHANGED=NO`; `STRICT_READY_CHANGED=NO`; `MIC_OPEN_PROTOCOL_CHANGED=NO`.
-- `GATE_C_RING_CHANGED=NO`; `GATE_D_45MS_CHANGED=NO`; `DRIVER_RUNTIME_CHANGED=NO`; `TCC_RESET=NO`; `PACKAGE_INSTALL=NOT_RUN`; `MERGE_TAG_RELEASE=NO`; `GATE_F_CREATED=NO`.
+- `GATE_C_RING_CHANGED=NO`; `GATE_D_45MS_CHANGED=NO`; `DRIVER_RUNTIME_CHANGED=NO`; `TCC_RESET=NO`; `MERGE_TAG_RELEASE=NO`; `GATE_F_CREATED=NO`.
+
+### Independent Web source audit
+
+- `AUDIT_PROFILE=CODE_DIFF`; `AUDIT_INDEPENDENCE=SEPARATE_AGENT`.
+- Target branch state: `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`.
+- Verdict: `PASS`.
+- Passed claims include HOST grace supersession, A-UP-before-B-DOWN, pending hardware DOWN capture, promoted-B full lifecycle, admission-before-promotion, blocked-promotion no-DOWN leak, blocked-promotion no-owner leak, early-UP tombstone, and one-pending-owner behavior.
+- This source audit does not constitute RC003 hardware runtime acceptance or merge/release acceptance.
 
 ## Next
 
-Await the independent Web source audit at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, perform human runtime retest, merge, tag, release, or create Gate F before that audit.
+Build/package/install the latest RemoteOrbit app candidate from the current 042 branch while preserving the audited product source. Do not reinstall or mutate the audio driver and do not reset TCC. Then stop at `READY_FOR_HUMAN_RUNTIME_ACCEPTANCE` so the user can run the RC003 rapid re-press retest. Capture the resulting runtime/log evidence before any merge/tag/release decision.
