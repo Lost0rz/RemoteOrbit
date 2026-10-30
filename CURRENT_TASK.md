@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Candidate Runtime Preparation
 
-Status: `READY_FOR_LOCAL_CANDIDATE_PREPARATION`
+Status: `READY_FOR_HUMAN_RUNTIME_ACCEPTANCE`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -89,6 +89,43 @@ At minimum report:
 15. BLE/HID basic readiness after launch;
 16. diagnostic/log capture path ready for the human exercise;
 17. no source/package-script/driver/TCC mutation.
+
+## Candidate preparation receipt
+
+Preparation completed on the canonical writer at live control head
+`2762d584b505c85b7cc319db1b188177120f4500`, with accepted semantic source head
+`2d09b6d77f9f75aa46bb4a13838cd22d5589f524`.
+
+- The accepted-to-live range contains only `CURRENT_STATUS.md` and
+  `CURRENT_TASK.md`; product/package-script provenance is governance-only.
+- The worktree was clean before preparation and remains tracked-clean after it.
+- Established command used: `./package-dmg.sh`. It completed the existing pinned
+  BlackHole driver build, `remote-orbit/package-app.sh`, package creation, and DMG
+  creation successfully. Xcode printed existing CoreDevice/CoreSimulator plugin
+  warnings, but no build step failed.
+- App: `/private/tmp/remoteorbit-voice-pipeline-simplification-042/remote-orbit/dist/RemoteOrbit.app`.
+  DMG: `/private/tmp/remoteorbit-voice-pipeline-simplification-042/dist/RemoteOrbit-0.2.14.dmg`.
+  DMG SHA-256: `0e6e91e665505c618c29f2fc3082b1c35fffe681dc28e97c47aeae6a331c4ad5`.
+- Bundle ID `com.lost0rz.RemoteOrbit`; version `0.2.14`; build `43`; architectures
+  `x86_64 arm64`; ad-hoc deep/strict code-sign verification passed. The app plist
+  source stamp is the live control head.
+- The old app was quit cleanly. The exact candidate was installed at
+  `/Applications/RemoteOrbit.app`; executable, Info.plist, and complete regular-file
+  SHA-256 manifest matched the packaged checkout app, and installed code-sign
+  verification passed. This proves app-bundle provenance, not DMG byte identity.
+- Running candidate: PID `80225`, executable
+  `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`; PID remained stable.
+  App log recorded version/build, audio IOProc startup, Bluetooth readiness, HID
+  permissions/suppressor readiness, and monitored RC003 connection.
+- `RemoteOrbit Mic 2ch` was the default 2-channel, 48 kHz USB input. The connected
+  Xiaomi remote was observed with VID `0x2717`, PID `0x32B8`, and BLE service.
+  Diagnostic status reported the v1 journal at the existing log path, and installed
+  `diagnostics verify` returned `{"ok":true,"schema_version":1}`.
+- `SOURCE_CHANGED=NO`, `PACKAGE_SCRIPT_CHANGED=NO`, `DRIVER_CHANGED=NO` for the
+  installed runtime, `TCC_RESET=NO`, `MERGE_TAG_RELEASE=NO`. The package flow only
+  generated an ignored candidate driver artifact; it did not replace or reload the
+  installed driver, whose executable hash remained
+  `d2c72d9e433e2f6ccdec50eb8298e3e36ddbbb0d0f72e13b728c17f6a48c5446`.
 
 ## Completion / stop state
 
