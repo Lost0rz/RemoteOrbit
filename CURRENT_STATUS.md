@@ -1,39 +1,71 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — FINAL_RUNTIME_EVIDENCE_REVIEW_STOP / HOST_MIC_OPEN_RAPID_REPRESS_BLOCKER_IDENTIFIED`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — HOST_MIC_OPEN_RAPID_REPRESS_DESIGN_RESOLVED / READY_FOR_LOCAL_CORRECTIVE`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
 
 - Active branch: `codex/voice-pipeline-simplification-042`.
-- Accepted corrective source: `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332` — independent CODE_DIFF audit PASS.
-- Installed candidate: `0.2.14 (43)`, provenance-verified from the accepted source lineage.
-- Human high-frequency corrective retest: PASS by owning user.
-- Final evidence archive: `RemoteOrbit-diagnostics-20261030-135113.tar.gz`; SHA256 manifest verification PASS.
-- Existing incident record: `docs/incidents/2026-10-30-042-adopted-physical-grace-intent-race.md`.
-- New remaining-edge record: `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`.
+- Accepted corrective source before the remaining host edge: `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332`.
+- Installed candidate: `0.2.14 (43)`.
+- Human steady-state high-frequency retest: PASS.
+- Final evidence review: STOP for merge/release because two HOST_MIC_OPEN rapid-repress admission failures remain.
+- Evidence/design record: `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`.
 - Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`.
 - `AGENTS.md` remains durable repository authority.
 - `CURRENT_TASK.md` is the sole active execution authorization.
 
-## Final runtime evidence review
+## Resolved design
 
-The adopted-PHYSICAL corrective is stable in steady state. From 13:45:57 UTC through 13:47:53 UTC the log contains 34 consecutive admitted physical sessions with no `voice_session_busy`; each physical stream is adopted, renders non-zero audio, and retires stale intent while retaining READY. The final 20 consecutive completed sessions (13:46:42–13:47:53 UTC) are 20/20 admitted, 20/20 PHYSICAL_HTT, 20/20 adopted, 20/20 BLE decode with zero rejects/zero-sample decodes, 20/20 non-zero AudioPipe render, and 20/20 adopted-physical intent retirement. No transport reset/loss/disconnect or AUDIO_STOP timeout occurs in that 20-session window.
+The remaining failure needs two coordinated but bounded lifecycle changes.
 
-However, the final archive also exposes two earlier hidden rapid-repress failures after app launch/cold host-MIC-open operation:
+### 1. HOST_MIC_OPEN grace supersession at BLE ownership boundary
 
-1. session `C8AAD51D-E665-44A5-AC4D-2C9D201A6154` starts through `HOST_MIC_OPEN`; after its pipeline closes and route turns off, the 1-second post-release grace still retains host voice intent. A subsequent physical `AUDIO_START reason=0x03` becomes `session_origin=HOST_MIC_OPEN`; HID press `09B0` is rejected `voice_session_busy`, and stream 76 has `render_callback_count=0` / `render_filled_frames=0`.
-2. session `8A416474-28E0-4090-BE07-D28206153EA5` is physically released before its host-open lifecycle has fully retired; a subsequent physical `AUDIO_START reason=0x03` during the host grace is again classified `HOST_MIC_OPEN`; HID press `BAFD` is rejected `voice_session_busy`.
+When an explicit physical `AUDIO_START reason=0x03` arrives while:
 
-These events are outside the later clean steady-state sequence but are part of the same final stress activity and therefore prevent a clean merge/release readiness verdict.
+- a matching old HOST_MIC_OPEN request is still owned by a post-release grace;
+- that old direct gesture has already physically released;
+- no previous AUDIO_STOP drain barrier is active;
 
-## Current boundary
+then the new physical stream is evidence that the remote has superseded the released host-open request.
 
-Do not merge/release yet. No additional probe is needed. The remaining issue is a narrow host-MIC-open post-release ownership/supersession problem, distinct from the already-fixed adopted-PHYSICAL stale-intent race.
+Before installing the incoming stream ID/ownership:
 
-Before further product mutation, reconcile the state-ownership rule for an explicit physical `AUDIO_START reason=0x03` that arrives while an older HOST_MIC_OPEN session is physically released and waiting in post-release grace. Preserve the already-accepted steady-state corrective, long-lived READY, strict READY, Gate C ring, Gate D 45 ms reserve, ATVV codec framing, driver/TCC, and no global UNKNOWN remap.
+- cancel only the matching old grace, invalidating its generation;
+- locally finish/clear only the old host voice request (`voiceInputRequested` / `micOpenRequested`);
+- do **not** send MIC_CLOSE for the superseded old request;
+- emit the existing terminal streaming=false boundary for the old coordinator owner when needed;
+- retain ATVV READY;
+- classify the incoming reason=0x03 stream as `preHIDPhysical` candidate state.
 
-## Stop / next
+Do not globally reclassify UNKNOWN. Do not apply this rule to reason values other than 0x03.
 
-Proceed only under `CURRENT_TASK.md`. Merge/tag/release remains blocked until this host-grace rapid-repress boundary is resolved and re-audited.
+Why no MIC_CLOSE: ATVV 1.0 MIC_CLOSE contains a stream ID. Once a new physical stream has arrived, sending the old delayed close through mutable current `streamID` can terminate the new stream. The explicit new physical start is therefore the supersession boundary; the old host request retires locally.
+
+### 2. One-slot direct re-press deferral at coordinator boundary
+
+BLE supersession can truthfully terminate the old direct transport, but its existing output-drain/trigger-release ordering may still be completing when the matching new HID DOWN arrives.
+
+If the previous direct session has already observed physical UP and is in terminal drain/close ownership, and a new pre-HID physical candidate is present, retain exactly one new direct HID press instead of rejecting it `voice_session_busy`.
+
+The pending direct re-press must capture the new session ID, profile/trigger and hardware/synthetic trigger mode. It must not emit the new trigger DOWN or activate a route until the previous direct session has completed its existing output drain and trigger-UP lifecycle. On previous-session completion, activate the pending press on a fresh lifecycle and adopt the still-buffered pre-HID candidate. If the new physical key is released before activation, cancel the pending press without trigger leakage.
+
+This is a serialization mechanism, not overlapping session ownership.
+
+## Preserved behavior
+
+- Existing adopted-PHYSICAL retirement corrective remains unchanged.
+- Normal HOST_MIC_OPEN with no superseding physical start retains the existing post-release grace and exactly-once MIC_CLOSE/no-AUDIO-START terminal behavior.
+- HID-first new sessions that legitimately own the host request are not globally converted to physical ownership.
+- Existing AUDIO_STOP drain barrier remains authoritative.
+- Long-lived READY and strict READY remain unchanged.
+- Gate C ring and Gate D 45 ms reserve remain unchanged.
+- ATVV codec/framing remains unchanged.
+- Driver/TCC/package/install behavior remains unchanged.
+- No global UNKNOWN remap.
+- No Gate F.
+
+## Next
+
+Implement only the bounded corrective defined in `CURRENT_TASK.md`, push the existing 042 branch, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, merge, tag, or release before the independent source audit.
