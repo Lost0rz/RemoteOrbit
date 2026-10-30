@@ -1,73 +1,247 @@
-# RO-VOICE-PIPELINE-SIMPLIFICATION-042 — HOST_MIC_OPEN Rapid Re-press Evidence and Design
+# RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Rapid Re-press Evidence and Design
 
 Date: 2026-10-30
 Task: `RO-VOICE-PIPELINE-SIMPLIFICATION-042`
-Installed candidate: `0.2.14 (43)`
-Accepted corrective source before this edge: `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332`
-Final export: `RemoteOrbit-diagnostics-20261030-135113.tar.gz`
+Branch: `codex/voice-pipeline-simplification-042`
 
-## Archive integrity
+## Context
 
-`SHA256SUMS` verified successfully. Diagnostic journal reports zero dropped diagnostic events and zero write failures.
+Task 042 previously fixed two rapid-repress ownership defects:
 
-## Validated steady state
+- released HOST_MIC_OPEN grace could misclassify a new physical `AUDIO_START reason=0x03` and later send a stale MIC_CLOSE;
+- promoted hardware re-press could mutate/replay the new DOWN before final admission, or fail to own its own mapped-UP/output-drain lifecycle.
 
-From 13:45:57 UTC through 13:47:53 UTC, 34 consecutive physical sessions are admitted and complete without `voice_session_busy`.
+Those source corrections passed independent Web audit. A fresh `0.2.14 (43)` candidate was then packaged and installed for final RC003 hardware acceptance.
 
-The final 20 completed sessions, 13:46:42–13:47:53 UTC, are 20/20 admitted, PHYSICAL_HTT, adopted, decoded with non-zero samples and zero rejects/zero-sample decodes, rendered with non-zero AudioPipe callbacks/filled frames, and retired through `adopted_physical_audio_stop` while READY is retained. No transport reset/loss/disconnect, MIC_OPEN error, or AUDIO_STOP timeout occurs in that 20-session window.
+## RC003 human runtime result
 
-This validates the adopted-PHYSICAL stale-intent corrective in steady-state reuse.
+Result: `FAIL`.
 
-## Hidden rapid-repress failures
+User-visible symptoms under extreme rapid release/re-press:
 
-### Sequence A — `09B0`
+1. the IME waveform can remain active briefly after the physical button is already released;
+2. a new hold can show waveform/input activation while speech produces no transcription;
+3. failures concentrate in very fast re-press sequences.
 
-Host session `C8AAD51D-E665-44A5-AC4D-2C9D201A6154` starts via HOST_MIC_OPEN and renders normally. AUDIO_STOP arrives, physical release starts the 1,000 ms grace, the 350 ms audio drain finishes, and the direct coordinator closes its route. The BLE host request nevertheless remains represented by the still-waiting grace / `micOpenRequested` state.
+The captured runtime evidence is sufficient for a bounded corrective; no new broad probe phase is required.
 
-A new physical `AUDIO_START reason=0x03`, stream 76, then arrives before that grace expires. It is classified `session_origin=HOST_MIC_OPEN`, publishes session-owned streaming while the coordinator is idle/routed=false, and matching HID `09B0` is rejected `voice_session_busy`. Stream 76 decodes 25,440 samples with zero decode rejects but has `render_callback_count=0` and `render_filled_frames=0` because no new route is acquired.
+Observed evidence summary:
 
-### Sequence B — `BAFD`
+- 13 `late AUDIO_START ignored during drain` events;
+- 7 rapid re-press admission rejections with `voice_session_busy`;
+- 8 microphone DOWN edges suppressed by the existing debounce window;
+- at least streams 31 and 48 contained physical audio with `session_id=NA` and zero render callbacks / filled frames;
+- no permanent stuck session was observed; final runtime recovered to idle/READY.
 
-Session `8A416474-28E0-4090-BE07-D28206153EA5` is admitted through the host path and physically releases, starting host post-release grace. Before that old direct lifecycle is fully retired, a new physical `AUDIO_START reason=0x03`, stream 78, arrives and is again classified HOST_MIC_OPEN. Matching HID `BAFD` is rejected `voice_session_busy`.
+## Verified architectural constraints
 
-The old grace later expires and sends MIC_CLOSE while stream 78 is active; stream 78 subsequently stops. This demonstrates that the remaining edge is both an admission-ownership problem and a delayed-close stream-identity hazard.
+### ATVV start is the only reliable new-stream boundary
 
-## Protocol constraint
+ATVV v1.0 `AUDIO_START` carries the new stream ID, while subsequent audio payloads do not carry stream identity. Once a new `AUDIO_START` is observed, the host cannot reliably continue assigning later audio to the prior stream.
 
-ATVV 1.0 MIC_OPEN has no stream ID, while MIC_CLOSE is encoded with the supplied stream ID (`[0x0D, streamID]`). Once a new physical stream has arrived and mutable bridge `streamID` points at it, sending the old session's delayed MIC_CLOSE can terminate the new stream.
+Therefore a distinct new physical `AUDIO_START` is the authoritative transport-epoch boundary.
 
-Therefore a superseded old host request must not send MIC_CLOSE after the new physical reason=0x03 stream has been accepted as the supersession boundary.
+### The 350 ms tail window is still needed
 
-## Considered options
+The runtime capture contains late audio close to the existing tail window. The purpose of the 350 ms drain is valid: without a replacement stream, old late packets may still need to be decoded/queued.
 
-### Option 1 — retire host request only after healthy old AUDIO_STOP drain
+The defect is not the duration itself. The defect is treating that timer as an uninterruptible transport/admission lock after a distinct new physical stream has already been announced.
 
-This removes the stale host state in Sequence A, where the old host stream already drained, but does not solve Sequence B / no-terminal-host-stream timing where a new physical start arrives while host grace is still waiting. Rejected as incomplete.
+### Old queued output and new transport ownership are different lifetimes
 
-### Option 2 — BLE-only reason=0x03 host-grace supersession
+Already queued A PCM can continue rendering after A stops accepting BLE ingress. A new B transport epoch does not require discarding A's queued output tail.
 
-On reason=0x03 during matching released host grace, cancel grace, clear host intent locally without MIC_CLOSE, emit terminal old streaming=false, and classify incoming as preHIDPhysical. This solves ownership at BLE but can still race the matching new HID against the old direct session's output-drain/trigger-release completion. Rejected as insufficient alone.
+The design must therefore separate:
 
-### Option 3 — selected: host-grace supersession + serialized direct re-press
+- BLE ingress/decoder ownership;
+- AudioPipe queued output drain;
+- pre-HID candidate buffering;
+- direct-session trigger ownership.
 
-BLE performs session-specific supersession before installing the incoming stream identity: cancel matching grace, locally retire old host intent, suppress old MIC_CLOSE, terminally retire old transport ownership, retain READY, and classify the incoming reason=0x03 stream as preHIDPhysical.
+## Failure model
 
-If the matching HID DOWN arrives while the previous direct session still owns terminal output drain/trigger release, VoicePressCoordinator retains exactly one pending direct re-press instead of rejecting it. The new press captures its session/profile/trigger mode but emits no trigger or route until the old session completes. It then activates on a fresh lifecycle and adopts the buffered physical candidate. A pending re-press released before activation is canceled with no trigger leak.
+Current behavior couples these lifetimes:
 
-Selected because it handles both observed sequences while preserving strict serialization of trigger/session ownership.
+```text
+A AUDIO_STOP
+  -> audioStopDrainWorkItem active for 350 ms
+  -> A remains transport/decoder owner
+  -> new session admission is blocked
+
+B AUDIO_START(reason=0x03, new stream ID)
+  -> ignored because old drain exists
+  -> later B audio can be decoded/accounted under A
+
+B HID DOWN
+  -> may be rejected voice_session_busy
+  -> or suppressed by generic <180 ms debounce
+```
+
+This directly explains the observed waveform-without-transcription shape: physical audio exists, but there is no correctly admitted/routed B voice session.
+
+## Options considered
+
+### Option 1 — shorten the 350 ms drain
+
+Rejected.
+
+It reduces overlap probability but restores tail-loss risk and does not fix the ownership model.
+
+### Option 2 — accept B `AUDIO_START` but leave AudioPipe unchanged
+
+Rejected.
+
+If A's route is still active, generic `AudioPipe.feed()` can send B PCM into A's output. Transport ownership would be fixed while audio ownership remained wrong.
+
+### Option 3 — buffer B `AUDIO_START` until A drain expires
+
+Rejected.
+
+Audio payloads after `AUDIO_START` have no stream identity. Delaying the epoch switch loses or misattributes B's first audio.
+
+### Option 4 — run A and B decoders in parallel
+
+Rejected.
+
+Without per-packet stream identity there is no reliable way to route ambiguous payloads between two simultaneous decoder epochs.
+
+### Option 5 — selected: transport-epoch supersession + candidate isolation + serialized promotion
+
+Selected.
+
+A distinct physical B `AUDIO_START` can supersede old A BLE ingress ownership while preserving A's already queued output. B becomes a pre-HID candidate immediately, its PCM is isolated from A, and B's HID/trigger/session activation remains serialized behind A's terminal trigger/output ownership.
+
+## Selected design
+
+### 1. Physical transport-epoch supersession
+
+Apply only when:
+
+- old stream A is physical-HTT and already in terminal `AUDIO_STOP` drain;
+- incoming event is explicit `AUDIO_START reason == 0x03`;
+- incoming stream ID differs from A's stream ID;
+- A is in terminal/released lifecycle, not a legitimately overlapping active owner.
+
+Then:
+
+- invalidate/cancel A's BLE ingress drain ownership using epoch/generation identity;
+- preserve A's already queued AudioPipe output;
+- begin/reset decoder state for B;
+- install B stream ID;
+- classify B as `.preHIDPhysical`;
+- retain READY;
+- prevent stale A drain completion from clearing, stopping or retiring B.
+
+This is a physical transport-drain supersession rule, not a global drain-time start rule and not a replacement for the existing HOST_MIC_OPEN grace supersession logic.
+
+### 2. Candidate-only PCM path
+
+AudioPipe needs an ownership-aware candidate ingest path.
+
+Required semantics:
+
+```text
+A active output tail       -> continues rendering already queued A PCM
+B preHID candidate samples -> candidate/prebuffer only
+B candidate samples        -> never render through A active route
+```
+
+When B candidate is installed, old A teardown must not blindly call a destructive candidate reset that clears B's prebuffer.
+
+Candidate state should be scoped to the live replacement epoch so a stale old-session callback cannot clear it.
+
+### 3. Earlier direct re-press deferral
+
+Current direct pending logic is too late if it requires `directOutputDrainRequested` before retaining B.
+
+The new admissible pending boundary is:
+
+- A direct session exists;
+- A physical UP has been observed;
+- B live pre-HID physical candidate exists;
+- there is no second pending owner.
+
+B is retained but not activated.
+
+The accepted serialization remains:
+
+```text
+A physical UP
+-> A transport terminal boundary
+-> A queued output drain
+-> A mapped UP / replay pass acknowledgement
+-> B promotion / replay DOWN
+-> B direct session
+```
+
+Early B UP cancels B using the existing bounded tombstone/no-trigger-leak model.
+
+### 4. BLE-owned candidate truth
+
+Expose a thread-safe source of truth equivalent to:
+
+```text
+isStreaming && streamOwnership == .preHIDPhysical
+```
+
+Use it at critical admission/debounce decisions so correctness does not depend on a main-queue callback having already copied that state into `VoicePressCoordinator`.
+
+### 5. Evidence-gated debounce bypass
+
+Keep the existing generic 180 ms debounce and generic button policy.
+
+For the microphone voice key only:
+
+- if a rapid DOWN falls inside the normal debounce interval;
+- and BLE already has a live new physical candidate;
+
+then that transport evidence proves this is a new physical press, so the voice DOWN/UP pair may bypass debounce.
+
+Without candidate evidence, existing bounce protection remains unchanged.
 
 ## Preserved behavior
 
+- Normal no-repress `AUDIO_STOP` may still accept old late packets for the existing 350 ms window.
+- Same-stream or non-0x03 starts do not invoke physical drain supersession.
+- Existing HOST_MIC_OPEN grace supersession and stale-MIC_CLOSE protection remain unchanged.
+- Existing A-UP-before-B-DOWN hardware serialization remains unchanged.
+- Existing promoted-B mapped-UP/output-drain/replay-ACK lifecycle remains unchanged.
+- Long-lived READY and strict READY remain unchanged.
+- Gate C ring and Gate D 45 ms reserve remain unchanged.
+- ATVV codec/framing remains unchanged.
+- Driver/TCC remain unchanged.
 - No global UNKNOWN remap.
-- reason != 0x03 does not invoke this supersession rule.
-- reason=0x03 without a matching released HOST_MIC_OPEN grace does not invoke host supersession.
-- Normal non-superseded HOST_MIC_OPEN no-AUDIO-START grace still sends its existing exactly-once MIC_CLOSE and terminal streaming=false.
-- Existing adopted-PHYSICAL retirement behavior remains unchanged.
-- Long-lived READY, strict READY, Gate C ring, Gate D 45 ms reserve, ATVV codec/framing, driver/TCC, and tail/output-drain ordering remain unchanged.
 - No Gate F.
 
-## Required implementation evidence
+## Verification contract
 
-Deterministically reproduce both `09B0` and `BAFD` shapes; prove old grace cancellation, no superseded MIC_CLOSE, incoming preHID ownership, deferred direct re-press activation after old output drain, clean early release of a pending re-press, normal host grace regression, non-0x03 behavior, and existing adopted-PHYSICAL rapid-cycle behavior.
+Deterministic tests must prove:
 
-`TASK_RECONCILIATION_REQUIRED: YES` — the prior design-only task must transition to the bounded corrective described above.
+1. new physical reason03/different-stream start supersedes old physical drain;
+2. stale old drain callback cannot retire B;
+3. B candidate PCM cannot render through A;
+4. A teardown cannot clear B candidate/prebuffer;
+5. B HID during A transport drain is deferred rather than busy, even before old output drain has begun;
+6. A-UP-before-B-DOWN and promoted-B UP/output-drain/replay-ACK remain ordered;
+7. live candidate bypasses microphone debounce inside 180 ms;
+8. no live candidate preserves debounce;
+9. non-0x03 and same-stream cases preserve existing behavior;
+10. normal 350 ms tail behavior, HOST_MIC_OPEN regressions, READY, Gate C/D and steady-state adopted-PHYSICAL behavior remain green.
+
+## Consequences
+
+The selected design increases ownership explicitness in BLEBridge and AudioPipe, but avoids changing the ATVV protocol model or adding parallel decoders. It also removes correctness dependence on fixed timing gaps between BLE and HID callbacks.
+
+## Reversibility
+
+The corrective is bounded to Task 042 and can be reverted independently if runtime evidence disproves the transport-epoch model. The prior audited Task 042 source remains available in history.
+
+## Reversal trigger
+
+Reconsider this design only if deterministic implementation evidence shows one of the following:
+
+- a distinct reason03/new-stream `AUDIO_START` can still belong to the old transport epoch;
+- packet-level evidence provides another reliable stream identity after `AUDIO_START`;
+- candidate-only AudioPipe isolation cannot be implemented without changing driver/protocol ownership.
+
+`TASK_RECONCILIATION_REQUIRED: YES` — RC003 failed the prior runtime gate, so `CURRENT_TASK.md` must authorize this new bounded corrective before product-source mutation.

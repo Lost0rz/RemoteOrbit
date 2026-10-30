@@ -1,161 +1,104 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — READY_FOR_HUMAN_RUNTIME_ACCEPTANCE`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — RC003_RUNTIME_ACCEPTANCE_FAIL / CORRECTIVE_REQUIRED`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
 
 - Active branch: `codex/voice-pipeline-simplification-042`.
-- Accepted corrective source before the remaining host edge: `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332`.
-- Audited source before promoted-B ownership correction: `d54bfd56a3f098766ed1013116928e1f77822277`.
-- Installed candidate: `0.2.14 (43)` from source `00106e6d02b6fc21030737cd660b456976db68e9`; freshly packaged, installed, and running for final Task 042 human runtime acceptance.
-- Human steady-state high-frequency retest: PASS for the historical candidate only.
-- Admission-atomic promotion source corrective is `ea126c4c1742bfb3aa5e800e0cf7023771a5b08f`.
-- Independent Web `CODE_DIFF` audit PASS was issued against branch state `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`; no source blocker remains for Task 042.
-- The audited branch state preserves the promoted-B owner lifecycle, admission-before-promotion ordering, bounded blocked-promotion tombstone, HOST_MIC_OPEN supersession, READY, Gate C and Gate D behavior.
-- Package/build/install of the latest RemoteOrbit app candidate and RC003 human runtime retest are now authorized. Audio driver and TCC mutation remain out of scope.
-- App-only runtime preparation completed; the installed/running candidate is provenance-matched to the current control HEAD and the next action is user-owned RC003 testing.
-- Merge/tag/release remain blocked until human corrective runtime acceptance passes and controls are reconciled.
-- Evidence/design record: `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`.
-- Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`.
+- Live branch before this control transition: `e19d57719019bcf415e9853d5a2ad0ac2e453773`.
+- Independent Web `CODE_DIFF` audit PASS remains valid for the prior admission-atomic source through `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`.
+- Installed RC003 candidate: `0.2.14 (43)`, packaged from control state `00106e6d02b6fc21030737cd660b456976db68e9`; this candidate FAILED final Task 042 human runtime acceptance under extreme rapid re-press.
+- Driver and TCC were not changed during runtime preparation or testing.
+- Evidence/design authority: `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`.
 - `AGENTS.md` remains durable repository authority.
-- `CURRENT_TASK.md` is the sole active execution authorization.
+- `CURRENT_TASK.md` remains the sole active execution authorization.
 
-## Resolved design
+## RC003 runtime result
 
-The remaining failure needs two coordinated but bounded lifecycle changes.
+Human runtime acceptance: `FAIL`.
 
-### 1. HOST_MIC_OPEN grace supersession at BLE ownership boundary
+Observed user-visible failures during extreme rapid re-press:
 
-When an explicit physical `AUDIO_START reason=0x03` arrives while:
+- the IME waveform can remain active briefly after physical release;
+- a new hold can show waveform/input activation while speech produces no transcription;
+- failures concentrate in very fast release/re-press sequences.
 
-- a matching old HOST_MIC_OPEN request is still owned by a post-release grace;
-- that old direct gesture has already physically released;
-- no previous AUDIO_STOP drain barrier is active;
+Captured evidence is sufficient for corrective work; no broad new probe phase is required.
 
-then the new physical stream is evidence that the remote has superseded the released host-open request.
+Evidence summary from the RC003 capture:
 
-Before installing the incoming stream ID/ownership:
+- `late AUDIO_START ignored during drain`: 13 observed occurrences;
+- `voice_session_busy` admission rejection following rapid re-press: 7 observed occurrences;
+- microphone HID DOWN suppressed by the existing debounce window: 8 observed occurrences;
+- at least streams 31 and 48 carried physical audio with `session_id=NA` and zero render callbacks / filled frames;
+- no permanent stuck session was observed; the runtime recovered to idle/READY.
 
-- cancel only the matching old grace, invalidating its generation;
-- locally finish/clear only the old host voice request (`voiceInputRequested` / `micOpenRequested`);
-- do **not** send MIC_CLOSE for the superseded old request;
-- emit the existing terminal streaming=false boundary for the old coordinator owner when needed;
-- retain ATVV READY;
-- classify the incoming reason=0x03 stream as `preHIDPhysical` candidate state.
+## Root-cause layer
 
-Do not globally reclassify UNKNOWN. Do not apply this rule to reason values other than 0x03.
+The remaining defect is an ownership-model problem at the overlap of BLE transport drain, AudioPipe candidate buffering, direct-session serialization, and voice-key debounce.
 
-Why no MIC_CLOSE: ATVV 1.0 MIC_CLOSE contains a stream ID. Once a new physical stream has arrived, sending the old delayed close through mutable current `streamID` can terminate the new stream. The explicit new physical start is therefore the supersession boundary; the old host request retires locally.
+Current behavior incorrectly couples three different lifetimes:
 
-### 2. One-slot direct re-press deferral at coordinator boundary
+1. late BLE packets from old stream A may still be accepted for up to 350 ms after `AUDIO_STOP`;
+2. old stream A remains the active transport/decoder owner during that window;
+3. a new voice session B is blocked while that drain work item exists.
 
-BLE supersession can truthfully terminate the old direct transport, but its existing output-drain/trigger-release ordering may still be completing when the matching new HID DOWN arrives.
+If a new explicit physical `AUDIO_START reason=0x03` with a new stream ID arrives during A's drain, current code ignores the new start. Subsequent B audio can then be accounted under the old transport epoch while B HID admission is rejected or debounced. This explains the observed waveform-without-transcription failure.
 
-If the previous direct session has already observed physical UP and is in terminal drain/close ownership, and a new pre-HID physical candidate is present, retain exactly one new direct HID press instead of rejecting it `voice_session_busy`.
+The fixed 350 ms window is not itself the defect. RC003 contains late old audio near that boundary, so globally shortening the drain would risk restoring tail loss.
 
-The pending direct re-press must capture the new session ID, profile/trigger and hardware/synthetic trigger mode. It must not emit the new trigger DOWN or activate a route until the previous direct session has completed its existing output drain and trigger-UP lifecycle. On previous-session completion, activate the pending press on a fresh lifecycle and adopt the still-buffered pre-HID candidate. If the new physical key is released before activation, cancel the pending press without trigger leakage.
+## Selected corrective design
 
-This is a serialization mechanism, not overlapping session ownership.
+### 1. Transport epoch supersession
 
-## Preserved behavior
+A new explicit physical `AUDIO_START reason=0x03` with a different stream ID is the authoritative boundary for a new ATVV transport epoch when the previous physical-HTT stream is already in terminal `AUDIO_STOP` drain.
 
-- Existing adopted-PHYSICAL retirement corrective remains unchanged.
-- Normal HOST_MIC_OPEN with no superseding physical start retains the existing post-release grace and exactly-once MIC_CLOSE/no-AUDIO-START terminal behavior.
-- HID-first new sessions that legitimately own the host request are not globally converted to physical ownership.
-- Existing AUDIO_STOP drain barrier remains authoritative.
-- Long-lived READY and strict READY remain unchanged.
-- Gate C ring and Gate D 45 ms reserve remain unchanged.
-- ATVV codec/framing remains unchanged.
-- Driver/TCC behavior remains unchanged.
+Under that narrow predicate:
+
+- retire/cancel only the old BLE ingress drain barrier/generation;
+- preserve already queued old PCM so output can finish normally;
+- reset/start decoder state for the incoming stream;
+- install the new stream ID;
+- classify the incoming stream as `.preHIDPhysical` candidate ownership;
+- retain READY;
+- stale old drain callbacks must not retire or mutate the new epoch.
+
+Do not globally reinterpret non-0x03 events, same-stream duplicates, UNKNOWN origin, or normal HOST_MIC_OPEN behavior.
+
+### 2. Candidate PCM isolation
+
+PCM for `.preHIDPhysical` must have a candidate-only path into AudioPipe. It must not enter the previous session's active output merely because `remoteActive == true` for old session A.
+
+Old A output drain may continue consuming already queued A frames, while B candidate PCM accumulates separately for later adoption. Old-session teardown must not clear a live replacement candidate/prebuffer.
+
+### 3. Earlier direct re-press deferral
+
+When old direct session A has observed physical UP and a live new physical candidate B exists, retain one pending direct B even if A has not yet reached `directOutputDrainRequested`.
+
+B remains serialized: no B trigger DOWN, route activation, or session promotion until A transport/output/trigger-UP ownership has retired through the existing ordering. Matching early B UP still cancels cleanly.
+
+### 4. BLE-owned live-candidate truth
+
+Expose a thread-safe BLE truth for a live `.preHIDPhysical` candidate so critical admission/debounce decisions do not depend only on asynchronous main-queue propagation.
+
+### 5. Evidence-gated voice-key debounce bypass
+
+Keep generic 180 ms debounce behavior. For the microphone voice key only, a rapid DOWN may bypass debounce when BLE already proves a live new physical candidate. Without that evidence, existing debounce behavior remains unchanged.
+
+## Preserved behavior / non-goals
+
+- Do not globally shorten/remove the 350 ms tail window.
+- Do not globally disable the 180 ms HID debounce.
+- Do not run two ATVV decoders/transport epochs in parallel for ambiguous packets.
+- Preserve prior Task 042 HOST_MIC_OPEN grace supersession and MIC_CLOSE safety.
+- Preserve A-UP-before-B-DOWN hardware serialization and promoted-B UP/output-drain lifecycle.
+- Preserve long-lived READY, strict READY, Gate C ring, Gate D 45 ms reserve, ATVV codec/framing, driver/TCC behavior.
 - No global UNKNOWN remap.
 - No Gate F.
-
-## Observed corrective implementation evidence
-
-### Hardware-mapped rapid re-press edge
-
-- Stage A was `FINDING_CONFIRMED` at audited control HEAD `9cae6c60f2f0fafaa2e27b49dd5a0fdcb646c93e`; fetch/reconcile found local and remote equal and the worktree clean before mutation.
-- Production `AppController.beginVoicePress()` passes `usesHardwareOption=isVoiceHIDMappingEnabled()`. The existing direct pending branch returned before hardware gate ownership, and `beginOptionDeferral(newSession)` would abort the old held-UP owner. No existing deterministic test covered hardware=true direct rapid re-press with output drain outstanding.
-- Implemented the smallest serialized ownership corrective: an `OLD_HELD_UP_OWNER` remains responsible for old UP replay/acknowledgement while one `NEW_PENDING_DOWN_OWNER` captures only the new mapped DOWN. Old replay acknowledgement is processed before pending capture; B promotion occurs only after old UP pass acknowledgement and on a fresh main-queue turn.
-- Pending B cancellation retains a narrow tombstone until expected mapped UP components are consumed. A second pending DOWN cannot replace the first owner. Synthetic re-press does not enter this hardware owner path.
-- New deterministic hardware cases: 5; focused requested suites: `238/238`; full Swift tests: `595/595`.
-- Final source/test paths for this edge are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`. `BLEBridge.swift` did not change for this edge.
-- Final arm64 and x86_64 Release builds passed with the established commands below; protocol self-test script exited `0`; `git diff --check` exited `0`. Builds retain only the repository's existing macOS deprecation warnings.
-
-- Audited control HEAD before mutation: `3d0ae437bb43efaca529a7278de519141a65d31d`; fetch/reconcile found no concurrent remote movement.
-- Implemented only the bounded HOST_MIC_OPEN grace supersession and direct-session one-slot re-press serialization authorized by `CURRENT_TASK.md`.
-- Host supersession is gated by reason `0x03`, a matching released HOST_MIC_OPEN grace, physical release observed, no active AUDIO_STOP drain barrier, and matching grace ownership. The old voice intent is retired locally, the old delayed callback is canceled, no superseded MIC_CLOSE is sent, READY is retained, and the incoming stream becomes `preHIDPhysical`.
-- Direct re-press captures session ID, profile, and hardware/synthetic trigger mode in one pending slot. It emits no new trigger DOWN until old output drain and trigger UP complete; pending HID UP cancels without trigger leakage. A live pre-HID candidate is preserved through old coordinator completion.
-- Deterministic corrective tests: 9/9 new cases passed; affected focused suites: 217/217 passed; full Swift tests: 590/590 passed.
-- Release builds passed with existing macOS deprecation warnings:
-  `swift build -c release --scratch-path /private/tmp/remoteorbit-042-arm64-release --triple arm64-apple-macos14.0`
-  and
-  `swift build -c release --scratch-path /private/tmp/remoteorbit-042-x86-release --triple x86_64-apple-macos14.0`.
-- Protocol self-tests: 3/3 passed. `git diff --check`: passed.
-- Changed paths are limited to `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`, `remote-orbit/Sources/RemoteOrbit/PostReleaseCaptureGrace.swift`, `remote-orbit/Sources/RemoteOrbit/main.swift`, `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift`, and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`.
-- No runtime retest was performed after the final corrective. Installed candidate remains historical `0.2.14 (43)`; human corrective runtime acceptance is pending.
-- Long-lived READY, strict READY, ATVV protocol/codec, Gate C ring, Gate D 45 ms reserve, driver, TCC, and Gate F state were not changed.
-
-### Boundary flags for the hardware corrective
-
-- `GLOBAL_UNKNOWN_RECLASSIFICATION=NO`.
-- `HOST_GRACE_SUPERSESSION_CHANGED=NO`; `SUPERSEDED_MIC_CLOSE_MODEL_CHANGED=NO`; `READY_MODEL_CHANGED=NO`; `PREHID_MODEL_CHANGED=NO`.
-- `GATE_C_RING_CHANGED=NO`; `GATE_D_45MS_CHANGED=NO`; `DRIVER_RUNTIME_CHANGED=NO`; `TCC_RESET=NO`; `MERGE_TAG_RELEASE=NO`; `GATE_F_CREATED=NO`.
-
-### Promoted-B hardware-owner continuation
-
-- Stage A finding was confirmed against `d54bfd56a3f098766ed1013116928e1f77822277`: promotion replayed B's captured DOWN but did not establish `optionGate`/`heldHardwareOptionSessionID` ownership, so B's mapped UP was observed as `pass` and no B replayed UP was produced.
-- The smallest correction re-enters the existing `HardwareOptionGate` for the captured B DOWN, resolves it as `.hardwareReplay`, records B as the held hardware UP/output-drain owner, then posts the captured DOWN. The existing physical-UP arm, mapped-UP capture, output-drain replay, and event-tap acknowledgement lifecycle remains authoritative.
-- Deterministic full promoted-B lifecycle: RED observed `pass` for B mapped UP and no pending B replayed UP; GREEN passed `testPromotedHardwareRepressOwnsMappedUpThroughOutputDrain`.
-- Focused requested suites: `239/239`; full Swift tests: `596/596`.
-- arm64 and x86_64 Release builds passed with the established commands below; protocol self-tests passed `3/3`; `git diff --check` passed. Build output contains only existing macOS deprecation warnings.
-- Changed product paths for this continuation are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`; no BLE, driver, TCC, or runtime files changed.
-- No runtime retest was performed. Human corrective runtime acceptance remains pending.
-
-### Admission-atomic promoted-B continuation
-
-- Stage A finding was confirmed against audited source/control HEAD `251536d1d46e73680140b10b2f8d6cb9d21b3e7f`: `startDirectVoicePress()` invoked promoted-B ownership/replay before its final admission guard, so a newly blocked BLE admission could reject after B DOWN replay and strand B hardware ownership.
-- Implemented the smallest existing-model correction: all coordinator admission guards now resolve before `onHardwareOptionGatePendingRepressPromote`. If admission is blocked, the pending hardware repress is canceled with a bounded tombstone before any B DOWN replay. If promotion ownership itself is unavailable, the same bounded cancellation path is used. Normal physical-UP-before-activation cancellation now carries its explicit reason through the same callback.
-- Required ordering is now `admission confirmed → promote/replay B DOWN → start B session`; no admission rejection follows B promotion/replay.
-- RED observed for `testAdmissionBlockedPromotedHardwareRepressDoesNotReplayOrLeakOwnership`: 3 assertion failures against the pre-fix source (unexpected B replay, held B owner, and active hardware gate). GREEN passed `1/1`; it proves no B DOWN replay, no held-UP owner, no active hardware gate, bounded pending tombstone consumption, no coordinator ownership leak, and idle state. Existing `testPromotedHardwareRepressOwnsMappedUpThroughOutputDrain` passed `1/1`.
-- Focused requested suites passed `240/240`, including VoicePipelineSimplification, VoicePressCoordinator, VoiceKeyFilter, VoiceBoundaryOrdering, VoiceTriggerRuntime, PostReleaseCaptureGrace, BLEBridge, AudioPipe, AudioPipeRealtime, AudioPipePlayoutReserve, and ATVVKeepAliveTelemetry.
-- Full Swift tests passed `597/597` with 0 failures.
-- arm64 and x86_64 Release builds passed with:
-  `swift build -c release --scratch-path /private/tmp/remoteorbit-042-arm64-release --triple arm64-apple-macos14.0`
-  and
-  `swift build -c release --scratch-path /private/tmp/remoteorbit-042-x86-release --triple x86_64-apple-macos14.0`.
-- Protocol self-tests passed `3/3` with exit `0`; `git diff --check` passed. Release output contained only existing macOS deprecation warnings.
-- Product source/test changes for this continuation are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`; no BLE semantic, driver, TCC, or runtime files changed.
-- Human corrective runtime acceptance remains pending.
-
-### Admission-atomic boundary flags
-
-- `ADMISSION_BEFORE_PROMOTION=YES`; `BLOCKED_PROMOTION_B_DOWN_REPLAY=NO`; `BLOCKED_PROMOTION_OWNER_LEAK=NO`.
-- `GLOBAL_UNKNOWN_RECLASSIFICATION=NO`; `LONG_LIVED_READY_CHANGED=NO`; `STRICT_READY_CHANGED=NO`; `MIC_OPEN_PROTOCOL_CHANGED=NO`.
-- `GATE_C_RING_CHANGED=NO`; `GATE_D_45MS_CHANGED=NO`; `DRIVER_RUNTIME_CHANGED=NO`; `TCC_RESET=NO`; `MERGE_TAG_RELEASE=NO`; `GATE_F_CREATED=NO`.
-
-### Independent Web source audit
-
-- `AUDIT_PROFILE=CODE_DIFF`; `AUDIT_INDEPENDENCE=SEPARATE_AGENT`.
-- Target branch state: `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`.
-- Verdict: `PASS`.
-- Passed claims include HOST grace supersession, A-UP-before-B-DOWN, pending hardware DOWN capture, promoted-B full lifecycle, admission-before-promotion, blocked-promotion no-DOWN leak, blocked-promotion no-owner leak, early-UP tombstone, and one-pending-owner behavior.
-- This source audit does not constitute RC003 hardware runtime acceptance or merge/release acceptance.
-
-## Runtime preparation evidence
-
-- Start reconciliation: local `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`; fetched remote `00106e6d02b6fc21030737cd660b456976db68e9`; fast-forwarded canonical writer to `00106e6d02b6fc21030737cd660b456976db68e9`. The remote commit is control-only; `git diff --quiet 6fb609e..00106e6 -- remote-orbit` passed with no product-source drift.
-- Build/package: `./remote-orbit/package-app.sh` exited `0`, producing `/private/tmp/remoteorbit-voice-pipeline-simplification-042/remote-orbit/dist/RemoteOrbit.app`. The established flow built arm64 and x86_64 release slices, combined Universal2, stamped source `00106e6d02b6fc21030737cd660b456976db68e9`, and passed deep strict code-sign verification.
-- Packaged app identity: Bundle ID `com.lost0rz.RemoteOrbit`; version `0.2.14`; build `43`; architectures `x86_64 arm64`; executable SHA-256 `31f303aedc18d0e91c0350d886b939d2a1ce01e4542222a8bf7a4e1ac99d9633`.
-- Old candidate PID `38260` exited through the app quit path. Install: `./remote-orbit/install-app.sh` exited `0`; installed path `/Applications/RemoteOrbit.app` matches the packaged executable hash and provenance stamp. New candidate launched successfully as PID `31899` from `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`.
-- Process/runtime readiness: `RemoteOrbit.log` records BLE ready, RC003 HID connected in monitored mode, HID event suppressor ready, and `RemoteOrbit Mic 2ch IOProc` started. `system_profiler SPAudioDataType` reports `RemoteOrbit Mic 2ch`, `Default Input Device: Yes`, `Transport: USB`.
-- Diagnostics readiness: `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit diagnostics status` returned journal-backed read-only JSON with journal path `/Users/ox_miles/Library/Logs/RemoteOrbit/diagnostic-events-v1.jsonl`; `diagnostics verify` returned `{"ok":true,"schema_version":1}`.
-- Runtime/log evidence remains at `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log`, `/Users/ox_miles/Library/Logs/RemoteOrbit/diagnostic-events-v1.jsonl`, and the existing rotated journal files. No RC003 voice-session acceptance was performed.
-- Driver identity before and after app installation remained `audio.local.RemoteOrbitAudio2chXX` CDHash `b6eb041c314201064a58c4913ad6eebbcc0dd154b3298ac23018c3cd859e60ed`; no driver build/install/unload/reload or TCC/privacy mutation was executed.
-- No product-source, package-script, driver, or TCC files changed in the repository; only the paired control files require the runtime-preparation receipt commit.
+- No merge/tag/release until the new corrective passes independent source audit and human runtime acceptance.
 
 ## Next
 
-Stop at `READY_FOR_HUMAN_RUNTIME_ACCEPTANCE`. The user owns the RC003 rapid re-press runtime test. Do not merge, tag, release, reinstall/reload the driver, or mutate TCC before human acceptance and evidence reconciliation.
+Implement the bounded RC003 corrective on the existing Task 042 branch. Required product areas are BLE transport epoch handling, AudioPipe candidate isolation, direct re-press admission/serialization, and evidence-gated microphone debounce. Add deterministic regressions for every new boundary, run focused/full tests and release builds, push the existing branch, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT` before packaging/install/runtime retest.
