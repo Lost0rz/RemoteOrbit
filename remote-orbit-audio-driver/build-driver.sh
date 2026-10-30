@@ -42,6 +42,7 @@ xcodebuild \
   -project "$SOURCE_ROOT/BlackHole.xcodeproj" \
   -configuration Release \
   -target BlackHole \
+  MACOSX_DEPLOYMENT_TARGET=13.0 \
   CONFIGURATION_BUILD_DIR="$TASK_TMPDIR/xcode-build" \
   PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
   CODE_SIGNING_ALLOWED=NO \
