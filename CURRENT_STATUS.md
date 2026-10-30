@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — HOST_MIC_OPEN_RAPID_REPRESS_CORRECTIVE_IMPLEMENTED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — HARDWARE RAPID_REPRESS CORRECTIVE IMPLEMENTED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -68,6 +68,16 @@ This is a serialization mechanism, not overlapping session ownership.
 
 ## Observed corrective implementation evidence
 
+### Hardware-mapped rapid re-press edge
+
+- Stage A was `FINDING_CONFIRMED` at audited control HEAD `9cae6c60f2f0fafaa2e27b49dd5a0fdcb646c93e`; fetch/reconcile found local and remote equal and the worktree clean before mutation.
+- Production `AppController.beginVoicePress()` passes `usesHardwareOption=isVoiceHIDMappingEnabled()`. The existing direct pending branch returned before hardware gate ownership, and `beginOptionDeferral(newSession)` would abort the old held-UP owner. No existing deterministic test covered hardware=true direct rapid re-press with output drain outstanding.
+- Implemented the smallest serialized ownership corrective: an `OLD_HELD_UP_OWNER` remains responsible for old UP replay/acknowledgement while one `NEW_PENDING_DOWN_OWNER` captures only the new mapped DOWN. Old replay acknowledgement is processed before pending capture; B promotion occurs only after old UP pass acknowledgement and on a fresh main-queue turn.
+- Pending B cancellation retains a narrow tombstone until expected mapped UP components are consumed. A second pending DOWN cannot replace the first owner. Synthetic re-press does not enter this hardware owner path.
+- New deterministic hardware cases: 5; focused requested suites: `238/238`; full Swift tests: `595/595`.
+- Final source/test paths for this edge are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`. `BLEBridge.swift` did not change for this edge.
+- Final arm64 and x86_64 Release builds passed with the established commands below; protocol self-test script exited `0`; `git diff --check` exited `0`. Builds retain only the repository's existing macOS deprecation warnings.
+
 - Audited control HEAD before mutation: `3d0ae437bb43efaca529a7278de519141a65d31d`; fetch/reconcile found no concurrent remote movement.
 - Implemented only the bounded HOST_MIC_OPEN grace supersession and direct-session one-slot re-press serialization authorized by `CURRENT_TASK.md`.
 - Host supersession is gated by reason `0x03`, a matching released HOST_MIC_OPEN grace, physical release observed, no active AUDIO_STOP drain barrier, and matching grace ownership. The old voice intent is retired locally, the old delayed callback is canceled, no superseded MIC_CLOSE is sent, READY is retained, and the incoming stream becomes `preHIDPhysical`.
@@ -82,6 +92,12 @@ This is a serialization mechanism, not overlapping session ownership.
 - No package/install/runtime retest was performed. Installed candidate remains historical `0.2.14 (43)`; human corrective runtime acceptance is pending.
 - Long-lived READY, strict READY, ATVV protocol/codec, Gate C ring, Gate D 45 ms reserve, driver, TCC, and Gate F state were not changed.
 
+### Boundary flags for the hardware corrective
+
+- `GLOBAL_UNKNOWN_RECLASSIFICATION=NO`.
+- `HOST_GRACE_SUPERSESSION_CHANGED=NO`; `SUPERSEDED_MIC_CLOSE_MODEL_CHANGED=NO`; `READY_MODEL_CHANGED=NO`; `PREHID_MODEL_CHANGED=NO`.
+- `GATE_C_RING_CHANGED=NO`; `GATE_D_45MS_CHANGED=NO`; `DRIVER_RUNTIME_CHANGED=NO`; `TCC_RESET=NO`; `PACKAGE_INSTALL=NOT_RUN`; `MERGE_TAG_RELEASE=NO`; `GATE_F_CREATED=NO`.
+
 ## Next
 
-Push the existing 042 branch and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, perform human runtime retest, merge, tag, release, or create Gate F before the independent source audit.
+Commit and push the bounded hardware corrective on the existing 042 branch, verify exact local/remote equality, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, perform human runtime retest, merge, tag, release, or create Gate F before the independent source audit.

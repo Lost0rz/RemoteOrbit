@@ -430,6 +430,12 @@ final class VoicePressCoordinator {
     var onHardwareOptionGatePhysicalUp: ((UUID) -> Void)?
     /// Release a replayed hardware Option-up after output drain.
     var onHardwareOptionGateOutputDrained: ((UUID) -> Void)?
+    /// Capture a new mapped hardware DOWN while the previous direct session
+    /// still owns terminal Option-UP retirement. This is a separate owner,
+    /// not a second active voice session.
+    var onHardwareOptionGatePendingRepressBegin: ((UUID) -> Void)?
+    var onHardwareOptionGatePendingRepressPromote: ((UUID) -> Bool)?
+    var onHardwareOptionGatePendingRepressCancel: ((UUID) -> Void)?
 
     /// This is the short-vs-long classifier. A quick default tap toggles the
     /// persistent IME session (or invokes the configured Codex short action);
@@ -500,6 +506,8 @@ final class VoicePressCoordinator {
     private var directTransportStopObserved = false
     private var directOutputDrainRequested = false
     private var directOutputDrained = false
+    private var pendingDirectHardwareRepressAwaitingOldUp = false
+    private var pendingDirectHardwareRepressOldSessionID: UUID?
     private var pendingShortPreparationID: UUID?
     private var usesHardwareOptionPath = false
     private var remoteOutputDrainRequestedSessionID: UUID?
@@ -847,8 +855,19 @@ final class VoicePressCoordinator {
     private func startDirectVoicePress(
         sessionID: UUID,
         profile: VoiceInputProfile,
-        usesHardwareOption: Bool
+        usesHardwareOption: Bool,
+        promotingPendingHardwareRepress: Bool = false
     ) -> Bool {
+        if promotingPendingHardwareRepress,
+           usesHardwareOption,
+           onHardwareOptionGatePendingRepressPromote?(sessionID) != true {
+            logAdmissionDecision(
+                sessionID: sessionID,
+                result: "rejected",
+                reason: "pending_hardware_repress_owner_missing"
+            )
+            return false
+        }
         if directSession,
            directPhysicalUp,
            directOutputDrainRequested,
@@ -868,6 +887,11 @@ final class VoicePressCoordinator {
                     isDirectSession: true,
                     directProfile: profile
                 )
+                if usesHardwareOption {
+                    pendingDirectHardwareRepressAwaitingOldUp = true
+                    pendingDirectHardwareRepressOldSessionID = gestureID
+                    onHardwareOptionGatePendingRepressBegin?(sessionID)
+                }
                 deferredRepressAwaitingActivation = true
                 deferredRepressWaitReason = .directOutputDrain
                 lastRepressDecisionForTesting = "deferred-direct-output-drain"
@@ -936,8 +960,10 @@ final class VoicePressCoordinator {
         // The release is immediate at opening; it is no longer tied to first
         // PCM or a 300 ms hold boundary.
         if usesHardwareOption {
-            onHardwareOptionGateBegin?(sessionID)
-            onHardwareOptionGateLongReady?(sessionID)
+            if !promotingPendingHardwareRepress {
+                onHardwareOptionGateBegin?(sessionID)
+                onHardwareOptionGateLongReady?(sessionID)
+            }
             VoiceTimingLogger.mark("OPTION_GATE_RELEASE", sessionID: sessionID)
         } else {
             _ = syntheticOptionTrigger.begin(sessionID: sessionID)
@@ -1081,7 +1107,8 @@ final class VoicePressCoordinator {
         VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
         VoiceTimingLogger.end(sessionID: sessionID)
         if deferredRepressWaitReason == .directOutputDrain,
-           pendingRepress?.isDirectSession == true {
+           pendingRepress?.isDirectSession == true,
+           !pendingDirectHardwareRepressAwaitingOldUp {
             scheduleDeferredRepressActivation(waitReason: .directOutputDrain)
         }
     }
@@ -1365,14 +1392,19 @@ final class VoicePressCoordinator {
 
     @discardableResult
     func keyUp() -> Bool {
-        if directSession,
-           deferredRepressWaitReason == .directOutputDrain,
-           pendingRepress?.isDirectSession == true {
+        if deferredRepressWaitReason == .directOutputDrain,
+           let pendingValue = pendingRepress,
+           pendingValue.isDirectSession {
             pendingRepress = nil
             deferredRepressAwaitingActivation = false
             deferredRepressActivationWorkItem?.cancel()
             deferredRepressActivationWorkItem = nil
             deferredRepressWaitReason = nil
+            if pendingValue.usesHardwareOption {
+                onHardwareOptionGatePendingRepressCancel?(pendingValue.sessionID)
+                pendingDirectHardwareRepressAwaitingOldUp = false
+                pendingDirectHardwareRepressOldSessionID = nil
+            }
             print("[PRESS] pending direct re-press released before activation")
             return false
         }
@@ -1952,6 +1984,44 @@ final class VoicePressCoordinator {
         DispatchQueue.main.async(execute: work)
     }
 
+    /// Records whether the old hardware trigger-up now has an event-tap
+    /// replay awaiting acknowledgement. A direct pending re-press may not
+    /// activate until that acknowledgement boundary is complete.
+    func hardwareOptionGateOutputDrainCompleted(
+        sessionID: UUID,
+        awaitingPassAcknowledgement: Bool
+    ) {
+        guard pendingDirectHardwareRepressOldSessionID == sessionID else {
+            return
+        }
+        pendingDirectHardwareRepressAwaitingOldUp = awaitingPassAcknowledgement
+        if !awaitingPassAcknowledgement {
+            pendingDirectHardwareRepressOldSessionID = nil
+            guard !directSession,
+                  deferredRepressWaitReason == .directOutputDrain,
+                  pendingRepress?.isDirectSession == true else {
+                return
+            }
+            scheduleDeferredRepressActivation(waitReason: .directOutputDrain)
+        }
+    }
+
+    /// Called only after the filter has observed every replayed old UP
+    /// component pass the event-tap boundary.
+    func hardwareOptionUpPassAcknowledged(sessionID: UUID) {
+        guard pendingDirectHardwareRepressOldSessionID == sessionID else {
+            return
+        }
+        pendingDirectHardwareRepressAwaitingOldUp = false
+        pendingDirectHardwareRepressOldSessionID = nil
+        guard !directSession,
+              deferredRepressWaitReason == .directOutputDrain,
+              pendingRepress?.isDirectSession == true else {
+            return
+        }
+        scheduleDeferredRepressActivation(waitReason: .directOutputDrain)
+    }
+
     /// End the current transport segment while retaining a persistent IME
     /// session. A transport loss is a segment boundary, never a session tap.
     func handleTransportLoss(deviceRemoved: Bool = false) {
@@ -2271,7 +2341,9 @@ final class VoicePressCoordinator {
                   startDirectVoicePress(
                       sessionID: pendingRepress.sessionID,
                       profile: pendingRepress.directProfile ?? .defaultProfile,
-                      usesHardwareOption: pendingRepress.usesHardwareOption
+                      usesHardwareOption: pendingRepress.usesHardwareOption,
+                      promotingPendingHardwareRepress:
+                          pendingRepress.usesHardwareOption
                   ) else {
                 print("[PRESS] direct re-press activation lost physical candidate")
                 return
@@ -2635,6 +2707,12 @@ final class VoiceKeyFilter {
         case pass
     }
 
+    enum PendingHardwareOptionRepressCaptureDecision: Equatable {
+        case captured
+        case suppressed
+        case pass
+    }
+
     enum FilterError: LocalizedError {
         case accessibilityDenied
         case tapCreationFailed
@@ -2672,7 +2750,30 @@ final class VoiceKeyFilter {
         let key: VoiceTriggerKey
         var remainingComponents: Set<ReplayedHardwareOptionUpFingerprint>
     }
+    private struct PendingHardwareOptionRepress {
+        let gestureID: UUID
+        let key: VoiceTriggerKey
+        var downEvents: [CGEvent]
+        var capturedFlagsDown = false
+        var capturedKeyDown = false
+        var observedFlagsUp = false
+        var observedKeyUp = false
+        var cancelled = false
+
+        var expectedReleaseCount: Int {
+            let flags = capturedFlagsDown ? 1 : 0
+            let key = capturedKeyDown ? 1 : 0
+            return flags + key
+        }
+
+        var observedReleaseCount: Int {
+            let flags = observedFlagsUp && capturedFlagsDown ? 1 : 0
+            let key = observedKeyUp && capturedKeyDown ? 1 : 0
+            return flags + key
+        }
+    }
     private var pendingReplayedHardwareOptionUp: PendingReplayedHardwareOptionUp?
+    private var pendingHardwareOptionRepress: PendingHardwareOptionRepress?
     private(set) var momentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
     /// Compatibility alias for callers that historically meant the mapped
     /// remote-microphone key.
@@ -2695,12 +2796,22 @@ final class VoiceKeyFilter {
     var pendingReplayedHardwareOptionUpGestureID: UUID? {
         pendingReplayedHardwareOptionUp?.gestureID
     }
+    var pendingHardwareOptionRepressGestureID: UUID? {
+        pendingHardwareOptionRepress?.gestureID
+    }
+    var pendingHardwareOptionRepressDownCountForTesting: Int {
+        pendingHardwareOptionRepress?.downEvents.count ?? 0
+    }
+    var pendingHardwareOptionRepressIsCancelledForTesting: Bool {
+        pendingHardwareOptionRepress?.cancelled ?? false
+    }
     var onReplayedHardwareOptionUpPassAcknowledged: ((UUID) -> Void)?
     var hasActiveHardwareTriggerOwnership: Bool {
         optionGate.activeSessionID != nil
             || optionGate.suppressedSessionID != nil
             || heldHardwareOptionSessionID != nil
             || pendingReplayedHardwareOptionUp != nil
+            || pendingHardwareOptionRepress != nil
             || hardwareOptionReleaseArmed
             || !heldHardwareOptionUpEvents.isEmpty
             || voiceKeyIsDown
@@ -2725,6 +2836,8 @@ final class VoiceKeyFilter {
             "filter_active_gate": optionGate.activeSessionID?.uuidString ?? "none",
             "filter_suppressed_owner": optionGate.suppressedSessionID?.uuidString ?? "none",
             "held_hardware_owner": heldHardwareOptionSessionID?.uuidString ?? "none",
+            "pending_hardware_repress_owner": pendingHardwareOptionRepress?.gestureID.uuidString ?? "none",
+            "pending_hardware_repress_cancelled": pendingHardwareOptionRepress?.cancelled ?? false,
             "filter_configured_key": momentaryVoiceTriggerKey.rawValue,
             "synthetic_owner": syntheticOptionTrigger.activeSessionID?.uuidString ?? "none",
             "synthetic_down": syntheticOptionTrigger.isOptionDown,
@@ -2858,6 +2971,143 @@ final class VoiceKeyFilter {
             heldHardwareOptionUpEvents.append(copiedEvent)
         }
         return .captured
+    }
+
+    /// Arm the one pending-new-DOWN owner used while an older direct gesture
+    /// still owns terminal hardware UP retirement. This intentionally does
+    /// not touch `optionGate` or the old held-UP owner.
+    @discardableResult
+    func beginPendingHardwareOptionRepress(gestureID: UUID) -> Bool {
+        guard pendingHardwareOptionRepress == nil,
+              heldHardwareOptionSessionID != nil
+                || pendingReplayedHardwareOptionUp != nil else {
+            return false
+        }
+        pendingHardwareOptionRepress = PendingHardwareOptionRepress(
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey,
+            downEvents: []
+        )
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "PENDING_HARDWARE_REPRESS_BEGIN",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey,
+            fields: ["old_owner": heldHardwareOptionSessionID?.uuidString ?? "replay_pending"]
+        )
+        return true
+    }
+
+    /// Capture mapped trigger components belonging to the pending new press.
+    /// Replayed old UP components are checked before this method by the event
+    /// tap, so they cannot be consumed by the new owner.
+    @discardableResult
+    func capturePendingHardwareOptionRepressEvent(
+        _ event: CGEvent,
+        type: CGEventType
+    ) -> PendingHardwareOptionRepressCaptureDecision {
+        guard var pending = pendingHardwareOptionRepress,
+              CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+                == pending.key.cgKeyCode else {
+            return .pass
+        }
+
+        if pending.cancelled {
+            switch type {
+            case .flagsChanged:
+                if isTriggerModifierActive(flags: event.flags) {
+                    return .suppressed
+                }
+                pending.observedFlagsUp = true
+            case .keyDown:
+                return .suppressed
+            case .keyUp:
+                pending.observedKeyUp = true
+            default:
+                return .pass
+            }
+            let shouldClear = pending.expectedReleaseCount == 0
+                ? pending.observedFlagsUp || pending.observedKeyUp
+                : pending.observedReleaseCount >= pending.expectedReleaseCount
+            if shouldClear {
+                pendingHardwareOptionRepress = nil
+            } else {
+                pendingHardwareOptionRepress = pending
+            }
+            return .suppressed
+        }
+
+        switch type {
+        case .flagsChanged:
+            if isTriggerModifierActive(flags: event.flags) {
+                guard !pending.capturedFlagsDown else { return .suppressed }
+                pending.capturedFlagsDown = true
+                if let copied = event.copy() {
+                    pending.downEvents.append(copied)
+                }
+                pendingHardwareOptionRepress = pending
+                return .captured
+            }
+            // The old held-UP owner remains responsible for release
+            // components. A pending new owner captures DOWN only, so an old
+            // UP cannot be mistaken for the new gesture's early release.
+            return .pass
+        case .keyDown:
+            guard !pending.capturedKeyDown else { return .suppressed }
+            pending.capturedKeyDown = true
+            if let copied = event.copy() {
+                pending.downEvents.append(copied)
+            }
+            pendingHardwareOptionRepress = pending
+            return .captured
+        case .keyUp:
+            // Let the old held-UP owner retain release ownership. If raw HID
+            // UP has already cancelled this pending gesture, the tombstone
+            // branch above consumes the later mapped release.
+            return .pass
+        default:
+            return .suppressed
+        }
+    }
+
+    /// Cancel the pending coordinator owner without replaying its captured
+    /// DOWN. Keep a tombstone until the expected mapped UP components have
+    /// been consumed, preventing an unmatched UP from reaching the receiver.
+    func cancelPendingHardwareOptionRepress(gestureID: UUID, reason: String) {
+        guard var pending = pendingHardwareOptionRepress,
+              pending.gestureID == gestureID else { return }
+        pending.cancelled = true
+        pending.downEvents.removeAll(keepingCapacity: true)
+        pendingHardwareOptionRepress = pending
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "PENDING_HARDWARE_REPRESS_CANCEL",
+            gestureID: gestureID,
+            key: pending.key,
+            fields: ["reason": reason]
+        )
+    }
+
+    /// Promote the captured new DOWN after old hardware UP acknowledgement.
+    /// The posted copies re-enter the canonical event-tap boundary in their
+    /// original order; no synthetic trigger edge is generated.
+    @discardableResult
+    func promotePendingHardwareOptionRepress(gestureID: UUID) -> Bool {
+        guard let pending = pendingHardwareOptionRepress,
+              pending.gestureID == gestureID,
+              !pending.cancelled else {
+            return false
+        }
+        pendingHardwareOptionRepress = nil
+        pending.downEvents.forEach(replayEventPoster)
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "PENDING_HARDWARE_REPRESS_PROMOTE",
+            gestureID: gestureID,
+            key: pending.key,
+            fields: ["captured_down_count": pending.downEvents.count]
+        )
+        return true
     }
 
     /// A copied hardware UP is acknowledged only at the event-tap pass
@@ -3387,6 +3637,11 @@ final class VoiceKeyFilter {
                 gestureID: gestureID,
                 reason: reason
             )
+        } else if let gestureID = pendingHardwareOptionRepressGestureID {
+            cancelPendingHardwareOptionRepress(
+                gestureID: gestureID,
+                reason: reason
+            )
         }
     }
 
@@ -3739,6 +3994,38 @@ final class VoiceKeyFilter {
                 return nil
             }
 
+            // A direct rapid re-press may arrive while the previous gesture's
+            // hardware UP is still held or awaiting replay acknowledgement.
+            // Capture only the new DOWN owner here; the old replay is checked
+            // above and remains owned by its original gesture.
+            if filter.matchesTriggerKeyCode(keyCode),
+               filter.pendingHardwareOptionRepressGestureID != nil {
+                let decision = filter.capturePendingHardwareOptionRepressEvent(
+                    event,
+                    type: type
+                )
+                let action: String
+                switch decision {
+                case .captured: action = "pending_repress_capture"
+                case .suppressed: action = "pending_repress_suppress"
+                case .pass: action = "pending_repress_old_owner_pass"
+                }
+                filter.logMappedTriggerEvent(
+                    keyCode: keyCode,
+                    eventType: type,
+                    flags: event.flags,
+                    eventTimestamp: event.timestamp,
+                    syntheticMarker: false,
+                    action: action
+                )
+                switch decision {
+                case .captured, .suppressed:
+                    return nil
+                case .pass:
+                    break
+                }
+            }
+
             // hidutil converts the remote's F5 usage into left Option. When a
             // FloatTabs voice handoff is active, hold that generated Option
             // pair only; real keyboard Option events remain untouched outside
@@ -3910,6 +4197,16 @@ final class VoiceKeyFilter {
             invalidatePendingReplayedHardwareOptionUp(
                 gestureID: gestureID,
                 reason: "stop"
+            )
+        }
+        if let gestureID = pendingHardwareOptionRepressGestureID {
+            pendingHardwareOptionRepress = nil
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "PENDING_HARDWARE_REPRESS_CANCEL",
+                gestureID: gestureID,
+                key: momentaryVoiceTriggerKey,
+                fields: ["reason": "stop"]
             )
         }
         if voiceKeyIsDown {
@@ -4117,6 +4414,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.voicePress.voiceSessionAdmissionBecameAvailable()
         }
         filter.onReplayedHardwareOptionUpPassAcknowledged = { [weak self] gestureID in
+            self?.voicePress.hardwareOptionUpPassAcknowledged(sessionID: gestureID)
             self?.handleDualReceiverHardwareOutputDrainClosed(gestureID: gestureID)
         }
     }
@@ -5985,13 +6283,31 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         voicePress.onHardwareOptionGatePhysicalUp = { [weak self] gestureID in
             self?.filter.armHardwareOptionRelease(gestureID: gestureID)
         }
+        voicePress.onHardwareOptionGatePendingRepressBegin = { [weak self] gestureID in
+            _ = self?.filter.beginPendingHardwareOptionRepress(gestureID: gestureID)
+        }
+        voicePress.onHardwareOptionGatePendingRepressPromote = { [weak self] gestureID in
+            self?.filter.promotePendingHardwareOptionRepress(gestureID: gestureID) ?? false
+        }
+        voicePress.onHardwareOptionGatePendingRepressCancel = { [weak self] gestureID in
+            self?.filter.cancelPendingHardwareOptionRepress(
+                gestureID: gestureID,
+                reason: "physical-up-before-activation"
+            )
+        }
         voicePress.onHardwareOptionGateOutputDrained = { [weak self] gestureID in
             guard let self else { return }
             self.filter.releaseHeldHardwareOption(
                 gestureID: gestureID,
                 reason: "output-drained"
             )
-            guard self.filter.pendingReplayedHardwareOptionUpGestureID != gestureID else {
+            let awaitingPassAcknowledgement =
+                self.filter.pendingReplayedHardwareOptionUpGestureID == gestureID
+            self.voicePress.hardwareOptionGateOutputDrainCompleted(
+                sessionID: gestureID,
+                awaitingPassAcknowledgement: awaitingPassAcknowledgement
+            )
+            guard !awaitingPassAcknowledgement else {
                 return
             }
             self.handleDualReceiverHardwareOutputDrainClosed(gestureID: gestureID)

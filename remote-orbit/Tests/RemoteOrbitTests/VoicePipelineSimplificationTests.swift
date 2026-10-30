@@ -32,6 +32,210 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         XCTAssertFalse(press.diagnosticStateFields["remote_streaming"] as? Bool ?? true)
     }
 
+    func testHardwareDirectRepressCapturesNewDownBeforeOldUpRetires() throws {
+        let trigger = VoiceOptionTrigger { _, _ in }
+        let filter = VoiceKeyFilter(
+            syntheticOptionTrigger: trigger,
+            replayEventPoster: { _ in },
+            emitEmergencyHardwareOptionUp: { _ in }
+        )
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        var completeDrain: (() -> Void)?
+        press.onHardwareOptionGateBegin = { gestureID in
+            filter.beginOptionDeferral(gestureID: gestureID)
+        }
+        // Keep A's gate open so this test can deterministically copy the
+        // mapped down into the canonical long-press replay path.
+        press.onHardwareOptionGateLongReady = { _ in }
+        press.onHardwareOptionGatePhysicalUp = { gestureID in
+            filter.armHardwareOptionRelease(gestureID: gestureID)
+        }
+        press.onHardwareOptionGateOutputDrained = { gestureID in
+            filter.releaseHeldHardwareOption(
+                gestureID: gestureID,
+                reason: "test-output-drained"
+            )
+        }
+        press.onHardwareOptionGatePendingRepressBegin = { gestureID in
+            _ = filter.beginPendingHardwareOptionRepress(gestureID: gestureID)
+        }
+        press.onRemoteOutputDrain = { _, completion in
+            completeDrain = completion
+        }
+
+        let sessionA = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: sessionA,
+                usesHardwareOption: true,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertTrue(
+            filter.captureDeferredHardwareOptionEdgeForTesting(
+                .down,
+                copied: true
+            )
+        )
+        filter.releaseDeferredOption(
+            gestureID: sessionA,
+            reason: "test-long-ready"
+        )
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        XCTAssertNotNil(completeDrain)
+
+        let sessionB = UUID()
+        press.setPreHIDPhysicalStreaming(true)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: sessionB,
+                usesHardwareOption: true,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+
+        guard let mappedDown = CGEvent(
+            keyboardEventSource: nil,
+            virtualKey: filter.momentaryVoiceTriggerKey.cgKeyCode,
+            keyDown: true
+        ) else {
+            XCTFail("could not create mapped hardware Option down")
+            return
+        }
+        mappedDown.flags = .maskAlternate
+        XCTAssertEqual(
+            filter.capturePendingHardwareOptionRepressEvent(
+                mappedDown,
+                type: mappedDown.type
+            ),
+            .captured,
+            "the pending hardware re-press must own B's mapped DOWN before A retires"
+        )
+    }
+
+    func testHardwareOldUpAcknowledgedBeforePendingNewDownRelease() throws {
+        let harness = try HardwareRapidRepressHarness()
+        let sessionB = try harness.preparePendingHardwareRepress()
+        harness.completeOldOutputDrain()
+
+        XCTAssertEqual(harness.filter.pendingReplayedHardwareOptionUpGestureID,
+                       harness.sessionA)
+        XCTAssertEqual(harness.press.pendingRepressSessionID, sessionB)
+        XCTAssertEqual(
+            harness.replayEventTypeRawValues,
+            [CGEventType.flagsChanged.rawValue]
+        )
+
+        let oldUp = try XCTUnwrap(harness.replayedEvents.first)
+        XCTAssertTrue(
+            harness.filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+                oldUp,
+                type: oldUp.type
+            )
+        )
+        XCTAssertEqual(harness.press.pendingRepressSessionID, sessionB)
+
+        let activated = expectation(description: "pending hardware repress activates")
+        harness.press.onStateChanged = { state in
+            if state == .opening {
+                activated.fulfill()
+            }
+        }
+        wait(for: [activated], timeout: 1)
+
+        XCTAssertEqual(
+            harness.replayEventTypeRawValues,
+            [CGEventType.flagsChanged.rawValue, CGEventType.flagsChanged.rawValue]
+        )
+        XCTAssertNil(harness.filter.pendingHardwareOptionRepressGestureID)
+        XCTAssertEqual(harness.press.currentGestureIDForDiagnostics, sessionB)
+    }
+
+    func testHardwarePendingRepressReleaseBeforeActivationHasNoTriggerLeak() throws {
+        let harness = try HardwareRapidRepressHarness()
+        let sessionB = try harness.preparePendingHardwareRepress()
+
+        XCTAssertFalse(harness.press.keyUp())
+        XCTAssertNil(harness.press.pendingRepressSessionID)
+        XCTAssertEqual(harness.filter.pendingHardwareOptionRepressGestureID, sessionB)
+        XCTAssertTrue(harness.filter.pendingHardwareOptionRepressIsCancelledForTesting)
+
+        let mappedUp = try XCTUnwrap(harness.makeMappedEvent(keyDown: false))
+        XCTAssertEqual(
+            harness.filter.capturePendingHardwareOptionRepressEvent(
+                mappedUp,
+                type: mappedUp.type
+            ),
+            .suppressed
+        )
+        XCTAssertNil(harness.filter.pendingHardwareOptionRepressGestureID)
+        XCTAssertTrue(harness.replayedEvents.isEmpty)
+
+        harness.completeOldOutputDrain()
+        XCTAssertEqual(
+            harness.replayEventTypeRawValues,
+            [CGEventType.flagsChanged.rawValue]
+        )
+    }
+
+    func testHardwareOnlyOnePendingDirectRepressOwner() throws {
+        let harness = try HardwareRapidRepressHarness()
+        let sessionB = try harness.preparePendingHardwareRepress()
+        let sessionC = UUID()
+
+        XCTAssertTrue(
+            harness.press.keyDown(
+                sessionID: sessionC,
+                usesHardwareOption: true,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertEqual(harness.press.pendingRepressSessionID, sessionB)
+        XCTAssertEqual(harness.filter.pendingHardwareOptionRepressGestureID, sessionB)
+        XCTAssertEqual(harness.filter.pendingHardwareOptionRepressDownCountForTesting, 1)
+    }
+
+    func testHardwarePendingRepressPreservesNormalHardwareOutputOrdering() {
+        var order: [String] = []
+        var completeDrain: (() -> Void)?
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _, _ in
+            XCTFail("normal hardware path must not use synthetic edges")
+        })
+        press.onHardwareOptionGateBegin = { _ in order.append("gate-begin") }
+        press.onHardwareOptionGateLongReady = { _ in order.append("trigger-down-release") }
+        press.onHardwareOptionGatePhysicalUp = { _ in order.append("physical-up") }
+        press.onHardwareOptionGateOutputDrained = { _ in order.append("trigger-up") }
+        press.onRemoteOutputDrain = { _, completion in
+            order.append("output-drain")
+            completeDrain = completion
+        }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                bypassesShortClassification: true,
+                usesHardwareOption: true,
+                directSession: true
+            )
+        )
+        press.setRemoteStreaming(true)
+        press.setRemoteAudioAvailable()
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(
+            order,
+            ["gate-begin", "trigger-down-release", "physical-up", "output-drain"]
+        )
+
+        completeDrain?()
+        XCTAssertEqual(order.last, "trigger-up")
+    }
+
     func testUnownedPhysicalStreamStopClearsBusyState() {
         let press = VoicePressCoordinator(
             optionTrigger: VoiceOptionTrigger { _, _ in }
@@ -668,5 +872,148 @@ final class VoicePipelineSimplificationTests: XCTestCase {
             AppStorage.readMomentaryVoiceTriggerKey(from: defaults),
             .rightControl
         )
+    }
+}
+
+private final class HardwareRapidRepressHarness {
+    private final class Recorder {
+        var replayedEvents: [CGEvent] = []
+        var triggerEdges: [(VoiceTriggerKey, Bool)] = []
+    }
+
+    private let recorder: Recorder
+    let trigger: VoiceOptionTrigger
+    let filter: VoiceKeyFilter
+    let press: VoicePressCoordinator
+    var completeDrain: (() -> Void)?
+    let sessionA = UUID()
+
+    var replayedEvents: [CGEvent] { recorder.replayedEvents }
+    var replayEventTypeRawValues: [UInt32] {
+        recorder.replayedEvents.map(\.type.rawValue)
+    }
+
+    init() throws {
+        let recorder = Recorder()
+        self.recorder = recorder
+        let trigger = VoiceOptionTrigger(
+            keyedEventSink: { key, isDown in
+                recorder.triggerEdges.append((key, isDown))
+            }
+        )
+        self.trigger = trigger
+        self.filter = VoiceKeyFilter(
+            syntheticOptionTrigger: trigger,
+            replayEventPoster: { event in
+                recorder.replayedEvents.append(event)
+            },
+            emitEmergencyHardwareOptionUp: { _ in }
+        )
+        self.press = VoicePressCoordinator(optionTrigger: trigger)
+
+        press.onHardwareOptionGateBegin = { [unowned self] gestureID in
+            self.filter.beginOptionDeferral(gestureID: gestureID)
+        }
+        // The harness copies/replays the physical DOWN explicitly so the
+        // ordering boundary is asserted without depending on an event tap.
+        press.onHardwareOptionGateLongReady = { _ in }
+        press.onHardwareOptionGatePhysicalUp = { [unowned self] gestureID in
+            self.filter.armHardwareOptionRelease(gestureID: gestureID)
+        }
+        press.onHardwareOptionGateOutputDrained = { [unowned self] gestureID in
+            self.filter.releaseHeldHardwareOption(
+                gestureID: gestureID,
+                reason: "test-output-drained"
+            )
+            let awaiting = self.filter.pendingReplayedHardwareOptionUpGestureID
+                == gestureID
+            self.press.hardwareOptionGateOutputDrainCompleted(
+                sessionID: gestureID,
+                awaitingPassAcknowledgement: awaiting
+            )
+        }
+        press.onHardwareOptionGatePendingRepressBegin = { [unowned self] gestureID in
+            _ = self.filter.beginPendingHardwareOptionRepress(gestureID: gestureID)
+        }
+        press.onHardwareOptionGatePendingRepressPromote = { [unowned self] gestureID in
+            self.filter.promotePendingHardwareOptionRepress(gestureID: gestureID)
+        }
+        press.onHardwareOptionGatePendingRepressCancel = { [unowned self] gestureID in
+            self.filter.cancelPendingHardwareOptionRepress(
+                gestureID: gestureID,
+                reason: "physical-up-before-activation"
+            )
+        }
+        press.onRemoteOutputDrain = { [unowned self] _, completion in
+            self.completeDrain = completion
+        }
+        filter.onReplayedHardwareOptionUpPassAcknowledged = { [unowned self] gestureID in
+            self.press.hardwareOptionUpPassAcknowledged(sessionID: gestureID)
+        }
+    }
+
+    func makeMappedEvent(keyDown: Bool) -> CGEvent? {
+        let event = CGEvent(
+            keyboardEventSource: nil,
+            virtualKey: filter.momentaryVoiceTriggerKey.cgKeyCode,
+            keyDown: keyDown
+        )
+        event?.flags = keyDown ? .maskAlternate : []
+        return event
+    }
+
+    func preparePendingHardwareRepress() throws -> UUID {
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: sessionA,
+                usesHardwareOption: true,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        let oldDown = try XCTUnwrap(makeMappedEvent(keyDown: true))
+        XCTAssertTrue(
+            filter.captureDeferredHardwareOptionEdge(
+                .down,
+                copiedEvent: oldDown
+            )
+        )
+        filter.releaseDeferredOption(
+            gestureID: sessionA,
+            reason: "test-long-ready"
+        )
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        let oldUp = try XCTUnwrap(makeMappedEvent(keyDown: false))
+        XCTAssertEqual(
+            filter.captureHeldHardwareOptionUpEvent(oldUp, type: oldUp.type),
+            .captured
+        )
+        press.setRemoteStreaming(false)
+
+        let sessionB = UUID()
+        press.setPreHIDPhysicalStreaming(true)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: sessionB,
+                usesHardwareOption: true,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        let newDown = try XCTUnwrap(makeMappedEvent(keyDown: true))
+        XCTAssertEqual(
+            filter.capturePendingHardwareOptionRepressEvent(
+                newDown,
+                type: newDown.type
+            ),
+            .captured
+        )
+        recorder.replayedEvents.removeAll()
+        return sessionB
+    }
+
+    func completeOldOutputDrain() {
+        completeDrain?()
     }
 }

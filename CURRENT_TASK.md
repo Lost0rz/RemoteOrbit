@@ -56,6 +56,28 @@ For exactly this terminal-overlap case:
 
 Do not permit two simultaneous direct sessions.
 
+### C. Hardware-mapped direct re-press serialization
+
+When the direct pending branch is entered with `usesHardwareOption == true`,
+the old direct session and the new pending press may temporarily own different
+edges only:
+
+- `OLD_HELD_UP_OWNER` retains the old mapped UP components and replay/pass acknowledgement.
+- `NEW_PENDING_DOWN_OWNER` captures and suppresses only the new mapped DOWN components.
+
+The new owner must be armed before its mapped DOWN can pass. It must not reuse
+`beginOptionDeferral(newSession)` while the old held-UP owner exists, because
+that operation treats the old owner as stale and aborts it. The old UP replay
+must pass the event-tap acknowledgement boundary before the new owner is
+promoted on a fresh main-queue turn. Promotion replays the captured B DOWN
+through the existing event path and does not emit a synthetic trigger.
+
+If B's raw HID UP arrives before promotion, discard captured B DOWN and retain
+only a bounded tombstone that consumes the expected mapped UP components. Keep
+exactly one pending direct owner. Synthetic re-presses continue through the
+existing synthetic ordering path, and normal non-overlap hardware presses keep
+their existing gate/output-drain ordering.
+
 ## MIC_CLOSE rule
 
 For the superseded host request, **do not send MIC_CLOSE after the new physical reason=0x03 stream has arrived**. ATVV v1.0 MIC_CLOSE is stream-ID-bearing, while `streamID` becomes the incoming physical stream ID; a delayed close can terminate the new stream.
@@ -81,6 +103,14 @@ At minimum cover:
 9. `ONLY_ONE_PENDING_DIRECT_REPRESS_ALLOWED`.
 10. `PREVIOUS_DIRECT_OUTPUT_DRAIN_AND_TRIGGER_UP_COMPLETE_BEFORE_NEW_TRIGGER_DOWN`.
 11. Existing adopted-PHYSICAL rapid-cycle tests remain green.
+
+Hardware-mapped edge cases added for this continuation:
+
+12. `testHardwareDirectRepressCapturesNewDownBeforeOldUpRetires`.
+13. `testHardwareOldUpAcknowledgedBeforePendingNewDownRelease`.
+14. `testHardwarePendingRepressReleaseBeforeActivationHasNoTriggerLeak`.
+15. `testHardwareOnlyOnePendingDirectRepressOwner`.
+16. `testHardwarePendingRepressPreservesNormalHardwareOutputOrdering`.
 
 Run relevant BLEBridge, VoicePipelineSimplification/direct-session, VoiceBoundaryOrdering, VoiceTriggerRuntime, PostReleaseCaptureGrace, AudioPipe/realtime/reserve and ATVV protocol tests, full Swift tests, arm64/x86_64 Release builds, protocol self-tests, and `git diff --check`.
 
@@ -136,6 +166,19 @@ After successful implementation, update `CURRENT_STATUS.md` and `CURRENT_TASK.md
 
 ## Observed execution evidence
 
+### Hardware-mapped rapid re-press continuation
+
+- Stage A result: `FINDING_CONFIRMED`. At start, local and remote branch HEAD were both `9cae6c60f2f0fafaa2e27b49dd5a0fdcb646c93e`, the canonical writer was `/private/tmp/remoteorbit-voice-pipeline-simplification-042`, and the worktree was clean.
+- The production path passes `usesHardwareOption=isVoiceHIDMappingEnabled()`. Before this continuation, the direct pending branch returned without hardware capture ownership; existing `beginOptionDeferral(newSession)` would abort the old held-UP owner. The first RED test observed `pass` instead of a captured B mapped DOWN.
+- The corrective adds explicit old-UP/new-DOWN ownership serialization in `main.swift`, including old replay pass acknowledgement gating, fresh-turn B promotion, early-UP tombstone suppression, and one-slot enforcement. No BLE semantic change was needed; `BLEBridge.swift` did not change.
+- Hardware deterministic cases: `5/5`; focused requested suites: `238/238`; full Swift tests: `595/595`.
+- Final commands and evidence:
+  - `swift build -c release --scratch-path /private/tmp/remoteorbit-042-arm64-release --triple arm64-apple-macos14.0` — exit `0`.
+  - `swift build -c release --scratch-path /private/tmp/remoteorbit-042-x86-release --triple x86_64-apple-macos14.0` — exit `0`.
+  - `./run-self-tests.sh` — exit `0`.
+  - `git diff --check` — exit `0`.
+- No package, install, runtime retest, driver/TCC change, merge, tag, release, or Gate F action was performed.
+
 - Audited start control HEAD: `3d0ae437bb43efaca529a7278de519141a65d31d`; live remote remained equal after fetch/reconcile before control update.
 - The corrective is implemented within the authorized boundary. HOST_MIC_OPEN supersession is reason `0x03` plus matching released host grace, physical release, and no active AUDIO_STOP drain; it locally retires only the old host intent, cancels its grace callback, suppresses its MIC_CLOSE, preserves READY, and admits the incoming stream as `preHIDPhysical`.
 - Direct re-press serialization uses exactly one pending direct slot containing the new session ID, profile, and hardware/synthetic trigger mode. It waits for old output drain and trigger UP, preserves the live pre-HID candidate, activates on the next main-queue turn, and cancels cleanly on an early pending HID UP.
@@ -150,4 +193,4 @@ After successful implementation, update `CURRENT_STATUS.md` and `CURRENT_TASK.md
 
 ## Stop state
 
-This task is now `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The next safe action is to push this existing 042 branch, verify exact local/remote equality, and await the independent source audit. Human corrective runtime acceptance remains pending and is not claimed by this execution.
+This task remains `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The next safe action is to commit and push this bounded hardware corrective on the existing 042 branch, verify exact local/remote equality, and await the independent source audit. Human corrective runtime acceptance remains pending and is not claimed by this execution.
