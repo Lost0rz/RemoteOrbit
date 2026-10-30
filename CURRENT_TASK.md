@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Gate E End-to-End Voice Boundary Hardening
 
-Status: `READY_FOR_LOCAL_GATE_E`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -268,9 +268,44 @@ If a real blocker requires a material Gate A-D redesign, STOP and report the dep
 31. protocol self-tests pass;
 32. `git diff --check` passes.
 
+## Gate E executor result
+
+The required source audit found a real failure-retirement defect in the
+accepted direct path: BLE/ATVV loss could leave trigger ownership and the
+remote route active until a physical UP that might never arrive. A second
+source-order gap left a no-AUDIO_START opening in DRAINING after the existing
+post-release MIC_CLOSE because no stream-stop lifecycle callback was emitted.
+
+The bounded correction is complete:
+
+- direct transport loss now retires through the existing route-inactive,
+  output-drain, and captured-trigger release chain even without physical UP;
+- transport reset reports connection loss when voice intent was active before
+  strict READY, allowing the same failure retirement to run;
+- no-stream post-release close emits the existing streaming-false callback;
+  active streaming still uses the existing AUDIO_STOP/tail retirement;
+- output-drain callbacks remain session-identity guarded, so stale Session A
+  completion cannot release Session B.
+
+No classifier, first-PCM/reserve gate, new buffering, adaptive jitter,
+rebuffering, timing change, BLE/ATVV protocol change, or diagnostic authority
+was added. Accepted Gate A, B, C, and D semantics are unchanged.
+
+Verification receipt:
+
+- focused Gate E/direct transport and required regression suites: `144/144`;
+- full Swift tests: `563/563`;
+- arm64 Release: pass;
+- x86_64 Release: pass;
+- protocol self-tests: `3/3` pass;
+- `git diff --check`: pass.
+
+This is source/test evidence only. Installed, hardware, Air, natural-use,
+packaging, driver, TCC, and runtime acceptance remain outside this task.
+
 ## Completion / stop state
 
-After Gate E implementation and verification:
+Gate E implementation and verification are complete:
 
 - update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
 - commit only authorized Gate E work;

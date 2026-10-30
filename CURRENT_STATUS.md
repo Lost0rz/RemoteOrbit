@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — READY_FOR_LOCAL_GATE_E`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -50,9 +50,68 @@ Accepted properties:
 
 Executor evidence recorded focused corrective suites `27/27`, full Swift `557/557`, arm64/x86_64 Release builds, protocol self-tests `3/3`, and `git diff --check` passing. This source acceptance does not claim installed/hardware/Air natural-use acceptance.
 
+## Gate E — LOCAL SOURCE HARDENING COMPLETE / WAITING FOR INDEPENDENT WEB AUDIT
+
+The Gate A–D source audit found one real failure-retirement boundary defect and
+one missing completion notification in the existing path:
+
+- direct sessions could retain trigger ownership and the remote route after
+  BLE/ATVV transport loss when HID had not yet delivered physical UP;
+- a MIC_OPEN attempt that received no AUDIO_START could close through the
+  existing post-release grace while leaving the direct voice coordinator in
+  DRAINING because no stream-stop callback was emitted.
+
+The minimal Gate E correction keeps the existing ownership and drain chain:
+
+- a transport failure is now a terminal retirement boundary for the direct
+  session; it withdraws the remote route, waits on the existing output-drain
+  callback, and releases the captured trigger at most once even without a
+  physical UP edge;
+- transport reset notifies the existing connection-loss callback when a voice
+  intent was active even if strict READY was never reached;
+- a post-release MIC_CLOSE with no active stream emits the existing
+  `onStreamingChanged(false)` lifecycle notification, while an active stream
+  still waits for the existing AUDIO_STOP/tail retirement path;
+- stale output-drain completions remain session-identity guarded and cannot
+  release the next direct session.
+
+No classifier, first-PCM/reserve gate, BLE/ATVV protocol change, new queue,
+timing change, rebuffering policy, or second diagnostic authority was added.
+The accepted Gate A, B, C, and D semantic boundaries remain unchanged.
+
+### Gate E source-audit and verification receipt
+
+- Focused Gate E/direct transport and required regression suites: `144/144` passed.
+- Full Swift test suite: `563/563` passed.
+- arm64 Release build: passed.
+- x86_64 Release build: passed.
+- Protocol self-tests: `3/3` passed.
+- `git diff --check`: passed.
+
+The source audit and tests cover immediate direct DOWN/profile ownership,
+strict-READY MIC_OPEN separation, physical-UP/drain ordering, tail bypass and
+actual ring-empty completion, no-AUDIO_START cleanup, OPENING/STREAMING
+transport loss, failed-session reset, rapid next-session admission, stale
+drain callbacks, Gate D reserve truthfulness, Gate A/B/C, ATVV, 041 diagnostic,
+and exporter regressions. This is source/test evidence only; no installed,
+hardware, Air, natural-use, packaging, or runtime acceptance is claimed.
+
+The Gate E diff review found no accepted Gate A–D semantic change:
+
+- Gate A: unchanged;
+- Gate B: unchanged strict READY/healthy reuse and protocol behavior;
+- Gate C: unchanged ring capacity, overflow, realtime, and drain ownership;
+- Gate D: unchanged 45 ms default, candidate set, lifecycle gate, and reserve
+  diagnostics.
+
+The only changed product paths are failure retirement and its existing
+transport lifecycle notification. No merge, tag, release, package/install,
+driver, TCC, or Air operation was performed.
+
 ## Current authorized gate
 
-`Gate E — End-to-end voice boundary hardening` is now authorized for local construction.
+`Gate E — End-to-end voice boundary hardening` was authorized for local
+construction; that construction and its required verification are now complete.
 
 Gate E is the final source-level boundary gate for 042. It may harden and test the start/end ordering from physical voice edges through trigger ownership, ATVV stream lifecycle, Gate D reserve, Gate C ring drain, and final trigger release. It must not redesign accepted Gate A-D architecture or introduce new buffering/transport policy.
 
@@ -78,3 +137,13 @@ VOICE UP
 ```
 
 No merge/tag/release/install/TCC/Air mutation is authorized in Gate E. After local implementation and verification, push the same branch and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+
+## Stop / next
+
+Gate E implementation and required verification are complete on the canonical
+writer. Commit and push only this bounded Gate E correction, verify exact local
+and remote equality, then remain stopped at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+for a fresh independent Web/code audit of the Gate E head.
+
+Do not begin another gate. Do not merge, tag, release, package/install, mutate
+TCC, or change Air runtime.

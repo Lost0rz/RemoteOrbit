@@ -186,6 +186,145 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         XCTAssertEqual(press.diagnosticStateFields["remote_routed"] as? Bool, false)
     }
 
+    func testNoAudioStartTransportCloseRetiresAfterPhysicalUp() {
+        var completeDrain: (() -> Void)?
+        let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _, _ in })
+        press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertTrue(press.keyUp())
+        XCTAssertEqual(press.currentStateForTesting, .draining)
+
+        // This is the callback emitted when post-release MIC_CLOSE retires an
+        // opening attempt that never produced AUDIO_START.
+        press.setRemoteStreaming(false)
+        XCTAssertNotNil(completeDrain)
+        completeDrain?()
+
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        XCTAssertNil(press.currentGestureIDForDiagnostics)
+    }
+
+    func testOpeningTransportLossRetiresWithoutAudioStartOrPhysicalUp() {
+        var events: [Bool] = []
+        var completeDrain: (() -> Void)?
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+        press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        press.handleTransportLoss()
+
+        XCTAssertEqual(press.currentStateForTesting, .draining)
+        XCTAssertEqual(press.diagnosticStateFields["remote_routed"] as? Bool, false)
+        XCTAssertNotNil(completeDrain)
+
+        completeDrain?()
+
+        XCTAssertEqual(events, [true, false])
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        XCTAssertNil(press.currentGestureIDForDiagnostics)
+        XCTAssertNil(press.capturedVoiceProfileForTesting)
+    }
+
+    func testStreamingTransportLossRetiresWithoutWaitingForPhysicalUp() {
+        var events: [Bool] = []
+        var completeDrain: (() -> Void)?
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+        press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        press.setRemoteStreaming(true)
+        press.handleTransportLoss()
+
+        XCTAssertEqual(press.currentStateForTesting, .draining)
+        XCTAssertEqual(press.diagnosticStateFields["remote_routed"] as? Bool, false)
+        XCTAssertNotNil(completeDrain)
+
+        completeDrain?()
+
+        XCTAssertEqual(events, [true, false])
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+        XCTAssertNil(press.currentGestureIDForDiagnostics)
+    }
+
+    func testStaleOutputDrainCompletionCannotReleaseNextDirectSession() {
+        var events: [Bool] = []
+        var firstDrain: (() -> Void)?
+        var secondDrain: (() -> Void)?
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { events.append($0) }
+        )
+        var drainCount = 0
+        press.onRemoteOutputDrain = { _, completion in
+            drainCount += 1
+            if drainCount == 1 {
+                firstDrain = completion
+            } else {
+                secondDrain = completion
+            }
+        }
+
+        let firstSessionID = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: firstSessionID,
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        XCTAssertNotNil(firstDrain)
+        firstDrain?()
+
+        let secondSessionID = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: secondSessionID,
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        firstDrain?()
+
+        XCTAssertEqual(press.currentGestureIDForDiagnostics, secondSessionID)
+        XCTAssertEqual(events, [true, false, true])
+
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        secondDrain?()
+        XCTAssertEqual(events, [true, false, true, false])
+    }
+
     func testRapidNextSessionWaitsForTailAndOutputDrainThenStartsCleanly() {
         var completeDrain: (() -> Void)?
         let press = VoicePressCoordinator(optionTrigger: VoiceOptionTrigger { _, _ in })

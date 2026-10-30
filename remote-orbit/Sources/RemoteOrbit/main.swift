@@ -913,19 +913,30 @@ final class VoicePressCoordinator {
         return true
     }
 
-    private func finishDirectTransportStop(sessionID: UUID) {
+    private func finishDirectTransportStop(
+        sessionID: UUID,
+        allowWithoutPhysicalUp: Bool = false
+    ) {
         guard directSession,
               gestureID == sessionID,
-              directPhysicalUp,
-              directTransportStopObserved else { return }
+              directTransportStopObserved,
+              directPhysicalUp || allowWithoutPhysicalUp else { return }
         setMode(.draining)
         AudioPipe.shared.endRemoteCandidate()
         _ = setRemoteRouted(false)
-        requestDirectOutputDrain(sessionID: sessionID)
+        requestDirectOutputDrain(
+            sessionID: sessionID,
+            allowWithoutPhysicalUp: allowWithoutPhysicalUp
+        )
     }
 
-    private func requestDirectOutputDrain(sessionID: UUID) {
-        guard directSession, gestureID == sessionID, directPhysicalUp else { return }
+    private func requestDirectOutputDrain(
+        sessionID: UUID,
+        allowWithoutPhysicalUp: Bool = false
+    ) {
+        guard directSession,
+              gestureID == sessionID,
+              directPhysicalUp || allowWithoutPhysicalUp else { return }
         guard !directOutputDrainRequested else { return }
         directOutputDrainRequested = true
         VoiceTimingLogger.mark("OUTPUT_DRAIN_BEGIN", sessionID: sessionID)
@@ -1840,8 +1851,31 @@ final class VoicePressCoordinator {
             onRemoteAudioChanged?(false)
             if deviceRemoved, !directPhysicalUp {
                 _ = finishDirectVoicePressRelease()
-            } else if directPhysicalUp, let sessionID = gestureID {
-                finishDirectTransportStop(sessionID: sessionID)
+            }
+            if let sessionID = gestureID {
+                // A transport failure is a terminal retirement boundary even
+                // when HID has not delivered physical UP. The existing output
+                // drain and trigger-owner guards still serialize final release;
+                // the optional physical-up bypass only prevents a dead ATVV
+                // session from leaving the trigger and route permanently held.
+                if !directPhysicalUp {
+                    VoiceTimingLogger.mark("STOP_REQUESTED", sessionID: sessionID)
+                    diagnosticLogger?.log(
+                        category: "voice",
+                        event: "VOICE_TRANSPORT_LOST",
+                        gestureID: sessionID,
+                        key: capturedVoiceProfile?.triggerKey,
+                        fields: [
+                            "voice_session_state": modeName,
+                            "physical_up_seen": false,
+                            "device_removed": deviceRemoved,
+                        ]
+                    )
+                }
+                finishDirectTransportStop(
+                    sessionID: sessionID,
+                    allowWithoutPhysicalUp: true
+                )
             }
             return
         }

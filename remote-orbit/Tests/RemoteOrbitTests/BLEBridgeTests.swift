@@ -229,6 +229,32 @@ final class BLEBridgeTests: XCTestCase {
         XCTAssertFalse(state.shouldRequestMicOpen)
     }
 
+    func testVoiceIntentTransportResetNotifiesConnectionLossBeforeReady() {
+        let bridge = BLEBridge()
+        var connectionEvents: [Bool] = []
+        bridge.onConnectionChanged = { connectionEvents.append($0) }
+        bridge.requestVoiceInputForTesting()
+
+        bridge.resetTransportForTesting()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(connectionEvents, [false])
+        bridge.stop()
+    }
+
+    func testNoAudioVoiceCloseNotifiesStreamingRetirement() {
+        let bridge = BLEBridge()
+        var streamingEvents: [Bool] = []
+        bridge.onStreamingChanged = { streaming, _ in streamingEvents.append(streaming) }
+        bridge.requestVoiceInputForTesting()
+
+        bridge.completeNoAudioVoiceCloseForTesting()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(streamingEvents, [false])
+        bridge.stop()
+    }
+
     func testReadyTransportSurvivesVoiceSessionCloseAndCanReuseMicOpen() {
         var state = BLEVoiceTransportState()
 

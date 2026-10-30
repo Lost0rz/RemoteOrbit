@@ -344,6 +344,19 @@ final class BLEBridge: NSObject {
         }
     }
 
+    func requestVoiceInputForTesting() {
+        performOnBLEQueueSynchronously {
+            self.transportState.requestVoiceInput()
+            self.transportState.micOpenRequested = true
+        }
+    }
+
+    func completeNoAudioVoiceCloseForTesting() {
+        performOnBLEQueueSynchronously {
+            self.sendMicCloseAfterPostReleaseGrace(sessionID: self.streamSessionID)
+        }
+    }
+
     func appendRecordingDataForTesting(rawData: Data, samples: [Int16]) {
         performOnBLEQueueSynchronously {
             self.wavRecorder?.appendRawBytes(rawData)
@@ -620,6 +633,7 @@ final class BLEBridge: NSObject {
             return
         }
 
+        let wasStreaming = isStreaming
         let hadMicOpen = transportState.micOpenRequested
         transportState.finishVoiceSession()
         if hadMicOpen, transportState.atvvReady {
@@ -638,6 +652,14 @@ final class BLEBridge: NSObject {
         }
         scheduleVoiceCloseTimeoutIfNeeded()
         updateDiagnosticTransportState()
+        if !wasStreaming {
+            // MIC_OPEN can be accepted without a matching AUDIO_START. The
+            // post-release close is then the truthful terminal boundary for
+            // the opening attempt; notify the existing voice lifecycle owner
+            // so it can finish the already-physical-up session through the
+            // normal output-drain/trigger-release path.
+            notifyStreaming(false)
+        }
         print("[BLE] voice session closed; ATVV transport remains READY")
     }
 
@@ -913,6 +935,8 @@ final class BLEBridge: NSObject {
             wavRecorder = nil
         }
         let wasStreaming = isStreaming
+        let hadVoiceIntent = transportState.voiceInputRequested
+            || transportState.micOpenRequested
         isStreaming = false
         pendingAudioStopReason = nil
         protocolHandler.endAudioStream()
@@ -927,7 +951,7 @@ final class BLEBridge: NSObject {
         if wasStreaming || notify {
             notifyStreaming(false)
         }
-        if wasReady {
+        if wasReady || (notify && hadVoiceIntent) {
             notifyConnectionChanged(false)
         }
         updateDiagnosticTransportState()
