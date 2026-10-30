@@ -426,6 +426,10 @@ final class VoicePressCoordinator {
     /// that boundary clear; it must not start a stream that AUDIO_START will
     /// immediately reject as a late packet.
     var isVoiceSessionAdmissionBlocked: (() -> Bool)?
+    /// BLE-owned candidate truth for rapid physical re-press admission. This
+    /// synchronous read is authoritative; the mirrored flag below is only a
+    /// lifecycle notification for the coordinator/UI.
+    var hasLivePhysicalCandidate: (() -> Bool)?
     /// The raw HID voice-key release arms the matching mapped Option-up.
     var onHardwareOptionGatePhysicalUp: ((UUID) -> Void)?
     /// Release a replayed hardware Option-up after output drain.
@@ -577,6 +581,10 @@ final class VoicePressCoordinator {
 
     var preHIDPhysicalStreamingForTesting: Bool {
         preHIDPhysicalStreaming
+    }
+
+    private var livePhysicalCandidateForAdmission: Bool {
+        hasLivePhysicalCandidate?() ?? preHIDPhysicalStreaming
     }
 
     var persistentSessionActiveForTesting: Bool {
@@ -860,9 +868,8 @@ final class VoicePressCoordinator {
     ) -> Bool {
         if directSession,
            directPhysicalUp,
-           directOutputDrainRequested,
            !directOutputDrained,
-           preHIDPhysicalStreaming {
+           livePhysicalCandidateForAdmission {
             if pendingRepress == nil && !deferredRepressAwaitingActivation {
                 pendingRepress = PendingRepress(
                     sessionID: sessionID,
@@ -1801,6 +1808,10 @@ final class VoicePressCoordinator {
     }
 
     func setPreHIDPhysicalStreaming(_ streaming: Bool) {
+        if !streaming, hasLivePhysicalCandidate?() == true {
+            // An old epoch's callback must not erase newer BLE-owned truth.
+            return
+        }
         preHIDPhysicalStreaming = streaming
         diagnosticLogger?.log(
             category: "voice",
@@ -1820,7 +1831,9 @@ final class VoicePressCoordinator {
 
     func setRemoteStreaming(_ streaming: Bool) {
         if directSession {
-            preHIDPhysicalStreaming = false
+            if hasLivePhysicalCandidate?() != true {
+                preHIDPhysicalStreaming = false
+            }
             remoteStreaming = streaming
             directTransportStopObserved = !streaming
             diagnosticLogger?.log(
@@ -2355,7 +2368,7 @@ final class VoicePressCoordinator {
         guard pendingRepress.isStillHeld else { return }
 
         if pendingRepress.isDirectSession {
-            guard preHIDPhysicalStreaming,
+            guard livePhysicalCandidateForAdmission,
                   startDirectVoicePress(
                       sessionID: pendingRepress.sessionID,
                       profile: pendingRepress.directProfile ?? .defaultProfile,
@@ -4454,6 +4467,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         voicePress.isVoiceSessionAdmissionBlocked = { [weak self] in
             self?.ble.isVoiceSessionAdmissionBlocked ?? false
+        }
+        voicePress.hasLivePhysicalCandidate = { [weak self] in
+            self?.ble.hasLivePreHIDPhysicalCandidate ?? false
         }
         ble.onVoiceSessionAdmissionAvailable = { [weak self] in
             self?.voicePress.voiceSessionAdmissionBecameAvailable()
@@ -6682,7 +6698,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 button: button,
                 shouldRepeat: shouldRepeat,
                 usesAdvancedGestures: profile.usesAdvancedGestures,
-                dualReceiverVoiceMode: .legacy
+                dualReceiverVoiceMode: .legacy,
+                hasLivePhysicalCandidate: self.ble.hasLivePreHIDPhysicalCandidate
             )
         }
         hidMonitor.onButtonRepeat = { [weak self] button in

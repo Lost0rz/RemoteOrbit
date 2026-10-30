@@ -136,6 +136,37 @@ final class HIDButtonDownPolicyTests: XCTestCase {
         }
     }
 
+    func testLivePhysicalCandidateBypassesOnlyMicrophoneDebounce() {
+        let microphone = HIDButtonDownPolicy.resolve(
+            button: .microphone,
+            shouldRepeat: false,
+            usesAdvancedGestures: false,
+            dualReceiverVoiceMode: .legacy,
+            hasLivePhysicalCandidate: true
+        )
+        XCTAssertFalse(microphone.shouldDebounce)
+
+        let home = HIDButtonDownPolicy.resolve(
+            button: .home,
+            shouldRepeat: false,
+            usesAdvancedGestures: false,
+            dualReceiverVoiceMode: .legacy,
+            hasLivePhysicalCandidate: true
+        )
+        XCTAssertTrue(home.shouldDebounce)
+    }
+
+    func testNoLivePhysicalCandidatePreservesMicrophoneDebounce() {
+        let policy = HIDButtonDownPolicy.resolve(
+            button: .microphone,
+            shouldRepeat: false,
+            usesAdvancedGestures: false,
+            dualReceiverVoiceMode: .legacy,
+            hasLivePhysicalCandidate: false
+        )
+        XCTAssertTrue(policy.shouldDebounce)
+    }
+
     func testRepeatableAndAdvancedGenericButtonsKeepTheirExistingBypass() {
         let repeatablePolicy = HIDButtonDownPolicy.resolve(
             button: .down,

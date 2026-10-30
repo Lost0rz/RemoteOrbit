@@ -117,6 +117,35 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         )
     }
 
+    func testDirectRepressWithLiveCandidateDefersBeforeOutputDrainIsRequested() {
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { _, _ in }
+        )
+        press.hasLivePhysicalCandidate = { true }
+        let sessionA = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: sessionA,
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertTrue(press.keyUp())
+
+        let sessionB = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: sessionB,
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertEqual(press.pendingRepressSessionID, sessionB)
+        XCTAssertEqual(press.currentGestureIDForDiagnostics, sessionA)
+    }
+
     func testHardwareOldUpAcknowledgedBeforePendingNewDownRelease() throws {
         let harness = try HardwareRapidRepressHarness()
         let sessionB = try harness.preparePendingHardwareRepress()

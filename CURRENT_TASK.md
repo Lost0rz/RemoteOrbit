@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Rapid Re-press Transport-Epoch Corrective
 
-Status: `RC003_RUNTIME_ACCEPTANCE_FAIL / CORRECTIVE_REQUIRED`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
@@ -66,6 +66,24 @@ At minimum prove:
 9. non-0x03/same-stream input does not use this supersession;
 10. normal 350 ms tail behavior and prior HOST_MIC_OPEN safety stay green.
 
+## Delivered implementation evidence (2026-10-31)
+
+- Finding validated: the old source rejected all AUDIO_START events during a
+  physical AUDIO_STOP drain, allowed candidate PCM to consult the old active
+  route, deferred direct re-press too late, and had no BLE-owned synchronous
+  candidate truth for HID admission/debounce.
+- Corrective paths: BLE transport epoch supersession with stale callback
+  protection; candidate-only AudioPipe ingress and prebuffer preservation;
+  earlier one-slot direct re-press retention; BLE-owned live candidate read;
+  evidence-gated microphone debounce bypass.
+- Focused boundary tests: 95 passed, 0 failed.
+- Full Swift tests: 603 passed, 0 failed.
+- ARM64 Release and x86_64 Release builds passed with exact single-arch
+  validation.
+- ATVV protocol self-tests passed 3/3; `git diff --check` passed.
+- No package/install/runtime retest, driver/TCC mutation, merge/tag/release, or
+  Gate F was performed.
+
 Run relevant BLEBridge, AudioPipe, VoicePipelineSimplification/direct-session, HID/debounce policy, VoiceBoundaryOrdering, VoiceTriggerRuntime, PostReleaseCaptureGrace, realtime/reserve and ATVV tests; then full Swift tests, arm64/x86_64 Release builds, protocol self-tests and `git diff --check`.
 
 ## Boundary
@@ -78,4 +96,6 @@ If the smallest fix cannot preserve these boundaries, STOP and return evidence.
 
 Return start/final/local/remote identity, exact failure-model validation, transport-epoch predicate and stale-callback protection, candidate isolation, candidate preservation across old drain, earlier re-press deferral, live-candidate truth, debounce result, RED/GREEN tests, focused/full tests/builds/self-tests/diff check, changed paths, preserved-boundary flags, unresolved issues and next safe action.
 
-After successful source implementation, update both controls, push only the existing 042 branch, verify remote equality, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install before that audit.
+After successful source implementation, push only the existing 042 branch,
+verify remote equality, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not
+package/install before that audit.

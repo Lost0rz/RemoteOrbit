@@ -13,6 +13,7 @@ import Foundation
 
 enum BLEAudioStartDisposition: Equatable {
     case accepted
+    case supersedePhysicalDrain
     case ignoredDuringDrain(
         currentStreamID: UInt8,
         incomingStreamID: UInt8,
@@ -254,6 +255,10 @@ final class BLEBridge: NSObject {
     private var handshakeTimeoutWorkItem: DispatchWorkItem?
     private var voiceCloseTimeoutWorkItem: DispatchWorkItem?
     private var audioStopDrainWorkItem: DispatchWorkItem?
+    /// Identity of the transport epoch that owns the current drain barrier.
+    /// A canceled work item may still execute, so the work item itself is not
+    /// sufficient protection against an old completion retiring a new stream.
+    private var audioStopDrainEpoch: UInt64?
     private lazy var postReleaseGrace = PostReleaseCaptureGraceController(queue: bleQueue)
     private let reconnectDelays: [TimeInterval] = [1, 2, 4, 8, 15, 30]
     private let scanTimeout: TimeInterval = 8
@@ -269,6 +274,7 @@ final class BLEBridge: NSObject {
     private let voiceCloseTimeout: TimeInterval = 0.60
 
     private let protocolHandler = ATVVProtocol()
+    private var transportEpoch: UInt64 = 0
     private var streamID: UInt8 = 0
     private var isStreaming = false
     private var streamOwnership: BLEStreamOwnership = .none
@@ -326,6 +332,21 @@ final class BLEBridge: NSObject {
             return audioStopDrainWorkItem != nil
         }
         return bleQueue.sync { audioStopDrainWorkItem != nil }
+    }
+
+    /// BLE-owned live truth for the narrow physical-candidate boundary. HID
+    /// admission and debounce must not wait for a main-queue mirror callback.
+    var hasLivePreHIDPhysicalCandidate: Bool {
+        if DispatchQueue.getSpecific(key: bleQueueKey) != nil {
+            return isStreaming && streamOwnership == .preHIDPhysical
+        }
+        return bleQueue.sync {
+            isStreaming && streamOwnership == .preHIDPhysical
+        }
+    }
+
+    var hasLivePreHIDPhysicalCandidateForTesting: Bool {
+        hasLivePreHIDPhysicalCandidate
     }
 
     func queueIdentityForTesting() -> (label: String, isDedicatedQueue: Bool) {
@@ -417,6 +438,8 @@ final class BLEBridge: NSObject {
         performOnBLEQueueSynchronously {
             self.audioStopDrainWorkItem?.cancel()
             self.isStreaming = true
+            self.pendingAudioStopReason = 0x02
+            self.audioStopDrainEpoch = self.transportEpoch
             self.audioStopDrainWorkItem = DispatchWorkItem { }
         }
     }
@@ -424,6 +447,13 @@ final class BLEBridge: NSObject {
     func completeAudioStopDrainForTesting() {
         performOnBLEQueueSynchronously {
             self.finishAudioStopAfterDrain()
+        }
+    }
+
+    func completeStaleAudioStopDrainForTesting() {
+        performOnBLEQueueSynchronously {
+            guard self.transportEpoch > 0 else { return }
+            self.finishAudioStopAfterDrain(expectedEpoch: self.transportEpoch - 1)
         }
     }
 
@@ -523,8 +553,18 @@ final class BLEBridge: NSObject {
         drainPending: Bool,
         currentStreamID: UInt8,
         incomingStreamID: UInt8,
-        pendingAudioStopReason: UInt8?
+        pendingAudioStopReason: UInt8?,
+        incomingReason: UInt8? = nil,
+        currentStreamOwnership: BLEStreamOwnership = .none,
+        currentStreamIsPhysical: Bool = false
     ) -> BLEAudioStartDisposition {
+        if drainPending,
+           pendingAudioStopReason != nil,
+           incomingReason == 0x03,
+           incomingStreamID != currentStreamID,
+           (currentStreamOwnership == .preHIDPhysical || currentStreamIsPhysical) {
+            return .supersedePhysicalDrain
+        }
         guard drainPending == false else {
             return .ignoredDuringDrain(
                 currentStreamID: currentStreamID,
@@ -1717,17 +1757,30 @@ extension BLEBridge: CBPeripheralDelegate {
                 print("[BLE] caps error: \(error.localizedDescription)")
             }
         case .audioStart(let reason, let codec, let sid):
-            switch Self.audioStartDisposition(
+            let disposition = Self.audioStartDisposition(
                 drainPending: audioStopDrainWorkItem != nil,
                 currentStreamID: streamID,
                 incomingStreamID: sid,
-                pendingAudioStopReason: pendingAudioStopReason
-            ) {
+                pendingAudioStopReason: pendingAudioStopReason,
+                incomingReason: reason,
+                currentStreamOwnership: streamOwnership,
+                currentStreamIsPhysical: streamSessionOrigin == .physicalHTT
+            )
+            let supersedingPhysicalDrain: Bool
+            switch disposition {
             case .accepted:
+                supersedingPhysicalDrain = false
                 if !supersedeReleasedHostMicOpenGraceIfNeeded(reason: reason) {
                     cancelPostReleaseGraceIfIncompatibleSession()
                 }
                 break
+            case .supersedePhysicalDrain:
+                supersedingPhysicalDrain = true
+                // This retires only A's BLE ingress barrier. AudioPipe's
+                // already-queued output remains untouched for the normal
+                // output-drain lifecycle.
+                _ = retireAudioStopDrainBarrier()
+                cancelPostReleaseGraceIfIncompatibleSession()
             case let .ignoredDuringDrain(currentStreamID, incomingStreamID, reason):
                 let reasonText = reason.map { String(format: "0x%02x", $0) } ?? "none"
                 print(
@@ -1738,22 +1791,29 @@ extension BLEBridge: CBPeripheralDelegate {
                 )
                 return
             }
+            transportEpoch &+= 1
             pendingAudioStopReason = nil
             protocolHandler.beginAudioStream(codec: codec)
             // Some firmware emits AUDIO_START before the matching HID
             // key-down reaches the tap. Keep the same bounded pre-roll alive
             // from the earliest audio-stream notification.
-            AudioPipe.shared.beginRemoteCandidate()
+            AudioPipe.shared.beginRemoteCandidate(
+                replacingExisting: supersedingPhysicalDrain
+            )
             streamID = sid
             isStreaming = true
-            streamSessionOrigin = ATVVKeepAliveTelemetry.sessionOrigin(
-                micOpenRequested: transportState.micOpenRequested,
-                voiceInputRequested: transportState.voiceInputRequested
-            )
-            streamOwnership = Self.streamOwnershipForAudioStart(
-                micOpenRequested: transportState.micOpenRequested,
-                voiceInputRequested: transportState.voiceInputRequested
-            )
+            streamSessionOrigin = supersedingPhysicalDrain
+                ? .physicalHTT
+                : ATVVKeepAliveTelemetry.sessionOrigin(
+                    micOpenRequested: transportState.micOpenRequested,
+                    voiceInputRequested: transportState.voiceInputRequested
+                )
+            streamOwnership = supersedingPhysicalDrain
+                ? .preHIDPhysical
+                : Self.streamOwnershipForAudioStart(
+                    micOpenRequested: transportState.micOpenRequested,
+                    voiceInputRequested: transportState.voiceInputRequested
+                )
             if streamOwnership == .preHIDPhysical {
                 notifyPreHIDPhysicalStreaming(true)
             } else {
@@ -1850,8 +1910,10 @@ extension BLEBridge: CBPeripheralDelegate {
                     "for \(Int(audioStopDrainDelay * 1_000))ms " +
                     "reason=0x\(String(format: "%02x", reason))"
             )
+            let drainEpoch = transportEpoch
+            self.audioStopDrainEpoch = drainEpoch
             let work = DispatchWorkItem { [weak self] in
-                self?.finishAudioStopAfterDrain()
+                self?.finishAudioStopAfterDrain(expectedEpoch: drainEpoch)
             }
             audioStopDrainWorkItem = work
             bleQueue.asyncAfter(
@@ -2034,7 +2096,11 @@ extension BLEBridge: CBPeripheralDelegate {
         wavRecorder?.appendSamples(frame.samples)
 
         // Queue the decoded frame before opening the external voice dialog.
-        AudioPipe.shared.feed(samples: frame.samples)
+        if streamOwnership == .preHIDPhysical {
+            AudioPipe.shared.feedCandidate(samples: frame.samples)
+        } else {
+            AudioPipe.shared.feed(samples: frame.samples)
+        }
         notifyAudioFrame()
         let needsLevel = onLevel != nil || Self.diagnosticsEnabled
         if needsLevel {
@@ -2064,8 +2130,17 @@ extension BLEBridge: CBPeripheralDelegate {
         }
     }
 
-    private func finishAudioStopAfterDrain() {
+    private func finishAudioStopAfterDrain(expectedEpoch: UInt64? = nil) {
         guard audioStopDrainWorkItem != nil else { return }
+        if let expectedEpoch, audioStopDrainEpoch != expectedEpoch {
+            let currentEpochText = audioStopDrainEpoch.map(String.init) ?? "none"
+            print(
+                "[BLE] stale AUDIO_STOP drain completion ignored "
+                    + "expected_epoch=\(expectedEpoch) "
+                    + "current_epoch=\(currentEpochText)"
+            )
+            return
+        }
         voiceCloseTimeoutWorkItem?.cancel()
         voiceCloseTimeoutWorkItem = nil
         guard isStreaming else {
@@ -2283,6 +2358,7 @@ extension BLEBridge: CBPeripheralDelegate {
         guard audioStopDrainWorkItem != nil else { return false }
         audioStopDrainWorkItem?.cancel()
         audioStopDrainWorkItem = nil
+        audioStopDrainEpoch = nil
         notifyVoiceSessionAdmissionAvailable()
         return true
     }

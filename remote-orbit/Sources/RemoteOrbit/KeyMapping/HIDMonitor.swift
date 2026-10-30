@@ -24,7 +24,8 @@ struct HIDButtonDownPolicy {
         button: RemoteButton,
         shouldRepeat: Bool,
         usesAdvancedGestures: Bool,
-        dualReceiverVoiceMode: DualReceiverVoiceMode
+        dualReceiverVoiceMode: DualReceiverVoiceMode,
+        hasLivePhysicalCandidate: Bool = false
     ) -> HIDButtonDownPolicy {
         let advanced = button != .microphone && usesAdvancedGestures
         let activeDualReceiverMicrophone: Bool
@@ -35,7 +36,10 @@ struct HIDButtonDownPolicy {
         }
 
         return HIDButtonDownPolicy(
-            shouldDebounce: !shouldRepeat && !advanced && !activeDualReceiverMicrophone,
+            shouldDebounce: !shouldRepeat
+                && !advanced
+                && !activeDualReceiverMicrophone
+                && !(button == .microphone && hasLivePhysicalCandidate),
             shouldRepeat: shouldRepeat
         )
     }

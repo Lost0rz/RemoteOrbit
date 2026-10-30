@@ -219,6 +219,83 @@ final class BLEBridgeTests: XCTestCase {
         XCTAssertTrue(harness.press.hasReleaseOrTailOwnershipForReconfiguration)
     }
 
+    func testPhysicalReason03DifferentStreamSupersedesOldPhysicalDrainAndStaleDrainCannotRetireIt() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.requestVoiceActivationForTesting()
+        bridge.beginPreHIDPhysicalStreamForTesting()
+        bridge.beginAudioStopDrainForTesting()
+        XCTAssertTrue(bridge.isVoiceSessionAdmissionBlocked)
+
+        bridge.receiveAudioStartForTesting(reason: 0x03, streamID: 0x4c)
+
+        XCTAssertFalse(bridge.isVoiceSessionAdmissionBlocked)
+        XCTAssertTrue(bridge.hasLivePreHIDPhysicalCandidateForTesting)
+
+        // A later B drain makes the stale-A callback observable: it must not
+        // complete B's barrier or clear B's ownership.
+        bridge.beginAudioStopDrainForTesting()
+        bridge.completeStaleAudioStopDrainForTesting()
+        XCTAssertTrue(bridge.isVoiceSessionAdmissionBlocked)
+        XCTAssertTrue(bridge.hasLivePreHIDPhysicalCandidateForTesting)
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .preHIDPhysical)
+
+        // The current B completion still retires normally.
+        bridge.completeAudioStopDrainForTesting()
+        XCTAssertFalse(bridge.hasLivePreHIDPhysicalCandidateForTesting)
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .none)
+    }
+
+    func testSameStreamAndNonPhysicalReasonDoNotSupersedePhysicalDrain() {
+        let sameStream = BLEBridge.audioStartDisposition(
+            drainPending: true,
+            currentStreamID: 0x4c,
+            incomingStreamID: 0x4c,
+            pendingAudioStopReason: 0x02,
+            incomingReason: 0x03,
+            currentStreamOwnership: .preHIDPhysical
+        )
+        XCTAssertEqual(
+            sameStream,
+            .ignoredDuringDrain(
+                currentStreamID: 0x4c,
+                incomingStreamID: 0x4c,
+                pendingAudioStopReason: 0x02
+            )
+        )
+
+        let nonPhysicalReason = BLEBridge.audioStartDisposition(
+            drainPending: true,
+            currentStreamID: 0x4c,
+            incomingStreamID: 0x4d,
+            pendingAudioStopReason: 0x02,
+            incomingReason: 0x02,
+            currentStreamOwnership: .preHIDPhysical
+        )
+        XCTAssertEqual(
+            nonPhysicalReason,
+            .ignoredDuringDrain(
+                currentStreamID: 0x4c,
+                incomingStreamID: 0x4d,
+                pendingAudioStopReason: 0x02
+            )
+        )
+
+        XCTAssertEqual(
+            BLEBridge.audioStartDisposition(
+                drainPending: true,
+                currentStreamID: 0x4c,
+                incomingStreamID: 0x4d,
+                pendingAudioStopReason: 0x02,
+                incomingReason: 0x03,
+                currentStreamOwnership: .voiceSession,
+                currentStreamIsPhysical: true
+            ),
+            .supersedePhysicalDrain
+        )
+    }
+
     func testHOST_AUDIO_STOP_DRAINED_THEN_REASON03_BEFORE_HID_SUPERSEDES_HOST_GRACE() {
         let bridge = BLEBridge()
         let press = VoicePressCoordinator(

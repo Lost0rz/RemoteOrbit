@@ -288,15 +288,40 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         SystemAudioDeviceManager.applyPreferredInputSelection()
     }
 
-    func beginRemoteCandidate() {
+    func beginRemoteCandidate(replacingExisting: Bool = false) {
         stateLock.lock()
-        guard !remoteCandidateActive else {
+        guard replacingExisting || !remoteCandidateActive else {
             stateLock.unlock()
             return
         }
         remoteCandidateActive = true
         pendingRemotePrebuffer.removeAll(keepingCapacity: true)
         stateLock.unlock()
+    }
+
+    /// Append PCM for a live pre-HID physical transport epoch without
+    /// consulting the active output route. This is the candidate-only ingress
+    /// used while a previous session's output tail is still rendering.
+    func feedCandidate(samples: [Int16]) {
+        guard !samples.isEmpty else { return }
+        stateLock.lock()
+        guard remoteCandidateActive else {
+            stateLock.unlock()
+            return
+        }
+        pendingRemotePrebuffer.append(contentsOf: samples)
+        if pendingRemotePrebuffer.count > remotePrebufferLimit {
+            pendingRemotePrebuffer.removeFirst(
+                pendingRemotePrebuffer.count - remotePrebufferLimit
+            )
+        }
+        stateLock.unlock()
+    }
+
+    var pendingRemoteCandidateSamplesForTesting: Int {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return pendingRemotePrebuffer.count
     }
 
     func endRemoteCandidate() {
@@ -404,7 +429,12 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             )
         } else {
             realtimeDiagnostics.setRemoteActive(false)
-            pendingRemotePrebuffer.removeAll(keepingCapacity: true)
+            // A replacement physical candidate may already own this
+            // prebuffer while A's route is being retired. Only discard a
+            // candidate when the candidate owner has explicitly ended it.
+            if !remoteCandidateActive {
+                pendingRemotePrebuffer.removeAll(keepingCapacity: true)
+            }
         }
         stateLock.unlock()
         DiagnosticRuntimeHealthRegistry.shared.setBool("audio_pipe_remote_active", active)

@@ -1,19 +1,50 @@
 # CURRENT_STATUS
 
-Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — RC003_RUNTIME_ACCEPTANCE_FAIL / CORRECTIVE_REQUIRED`
+Last updated: 2026-10-31
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
 
 - Active branch: `codex/voice-pipeline-simplification-042`.
-- Live branch before this control transition: `e19d57719019bcf415e9853d5a2ad0ac2e453773`.
+- Live branch before this control transition: `4902223a28d1b051dd36608df16eb946377aa3fe`.
 - Independent Web `CODE_DIFF` audit PASS remains valid for the prior admission-atomic source through `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`.
 - Installed RC003 candidate: `0.2.14 (43)`, packaged from control state `00106e6d02b6fc21030737cd660b456976db68e9`; this candidate FAILED final Task 042 human runtime acceptance under extreme rapid re-press.
 - Driver and TCC were not changed during runtime preparation or testing.
 - Evidence/design authority: `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`.
 - `AGENTS.md` remains durable repository authority.
 - `CURRENT_TASK.md` remains the sole active execution authorization.
+
+## RC003 corrective implementation evidence
+
+The RC003 failure model was confirmed against the live source and incident
+record. The bounded source corrective is implemented on the existing 042
+branch and is locally GREEN; independent Web source audit remains pending.
+
+- Physical supersession is limited to a real AUDIO_STOP drain with a pending
+  stop reason, incoming `AUDIO_START reason=0x03`, a different stream ID, and
+  an old physical stream (`.preHIDPhysical` or adopted physical origin).
+- The old drain callback carries its transport epoch and cannot retire a newer
+  stream. The old AudioPipe output queue remains separate from the replacement
+  candidate prebuffer.
+- Candidate PCM uses candidate-only ingress, survives old route teardown, and
+  is promoted only on later session adoption.
+- Direct re-press admission retains one pending B as soon as A physical UP and
+  BLE-owned live physical-candidate truth overlap; B remains serialized behind
+  existing output/trigger-UP ownership.
+- HID microphone debounce bypass is evidence-gated by the synchronous BLE
+  live-candidate read. Generic 180 ms debounce remains unchanged otherwise.
+
+Verification evidence:
+
+- Focused Task 042 boundary suite: 95 tests, 0 failures.
+- Full Swift test suite: 603 tests, 0 failures.
+- ARM64 Release build: PASS; single `arm64` binary verified.
+- x86_64 Release build: PASS; single `x86_64` binary verified.
+- ATVV protocol self-tests: 3/3 PASS.
+- `git diff --check`: PASS.
+- No package, install, runtime retest, driver, CoreAudio, or TCC mutation was
+  performed.
 
 ## RC003 runtime result
 
@@ -101,4 +132,8 @@ Keep generic 180 ms debounce behavior. For the microphone voice key only, a rapi
 
 ## Next
 
-Implement the bounded RC003 corrective on the existing Task 042 branch. Required product areas are BLE transport epoch handling, AudioPipe candidate isolation, direct re-press admission/serialization, and evidence-gated microphone debounce. Add deterministic regressions for every new boundary, run focused/full tests and release builds, push the existing branch, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT` before packaging/install/runtime retest.
+The source corrective and deterministic regressions are delivered on the
+existing Task 042 branch. Push the existing branch, verify exact local/remote
+equality, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not
+package/install or perform the human RC003 runtime retest until independent Web
+source audit accepts this state.

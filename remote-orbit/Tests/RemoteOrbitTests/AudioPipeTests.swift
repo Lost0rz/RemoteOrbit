@@ -77,6 +77,31 @@ final class AudioPipeTests: XCTestCase {
         pipe.endRemoteCandidate()
     }
 
+    func testReplacementCandidatePCMStaysOutOfOldRouteAndSurvivesOldTeardown() {
+        let pipe = AudioPipe.shared
+        _ = pipe.setRemoteActive(false)
+        pipe.endRemoteCandidate()
+        pipe.beginRemoteCandidate()
+        _ = pipe.setRemoteActive(true)
+        pipe.feed(samples: Array(repeating: Int16(3), count: 160))
+        let oldQueuedFrames = pipe.queuedOutputFrames
+
+        pipe.endRemoteCandidate()
+        pipe.beginRemoteCandidate(replacingExisting: true)
+        pipe.feedCandidate(samples: Array(repeating: Int16(11), count: 160))
+
+        XCTAssertEqual(pipe.queuedOutputFrames, oldQueuedFrames)
+        XCTAssertEqual(pipe.pendingRemoteCandidateSamplesForTesting, 160)
+
+        _ = pipe.setRemoteActive(false)
+        XCTAssertEqual(pipe.queuedOutputFrames, oldQueuedFrames)
+        XCTAssertEqual(pipe.pendingRemoteCandidateSamplesForTesting, 160)
+
+        XCTAssertEqual(pipe.setRemoteActive(true), 160)
+        pipe.setRemoteActive(false)
+        pipe.endRemoteCandidate()
+    }
+
     func testPendingRemotePCMIsDiscardedWhenCandidateEndsBeforeNextGesture() {
         let pipe = AudioPipe.shared
         pipe.setRemoteActive(false)
