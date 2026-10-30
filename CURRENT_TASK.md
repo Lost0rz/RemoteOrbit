@@ -111,6 +111,7 @@ Hardware-mapped edge cases added for this continuation:
 14. `testHardwarePendingRepressReleaseBeforeActivationHasNoTriggerLeak`.
 15. `testHardwareOnlyOnePendingDirectRepressOwner`.
 16. `testHardwarePendingRepressPreservesNormalHardwareOutputOrdering`.
+17. `PROMOTED_HARDWARE_REPRESS_FULL_LIFECYCLE` — promoted B owns physical UP, mapped UP, output-drain replay, and replay-pass acknowledgement before retirement.
 
 Run relevant BLEBridge, VoicePipelineSimplification/direct-session, VoiceBoundaryOrdering, VoiceTriggerRuntime, PostReleaseCaptureGrace, AudioPipe/realtime/reserve and ATVV protocol tests, full Swift tests, arm64/x86_64 Release builds, protocol self-tests, and `git diff --check`.
 
@@ -191,6 +192,16 @@ After successful implementation, update `CURRENT_STATUS.md` and `CURRENT_TASK.md
 - Product source/test changes are limited to the five paths listed in `CURRENT_STATUS.md`; no packaging script changed.
 - No package, install, driver/TCC mutation, runtime retest, merge, tag, release, or Gate F action was performed.
 
+### Promoted-B hardware-owner continuation
+
+- Stage A finding: `FINDING_CONFIRMED` against audited source/control HEAD `d54bfd56a3f098766ed1013116928e1f77822277`. `promotePendingHardwareOptionRepress(B)` replayed the captured B DOWN but established neither the existing hardware gate resolution nor B's held UP/output-drain owner. The deterministic pre-fix test observed B mapped UP as `pass` and no B replayed UP.
+- Implemented only the existing-model correction: promotion resolves the captured B DOWN through `HardwareOptionGate` as physical hardware replay, records B in `heldHardwareOptionSessionID`, and posts B DOWN before the matching physical-UP arm. The existing output-drain/replayed-UP acknowledgement boundary then retires B.
+- Full promoted-B lifecycle test: RED `1 test / 3 assertion failures`; GREEN `1/1`, covering `B_DOWN → B physical UP → held B mapped UP → B output drain → replayed B mapped UP → pass acknowledgement → idle`.
+- Focused requested suites: `239/239`; full Swift tests: `596/596`.
+- Release builds: arm64 and x86_64 passed with the established commands. Protocol self-tests passed `3/3`; `git diff --check` passed. Only existing macOS deprecation warnings appeared.
+- Product source/test changes are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`; no BLE semantic, package, driver, TCC, or runtime change was made.
+- No package, install, runtime retest, merge, tag, release, or Gate F action was performed.
+
 ## Stop state
 
-This task remains `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The next safe action is to commit and push this bounded hardware corrective on the existing 042 branch, verify exact local/remote equality, and await the independent source audit. Human corrective runtime acceptance remains pending and is not claimed by this execution.
+This task remains `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The next safe action is to commit and push this bounded promoted-B hardware-owner correction on the existing 042 branch, verify exact local/remote equality, and await the independent source audit. Human corrective runtime acceptance remains pending and is not claimed by this execution.

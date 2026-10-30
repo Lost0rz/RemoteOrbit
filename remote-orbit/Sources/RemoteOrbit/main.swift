@@ -3095,17 +3095,44 @@ final class VoiceKeyFilter {
     func promotePendingHardwareOptionRepress(gestureID: UUID) -> Bool {
         guard let pending = pendingHardwareOptionRepress,
               pending.gestureID == gestureID,
-              !pending.cancelled else {
+              !pending.cancelled,
+              !pending.downEvents.isEmpty,
+              optionGate.activeSessionID == nil,
+              optionGate.suppressedSessionID == nil,
+              heldHardwareOptionSessionID == nil,
+              pendingReplayedHardwareOptionUp == nil else {
             return false
         }
+
+        // Promotion is the same physical replay boundary as a normal long
+        // hardware press. Re-establish the gate long enough to resolve the
+        // copied DOWN as hardware replay, then retain the promoted gesture as
+        // the held UP/output-drain owner before posting B's DOWN.
+        guard optionGate.begin(sessionID: gestureID) else { return false }
+        _ = syntheticOptionTrigger.begin(sessionID: gestureID)
+        guard optionGate.capture(.down, copied: true),
+              optionGate.resolve(sessionID: gestureID) == .hardwareReplay else {
+            _ = syntheticOptionTrigger.abort(sessionID: gestureID)
+            return false
+        }
+
         pendingHardwareOptionRepress = nil
+        _ = syntheticOptionTrigger.abort(sessionID: gestureID)
+        heldHardwareOptionSessionID = gestureID
+        heldHardwareOptionUpEvents.removeAll(keepingCapacity: true)
+        heldHardwareOptionFlagsUpSeen = false
+        heldHardwareOptionKeyUpSeen = false
+        hardwareOptionReleaseArmed = false
         pending.downEvents.forEach(replayEventPoster)
         diagnosticLogger?.log(
             category: "filter",
             event: "PENDING_HARDWARE_REPRESS_PROMOTE",
             gestureID: gestureID,
             key: pending.key,
-            fields: ["captured_down_count": pending.downEvents.count]
+            fields: [
+                "captured_down_count": pending.downEvents.count,
+                "held_up_owner": gestureID.uuidString,
+            ]
         )
         return true
     }

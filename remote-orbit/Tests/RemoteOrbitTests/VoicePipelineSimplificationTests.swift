@@ -155,6 +155,58 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         XCTAssertEqual(harness.press.currentGestureIDForDiagnostics, sessionB)
     }
 
+    func testPromotedHardwareRepressOwnsMappedUpThroughOutputDrain() throws {
+        let harness = try HardwareRapidRepressHarness()
+        let sessionB = try harness.preparePendingHardwareRepress()
+        harness.completeOldOutputDrain()
+
+        let oldUp = try XCTUnwrap(harness.replayedEvents.first)
+        XCTAssertTrue(
+            harness.filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+                oldUp,
+                type: oldUp.type
+            )
+        )
+
+        let activated = expectation(description: "promoted hardware repress activates")
+        harness.press.onStateChanged = { state in
+            if state == .opening {
+                activated.fulfill()
+            }
+        }
+        wait(for: [activated], timeout: 1)
+
+        harness.press.setRemoteStreaming(true)
+        XCTAssertTrue(harness.press.keyUp())
+        let mappedUp = try XCTUnwrap(harness.makeMappedEvent(keyDown: false))
+        XCTAssertEqual(
+            harness.filter.captureHeldHardwareOptionUpEvent(
+                mappedUp,
+                type: mappedUp.type
+            ),
+            .captured,
+            "promoted B must own its mapped UP after physical UP"
+        )
+
+        harness.press.setRemoteStreaming(false)
+        XCTAssertNotNil(harness.completeDrain)
+        harness.completeDrain?()
+
+        XCTAssertEqual(
+            harness.filter.pendingReplayedHardwareOptionUpGestureID,
+            sessionB
+        )
+        let promotedBUp = try XCTUnwrap(harness.replayedEvents.last)
+        XCTAssertTrue(
+            harness.filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+                promotedBUp,
+                type: promotedBUp.type
+            )
+        )
+        XCTAssertNil(harness.filter.pendingReplayedHardwareOptionUpGestureID)
+        XCTAssertEqual(harness.press.currentStateForTesting, .idle)
+    }
+
     func testHardwarePendingRepressReleaseBeforeActivationHasNoTriggerLeak() throws {
         let harness = try HardwareRapidRepressHarness()
         let sessionB = try harness.preparePendingHardwareRepress()

@@ -1,13 +1,14 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — HARDWARE RAPID_REPRESS CORRECTIVE IMPLEMENTED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — PROMOTED HARDWARE OWNER CORRECTIVE IMPLEMENTED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
 
 - Active branch: `codex/voice-pipeline-simplification-042`.
 - Accepted corrective source before the remaining host edge: `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332`.
+- Audited source before promoted-B ownership correction: `d54bfd56a3f098766ed1013116928e1f77822277`.
 - Installed candidate: `0.2.14 (43)`.
 - Human steady-state high-frequency retest: PASS.
 - Final evidence review: STOP for merge/release because two HOST_MIC_OPEN rapid-repress admission failures remain.
@@ -98,6 +99,16 @@ This is a serialization mechanism, not overlapping session ownership.
 - `HOST_GRACE_SUPERSESSION_CHANGED=NO`; `SUPERSEDED_MIC_CLOSE_MODEL_CHANGED=NO`; `READY_MODEL_CHANGED=NO`; `PREHID_MODEL_CHANGED=NO`.
 - `GATE_C_RING_CHANGED=NO`; `GATE_D_45MS_CHANGED=NO`; `DRIVER_RUNTIME_CHANGED=NO`; `TCC_RESET=NO`; `PACKAGE_INSTALL=NOT_RUN`; `MERGE_TAG_RELEASE=NO`; `GATE_F_CREATED=NO`.
 
+### Promoted-B hardware-owner continuation
+
+- Stage A finding was confirmed against `d54bfd56a3f098766ed1013116928e1f77822277`: promotion replayed B's captured DOWN but did not establish `optionGate`/`heldHardwareOptionSessionID` ownership, so B's mapped UP was observed as `pass` and no B replayed UP was produced.
+- The smallest correction re-enters the existing `HardwareOptionGate` for the captured B DOWN, resolves it as `.hardwareReplay`, records B as the held hardware UP/output-drain owner, then posts the captured DOWN. The existing physical-UP arm, mapped-UP capture, output-drain replay, and event-tap acknowledgement lifecycle remains authoritative.
+- Deterministic full promoted-B lifecycle: RED observed `pass` for B mapped UP and no pending B replayed UP; GREEN passed `testPromotedHardwareRepressOwnsMappedUpThroughOutputDrain`.
+- Focused requested suites: `239/239`; full Swift tests: `596/596`.
+- arm64 and x86_64 Release builds passed with the established commands below; protocol self-tests passed `3/3`; `git diff --check` passed. Build output contains only existing macOS deprecation warnings.
+- Changed product paths for this continuation are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`; no BLE, package, driver, TCC, or runtime files changed.
+- No package/install/runtime retest was performed. Human corrective runtime acceptance remains pending.
+
 ## Next
 
-Commit and push the bounded hardware corrective on the existing 042 branch, verify exact local/remote equality, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, perform human runtime retest, merge, tag, release, or create Gate F before the independent source audit.
+Commit and push the bounded promoted-B hardware-owner correction on the existing 042 branch, verify exact local/remote equality, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, perform human runtime retest, merge, tag, release, or create Gate F before the independent source audit.
