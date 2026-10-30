@@ -727,7 +727,7 @@ private final class DualReceiverVoiceTransactionHarness {
             applyVoiceHIDMapping: applyMapping,
             rawHIDReadiness: { true },
             eventSuppressorReadiness: { true },
-            prepareVoiceTransport: { [unowned self] in prewarmCount += 1 },
+            prepareVoiceTransport: { [unowned self] in self.prewarmCount += 1 },
             activateVoiceInput: { [unowned self] in activationCount += 1 },
             cancelVoiceTransportPreparation: { [unowned self] in cancelCount += 1 },
             stopVoiceInput: { [unowned self] in stopVoiceInputCount += 1 }

@@ -329,6 +329,9 @@ enum RemoteSegmentTriggerPolicy: Equatable {
 final class VoicePressCoordinator {
     enum State: Equatable {
         case idle
+        case opening
+        case streaming
+        case draining
         case pending
         case holding
     }
@@ -456,6 +459,14 @@ final class VoicePressCoordinator {
     private var audioOnlyHardwareTriggerSuppressed = false
     private var resetAudioOnlyHardwareTriggerOnDrain = false
     private var gestureID: UUID?
+    /// Gate-A production ownership. The legacy classifier fields below remain
+    /// available only to historical unit seams; AppController never enters
+    /// them for a physical voice-key press after Gate A.
+    private var directSession = false
+    private var capturedVoiceProfile: VoiceInputProfile?
+    private var directPhysicalUp = false
+    private var directOutputDrainRequested = false
+    private var directOutputDrained = false
     private var pendingShortPreparationID: UUID?
     private var usesHardwareOptionPath = false
     private var remoteOutputDrainRequestedSessionID: UUID?
@@ -515,6 +526,14 @@ final class VoicePressCoordinator {
         gestureID
     }
 
+    var capturedVoiceProfileForTesting: VoiceInputProfile? {
+        capturedVoiceProfile
+    }
+
+    var capturedTriggerKeyForTesting: VoiceTriggerKey? {
+        capturedVoiceProfile?.triggerKey
+    }
+
     var persistentSessionActiveForTesting: Bool {
         voiceSessionMode == .persistentOpen
     }
@@ -571,6 +590,9 @@ final class VoicePressCoordinator {
     var diagnosticStateFields: [String: Any] {
         [
             "mode": modeName,
+            "voice_session_state": directSession ? modeName : "legacy",
+            "voice_input_profile_id": capturedVoiceProfile?.id ?? "none",
+            "voice_input_trigger_key": capturedVoiceProfile?.triggerKey.rawValue ?? "none",
             "persistent_session_mode": voiceSessionMode == .persistentOpen
                 ? "persistent_open" : "idle",
             "gesture_id": gestureID?.uuidString ?? "none",
@@ -622,8 +644,17 @@ final class VoicePressCoordinator {
         togglesPersistentVoiceSession: Bool = false,
         bypassesShortClassification: Bool = false,
         usesHardwareOption: Bool = false,
-        preparesRemoteTransport: Bool = false
+        preparesRemoteTransport: Bool = false,
+        profile: VoiceInputProfile? = nil,
+        directSession: Bool = false
     ) -> Bool {
+        if directSession {
+            return startDirectVoicePress(
+                sessionID: sessionID,
+                profile: profile ?? .defaultProfile,
+                usesHardwareOption: usesHardwareOption
+            )
+        }
         if let pendingPersistentToggle {
             logAdmissionDecision(
                 sessionID: sessionID,
@@ -769,6 +800,182 @@ final class VoicePressCoordinator {
             reason: accepted ? "ready" : "voice_session_start_failed"
         )
         return accepted
+    }
+
+    /// Gate A production path. Voice DOWN owns one profile and trigger from
+    /// this point until output drain completes; no timing classifier or
+    /// receiver/session mode participates in the lifecycle.
+    private func startDirectVoicePress(
+        sessionID: UUID,
+        profile: VoiceInputProfile,
+        usesHardwareOption: Bool
+    ) -> Bool {
+        guard mode == .idle,
+              gestureID == nil,
+              !directSession,
+              !hasReleaseOrTailOwnershipForReconfiguration,
+              isVoiceSessionAdmissionBlocked?() != true else {
+            logAdmissionDecision(
+                sessionID: sessionID,
+                result: "rejected",
+                reason: "voice_session_busy"
+            )
+            return false
+        }
+
+        directSession = true
+        capturedVoiceProfile = profile
+        directPhysicalUp = false
+        directOutputDrainRequested = false
+        directOutputDrained = false
+        usesHardwareOptionPath = usesHardwareOption
+        gestureID = sessionID
+        gesturePhysicalDownUptime = ProcessInfo.processInfo.systemUptime
+        remoteAudioAvailable = false
+        remoteStreaming = false
+        remoteOutputDrainRequestedSessionID = nil
+        remoteOutputDrainedSessionID = nil
+        physicalUpSessionID = nil
+        awaitingPhysicalVoiceKeyUp = false
+        pendingVoiceUIHidden = false
+        VoiceTimingLogger.begin(sessionID: sessionID)
+        AudioPipe.shared.beginRemoteCandidate()
+
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "VOICE_SESSION_OPENING",
+            gestureID: sessionID,
+            key: profile.triggerKey,
+            fields: [
+                "voice_input_profile_id": profile.id,
+                "trigger_key": profile.triggerKey.rawValue,
+                "trigger_source": usesHardwareOption ? "hardware" : "synthetic",
+                "classifier": "none",
+            ]
+        )
+        VoiceTimingLogger.mark("BLE_START_REQUEST", sessionID: sessionID)
+
+        // Arm the existing hardware capture before releasing the mapped DOWN.
+        // The release is immediate at opening; it is no longer tied to first
+        // PCM or a 300 ms hold boundary.
+        if usesHardwareOption {
+            onHardwareOptionGateBegin?(sessionID)
+            onHardwareOptionGateLongReady?(sessionID)
+            VoiceTimingLogger.mark("OPTION_GATE_RELEASE", sessionID: sessionID)
+        } else {
+            _ = syntheticOptionTrigger.begin(sessionID: sessionID)
+            _ = syntheticOptionTrigger.sendDown(
+                sessionID: sessionID,
+                key: profile.triggerKey,
+                purpose: "voice_session_opening"
+            )
+            VoiceTimingLogger.mark("OPTION_GATE_RELEASE", sessionID: sessionID)
+        }
+
+        setMode(.opening)
+        VoiceTimingLogger.mark("REMOTE_ROUTE_BEGIN", sessionID: sessionID)
+        onRemoteRoutePreparation?()
+        setRemoteRouted(true)
+        logAdmissionDecision(
+            sessionID: sessionID,
+            result: "admitted",
+            reason: "voice_down_opening"
+        )
+        return true
+    }
+
+    private func finishDirectVoicePressRelease() -> Bool {
+        guard directSession, let sessionID = gestureID else { return false }
+        guard !directPhysicalUp else { return true }
+
+        directPhysicalUp = true
+        physicalUpSessionID = sessionID
+        VoiceTimingLogger.mark("PHYSICAL_UP", sessionID: sessionID)
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "VOICE_SESSION_DRAINING",
+            gestureID: sessionID,
+            key: capturedVoiceProfile?.triggerKey,
+            fields: [
+                "voice_input_profile_id": capturedVoiceProfile?.id ?? "unknown",
+                "trigger_key": capturedVoiceProfile?.triggerKey.rawValue ?? "unknown",
+            ]
+        )
+        onHardwareOptionGatePhysicalUp?(sessionID)
+        setMode(.draining)
+        AudioPipe.shared.endRemoteCandidate()
+        _ = setRemoteRouted(false)
+        VoiceTimingLogger.mark("STOP_REQUESTED", sessionID: sessionID)
+        requestDirectOutputDrain(sessionID: sessionID)
+        return true
+    }
+
+    private func requestDirectOutputDrain(sessionID: UUID) {
+        guard directSession, gestureID == sessionID, directPhysicalUp else { return }
+        guard !directOutputDrainRequested else { return }
+        directOutputDrainRequested = true
+        VoiceTimingLogger.mark("OUTPUT_DRAIN_BEGIN", sessionID: sessionID)
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "OUTPUT_DRAIN_BEGIN",
+            gestureID: sessionID,
+            key: capturedVoiceProfile?.triggerKey,
+            fields: ["voice_session_state": "draining"]
+        )
+
+        let completion = { [weak self] in
+            guard let self,
+                  self.directSession,
+                  self.gestureID == sessionID,
+                  !self.directOutputDrained else { return }
+            self.directOutputDrained = true
+            VoiceTimingLogger.mark("AUDIO_PIPELINE_CLOSED", sessionID: sessionID)
+            self.diagnosticLogger?.log(
+                category: "voice",
+                event: "OUTPUT_DRAIN_COMPLETE",
+                gestureID: sessionID,
+                key: self.capturedVoiceProfile?.triggerKey,
+                fields: ["voice_session_state": "draining"]
+            )
+            if self.usesHardwareOptionPath {
+                self.onHardwareOptionGateOutputDrained?(sessionID)
+            } else if self.capturedVoiceProfile?.triggerKey != nil {
+                _ = self.syntheticOptionTrigger.sendUp(sessionID: sessionID)
+            } else {
+                _ = self.syntheticOptionTrigger.abort(sessionID: sessionID)
+            }
+            VoiceTimingLogger.mark("OPTION_UP_REQUESTED", sessionID: sessionID)
+            self.completeDirectVoiceSession(sessionID: sessionID)
+        }
+
+        if let onRemoteOutputDrain {
+            onRemoteOutputDrain(sessionID, completion)
+        } else {
+            completion()
+        }
+    }
+
+    private func completeDirectVoiceSession(sessionID: UUID) {
+        guard directSession, gestureID == sessionID else { return }
+        directSession = false
+        directPhysicalUp = false
+        directOutputDrainRequested = false
+        directOutputDrained = false
+        capturedVoiceProfile = nil
+        remoteStreaming = false
+        remoteAudioAvailable = false
+        onRemoteAudioChanged?(false)
+        usesHardwareOptionPath = false
+        remoteOutputDrainRequestedSessionID = nil
+        remoteOutputDrainedSessionID = nil
+        physicalUpSessionID = nil
+        awaitingPhysicalVoiceKeyUp = false
+        pendingVoiceUIHidden = false
+        gestureID = nil
+        _ = syntheticOptionTrigger.abort(sessionID: sessionID)
+        if mode != .idle { setMode(.idle) }
+        VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
+        VoiceTimingLogger.end(sessionID: sessionID)
     }
 
     /// Enters the existing route/hold lifecycle after the voice-specific
@@ -1050,6 +1257,9 @@ final class VoicePressCoordinator {
 
     @discardableResult
     func keyUp() -> Bool {
+        if directSession {
+            return finishDirectVoicePressRelease()
+        }
         holdWorkItem?.cancel()
         holdWorkItem = nil
 
@@ -1284,6 +1494,8 @@ final class VoicePressCoordinator {
                 logPhysicalGestureRelease(sessionID: releasedSessionID, policy: releasedPolicy)
             }
             return true
+        case .opening, .streaming, .draining:
+            return finishDirectVoicePressRelease()
         }
     }
 
@@ -1420,6 +1632,31 @@ final class VoicePressCoordinator {
     }
 
     func setRemoteStreaming(_ streaming: Bool) {
+        if directSession {
+            remoteStreaming = streaming
+            diagnosticLogger?.log(
+                category: "voice",
+                event: streaming ? "AUDIO_START" : "AUDIO_STOP",
+                gestureID: gestureID,
+                key: capturedVoiceProfile?.triggerKey,
+                fields: [
+                    "voice_session_state": streaming ? "streaming" : modeName,
+                    "remote_streaming": streaming,
+                    "remote_routed": remoteRouted,
+                ]
+            )
+            if streaming {
+                setMode(.streaming)
+            } else if directPhysicalUp, let currentGestureID = gestureID {
+                setMode(.draining)
+                requestDirectOutputDrain(sessionID: currentGestureID)
+            }
+            print(
+                "[PRESS] ATVV streaming=\(streaming); "
+                    + "voice_session_state=\(modeName)"
+            )
+            return
+        }
         remoteStreaming = streaming
         diagnosticLogger?.log(
             category: "voice",
@@ -1476,6 +1713,23 @@ final class VoicePressCoordinator {
     /// The BLE transport may announce AUDIO_START before delivering any PCM.
     /// Only the first decoded frame authorizes the long-press Option hold.
     func setRemoteAudioAvailable() {
+        if directSession {
+            guard let currentGestureID = gestureID, !remoteAudioAvailable else { return }
+            remoteAudioAvailable = true
+            VoiceTimingLogger.mark("AUDIO_FIRST", sessionID: currentGestureID)
+            diagnosticLogger?.log(
+                category: "voice",
+                event: "AUDIO_FIRST",
+                gestureID: currentGestureID,
+                key: capturedVoiceProfile?.triggerKey,
+                fields: [
+                    "voice_session_state": modeName,
+                    "voice_input_profile_id": capturedVoiceProfile?.id ?? "unknown",
+                ]
+            )
+            onRemoteAudioChanged?(true)
+            return
+        }
         guard mode == .pending || mode == .holding else { return }
         guard !remoteAudioAvailable else { return }
         remoteAudioAvailable = true
@@ -1504,6 +1758,15 @@ final class VoicePressCoordinator {
     }
 
     func stop() {
+        if directSession, let sessionID = gestureID {
+            if !directPhysicalUp {
+                _ = finishDirectVoicePressRelease()
+            }
+            if !directOutputDrainRequested {
+                completeDirectVoiceSession(sessionID: sessionID)
+            }
+            return
+        }
         stopCurrentVoiceState(preservingDeferredRepress: false)
     }
 
@@ -1554,6 +1817,17 @@ final class VoicePressCoordinator {
     /// End the current transport segment while retaining a persistent IME
     /// session. A transport loss is a segment boundary, never a session tap.
     func handleTransportLoss(deviceRemoved: Bool = false) {
+        if directSession {
+            remoteStreaming = false
+            onRemoteAudioChanged?(false)
+            if deviceRemoved, !directPhysicalUp {
+                _ = finishDirectVoicePressRelease()
+            } else if directPhysicalUp, let sessionID = gestureID {
+                setMode(.draining)
+                requestDirectOutputDrain(sessionID: sessionID)
+            }
+            return
+        }
         guard voiceSessionMode == .persistentOpen else {
             if deviceRemoved,
                pendingRepress?.classifiedTriggerKey != nil {
@@ -2096,6 +2370,9 @@ final class VoicePressCoordinator {
     private var modeName: String {
         switch mode {
         case .idle: return "idle"
+        case .opening: return "opening"
+        case .streaming: return "streaming"
+        case .draining: return "draining"
         case .pending: return "pending"
         case .holding: return "holding"
         }
@@ -3495,6 +3772,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var audioStatusItem: NSMenuItem!
     private var audioInputMenu: NSMenu!
     private var audioOutputMenu: NSMenu!
+    private var voiceInputProfileMenu: NSMenu!
 
     private(set) var hidConnected = false
     private var bleConnected = false
@@ -3526,6 +3804,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
     private(set) var currentMomentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
+    private(set) var currentVoiceInputProfile: VoiceInputProfile = .defaultProfile
     private(set) var currentPersistentSessionTriggerKey: VoiceTriggerKey = .leftOption
     private(set) var currentSecondaryMomentaryVoiceTriggerKey: VoiceTriggerKey?
     private var currentDualReceiverShortBinding: ButtonBinding?
@@ -3558,6 +3837,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let stopVoiceInputAction: (() -> Void)?
     private let readPersistedVoiceTriggerKey: () -> VoiceTriggerKey
     private let persistVoiceTriggerKey: (VoiceTriggerKey) -> Void
+    private let usePersistedVoiceProfile: Bool
     private let readPersistedPersistentSessionTriggerKey: () -> VoiceTriggerKey
     private let persistPersistentSessionTriggerKey: (VoiceTriggerKey) -> Void
     private let readPersistedSecondaryMomentaryVoiceTriggerKey: () -> VoiceTriggerKey?
@@ -3591,6 +3871,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         activateVoiceInput: (() -> Void)? = nil,
         cancelVoiceTransportPreparation: (() -> Void)? = nil,
         stopVoiceInput: (() -> Void)? = nil,
+        usePersistedVoiceProfile: Bool = true,
         readPersistedVoiceTriggerKey: @escaping () -> VoiceTriggerKey = {
             AppStorage.momentaryVoiceTriggerKey
         },
@@ -3628,6 +3909,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.activateVoiceInputAction = activateVoiceInput
         self.cancelVoiceTransportPreparationAction = cancelVoiceTransportPreparation
         self.stopVoiceInputAction = stopVoiceInput
+        self.usePersistedVoiceProfile = usePersistedVoiceProfile
         self.readPersistedVoiceTriggerKey = readPersistedVoiceTriggerKey
         self.persistVoiceTriggerKey = persistVoiceTriggerKey
         self.readPersistedPersistentSessionTriggerKey = readPersistedPersistentSessionTriggerKey
@@ -3641,7 +3923,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.handleDualReceiverGestureEvent(event)
         }
         voicePress.onStateChanged = { [weak self] state in
-            if state == .holding {
+            // Gate A uses `.opening`; `.holding` remains only for the
+            // historical classified test seam, which AppController no
+            // longer enters from production HID microphone edges.
+            if state == .opening || state == .holding {
                 self?.activateVoiceInput()
             }
         }
@@ -3661,7 +3946,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @discardableResult
     func restoreVoiceTriggerRuntime() -> Bool {
-        let restoredMomentaryKey = readPersistedVoiceTriggerKey()
+        // AppStorage.prepare() performs the real startup migration before the
+        // production delegate reaches this method. The injected legacy reader
+        // remains the deterministic test seam for controller-only harnesses;
+        // it does not participate in the launched app path once the profile ID
+        // has been persisted.
+        let restoredProfile = usePersistedVoiceProfile
+            ? VoiceInputProfileStore.persistedProfile(from: UserDefaults.standard)
+                ?? VoiceInputProfileStore.profile(for: readPersistedVoiceTriggerKey())
+            : VoiceInputProfileStore.profile(for: readPersistedVoiceTriggerKey())
+        let restoredMomentaryKey = restoredProfile.triggerKey
+        // The direct Gate A path never consults this legacy field. Keep its
+        // injected value only for historical coordinator tests and rollback
+        // compatibility; no production voice edge routes through it.
         let restoredPersistentKey = readPersistedPersistentSessionTriggerKey()
         let restoredSecondaryMomentaryKey = readPersistedSecondaryMomentaryVoiceTriggerKey()
         currentDualReceiverShortBinding = mappingStore.binding(for: .microphone)
@@ -3671,6 +3968,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             fields: [
                 "persisted_persistent": restoredPersistentKey.rawValue,
                 "persisted_momentary": restoredMomentaryKey.rawValue,
+                "voice_input_profile_id": restoredProfile.id,
                 "persisted_legacy": UserDefaults.standard.string(
                     forKey: AppStorage.voiceTriggerKeyKey
                 ) ?? "none",
@@ -3697,11 +3995,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return false
         }
         currentMomentaryVoiceTriggerKey = restoredMomentaryKey
+        currentVoiceInputProfile = restoredProfile
         currentPersistentSessionTriggerKey = restoredPersistentKey
         currentSecondaryMomentaryVoiceTriggerKey = restoredSecondaryMomentaryKey
         print(
-            "[VOICE-KEY] startup restored momentary=\(restoredMomentaryKey.displayName) "
-                + "persistent=\(restoredPersistentKey.displayName)"
+            "[VOICE-KEY] startup restored profile=\(restoredProfile.displayName)"
         )
         diagnosticLogger.log(
             category: "configuration",
@@ -3714,6 +4012,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "synthetic_momentary": voicePress.diagnosticStateFields["momentary_config"] as? String ?? "unknown",
                 "persisted_persistent": restoredPersistentKey.rawValue,
                 "persisted_momentary": restoredMomentaryKey.rawValue,
+                "voice_input_profile_id": restoredProfile.id,
             ]
         )
         return true
@@ -4791,6 +5090,23 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    func applyVoiceInputProfile(
+        _ profile: VoiceInputProfile,
+        completion: @escaping (VoiceTriggerApplyResult) -> Void
+    ) {
+        applyVoiceTriggerKey(profile.triggerKey) { [weak self] result in
+            guard let self else {
+                completion(.locked)
+                return
+            }
+            if result == .applied || result == .unchanged {
+                self.currentVoiceInputProfile = profile
+                VoiceInputProfileStore.writeSelectedProfile(profile, to: UserDefaults.standard)
+            }
+            completion(result)
+        }
+    }
+
     private func voiceConfigurationBusyResult() -> VoiceTriggerApplyResult? {
         switch dualReceiverMappedTriggerState.phase {
         case .armingSecondary, .secondaryReady:
@@ -5029,16 +5345,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("[VOICE] press rejected during trigger reconfiguration or runtime lock")
             return
         }
-        guard dualReceiverVoiceMode == .legacy else {
-            print("[VOICE] legacy VoiceKeyFilter entry rejected while dual mode owns voice routing")
-            return
-        }
         let gestureID = UUID()
         let occurrenceUptime = diagnosticUptimeProvider()
         let hidConnectedAtEntry = hidConnected
         let filterSkipVoiceKeyAtEntry = filter.skipVoiceKey
         let momentaryKeyAtEntry = currentMomentaryVoiceTriggerKey
-        let persistentKeyAtEntry = currentPersistentSessionTriggerKey
         let target = lockedTarget
             ?? MappingStore.preferredApplicationBundleIdentifier()
         let needsFloatTabsFocus = FloatTabsCommandClient.shouldPrepareInputFocus(
@@ -5050,68 +5361,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // never gate the physical Option edge or remote audio. AX/WebKit can
         // be slow or unavailable even while the receiver is already working.
         let needsFocusPreparation = needsFloatTabsFocus || needsCodexFocus
-        // Gate every gesture while the real HID mapping is active. Otherwise
-        // a disabled short slot could still leak the mapped trigger before
-        // the 300 ms classifier resolves the press.
-        // VoiceKeyFilter is the fallback path used while the HID monitor is
-        // unavailable. Resolve the same app-scoped binding used by HID before
-        // deciding the short action.
-        let resolvedShortBinding = shortBinding
-            ?? mappingStore.binding(for: .microphone, appBundleIdentifier: target)
-        print(
-            "[VOICE] short input binding → \(resolvedShortBinding.displayName); "
-                + "target=\(target ?? "global")"
-        )
-        let usesLocalMicrophone = VoicePressCoordinator.usesLocalMicrophone(
-            forShortBinding: resolvedShortBinding
-        )
-        let togglesPersistentVoiceSession = VoicePressCoordinator.togglesPersistentVoiceSession(
-            forShortBinding: resolvedShortBinding
-        )
-        let bypassesShortClassification = Self.bypassesShortClassification(
-            for: resolvedShortBinding
-        )
-        // Local capture is deliberately lazy. Starting it here would open the
-        // physical microphone during the 300 ms short-vs-long classification
-        // window, so a long hold would still briefly invoke the external mic.
-        print(
-            "[VOICE] 本机麦克风采集 → "
-                + (usesLocalMicrophone
-                    ? "短按确认后启用（长按不启用）"
-                    : "关闭（单击未启用）")
-        )
-
-        let shortTapAction: (() -> Void)?
-        switch resolvedShortBinding {
-        case .voiceKeyDefault:
-            // nil selects the coordinator's persistent IME session toggle.
-            shortTapAction = nil
-        case let binding where binding.isDisabled:
-            // A disabled short slot must not fall through to the IME toggle.
-            // The long remote-mic slot remains fully independent.
-            shortTapAction = {
-                print("[PRESS] SHORT release → disabled by microphone mapping")
-            }
-        default:
-            // Codex voice chat is an optional short behavior, but it still
-            // goes through this classifier so a long hold always remains the
-            // remote ATVV microphone path.
-            shortTapAction = { [weak self] in
-                self?.handleVoiceShortTap(
-                    resolvedShortBinding,
-                    targetApplicationBundleIdentifier: target
-                )
-            }
-        }
-
         let pressAccepted = voicePress.keyDown(
             sessionID: gestureID,
-            onShortTap: shortTapAction,
-            usesLocalMicrophone: usesLocalMicrophone,
-            togglesPersistentVoiceSession: togglesPersistentVoiceSession,
-            bypassesShortClassification: bypassesShortClassification,
             usesHardwareOption: isVoiceHIDMappingEnabled(),
-            preparesRemoteTransport: resolvedShortBinding.isDisabled
+            preparesRemoteTransport: true,
+            profile: currentVoiceInputProfile,
+            directSession: true
         )
         diagnosticLogger.log(
             category: "voice",
@@ -5123,17 +5378,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "filter_skip_voice_key": filterSkipVoiceKeyAtEntry,
                 "observer_uptime": occurrenceUptime,
                 "momentary_key": momentaryKeyAtEntry.rawValue,
-                "persistent_key": persistentKeyAtEntry.rawValue,
+                "voice_input_profile_id": currentVoiceInputProfile.id,
+                "voice_input_trigger_key": currentVoiceInputProfile.triggerKey.rawValue,
+                "classifier": "none",
             ]
         )
         guard pressAccepted else {
-            return
-        }
-
-        // A deferred B edge has no active ownership yet. Leave A's focus and
-        // Option state untouched and wait for VoicePressCoordinator to
-        // activate the saved context after A's route is off.
-        guard voicePress.pendingRepressSessionID == nil else {
             return
         }
 
@@ -5274,6 +5524,30 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         switch state {
         case .idle:
             actionHUD.dismiss()
+        case .opening:
+            actionHUD.show(
+                button: .microphone,
+                gesture: "按下",
+                action: "遥控器语音输入",
+                state: .pending,
+                keepsVisible: true
+            )
+        case .streaming:
+            actionHUD.show(
+                button: .microphone,
+                gesture: "按住",
+                action: "遥控器语音输入",
+                state: .recording,
+                keepsVisible: true
+            )
+        case .draining:
+            actionHUD.show(
+                button: .microphone,
+                gesture: "松开",
+                action: "语音收尾中",
+                state: .pending,
+                keepsVisible: true
+            )
         case .pending:
             guard voicePress.shouldShowPendingVoiceUI else {
                 actionHUD.dismiss()
@@ -5409,6 +5683,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         outputItem.submenu = audioOutputMenu
         menu.addItem(inputItem)
         menu.addItem(outputItem)
+
+        let voiceProfileItem = NSMenuItem(title: "语音输入", action: nil, keyEquivalent: "")
+        voiceInputProfileMenu = NSMenu()
+        voiceProfileItem.submenu = voiceInputProfileMenu
+        menu.addItem(voiceProfileItem)
         menu.addItem(.separator())
 
         let refreshAudioDevices = NSMenuItem(
@@ -5438,14 +5717,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(quit)
         statusItem.menu = menu
         refreshAudioDeviceMenus()
+        rebuildVoiceInputProfileMenu()
         updateStatus()
 
         voicePress.onStateChanged = { [weak self] state in
-            if state == .holding {
-                // ATVV starts only after the gesture enters remote-microphone holding.
-                // Enabled short actions reach this state after the normal hold threshold;
-                // a disabled short action enters it immediately because there is no short
-                // branch to classify.
+            if state == .opening {
+                // Gate A starts ATVV as soon as the physical voice key goes down.
                 self?.activateVoiceInput()
             }
             self?.updateVoiceHUD(for: state)
@@ -5594,23 +5871,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if !active {
                 self.cancelDualReceiverGestureStateForHIDRemoval()
             }
-            var dualModeHandledMapping = false
-            if active, let receiverB = self.currentSecondaryMomentaryVoiceTriggerKey {
-                let shortBinding = self.currentDualReceiverShortBinding
-                    ?? self.mappingStore.binding(for: .microphone)
-                let result = self.configureDualReceiverVoiceMode(
-                    shortBinding: shortBinding,
-                    receiverB: receiverB
-                )
-                if case .applied(.active(receiverA: _, receiverB: _)) = result {
-                    dualModeHandledMapping = true
-                } else if result == .unavailable(.primaryMappingFailed) {
-                    dualModeHandledMapping = true
-                }
-            }
             if self.voiceTriggerReconfigurationInProgress {
                 self.pendingVoiceHIDMappingRefresh = true
-            } else if !dualModeHandledMapping {
+            } else {
                 self.applyVoiceHIDMappingForConnection(active)
             }
             self.updateStatus()
@@ -5782,78 +6045,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 binding = self.mappingStore.endPress(for: button)
             }
 
-            // 语音键：单击走电脑/外部麦克风动作，长按走遥控器麦克风。
+            // Gate A voice control: every physical microphone DOWN/UP owns one
+            // transport session. App mappings and short/long classification do
+            // not participate in this path.
             if button == .microphone {
-                let shouldUseDualReceiverMode: Bool
-                switch self.dualReceiverVoiceMode {
-                case .legacy:
-                    shouldUseDualReceiverMode = false
-                case .unavailable:
-                    shouldUseDualReceiverMode = true
-                case .active:
-                    // App-scoped SHORT bindings can differ from the one that
-                    // enabled dual mode. Recheck the captured binding at the
-                    // input authority before routing this physical gesture.
-                    shouldUseDualReceiverMode = binding.isDisabled
-                }
-                if shouldUseDualReceiverMode {
-                    self.handleDualReceiverMicrophoneEdge(
-                        isDown: isDown,
-                        at: timestamp
-                    )
-                    return
-                }
-                let profile = self.mappingStore.activePressGestureProfile(for: button)
-                let usesRemoteMicrophone = profile.longPressEnabled
-                    && profile.longPress == .voiceKeyDefault
-                    && profile.longPressBehavior != .none
-                if usesRemoteMicrophone {
-                    if isDown {
-                        self.beginVoicePress(
-                            targetApplicationBundleIdentifier: self.mappingStore
-                                .activePressApplicationBundleIdentifier(for: button),
-                            shortBinding: binding,
-                            source: .hidMonitor
-                        )
-                    } else {
-                        self.finishVoicePressRelease(source: .hidMonitor) {
-                            self.ble.stopVoiceInput()
-                        }
-                    }
-                    return
-                }
-                // 用户自定义了映射，走正常注入流程
-                guard !binding.isDisabled else { return }
                 if isDown {
-                    if self.handleContextualAction(
-                        binding,
-                        button: button,
-                        gesture: "按下"
-                    ) {
-                        return
-                    }
-                    let sent = KeyInjector.send(
-                        binding,
+                    self.beginVoicePress(
                         targetApplicationBundleIdentifier: self.mappingStore
                             .activePressApplicationBundleIdentifier(for: button),
-                        scrollLinesPerStep: self.mappingStore.scrollLinesPerStep
-                    )
-                    print("[KEY] \(button.displayName) down → \(binding.displayName); sent=\(sent)")
-                    self.actionHUD.show(
-                        button: button,
-                        gesture: "按下",
-                        action: binding.hudDisplayName,
-                        state: self.actionHUDState(
-                            for: binding,
-                            targetApplicationBundleIdentifier: self.mappingStore
-                                .activePressApplicationBundleIdentifier(for: button),
-                            sent: sent
-                        )
+                        source: .hidMonitor
                     )
                 } else {
-                    self.dismissContextualOverlay(for: button)
-                    let sent = KeyInjector.sendUp(binding)
-                    print("[KEY] \(button.displayName) up → \(binding.displayName); sent=\(sent)")
+                    self.finishVoicePressRelease(source: .hidMonitor) {
+                        self.ble.stopVoiceInput()
+                    }
                 }
                 return
             }
@@ -5933,7 +6138,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 button: button,
                 shouldRepeat: shouldRepeat,
                 usesAdvancedGestures: profile.usesAdvancedGestures,
-                dualReceiverVoiceMode: self.dualReceiverVoiceMode
+                dualReceiverVoiceMode: .legacy
             )
         }
         hidMonitor.onButtonRepeat = { [weak self] button in
@@ -5981,24 +6186,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func applyVoiceHIDMappingForConnection(_ active: Bool) {
-        if dualReceiverVoiceMode != .legacy {
-            let succeeded: Bool
-            if active {
-                succeeded = applyPrimaryRemoteVoiceHIDMappingForDualMode()
-            } else {
-                let primaryKey = currentMomentaryVoiceTriggerKey
-                succeeded = voiceHIDMappingQueue.sync {
-                    applyVoiceHIDMapping(false, primaryKey)
-                }
-            }
-            if !succeeded {
-                dualReceiverVoiceMode = .unavailable(.primaryMappingFailed)
-                print("[HID-MAP] dual mode unavailable; primary mapping operation failed")
-            }
-            return
-        }
         let shouldEnable = active && !voiceTriggerRuntimeLocked
-        let primaryKey = currentMomentaryVoiceTriggerKey
+        let primaryKey = currentVoiceInputProfile.triggerKey
         let succeeded = voiceHIDMappingQueue.sync {
             applyVoiceHIDMapping(shouldEnable, primaryKey)
         }
@@ -6128,6 +6317,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         refreshAudioDeviceMenus()
+        rebuildVoiceInputProfileMenu()
         updateStatus()
     }
 
@@ -6145,6 +6335,36 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             selectedID: SystemAudioDeviceManager.defaultOutputDevice?.id,
             action: #selector(selectAudioOutput(_:))
         )
+    }
+
+    private func rebuildVoiceInputProfileMenu() {
+        guard let menu = voiceInputProfileMenu else { return }
+        menu.removeAllItems()
+        for profile in VoiceInputProfile.supported {
+            let item = NSMenuItem(
+                title: profile.displayName,
+                action: #selector(selectVoiceInputProfile(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = profile.id
+            item.state = profile.id == currentVoiceInputProfile.id ? .on : .off
+            menu.addItem(item)
+        }
+    }
+
+    @objc private func selectVoiceInputProfile(_ sender: NSMenuItem) {
+        guard let profileID = sender.representedObject as? String,
+              let profile = VoiceInputProfile.supported.first(where: { $0.id == profileID })
+        else { return }
+        applyVoiceInputProfile(profile) { [weak self] result in
+            guard let self else { return }
+            if result != .applied && result != .unchanged {
+                print("[VOICE-PROFILE] selection rejected: \(result)")
+            }
+            self.rebuildVoiceInputProfileMenu()
+            self.updateStatus()
+        }
     }
 
     private func rebuildAudioMenu(

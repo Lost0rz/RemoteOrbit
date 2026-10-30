@@ -50,8 +50,8 @@ final class VoiceInputSourceDiagnosticsTests: XCTestCase {
         let press = try XCTUnwrap(records.first {
             $0["event"] as? String == "VOICE_PRESS_ENTRY"
         })
-        let gesture = try XCTUnwrap(records.first {
-            $0["event"] as? String == "GESTURE_BEGIN"
+        let opening = try XCTUnwrap(records.first {
+            $0["event"] as? String == "VOICE_SESSION_OPENING"
         })
         let release = try XCTUnwrap(records.first {
             $0["event"] as? String == "VOICE_RELEASE_ENTRY"
@@ -59,8 +59,8 @@ final class VoiceInputSourceDiagnosticsTests: XCTestCase {
 
         XCTAssertEqual(press["source"] as? String, "hid_monitor")
         XCTAssertEqual(release["source"] as? String, "hid_monitor")
-        XCTAssertEqual(press["gesture_id"] as? String, gesture["gesture_id"] as? String)
-        XCTAssertEqual(release["gesture_id"] as? String, gesture["gesture_id"] as? String)
+        XCTAssertEqual(press["gesture_id"] as? String, opening["gesture_id"] as? String)
+        XCTAssertEqual(release["gesture_id"] as? String, opening["gesture_id"] as? String)
         XCTAssertNotNil(press["observer_uptime"])
         XCTAssertNotNil(release["observer_uptime"])
 

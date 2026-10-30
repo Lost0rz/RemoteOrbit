@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — READY_FOR_LOCAL_GATE_A`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -9,7 +9,7 @@ Repository: `Lost0rz/RemoteOrbit`
 - Active control branch: `codex/voice-pipeline-simplification-042`.
 - 042 parent / frozen evidence baseline: `codex/diagnostic-hardening-041` at `ac3132986197bfee4440bb8f388e3d2e5f478f03`.
 - 041 is retained as `FROZEN_OBSERVABILITY_BASELINE`: its one-shot diagnostics, exporter, packaged Air observation candidate, and evidence conclusions remain available for before/after comparison. It is not being merged, tagged, released, or mutated by Gate 0.
-- Gate 0 is remote control-plane work only. No RemoteOrbit product source, ATVV/BLE behavior, AudioPipe behavior, driver, package, installed runtime, Air runtime, TCC state, or local worktree has been changed by this transition.
+- Gate 0 established the 042 control branch. Gate A was implemented in the canonical writer worktree `/private/tmp/remoteorbit-voice-pipeline-simplification-042` on the active branch. ATVV/BLE transport, AudioPipe, driver, packaging, installed runtime, Air runtime, and TCC boundaries remain unchanged.
 - `AGENTS.md` remains the durable repository rule authority and is unchanged.
 - `CURRENT_TASK.md` is the sole active execution authorization for 042.
 - PR #25 / `codex/release-v0.2.15` and PR #26 / `codex/mapping-config-simplify-040` remain preserved and out of scope for 042 unless a later explicit transition says otherwise.
@@ -38,7 +38,7 @@ The primary product goal is a single deterministic path from Xiaomi RC003 remote
 
 ## Current authorized next gate
 
-`Gate A — Voice control-plane simplification` is the next local construction unit.
+`Gate A — Voice control-plane simplification` is implemented and locally verified. The current stop state is `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; no Gate B work is authorized.
 
 Gate A may change voice-session/controller semantics, trigger-profile configuration, menu/profile presentation needed by that contract, compatibility migration for old trigger preferences, and tests/diagnostic semantics directly coupled to removal of the old voice modes.
 
@@ -67,8 +67,16 @@ Planned Gates B–E remain design intent only and are not authorized for impleme
 - Existing hardware-trigger delivery should be simplified rather than replaced gratuitously; synthetic delivery remains fallback-only where already required.
 - Existing 041 observability remains capable of comparing input edge, MIC_OPEN/AUDIO_START/AUDIO_FIRST, BLE/decode/PCM/render continuity, underrun, and output/tail boundaries.
 
-## Next action
+## Gate A local receipt
 
-When local construction begins, check out/fetch `codex/voice-pipeline-simplification-042`, read `AGENTS.md`, this file, and `CURRENT_TASK.md`, establish one canonical local writer/worktree, verify the exact remote branch head and clean starting state, and execute Gate A only.
+- Canonical writer: `/private/tmp/remoteorbit-voice-pipeline-simplification-042`.
+- Audited parent before implementation: `6ab19f409210dad5aef55301bff6e4cd8e5ff5c6` on `codex/voice-pipeline-simplification-042`.
+- Production microphone HID edges now use one direct `OPENING → STREAMING → DRAINING → IDLE` lifecycle; selected `VoiceInputProfile` identity is captured before trigger DOWN and retained through trigger UP.
+- Profile migration reads only the legacy momentary trigger; Persistent and Receiver B preferences remain compatibility projections/non-authorities for the primary path.
+- UI exposes the direct transport contract and a menu-bar profile selector; old microphone short/long/dual cards are no longer rendered.
+- Validation: `swift test --package-path remote-orbit` passed 505/505; arm64 release build passed; x86_64 release build passed; `./remote-orbit/run-self-tests.sh` passed 3/3; `git diff --check` passed.
+- Human natural-use/UI acceptance, rendered visual inspection, independent Web audit, installed runtime, TCC, and Air-side acceptance remain unverified/user-owned.
 
-Do not begin Gates B–E, merge, tag, release, install, or mutate the Air runtime in Gate A.
+## Stop state
+
+Remain at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not begin Gates B–E, merge, tag, release, install, mutate the Air runtime, or advance the control plane without the explicitly authorized post-audit transition.

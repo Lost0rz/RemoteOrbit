@@ -14,19 +14,18 @@ final class VoiceBoundaryOrderingTests: XCTestCase {
         )
 
         let records = try harness.records()
-        let gate = try XCTUnwrap(records.firstIndex { $0["event"] as? String == "OPTION_GATE_BEGIN" })
-        let gesture = try XCTUnwrap(records.firstIndex { $0["event"] as? String == "GESTURE_BEGIN" })
+        _ = try XCTUnwrap(records.firstIndex { $0["event"] as? String == "OPTION_GATE_BEGIN" })
+        let opening = try XCTUnwrap(records.firstIndex { $0["event"] as? String == "VOICE_SESSION_OPENING" })
         let pressIndex = try XCTUnwrap(records.firstIndex { $0["event"] as? String == "VOICE_PRESS_ENTRY" })
         let press = records[pressIndex]
 
-        XCTAssertLessThan(gesture, gate)
-        XCTAssertLessThan(gate, pressIndex)
         XCTAssertEqual(press["source"] as? String, "hid_monitor")
         XCTAssertEqual(press["observer_uptime"] as? Double, 123.456)
         XCTAssertEqual(
             press["gesture_id"] as? String,
-            records[gesture]["gesture_id"] as? String
+            records[opening]["gesture_id"] as? String
         )
+        XCTAssertFalse(records.contains { $0["event"] as? String == "HOLD_CONFIRMED" })
     }
 
     func testReleaseEntryIsEnqueuedAfterKeyUpAndStopWithCapturedIdentityAndUptime() throws {

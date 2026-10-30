@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Single-Path Voice Pipeline
 
-Status: `READY_FOR_LOCAL_GATE_A`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -170,9 +170,27 @@ At minimum prove:
 
 Human natural-use acceptance remains owner-owned and must not be replaced with synthetic UI interaction.
 
+## Gate A implementation receipt
+
+The authorized Gate A implementation is complete in canonical writer worktree `/private/tmp/remoteorbit-voice-pipeline-simplification-042`.
+
+- Production raw-HID microphone DOWN/UP no longer enters the short/long/double classifier, Persistent session mode, or Receiver A/B selector. It starts one direct voice session and drains before releasing the captured trigger.
+- `VoiceInputProfile` is the selected low-frequency menu-bar authority. It has stable ID/display/trigger fields, conservative legacy-momentary migration, and session capture semantics.
+- Existing ATVV/BLE, reconnect/keepalive, AudioPipe, driver, packaging, runtime, and TCC boundaries were not changed.
+- Historical classifier/dual-receiver seams remain only for compatibility tests; no production microphone edge calls that seam.
+- 041 diagnostics were adapted to truthful `VOICE_SESSION_OPENING`, `STREAMING`, `DRAINING`, profile, and trigger fields; production no longer emits `HOLD_CONFIRMED` for the direct voice boundary.
+
+## Gate A verification receipt
+
+- Full Swift tests: `swift test --package-path remote-orbit` — 505/505 passed.
+- Release builds: arm64 `swift build --package-path remote-orbit -c release` passed; x86_64 `swift build --package-path remote-orbit -c release --triple x86_64-apple-macos13.0` passed.
+- Protocol self-tests: `./remote-orbit/run-self-tests.sh` — 3/3 passed.
+- Static checks: `git diff --check` passed; changed paths were inspected.
+- Not performed by this Gate A executor: app packaging/install, installed-runtime replacement, TCC changes, Air runtime mutation, rendered UI inspection, human natural-use acceptance, and independent Web audit.
+
 ## Gate A completion / stop state
 
-After implementation and verification, update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together, push the exact authorized branch, verify remote/local match, and stop at:
+This transition updates `CURRENT_STATUS.md` and `CURRENT_TASK.md` together with the implementation. After the transition commit, push the exact authorized branch, verify remote/local match, and stop at:
 
 `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 

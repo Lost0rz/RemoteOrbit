@@ -596,9 +596,7 @@ struct SettingsView: View {
             }
 
             if selectedButton == .microphone {
-                microphoneSingleBehaviorCard
-                microphoneMomentaryTriggerCard(currentBinding(for: selectedButton))
-                microphoneSecondaryTriggerCard(currentBinding(for: selectedButton))
+                microphoneVoiceControlCard
             } else if hasEditableScope {
                 visualSingleBehaviorCard
                 visualAdditionalBehaviorCard
@@ -837,6 +835,17 @@ struct SettingsView: View {
                     binding: binding
                 )
             }
+        }
+    }
+
+    private var microphoneVoiceControlCard: some View {
+        workspaceCard(title: "语音键 · 直接传输控制", symbolName: "mic.circle.fill") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("按下语音键立即开始遥控器语音会话；松开后等待输出收尾，再释放传输控制键。")
+                Text("语音输入 Profile 在菜单栏“语音输入”中选择，并会持久化到本机。一次会话会固定按下时捕获的 Profile。")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.callout)
         }
     }
 
@@ -1185,9 +1194,7 @@ struct SettingsView: View {
                 }
 
                 if selectedButton == .microphone {
-                    microphoneSingleBehaviorCard
-                    microphoneMomentaryTriggerCard(currentBinding(for: selectedButton))
-                    microphoneSecondaryTriggerCard(currentBinding(for: selectedButton))
+                    microphoneVoiceControlCard
                 } else {
                     bindingActionCard(currentBinding(for: selectedButton))
                 }

@@ -41,12 +41,15 @@ enum AppStorage {
         .appendingPathComponent("mapping-v3.json")
 
     static func prepare() {
+        migrateVoiceTriggerKeys(from: UserDefaults.standard)
+        VoiceInputProfileStore.migrate(from: UserDefaults.standard)
         UserDefaults.standard.register(defaults: [
             loggingEnabledKey: false,
             recordingEnabledKey: false,
             voiceTriggerKeyKey: VoiceTriggerKey.defaultValue.rawValue,
+            VoiceInputProfileStore.selectedProfileIDKey:
+                VoiceInputProfile.defaultProfile.id,
         ])
-        migrateVoiceTriggerKeys(from: UserDefaults.standard)
         ensureDirectory(logsDirectory)
         ensureDirectory(recordingsDirectory)
         ensureDirectory(configurationDirectory)
