@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTIC-HARDENING-041 — One-shot Incident Evidence Closure
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `AUTHORIZED / PACKAGING_TOOLCHAIN_CORRECTIVE`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -334,3 +334,26 @@ Swift tests, release/x86 builds, protocol self-tests, and diff-check pass,
 update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together and return to
 `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge, tag, release, package, or
 install an Air candidate.
+
+## Air observation DMG packaging corrective
+
+The independent Web CODE_DIFF audit has passed for audited source/control HEAD
+`840aadd2e56ee67c136092f8af4a28d83b38d172`. The first authorized packaging
+attempt stopped before the RemoteOrbit app build because the pinned BlackHole
+0.7.1 project declares macOS deployment target `10.10`, while the installed
+Xcode supports deployment targets `12.0` through `27.0`. RemoteOrbit itself
+targets macOS 13.
+
+This bounded corrective is authorized before script mutation:
+
+- modify only `remote-orbit-audio-driver/build-driver.sh` and these two control files;
+- add explicit `MACOSX_DEPLOYMENT_TARGET=13.0` to the existing `xcodebuild` command-line settings;
+- preserve BlackHole 0.7.1, source URL, transport patch, bundle ID, channel count, driver name, signing, and all product source/runtime semantics;
+- do not upgrade BlackHole, modify downloaded third-party project files, install the driver/app, mutate TCC/CoreAudio, or touch Air/PR #25/PR #26/039.
+
+Verification requires a successful driver build and codesign check before rerunning
+the existing `package-dmg.sh`. If successful, create exactly one observation DMG,
+verify its mounted app, source stamp, Universal2 executable, embedded driver,
+signatures, checksums, and contents, then update both control files together with
+the packaging receipt and push this same branch. A later control-only commit must
+not be reported as the source identity stamped into an already-built app.

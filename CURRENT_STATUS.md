@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: RO-DIAGNOSTIC-HARDENING-041 — WAITING_FOR_INDEPENDENT_WEB_AUDIT
+State: RO-DIAGNOSTIC-HARDENING-041 — AUTHORIZED / PACKAGING_TOOLCHAIN_CORRECTIVE
 Repository: Lost0rz/RemoteOrbit
 
 ## Current authority
@@ -16,6 +16,8 @@ Repository: Lost0rz/RemoteOrbit
 - Final implementation HEAD before this exporter corrective: `90b1e6b83c18ec5ddff5ea572f3e8f4a969bc321` (`fix: close diagnostic evidence audit gaps`).
 - Exporter corrective authorization start HEAD: `6489517dca8a7d6fb5aeabee973e3240ac2434c9`.
 - Exporter corrective implementation HEAD: `d4584f04f5ce8cd974773abe6b5a6e87b72453c4` (`fix: make exporter evidence receipts truthful`).
+- Previous Air DMG packaging attempt from audited source `840aadd2e56ee67c136092f8af4a28d83b38d172` stopped before app build because the pinned BlackHole 0.7.1 project declared deployment target 10.10 while installed Xcode supports 12.0–27.0.
+- Packaging corrective authorization starts from control HEAD `840aadd2e56ee67c136092f8af4a28d83b38d172` and is limited to `remote-orbit-audio-driver/build-driver.sh` plus these control files.
 - The paired control update after implementation is the final control transition for this corrective; its exact SHA and remote match are verified in the delivery receipt.
 - Independent Web audit blocker receipt: exact remote head `2d699f107b8ebb55b117243f0ac5d5fe1b2dfbc1`; corrective scope is limited to the six evidence-accuracy blockers in the audit.
 - Latest independent Web audit stop receipt: exact remote head `6489517dca8a7d6fb5aeabee973e3240ac2434c9`; runtime probe closure is accepted and the only authorized corrective is exporter evidence-receipt truthfulness.
@@ -82,6 +84,12 @@ The target is evidence closure, not a production behavior fix. After this packag
 - Protocol self-tests: 3/3 passed.
 - `git diff --check`: passed.
 
+## Packaging corrective authorization
+
+- Add only `MACOSX_DEPLOYMENT_TARGET=13.0` to the existing BlackHole `xcodebuild` invocation. Keep BlackHole 0.7.1, source URL, transport patch, bundle ID, channel count, driver name, signing, and all RemoteOrbit product source unchanged.
+- Verify the driver first, then run the existing `package-dmg.sh` path. Package exactly one Air observation DMG; do not install, launch, reload CoreAudio, mutate TCC, or change `/Applications/RemoteOrbit.app`.
+- If driver build or packaging fails again, stop with the exact error and do not add another workaround.
+
 ## Current next action
 
-Push only `codex/diagnostic-hardening-041`, verify the exact remote head and clean worktree, then await the independent Web audit. Do not modify HID, BLE, AudioPipe, runtime probes, driver, PR #25, PR #26, or Air runtime.
+Authorize and verify the packaging-toolchain corrective, then produce and independently verify one DMG before recording the packaging receipt in both control files. Do not modify HID, BLE, AudioPipe, runtime probes, PR #25, PR #26, or Air runtime.
