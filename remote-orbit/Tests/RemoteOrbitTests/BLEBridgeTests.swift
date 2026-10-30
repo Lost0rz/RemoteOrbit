@@ -232,11 +232,7 @@ final class BLEBridgeTests: XCTestCase {
     func testReadyTransportSurvivesVoiceSessionCloseAndCanReuseMicOpen() {
         var state = BLEVoiceTransportState()
 
-        state.prepareTransport()
-        state.beginConnection()
-        XCTAssertEqual(state.connectionState, .connecting)
-
-        state.markReady()
+        establishStrictReady(&state)
         XCTAssertEqual(state.connectionState, .ready)
         XCTAssertTrue(state.canReuseReadyTransport)
 
@@ -256,9 +252,7 @@ final class BLEBridgeTests: XCTestCase {
     func testFatalTransportResetClearsReadyStateBeforeReconnect() {
         var state = BLEVoiceTransportState()
 
-        state.prepareTransport()
-        state.beginConnection()
-        state.markReady()
+        establishStrictReady(&state)
         state.requestVoiceInput()
 
         state.markDisconnected()
@@ -267,6 +261,155 @@ final class BLEBridgeTests: XCTestCase {
         XCTAssertFalse(state.canReuseReadyTransport)
         XCTAssertFalse(state.atvvReady)
         XCTAssertFalse(state.transportPrepared)
+    }
+
+    func testCapabilitiesBeforeNotifyWaitsForBothConfirmedNotifications() {
+        var state = BLEVoiceTransportState()
+        state.prepareTransport()
+        state.beginConnection()
+        state.requestVoiceInput()
+        state.markAudioCharacteristicDiscovered()
+        state.markCommandCharacteristicDiscovered()
+        state.markControlCharacteristicDiscovered()
+        state.markCapabilitiesAccepted()
+
+        XCTAssertFalse(state.evaluateATVVReadiness())
+        XCTAssertEqual(state.connectionState, .connecting)
+        XCTAssertFalse(state.shouldRequestMicOpen)
+
+        state.markAudioNotificationConfirmed()
+        XCTAssertFalse(state.evaluateATVVReadiness())
+        XCTAssertFalse(state.shouldRequestMicOpen)
+
+        state.markControlNotificationConfirmed()
+        XCTAssertTrue(state.evaluateATVVReadiness())
+        XCTAssertEqual(state.connectionState, .ready)
+        XCTAssertTrue(state.shouldRequestMicOpen)
+        XCTAssertFalse(state.evaluateATVVReadiness())
+    }
+
+    func testNotifyBeforeCapabilitiesWaitsForAcceptedCapabilities() {
+        var state = BLEVoiceTransportState()
+        state.prepareTransport()
+        state.beginConnection()
+        state.markAudioCharacteristicDiscovered()
+        state.markCommandCharacteristicDiscovered()
+        state.markControlCharacteristicDiscovered()
+        state.markAudioNotificationConfirmed()
+        state.markControlNotificationConfirmed()
+
+        XCTAssertFalse(state.evaluateATVVReadiness())
+        XCTAssertEqual(state.connectionState, .connecting)
+
+        state.markCapabilitiesAccepted()
+        XCTAssertTrue(state.evaluateATVVReadiness())
+        XCTAssertEqual(state.connectionState, .ready)
+        XCTAssertFalse(state.evaluateATVVReadiness())
+    }
+
+    func testPartialNotificationConfirmationCannotBecomeReady() {
+        var state = BLEVoiceTransportState()
+        state.prepareTransport()
+        state.beginConnection()
+        state.markAudioCharacteristicDiscovered()
+        state.markCommandCharacteristicDiscovered()
+        state.markControlCharacteristicDiscovered()
+        state.markCapabilitiesAccepted()
+
+        state.markAudioNotificationConfirmed()
+        XCTAssertFalse(state.evaluateATVVReadiness())
+        XCTAssertFalse(state.canReuseReadyTransport)
+
+        state.markDisconnected()
+        state.prepareTransport()
+        state.beginConnection()
+        state.markAudioCharacteristicDiscovered()
+        state.markCommandCharacteristicDiscovered()
+        state.markControlCharacteristicDiscovered()
+        state.markCapabilitiesAccepted()
+        state.markControlNotificationConfirmed()
+        XCTAssertFalse(state.evaluateATVVReadiness())
+        XCTAssertFalse(state.canReuseReadyTransport)
+    }
+
+    func testNotificationFailureCannotLeaveReusableReady() {
+        var state = BLEVoiceTransportState()
+        establishStrictReady(&state)
+
+        state.markDisconnected()
+
+        XCTAssertEqual(state.connectionState, .disconnected)
+        XCTAssertFalse(state.canReuseReadyTransport)
+        XCTAssertFalse(state.audioNotificationConfirmed)
+        XCTAssertFalse(state.controlNotificationConfirmed)
+        XCTAssertFalse(state.capabilitiesAccepted)
+    }
+
+    func testResetClearsConfirmedNotificationsAndCapabilities() {
+        var state = BLEVoiceTransportState()
+        establishStrictReady(&state)
+
+        state.beginConnection()
+
+        XCTAssertEqual(state.connectionState, .connecting)
+        XCTAssertFalse(state.audioCharacteristicDiscovered)
+        XCTAssertFalse(state.commandCharacteristicDiscovered)
+        XCTAssertFalse(state.controlCharacteristicDiscovered)
+        XCTAssertFalse(state.audioNotificationConfirmed)
+        XCTAssertFalse(state.controlNotificationConfirmed)
+        XCTAssertFalse(state.capabilitiesAccepted)
+        XCTAssertFalse(state.atvvReady)
+        XCTAssertFalse(state.evaluateATVVReadiness())
+        XCTAssertFalse(state.canReuseReadyTransport)
+    }
+
+    func testReadyReusePreservesConfirmedReadinessFactsAfterVoiceClose() {
+        var state = BLEVoiceTransportState()
+        establishStrictReady(&state)
+        state.requestVoiceInput()
+        state.micOpenRequested = true
+
+        state.finishVoiceSession()
+
+        XCTAssertTrue(state.audioNotificationConfirmed)
+        XCTAssertTrue(state.controlNotificationConfirmed)
+        XCTAssertTrue(state.capabilitiesAccepted)
+        XCTAssertEqual(state.connectionState, .ready)
+        XCTAssertTrue(state.canReuseReadyTransport)
+
+        state.requestVoiceInput()
+        XCTAssertTrue(state.shouldRequestMicOpen)
+    }
+
+    func testMicOpenEligibilityRequiresStrictReadyFacts() {
+        var state = BLEVoiceTransportState()
+        state.prepareTransport()
+        state.beginConnection()
+        state.requestVoiceInput()
+        state.markAudioCharacteristicDiscovered()
+        state.markCommandCharacteristicDiscovered()
+        state.markControlCharacteristicDiscovered()
+        state.markCapabilitiesAccepted()
+
+        XCTAssertFalse(state.shouldRequestMicOpen)
+        state.markAudioNotificationConfirmed()
+        XCTAssertFalse(state.evaluateATVVReadiness())
+        XCTAssertFalse(state.shouldRequestMicOpen)
+        state.markControlNotificationConfirmed()
+        XCTAssertTrue(state.evaluateATVVReadiness())
+        XCTAssertTrue(state.shouldRequestMicOpen)
+    }
+
+    private func establishStrictReady(_ state: inout BLEVoiceTransportState) {
+        state.prepareTransport()
+        state.beginConnection()
+        state.markAudioCharacteristicDiscovered()
+        state.markCommandCharacteristicDiscovered()
+        state.markControlCharacteristicDiscovered()
+        state.markAudioNotificationConfirmed()
+        state.markControlNotificationConfirmed()
+        state.markCapabilitiesAccepted()
+        XCTAssertTrue(state.evaluateATVVReadiness())
     }
 
     func testBLEBridgeUsesDedicatedSerialQueueAndMarshalsCallbacksToMain() {

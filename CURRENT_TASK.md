@@ -118,8 +118,20 @@ A real disconnect, Bluetooth power/state change, notification/service failure, e
 - Normal release sends `MIC_CLOSE` after the existing post-release grace, completes the existing `350 ms` AUDIO_STOP drain/admission barrier, and retains a healthy peripheral's discovery/subscription/capability state as `READY`. The bounded `600 ms` safety timeout only clears stale transport state when AUDIO_STOP is missing.
 - A second session can request `MIC_OPEN` from `READY` without repeating connect, service/characteristic discovery, subscription, or capability negotiation. Genuine reset/disconnect paths still clear stale state and use bounded reconnect logic.
 - Gate A tail ordering, stale `AUDIO_START` admission rejection, AudioPipe architecture/render path, ATVV v0.4/v1.0 and codec/ADPCM/sample-rate/AUDIO_SYNC/keepalive behavior, and 041 diagnostics/privacy remain preserved.
-- Verification receipt: full Swift tests `514/514` passed; arm64 release build passed; x86_64 release build passed; protocol self-tests `3/3` passed; `git diff --check` passed.
+- Verification receipt: full Swift tests `521/521` passed; arm64 release build passed; x86_64 release build passed; protocol self-tests `3/3` passed; `git diff --check` passed.
 - No Gate C/D/E, driver/package/install/TCC/Air, merge, tag, or release work was performed.
+
+### Gate B strict READY corrective — locally implemented / audit pending
+
+Independent Web audit identified a readiness race: capabilities acceptance could
+mark READY before `didUpdateNotificationState` positively confirmed both audio and
+control notifications. The corrective is bounded to the existing Gate B writer:
+
+- `BLEVoiceTransportState` now records all three required characteristic discoveries, both required notification confirmations, and capabilities acceptance.
+- One `evaluateATVVReadiness()` path is the only production READY transition; capabilities-first and notify-first orders converge exactly once, while partial notify and incomplete MIC_OPEN eligibility remain not READY.
+- Notify error/disabled callbacks use the existing failure/reset path; new setup/reset clears all facts, and current peripheral/characteristic identity checks reject obsolete confirmations.
+- Normal session close retains strict READY facts and second-session reuse; no AudioPipe, protocol, jitter, Gate A, driver, packaging, install, TCC, Air, or Gate C/D/E changes were made.
+- Corrective receipt: BLEBridge strict readiness tests `28/28`; full Swift tests `521/521`; arm64/x86_64 release builds passed; protocol self-tests `3/3`; `git diff --check` passed.
 
 ### Gate B state/ownership requirements
 

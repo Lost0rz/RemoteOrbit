@@ -66,7 +66,21 @@ Verified implementation receipt:
 - Normal release sends per-session `MIC_CLOSE` after the existing post-release grace, retains healthy discovery/subscription/capability state `READY`, and does not cancel the healthy peripheral. A missing AUDIO_STOP uses the bounded existing `600 ms` safety window to clear stale transport state and enter recovery.
 - A ready transport is reusable for a subsequent `MIC_OPEN` without repeating connection, discovery, subscription, or capability setup. Fatal/reset paths clear stale transport state before reconnect.
 - ATVV protocol semantics, codecs, ADPCM/sample rates, AUDIO_SYNC, keepalive, 041 diagnostics/privacy, AudioPipe architecture/render path, Gate A trigger/profile/tail semantics, driver/package/install/TCC/Air, and Gates C/D/E remain unchanged.
-- Verification: full Swift tests `514/514` passed; arm64 release build passed; x86_64 release build passed; protocol self-tests `3/3` passed; `git diff --check` passed.
+- Verification: full Swift tests `521/521` passed; arm64 release build passed; x86_64 release build passed; protocol self-tests `3/3` passed; `git diff --check` passed.
+
+### Gate B strict READY corrective
+
+The independent Web audit found that capabilities could previously call READY
+before both required notify subscriptions were positively confirmed. The bounded
+corrective keeps the existing dedicated queue and connection persistence model,
+adds audio/command/control discovery facts, audio/control notification-confirmed
+facts, and capabilities acceptance facts, and permits the sole readiness evaluator
+to enter READY only when all facts are true.
+
+- Capabilities-first and notify-first arrivals remain CONNECTING until the final fact; the evaluator transitions READY once and then permits MIC_OPEN.
+- Partial notify confirmation cannot become READY. Notify error/disabled state uses the existing `connectionSetupFailed → clearTransportState` path, which clears confirmed facts and reusable readiness.
+- New connection/reset and obsolete peripheral/characteristic identity checks clear or reject stale facts; normal voice close preserves confirmed READY facts for second-session reuse.
+- Verification after the corrective: strict readiness BLE tests `28/28`; full Swift tests `521/521`; arm64/x86_64 release builds passed; protocol self-tests `3/3`; `git diff --check` passed.
 
 Gate C/D/E remain unauthorized. Human natural-use/UI acceptance, installed runtime/TCC,
 hardware behavior, and independent Web audit remain pending and are not claimed here.

@@ -37,6 +37,12 @@ struct BLEVoiceTransportState {
     var atvvReady = false
     var micOpenRequested = false
     var connectionState: BLEVoiceConnectionState = .disconnected
+    var audioCharacteristicDiscovered = false
+    var commandCharacteristicDiscovered = false
+    var controlCharacteristicDiscovered = false
+    var audioNotificationConfirmed = false
+    var controlNotificationConfirmed = false
+    var capabilitiesAccepted = false
 
     var isPreparing: Bool {
         isStarted && !transportPrepared
@@ -45,28 +51,72 @@ struct BLEVoiceTransportState {
     mutating func prepareTransport() {
         isStarted = true
         if connectionState != .ready {
-            transportPrepared = false
-            connectionState = .disconnected
-            atvvReady = false
+            clearReadinessFacts()
         }
     }
 
     mutating func beginConnection() {
+        clearReadinessFacts()
         connectionState = .connecting
         transportPrepared = false
         atvvReady = false
     }
 
-    mutating func markReady() {
+    @discardableResult
+    mutating func evaluateATVVReadiness() -> Bool {
+        guard !atvvReady,
+              audioCharacteristicDiscovered,
+              commandCharacteristicDiscovered,
+              controlCharacteristicDiscovered,
+              audioNotificationConfirmed,
+              controlNotificationConfirmed,
+              capabilitiesAccepted else {
+            return false
+        }
         connectionState = .ready
         transportPrepared = true
         atvvReady = true
+        return true
     }
 
     mutating func markDisconnected() {
         connectionState = .disconnected
         transportPrepared = false
         atvvReady = false
+        clearReadinessFacts()
+    }
+
+    mutating func markAudioCharacteristicDiscovered() {
+        audioCharacteristicDiscovered = true
+    }
+
+    mutating func markCommandCharacteristicDiscovered() {
+        commandCharacteristicDiscovered = true
+    }
+
+    mutating func markControlCharacteristicDiscovered() {
+        controlCharacteristicDiscovered = true
+    }
+
+    mutating func markAudioNotificationConfirmed() {
+        audioNotificationConfirmed = true
+    }
+
+    mutating func markControlNotificationConfirmed() {
+        controlNotificationConfirmed = true
+    }
+
+    mutating func markCapabilitiesAccepted() {
+        capabilitiesAccepted = true
+    }
+
+    private mutating func clearReadinessFacts() {
+        audioCharacteristicDiscovered = false
+        commandCharacteristicDiscovered = false
+        controlCharacteristicDiscovered = false
+        audioNotificationConfirmed = false
+        controlNotificationConfirmed = false
+        capabilitiesAccepted = false
     }
 
     mutating func requestPendingPreCapture() {
@@ -788,7 +838,7 @@ final class BLEBridge: NSObject {
 
         let work = DispatchWorkItem { [weak self] in
             guard let self,
-                  self.peripheral?.identifier == p.identifier,
+                  self.peripheral === p,
                   !self.transportState.atvvReady
             else { return }
             print("[BLE] 连接请求超时，进入退避重连")
@@ -832,11 +882,13 @@ final class BLEBridge: NSObject {
         bleQueue.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    private func markATVVReady() {
+    private func evaluateATVVReadiness() {
+        guard transportState.evaluateATVVReadiness() else {
+            updateDiagnosticTransportState()
+            return
+        }
         handshakeTimeoutWorkItem?.cancel()
         handshakeTimeoutWorkItem = nil
-        guard !transportState.atvvReady else { return }
-        transportState.markReady()
         reconnectAttempt = 0
         updateDiagnosticTransportState()
         print("[BLE] ATVV 语音链路已就绪")
@@ -894,7 +946,18 @@ final class BLEBridge: NSObject {
     }
 
     private func isCurrentPeripheral(_ candidate: CBPeripheral) -> Bool {
-        transportState.isStarted && peripheral?.identifier == candidate.identifier
+        transportState.isStarted && peripheral === candidate
+    }
+
+    private func isCurrentNotificationCharacteristic(_ candidate: CBCharacteristic) -> Bool {
+        switch candidate.uuid {
+        case Self.audioUUID:
+            return audioChar === candidate
+        case Self.controlUUID:
+            return controlChar === candidate
+        default:
+            return false
+        }
     }
 
     private func writeCommand(_ data: Data) {
@@ -914,7 +977,8 @@ final class BLEBridge: NSObject {
     }
 
     private func requestMicOpenIfReady() {
-        guard transportState.shouldRequestMicOpen else { return }
+        guard transportState.shouldRequestMicOpen,
+              transportState.canReuseReadyTransport else { return }
         VoiceAttemptDiagnostics.shared.stage("MIC_OPEN_REQUEST")
         do {
             protocolHandler.prepareForAudioStream()
@@ -1172,7 +1236,7 @@ extension BLEBridge: CBCentralManagerDelegate {
                         didFailToConnect peripheral: CBPeripheral,
                         error: Error?) {
         print("[BLE] 连接失败: \(error?.localizedDescription ?? "unknown")")
-        guard self.peripheral?.identifier == peripheral.identifier else { return }
+        guard self.peripheral === peripheral else { return }
         clearTransportState(notify: true)
         self.peripheral = nil
         // A failed connect does not call didDisconnectPeripheral, so without
@@ -1184,7 +1248,7 @@ extension BLEBridge: CBCentralManagerDelegate {
                         didDisconnectPeripheral peripheral: CBPeripheral,
                         error: Error?) {
         print("[BLE] 断开: \(error?.localizedDescription ?? "ok")")
-        guard self.peripheral?.identifier == peripheral.identifier else { return }
+        guard self.peripheral === peripheral else { return }
         clearTransportState(notify: true)
         self.peripheral = nil
         scheduleReconnect(reason: "disconnected")
@@ -1232,6 +1296,16 @@ extension BLEBridge: CBPeripheralDelegate {
                 || c.uuid == Self.commandUUID
                 || c.uuid == Self.controlUUID {
                 discoveredATVVCharacteristics.insert(c.uuid)
+                switch c.uuid {
+                case Self.audioUUID:
+                    transportState.markAudioCharacteristicDiscovered()
+                case Self.commandUUID:
+                    transportState.markCommandCharacteristicDiscovered()
+                case Self.controlUUID:
+                    transportState.markControlCharacteristicDiscovered()
+                default:
+                    break
+                }
             }
             switch c.uuid {
             case Self.audioUUID:
@@ -1281,12 +1355,26 @@ extension BLEBridge: CBPeripheralDelegate {
         guard characteristic.uuid == Self.audioUUID
                 || characteristic.uuid == Self.controlUUID
         else { return }
+        guard isCurrentNotificationCharacteristic(characteristic) else {
+            print("[BLE] 忽略过期通知特征确认 \(characteristic.uuid.uuidString.prefix(8))")
+            return
+        }
         if let error {
             print("[BLE] 音频特征订阅失败: \(error.localizedDescription)")
             connectionSetupFailed("notification-subscription-failed")
         } else if !characteristic.isNotifying {
             print("[BLE] 音频特征未进入通知状态")
             connectionSetupFailed("notification-disabled")
+        } else {
+            switch characteristic.uuid {
+            case Self.audioUUID:
+                transportState.markAudioNotificationConfirmed()
+            case Self.controlUUID:
+                transportState.markControlNotificationConfirmed()
+            default:
+                break
+            }
+            evaluateATVVReadiness()
         }
     }
 
@@ -1343,7 +1431,8 @@ extension BLEBridge: CBPeripheralDelegate {
             do {
                 try protocolHandler.acceptCapabilities(caps)
                 print("[BLE] caps ok v\(caps.version) codec=\(protocolHandler.codec!)")
-                markATVVReady()
+                transportState.markCapabilitiesAccepted()
+                evaluateATVVReadiness()
             } catch {
                 print("[BLE] caps error: \(error.localizedDescription)")
             }
@@ -1506,7 +1595,8 @@ extension BLEBridge: CBPeripheralDelegate {
                     do {
                         try protocolHandler.acceptCapabilities(caps)
                         print("[BLE] caps (fallback) v\(caps.version) codec=\(protocolHandler.codec!)")
-                        markATVVReady()
+                        transportState.markCapabilitiesAccepted()
+                        evaluateATVVReadiness()
                     } catch {
                         print("[BLE] caps fallback error: \(error.localizedDescription)")
                     }
