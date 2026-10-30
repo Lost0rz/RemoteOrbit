@@ -1,148 +1,109 @@
 # RemoteOrbit Current Task
 
-## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Corrective Candidate Preparation
+## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Fresh Runtime Incident Evidence Capture
 
-Status: `READY_FOR_HUMAN_CORRECTIVE_RUNTIME_RETEST`
+Status: `HUMAN_CORRECTIVE_RUNTIME_RETEST_FAILED / FRESH_INCIDENT_EVIDENCE_REQUIRED`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
-
-Frozen evidence baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`
-Previous failed runtime candidate source: `2d09b6d77f9f75aa46bb4a13838cd22d5589f524`
 Accepted corrective source: `7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c`
-Incident record: `docs/incidents/2026-10-30-042-no-waveform-physical-htt-admission-race.md`
+Installed candidate: `0.2.14 (43)`
+Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`
+
+## Observation
+
+The corrective candidate first passed six consecutive human RC003 voice sessions. During later frequent open/close testing, a new failure appeared:
+
+- Doubao still opens;
+- waveform is visible;
+- speech audio is no longer captured / recognized.
+
+This is not the previous no-waveform Physical-HTT admission failure. Root cause is UNKNOWN.
 
 ## Objective
 
-Prepare and install one provenance-locked runtime candidate from the independently accepted Physical-HTT admission corrective, without changing product source, so the user can retest the original no-waveform failure on real RC003 hardware.
+Preserve and inspect the fresh failed runtime window using existing read-only evidence. Determine the first failed or contradictory boundary among:
 
-This is not Gate F and is not a source-construction phase.
+1. session/trigger admission;
+2. `MIC_OPEN` / `AUDIO_START`;
+3. BLE audio frame ingress;
+4. ADPCM decode and whether decoded PCM is non-zero/credible;
+5. AudioPipe feed/submission and queue depth;
+6. Gate D reserve start/tail-bypass;
+7. CoreAudio render callbacks and whether rendered remote frames/samples are non-zero;
+8. virtual microphone / consumer-side readiness where already observable.
 
-## Corrective identity contract
-
-Product source is frozen at:
-
-`7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c`
-
-The live branch may contain later control-only descendants. Before building, prove that the diff from the accepted corrective source to the live control HEAD contains no product-source/package-script change beyond governance files. If false, STOP.
-
-Use only the repository's established build/package/install flow. Do not modify source or packaging machinery to make this preparation succeed.
+The immediate decision is whether the failure is transport/content, AudioPipe/render, or downstream virtual-mic consumption.
 
 ## Authorized work
 
-1. Fetch the live 042 branch and read `AGENTS.md`, `CURRENT_STATUS.md`, and this file.
-2. Reuse one clean canonical writer/worktree and fast-forward to the live branch.
-3. Verify local/remote exact alignment and prove the accepted corrective source identity above.
-4. Prove any descendant drift after `7dfd2e0...` is governance-only before building.
-5. Build/package using the established repository flow (including `./package-dmg.sh` if still canonical) without changing product/package source.
-6. Record exact build/package commands and results.
-7. Record app/DMG artifact paths, hashes, bundle ID, version/build, architectures, signing result, accepted corrective source HEAD and live control HEAD.
-8. Quit the currently running old RemoteOrbit candidate cleanly.
-9. Install/replace only `/Applications/RemoteOrbit.app` with the exact corrective candidate if the established flow supports it.
-10. Do NOT replace/reload the installed CoreAudio driver.
-11. Do NOT reset or manipulate TCC.
-12. Verify installed app provenance against the packaged corrective candidate using the strongest existing repository-supported identity checks.
-13. Launch the installed corrective candidate and verify process identity/basic runtime readiness: app path/PID/version, RemoteOrbit Mic process-level readiness, RC003 BLE/HID readiness, and existing diagnostics availability.
-14. Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together with the actual candidate-preparation receipt and stop at `READY_FOR_HUMAN_CORRECTIVE_RUNTIME_RETEST`.
+Evidence capture/diagnosis only:
+
+- preserve the currently running failed candidate state;
+- use the existing installed `diagnostics status`, `diagnostics verify`, and `diagnostics export` path;
+- copy the current `~/Library/Logs/RemoteOrbit/RemoteOrbit.log` if present;
+- inspect existing journal/runtime evidence for the fresh failure window;
+- compare the six successful corrective sessions against the first failed post-smoke session if timestamps/events allow;
+- classify the minimum evidence-supported fault boundary;
+- if existing evidence is insufficient, identify exactly one missing fact and one minimum probe, then STOP before adding it.
 
 ## Explicitly not authorized
 
 Do NOT:
 
-- modify product source or tests;
-- modify package scripts;
-- change Physical-HTT corrective semantics;
-- change Gate A-E semantics;
-- change Gate B long-lived READY or strict READY;
-- change ATVV protocol/codec/framing/capabilities;
-- change Gate C ring/capacity/overflow policy;
-- change Gate D 45 ms reserve;
-- change gain/limiter/resampling;
+- modify product source/tests/package scripts;
+- restart RemoteOrbit merely to clear the symptom;
+- disconnect/reconnect RC003/ATVV merely to clear the symptom;
+- reinstall/repackage;
 - reset TCC;
-- install/reload/replace the CoreAudio driver;
-- merge, tag, release, publish, or create a release PR;
+- replace/reload the CoreAudio driver;
+- change Gate B long-lived READY/strict READY;
+- change Gate C ring;
+- change Gate D 45 ms reserve;
+- change ATVV protocol/codec;
+- merge/tag/release/publish;
 - create Gate F;
-- self-approve the human runtime retest;
-- perform speculative source repair if candidate preparation or runtime readiness fails.
+- add probes before proving one missing fact requires them.
 
-If candidate preparation requires a source/package/driver/TCC change, STOP and report the exact dependency.
+## Immediate evidence capture
 
-## Required preparation verification
+Run against the currently installed failed runtime:
 
-Report at minimum:
+```bash
+mkdir -p ~/Desktop/RemoteOrbit-Incident-042-AudioSilent
 
-1. live branch/control HEAD;
-2. accepted corrective source HEAD;
-3. proof that post-corrective descendants are governance-only;
-4. clean worktree before/after;
-5. exact build/package commands;
-6. Release/package result;
-7. artifact paths and SHA-256;
-8. Bundle ID/version/build/architectures;
-9. codesign verification;
-10. installed app path and identity;
-11. installed/package provenance method and result;
-12. running executable path/PID/version;
-13. RemoteOrbit Mic readiness without driver mutation;
-14. BLE/HID readiness;
-15. diagnostic journal/CLI readiness;
-16. `SOURCE_CHANGED=NO`;
-17. `PACKAGE_SCRIPT_CHANGED=NO`;
-18. `DRIVER_CHANGED=NO`;
-19. `TCC_RESET=NO`;
-20. `MERGE_TAG_RELEASE=NO`.
+"/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit" diagnostics status
+"/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit" diagnostics verify
+"/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit" diagnostics export \
+  --output ~/Desktop/RemoteOrbit-Incident-042-AudioSilent \
+  --host-role controller
 
-## Human retest boundary
+cp ~/Library/Logs/RemoteOrbit/RemoteOrbit.log \
+  ~/Desktop/RemoteOrbit-Incident-042-AudioSilent/ 2>/dev/null || true
+```
 
-After successful preparation, STOP. The user owns the runtime retest.
+Do not restart before capture.
 
-The first human retest must target the exact regression rather than broad feature acceptance:
+## Return contract
 
-1. confirm the first RC003 voice press produces Doubao waveform/audio;
-2. release and allow normal retirement;
-3. without restarting RemoteOrbit or disconnecting ATVV, perform at least 5 subsequent voice presses while Gate B READY transport is reused;
-4. each press must be admitted and must produce usable waveform/audio;
-5. include at least one immediate-speech press and one short utterance;
-6. if any press opens Doubao with no waveform, preserve that fresh failure and export diagnostics before changing runtime state.
+Return only observed evidence:
 
-A human PASS plus evidence from the corrective candidate is required before merge/release consideration.
+- candidate PID/path/version if still observable;
+- export artifact path/name;
+- diagnostic verify result;
+- failure-window timestamps if available;
+- last successful session before failure;
+- first failed session;
+- `MIC_OPEN` / `AUDIO_START` presence;
+- BLE frame/sample counts;
+- decode reject/error counts;
+- decoded PCM content evidence if existing diagnostics expose it;
+- AudioPipe submitted/queued/rendered frame counts;
+- reserve state/start reason;
+- underrun/starvation counts;
+- transport reset/loss events;
+- virtual-mic/IOProc readiness evidence already present;
+- factual first-missing/contradictory boundary, or `UNKNOWN` if evidence cannot discriminate;
+- one minimum missing fact/probe only if needed.
 
-## Candidate preparation receipt
-
-Preparation completed on the existing 042 writer without product-source or packaging-script mutation.
-
-- Start control HEAD: `961661d25f74253f95320faf19ea79cc8d4cee24`; local/remote equality was verified before preparation.
-- Accepted corrective source: `7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c`.
-- Pre-build `git diff --name-status 7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c..961661d25f74253f95320faf19ea79cc8d4cee24` contained only `CURRENT_STATUS.md` and `CURRENT_TASK.md`.
-- Worktree was clean before and after build/package/install; generated `dist` outputs are ignored.
-- Build/package command: `./package-dmg.sh --reuse-driver`; arm64 and x86_64 Release builds succeeded, followed by Universal2 app and DMG creation.
-- App: `/private/tmp/remoteorbit-voice-pipeline-simplification-042/remote-orbit/dist/RemoteOrbit.app`.
-- DMG: `/private/tmp/remoteorbit-voice-pipeline-simplification-042/dist/RemoteOrbit-0.2.14.dmg`.
-- App executable SHA-256: `b2acee7ab8070ea82f066c32e47e2aab493cc7bccd065ed284757e0568b81404`.
-- DMG SHA-256: `71e130248f8d8685ff12c274e7449750c5c31bddf55e530cf44b380e5aa6b616`.
-- Bundle identity: `com.lost0rz.RemoteOrbit`, version `0.2.14`, build `43`, architectures `x86_64 arm64`; packaged source-head is the start control HEAD.
-- Source app, read-only mounted DMG app, and installed app had matching source-head, metadata, executable hash, and app-bundle file hashes; all passed deep strict code-sign verification.
-- Old candidate PID `80225` exited cleanly. Installed corrective candidate is PID `8511` at `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`.
-- RemoteOrbit Mic process readiness: log recorded IOProc `id=73`, `48000 Hz stereo`, and default-input restoration. Device remains `RemoteOrbit Mic 2ch`, default, 2-channel, USB.
-- RC003 readiness: connected BLE device vendor `0x2717` / product `0x32B8`; app log recorded BLE ready, HID permissions, suppressor ready, monitored HID connection, and voice-key mapping enabled. Diagnostic readback recorded `HID_VERIFY result=MATCH` for PID `8511`.
-- Diagnostic readiness: installed CLI `diagnostics status` found the existing journal in read-only mode, and `diagnostics verify` returned `ok=true`, schema version `1`.
-- Installed HAL driver version `596` remained code-sign valid with identical pre/post file hashes. No driver or TCC mutation was performed.
-
-Preparation flags:
-
-`SOURCE_CHANGED=NO`  `PACKAGE_SCRIPT_CHANGED=NO`  `DRIVER_CHANGED=NO`  `TCC_RESET=NO`  `MERGE_TAG_RELEASE=NO`  `GATE_F_CREATED=NO`
-
-`HUMAN_CORRECTIVE_RUNTIME_RETEST: PENDING`
-
-## Delivery / stop state
-
-Candidate preparation succeeded:
-
-- update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
-- commit/push only governance/evidence records on the existing 042 branch if required;
-- verify exact local/remote equality;
-- stop at `READY_FOR_HUMAN_CORRECTIVE_RUNTIME_RETEST`;
-- do not perform the human acceptance on the user's behalf;
-- do not merge/tag/release.
-
-Return actual observed evidence only. Do not predeclare successful runtime repair.
+Stop after evidence capture/diagnosis. No product correction is authorized yet.
