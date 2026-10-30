@@ -1,113 +1,74 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: RO-DIAGNOSTIC-HARDENING-041 — WAITING_FOR_AIR_OBSERVATION
-Repository: Lost0rz/RemoteOrbit
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — READY_FOR_LOCAL_GATE_A`
+Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
 
-- Active integration branch: `codex/diagnostic-hardening-041`.
-- Start control HEAD: `29af277a192ec0611abd90308abc8864a5209e9f`.
-- Branch baseline: `codex/observability-039` at `0db5861f6df2cad0e1c8e8ecd6d8b56c86de49d4`.
-- Reused 039 semantic observability implementation: `62d58765c6a0bffbd7853861eae50cdf094bb586` plus its later control-only lineage through the branch baseline.
-- Integrated 040 semantic commits, in order: `c3b8c74ee933f666bcc9688be9554d9b79416993`, `9669420ecfd65034ebeb61ade08386dd0ca20659`, `21255f34c963aff7fe53f97bb64526fb9b000581`.
-- Post-040 integration HEAD: `069694c925f36a7f16cab6ae6595ca02c3483e8d`.
-- Corrective authorization control HEAD: `7388a77b239228fd3034c0b9945224a7c83bd4ea`.
-- Final implementation HEAD before this exporter corrective: `90b1e6b83c18ec5ddff5ea572f3e8f4a969bc321` (`fix: close diagnostic evidence audit gaps`).
-- Exporter corrective authorization start HEAD: `6489517dca8a7d6fb5aeabee973e3240ac2434c9`.
-- Exporter corrective implementation HEAD: `d4584f04f5ce8cd974773abe6b5a6e87b72453c4` (`fix: make exporter evidence receipts truthful`).
-- Previous Air DMG packaging attempt from audited source `840aadd2e56ee67c136092f8af4a28d83b38d172` stopped before app build because the pinned BlackHole 0.7.1 project declared deployment target 10.10 while installed Xcode supports 12.0–27.0.
-- Packaging corrective authorization starts from control HEAD `840aadd2e56ee67c136092f8af4a28d83b38d172` and is limited to `remote-orbit-audio-driver/build-driver.sh` plus these control files.
-- The follow-on packaging blocker is the existing `package-app.sh` x86 invocation: `-Xswiftc -target` did not keep the complete SwiftPM graph/link architecture-consistent; x86_64 linking observed arm64 objects and failed with `_main` undefined.
-- Universal2 corrective authorization starts from local packaging HEAD `1631bd25ded1080fa04b823bcf77f9e0250a867c` and is limited to `remote-orbit/package-app.sh` plus these control files. The two local packaging commits remain preserved and are not to be reset or dropped.
-- Universal2 packaging implementation HEAD: `1310e67939f0d3ee25b9a2f4818f8be835610e38` (`fix: build Universal2 app with explicit SwiftPM triples`).
-- The paired control update after implementation is the final control transition for this corrective; its exact SHA and remote match are verified in the delivery receipt.
-- Independent Web audit blocker receipt: exact remote head `2d699f107b8ebb55b117243f0ac5d5fe1b2dfbc1`; corrective scope is limited to the six evidence-accuracy blockers in the audit.
-- Latest independent Web audit stop receipt: exact remote head `6489517dca8a7d6fb5aeabee973e3240ac2434c9`; runtime probe closure is accepted and the only authorized corrective is exporter evidence-receipt truthfulness.
-- `AGENTS.md` remains the durable repository rule authority and is unchanged by this transition.
-- `CURRENT_TASK.md` is the only authorization for 041 implementation.
-- Local writer worktree: `/private/tmp/remoteorbit-diagnostic-hardening-041`.
+- Active control branch: `codex/voice-pipeline-simplification-042`.
+- 042 parent / frozen evidence baseline: `codex/diagnostic-hardening-041` at `ac3132986197bfee4440bb8f388e3d2e5f478f03`.
+- 041 is retained as `FROZEN_OBSERVABILITY_BASELINE`: its one-shot diagnostics, exporter, packaged Air observation candidate, and evidence conclusions remain available for before/after comparison. It is not being merged, tagged, released, or mutated by Gate 0.
+- Gate 0 is remote control-plane work only. No RemoteOrbit product source, ATVV/BLE behavior, AudioPipe behavior, driver, package, installed runtime, Air runtime, TCC state, or local worktree has been changed by this transition.
+- `AGENTS.md` remains the durable repository rule authority and is unchanged.
+- `CURRENT_TASK.md` is the sole active execution authorization for 042.
+- PR #25 / `codex/release-v0.2.15` and PR #26 / `codex/mapping-config-simplify-040` remain preserved and out of scope for 042 unless a later explicit transition says otherwise.
 
-## Related lines preserved separately
+## Accepted product direction
 
-- `codex/observability-039` remains preserved as the prior audited Air-observability lineage; do not mutate it during 041.
-- PR #26 / `codex/mapping-config-simplify-040` remains Draft/Open/Unmerged. 041 is authorized to integrate only these 040 semantic commits, in order, without importing 040 control commits: `c3b8c74ee933f666bcc9688be9554d9b79416993`, `9669420ecfd65034ebeb61ade08386dd0ca20659`, `21255f34c963aff7fe53f97bb64526fb9b000581`.
-- PR #25 / `codex/release-v0.2.15` remains Draft/Open/Unmerged and is out of scope.
-- No merge, tag, release, Air install, driver install, TCC mutation, or runtime replacement is authorized yet.
+The voice key is now defined as transport control, not mode control:
 
-## Existing diagnostic foundation to reuse
+- physical voice DOWN starts one remote-voice session;
+- physical voice UP begins a clean drain/stop sequence;
+- the voice key no longer owns SHORT/LONG/DOUBLE classification, Persistent voice mode, receiver A/B switching, or input-method switching;
+- voice-input/IME trigger choice becomes a low-frequency menu-bar profile selection with a persisted selected profile;
+- profile switching must not change an active voice session mid-press.
 
-- `DiagnosticAuthority` and its bounded journal are the machine-readable evidence authority.
-- `DiagnosticExporter` already creates bounded archives with session events, runtime identity, journal segments, approved application logs, receiver evidence, manifest, and checksums. Approved `.json/.jsonl` files in the logs directory are already eligible; 041 must verify rather than reimplement bundle collection.
-- `LongTermObservability` already provides a fixed-capacity, hot-path-safe trace with front/recent/incident windows, first-writer-wins incident coordination, BLE/decode/PCM/render/starvation observations, main-queue-lag summary, anomaly flags, trace-drop visibility, and detached/off-path serialization.
-- Existing HID diagnostics already include raw microphone report/state and emitted/suppressed edge evidence in `voice-diagnostic-current.jsonl`; do not duplicate raw-HID capture.
-- 040 semantic work already adds deterministic Settings mapping entry and structured debug-recording failure evidence; 041 must preserve those semantics after integration.
+The primary product goal is a single deterministic path from Xiaomi RC003 remote audio to the selected voice-input trigger and `RemoteOrbit Mic 2ch`, with minimal state and measurable start/continuity/tail behavior.
 
-## Owner authorization
+## Architecture decisions retained for the plan
 
-The owner explicitly authorized one final comprehensive diagnostic-hardening pass so known evidence gaps are closed together instead of adding probes one by one after each incident.
+- Preserve the existing ATVV protocol implementation unless later evidence proves a protocol defect.
+- Preserve 041 diagnostic authority, bounded traces, underrun episodes, exporter, and privacy boundary; adapt semantics only as the product pipeline changes.
+- Separate long-lived ATVV transport readiness from short-lived voice-stream state in a later gate.
+- Move BLE ingestion off the UI/control scheduling path in a later gate.
+- Replace the current dynamic/locking audio queue with a fixed-capacity realtime-safe producer/consumer path in a later gate.
+- Tune any small jitter reserve only after the structural transport/audio changes are independently measurable.
+- Tail shutdown should ultimately be event-driven with bounded safety timeouts, not a stack of fixed-delay ownership rules.
 
-The target is evidence closure, not a production behavior fix. After this package, no further always-on probe expansion should occur unless a fresh incident proves a concrete evidence gap.
+## Current authorized next gate
 
-## Delivered 041 evidence closure
+`Gate A — Voice control-plane simplification` is the next local construction unit.
 
-- One bounded `voice_attempt_id` now spans accepted HID microphone attempts, gesture/transport stages, audio start, output lifecycle and completion; the existing raw-HID evidence is enriched rather than duplicated.
-- The start watchdog arms at `HOLD_CONFIRMED`, emits bounded stall/failure classifications without retry or restart side effects, and preserves the 300 ms gesture boundary.
-- The audit corrective separately distinguishes `AUDIO_START_MISSING` from `AUDIO_FIRST_MISSING`, reports lifecycle/queue health with explicit unknown or unavailable states, keeps output timestamps truth-only, retains frozen incident evidence, attributes producer-local trace sequences, and joins existing raw-HID state/edge evidence by report sequence and attempt ID.
-- Low-rate runtime health, fixed-trace stream/sequence attribution, startup/active/tail underrun episodes, output boundary facts, structured failure-layer summaries, and required-evidence archive receipts are implemented through the existing DiagnosticAuthority/exporter/trace path.
-- CoreAudio observation remains bounded and allocation/I/O/JSON/formatting/blocking-lock free; idle meter output is reduced to 30-second cadence while active output remains immediate/one-second cadence.
-- Privacy boundary is preserved: no dictated text, raw audio, raw HID payload, automatic recording/export, upload, or raw filesystem paths are added to structured 041 evidence. Driver-level consumer evidence remains explicitly `unavailable`.
+Gate A may change voice-session/controller semantics, trigger-profile configuration, menu/profile presentation needed by that contract, compatibility migration for old trigger preferences, and tests/diagnostic semantics directly coupled to removal of the old voice modes.
 
-## Verification receipts
+Gate A must NOT change:
 
-- Integration-focused 039+040 suites before 041 implementation: 126/126 passed.
-- Focused 039+040+041 mapping/diagnostic suites before corrective: 132/132 passed.
-- Audit-corrective focused mapping/diagnostic suites: 140/140 passed.
-- Dedicated 041 hardening/export/recording suites: 53/53 passed.
-- Full Swift tests: 495/495 passed.
-- Release build: passed.
-- x86 release build: passed with SwiftPM triple `x86_64-apple-macos13.0`.
-- Protocol self-tests: 3/3 passed.
-- `git diff --check`: passed.
-- No driver, Air runtime, PR #25, or `codex/observability-039` changes were made.
+- CoreBluetooth connection lifetime or delegate queue;
+- ATVV protocol/codec/sample-rate semantics;
+- BLE reconnect/keepalive behavior except where dead old-mode code must be detached without changing transport behavior;
+- AudioPipe queue/playout/resampling/gain policy;
+- jitter-buffer policy;
+- virtual audio driver behavior;
+- packaging/install/runtime/TCC state;
+- merge/tag/release state;
+- 041 always-on probe scope beyond the minimum semantic adaptation required by removal of old state names.
 
-## Exporter receipt corrective delivered
+Planned Gates B–E remain design intent only and are not authorized for implementation until Gate A is completed, independently audited, and the control plane is advanced.
 
-- Session summary and frozen-trace receipts now derive from actual exported `voice.session.summary` and `voice.session.trace` event counts, with explicit unavailable, failed, or bounded/unknown status when the event set or global limit prevents certainty.
-- Required `remoteorbit_log` and `voice_diagnostic_current` receipts preserve per-file bounded status and metadata, including original/exported bytes, selected-window bytes, truncation, direction, and reason where available; no second log-copy path was added.
-- `selected_system_input` is read from the current `SystemAudioDeviceManager` authority at export time, with explicit unavailable when unreadable.
-- Archive manifest/SHA behavior is unchanged, and structured evidence contains no audio content, dictated text, or raw filesystem paths.
+## Gate A target behavior
 
-## Exporter corrective verification
+- No 300 ms voice SHORT/LONG classifier on the primary voice path.
+- No Persistent voice-session state on the primary voice path.
+- No dual-receiver voice gesture state on the primary voice path.
+- Selected voice profile is resolved before a session and remains fixed for that session.
+- Physical DOWN begins trigger/remote-voice opening immediately through the existing transport boundary.
+- Physical UP begins draining; trigger release remains ordered after already-received remote PCM/output drain so RemoteOrbit does not add avoidable tail truncation.
+- Existing hardware-trigger delivery should be simplified rather than replaced gratuitously; synthetic delivery remains fallback-only where already required.
+- Existing 041 observability remains capable of comparing input edge, MIC_OPEN/AUDIO_START/AUDIO_FIRST, BLE/decode/PCM/render continuity, underrun, and output/tail boundaries.
 
-- `DiagnosticExportTests`: 16/16 passed.
-- All 041 diagnostic/export focused suites: 146/146 passed.
-- Full Swift tests: 501/501 passed.
-- Release build and x86 release build using `x86_64-apple-macos13.0`: passed.
-- Protocol self-tests: 3/3 passed.
-- `git diff --check`: passed.
+## Next action
 
-## Packaging corrective authorization
+When local construction begins, check out/fetch `codex/voice-pipeline-simplification-042`, read `AGENTS.md`, this file, and `CURRENT_TASK.md`, establish one canonical local writer/worktree, verify the exact remote branch head and clean starting state, and execute Gate A only.
 
-- Add only `MACOSX_DEPLOYMENT_TARGET=13.0` to the existing BlackHole `xcodebuild` invocation. Keep BlackHole 0.7.1, source URL, transport patch, bundle ID, channel count, driver name, signing, and all RemoteOrbit product source unchanged.
-- Verify the driver first, then run the existing `package-dmg.sh` path. Package exactly one Air observation DMG; do not install, launch, reload CoreAudio, mutate TCC, or change `/Applications/RemoteOrbit.app`.
-- If driver build or packaging fails again, stop with the exact error and do not add another workaround.
-
-## Universal2 packaging corrective authorization
-
-- Use SwiftPM's validated `--triple` option with dedicated arm64 and x86_64 scratch directories; obtain each binary path using the same triple and scratch arguments, prove each input slice, then lipo exactly those two binaries.
-- Remove the old `-Xswiftc -target` packaging method. Do not modify `Package.swift`, Swift product source, app version semantics, or use Rosetta/object copying.
-- Reuse the already verified Universal2 driver through the existing `package-dmg.sh --reuse-driver` path. If SwiftPM cannot build both explicit triples, stop with the exact toolchain error.
-
-## Air observation DMG packaged
-
-- Independent Web CODE_DIFF audit PASS is the authorization basis. The audited product semantic HEAD remains `840aadd2e56ee67c136092f8af4a28d83b38d172`; the packaged source HEAD is `1310e67939f0d3ee25b9a2f4818f8be835610e38`.
-- Candidate: `/private/tmp/remoteorbit-diagnostic-hardening-041/dist/RemoteOrbit-0.2.14.dmg`; size `6279849` bytes; SHA-256 `a631e089a9405cff98ebb19333a30471e688cf6923dac2f7247e85781888c896`.
-- App: `com.lost0rz.RemoteOrbit`, version `0.2.14`, build `43`, source stamp `1310e67939f0d3ee25b9a2f4818f8be835610e38`, executable architectures `x86_64 arm64`, executable SHA-256 `11b5c1385468c371fdc2f67e3fb8fd77446dabe0b8975a4aed3432c9f50b7b9c`.
-- Embedded driver: `audio.local.RemoteOrbitAudio2chXX`, `RemoteOrbitAudio`, minOS `13.0`, architectures `x86_64 arm64`, executable SHA-256 `cbf56478b380efb14bc14edfe87eb03b68bbaf763665fe56f24f04c7b0073364`.
-- App and embedded driver deep/strict codesign passed. The DMG mounted read-only, contained only the expected app, Applications symlink, documentation, read-me, and volume icon; executable hashes matched pre-DMG artifacts; unmount passed.
-- No app/driver installation, `/Applications/RemoteOrbit.app` replacement, driver reload, TCC mutation, Air mutation, merge, tag, or release occurred. The paired control receipt commit is the final control head; its exact SHA and remote match are verified in the delivery receipt.
-
-## Current next action
-
-Push the complete local 041 lineage, verify the exact remote head and clean worktree, then wait for owner Air natural-use observation. Do not install or launch the candidate, and do not modify HID, BLE, AudioPipe, runtime probes, PR #25, PR #26, or Air runtime.
+Do not begin Gates B–E, merge, tag, release, install, or mutate the Air runtime in Gate A.
