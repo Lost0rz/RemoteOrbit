@@ -435,7 +435,7 @@ final class VoicePressCoordinator {
     /// not a second active voice session.
     var onHardwareOptionGatePendingRepressBegin: ((UUID) -> Void)?
     var onHardwareOptionGatePendingRepressPromote: ((UUID) -> Bool)?
-    var onHardwareOptionGatePendingRepressCancel: ((UUID) -> Void)?
+    var onHardwareOptionGatePendingRepressCancel: ((UUID, String) -> Void)?
 
     /// This is the short-vs-long classifier. A quick default tap toggles the
     /// persistent IME session (or invokes the configured Codex short action);
@@ -858,16 +858,6 @@ final class VoicePressCoordinator {
         usesHardwareOption: Bool,
         promotingPendingHardwareRepress: Bool = false
     ) -> Bool {
-        if promotingPendingHardwareRepress,
-           usesHardwareOption,
-           onHardwareOptionGatePendingRepressPromote?(sessionID) != true {
-            logAdmissionDecision(
-                sessionID: sessionID,
-                result: "rejected",
-                reason: "pending_hardware_repress_owner_missing"
-            )
-            return false
-        }
         if directSession,
            directPhysicalUp,
            directOutputDrainRequested,
@@ -915,10 +905,35 @@ final class VoicePressCoordinator {
               !directSession,
               !hasReleaseOrTailOwnershipForReconfiguration,
               isVoiceSessionAdmissionBlocked?() != true else {
+            if promotingPendingHardwareRepress, usesHardwareOption {
+                onHardwareOptionGatePendingRepressCancel?(
+                    sessionID,
+                    "admission-rejected-before-promotion"
+                )
+            }
             logAdmissionDecision(
                 sessionID: sessionID,
                 result: "rejected",
                 reason: "voice_session_busy"
+            )
+            return false
+        }
+
+        // Resolve every coordinator admission guard before promotion can
+        // mutate hardware ownership or replay B's captured DOWN. Once this
+        // callback succeeds, the direct session below is committed and no
+        // later admission rejection can strand a trigger owner.
+        if promotingPendingHardwareRepress,
+           usesHardwareOption,
+           onHardwareOptionGatePendingRepressPromote?(sessionID) != true {
+            onHardwareOptionGatePendingRepressCancel?(
+                sessionID,
+                "promotion-owner-missing"
+            )
+            logAdmissionDecision(
+                sessionID: sessionID,
+                result: "rejected",
+                reason: "pending_hardware_repress_owner_missing"
             )
             return false
         }
@@ -1401,7 +1416,10 @@ final class VoicePressCoordinator {
             deferredRepressActivationWorkItem = nil
             deferredRepressWaitReason = nil
             if pendingValue.usesHardwareOption {
-                onHardwareOptionGatePendingRepressCancel?(pendingValue.sessionID)
+                onHardwareOptionGatePendingRepressCancel?(
+                    pendingValue.sessionID,
+                    "physical-up-before-activation"
+                )
                 pendingDirectHardwareRepressAwaitingOldUp = false
                 pendingDirectHardwareRepressOldSessionID = nil
             }
@@ -6316,10 +6334,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         voicePress.onHardwareOptionGatePendingRepressPromote = { [weak self] gestureID in
             self?.filter.promotePendingHardwareOptionRepress(gestureID: gestureID) ?? false
         }
-        voicePress.onHardwareOptionGatePendingRepressCancel = { [weak self] gestureID in
+        voicePress.onHardwareOptionGatePendingRepressCancel = { [weak self] gestureID, reason in
             self?.filter.cancelPendingHardwareOptionRepress(
                 gestureID: gestureID,
-                reason: "physical-up-before-activation"
+                reason: reason
             )
         }
         voicePress.onHardwareOptionGateOutputDrained = { [weak self] gestureID in

@@ -112,6 +112,7 @@ Hardware-mapped edge cases added for this continuation:
 15. `testHardwareOnlyOnePendingDirectRepressOwner`.
 16. `testHardwarePendingRepressPreservesNormalHardwareOutputOrdering`.
 17. `PROMOTED_HARDWARE_REPRESS_FULL_LIFECYCLE` — promoted B owns physical UP, mapped UP, output-drain replay, and replay-pass acknowledgement before retirement.
+18. `ADMISSION_BLOCKED_PROMOTED_HARDWARE_REPRESS_ROLLBACK` — blocked admission causes no B DOWN replay, no held-UP owner, no stale hardware gate, no coordinator ownership leak, and bounded pending tombstone cleanup.
 
 Run relevant BLEBridge, VoicePipelineSimplification/direct-session, VoiceBoundaryOrdering, VoiceTriggerRuntime, PostReleaseCaptureGrace, AudioPipe/realtime/reserve and ATVV protocol tests, full Swift tests, arm64/x86_64 Release builds, protocol self-tests, and `git diff --check`.
 
@@ -202,6 +203,18 @@ After successful implementation, update `CURRENT_STATUS.md` and `CURRENT_TASK.md
 - Product source/test changes are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`; no BLE semantic, package, driver, TCC, or runtime change was made.
 - No package, install, runtime retest, merge, tag, release, or Gate F action was performed.
 
+### Admission-atomic promotion continuation
+
+- Stage A finding: `FINDING_CONFIRMED` against audited source/control HEAD `251536d1d46e73680140b10b2f8d6cb9d21b3e7f`. The pre-fix coordinator promoted/replayed B before the final admission guard, permitting `voice_session_busy` after B hardware ownership had already been mutated.
+- Corrective ordering: `startDirectVoicePress()` resolves the existing admission guard first. Only after admission is confirmed does it call the existing pending-hardware promotion callback, which establishes B's hardware owner and replays B DOWN; the direct session is then committed. Admission rejection invokes the existing bounded pending-cancel/tombstone path before any B replay.
+- RED: `testAdmissionBlockedPromotedHardwareRepressDoesNotReplayOrLeakOwnership` failed 3 assertions against the pre-fix source: B DOWN replay was present, B held-UP ownership remained, and the active hardware gate remained. GREEN: the blocked-promotion test passed `1/1`, and `testPromotedHardwareRepressOwnsMappedUpThroughOutputDrain` passed `1/1`.
+- Focused requested suites: `240/240`; full Swift tests: `597/597`; both have 0 failures.
+- arm64 Release: exit `0` using `swift build -c release --scratch-path /private/tmp/remoteorbit-042-arm64-release --triple arm64-apple-macos14.0`.
+- x86_64 Release: exit `0` using `swift build -c release --scratch-path /private/tmp/remoteorbit-042-x86-release --triple x86_64-apple-macos14.0`.
+- Protocol self-tests: `3/3`, exit `0`. `git diff --check`: exit `0`. Build warnings were limited to existing macOS deprecations.
+- Product source/test changes are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`. No BLE/protocol ownership expansion, Gate C/D change, driver/TCC/runtime change, package/install, merge, tag, release, or Gate F action occurred.
+- Control transition audited at start HEAD `251536d1d46e73680140b10b2f8d6cb9d21b3e7f`; both controls are being updated together for the transition commit and will be pushed only on the existing 042 branch.
+
 ## Stop state
 
-This task remains `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The bounded promoted-B hardware-owner correction is committed and remotely delivered on the existing 042 branch; the next safe action is the independent source audit. Human corrective runtime acceptance remains pending and is not claimed by this execution.
+This task remains `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The bounded admission-atomic promotion correction is implemented and will be remotely delivered on the existing 042 branch after the paired control update commit; the next safe action is the independent source audit. Human corrective runtime acceptance remains pending and is not claimed by this execution.

@@ -207,6 +207,53 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         XCTAssertEqual(harness.press.currentStateForTesting, .idle)
     }
 
+    func testAdmissionBlockedPromotedHardwareRepressDoesNotReplayOrLeakOwnership() throws {
+        let harness = try HardwareRapidRepressHarness()
+        let sessionB = try harness.preparePendingHardwareRepress()
+        harness.press.isVoiceSessionAdmissionBlocked = { true }
+        harness.completeOldOutputDrain()
+
+        let oldUp = try XCTUnwrap(harness.replayedEvents.first)
+        XCTAssertTrue(
+            harness.filter.acknowledgeReplayedHardwareOptionUpIfExpected(
+                oldUp,
+                type: oldUp.type
+            )
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        XCTAssertEqual(
+            harness.replayEventTypeRawValues,
+            [CGEventType.flagsChanged.rawValue],
+            "admission-blocked promotion must not replay B DOWN"
+        )
+        XCTAssertEqual(
+            harness.filter.diagnosticStateFields["held_hardware_owner"] as? String,
+            "none"
+        )
+        XCTAssertEqual(
+            harness.filter.diagnosticStateFields["filter_active_gate"] as? String,
+            "none"
+        )
+        XCTAssertEqual(harness.filter.pendingHardwareOptionRepressGestureID, sessionB)
+        XCTAssertTrue(harness.filter.pendingHardwareOptionRepressIsCancelledForTesting)
+
+        let mappedUp = try XCTUnwrap(harness.makeMappedEvent(keyDown: false))
+        XCTAssertEqual(
+            harness.filter.capturePendingHardwareOptionRepressEvent(
+                mappedUp,
+                type: mappedUp.type
+            ),
+            .suppressed
+        )
+        XCTAssertNil(harness.filter.pendingHardwareOptionRepressGestureID)
+        XCTAssertFalse(harness.filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertNil(harness.press.pendingRepressSessionID)
+        XCTAssertNil(harness.press.currentGestureIDForDiagnostics)
+        XCTAssertEqual(harness.press.currentStateForTesting, .idle)
+        XCTAssertFalse(harness.press.hasActiveVoiceOwnershipForTriggerReconfiguration)
+    }
+
     func testHardwarePendingRepressReleaseBeforeActivationHasNoTriggerLeak() throws {
         let harness = try HardwareRapidRepressHarness()
         let sessionB = try harness.preparePendingHardwareRepress()
@@ -990,10 +1037,10 @@ private final class HardwareRapidRepressHarness {
         press.onHardwareOptionGatePendingRepressPromote = { [unowned self] gestureID in
             self.filter.promotePendingHardwareOptionRepress(gestureID: gestureID)
         }
-        press.onHardwareOptionGatePendingRepressCancel = { [unowned self] gestureID in
+        press.onHardwareOptionGatePendingRepressCancel = { [unowned self] gestureID, reason in
             self.filter.cancelPendingHardwareOptionRepress(
                 gestureID: gestureID,
-                reason: "physical-up-before-activation"
+                reason: reason
             )
         }
         press.onRemoteOutputDrain = { [unowned self] _, completion in

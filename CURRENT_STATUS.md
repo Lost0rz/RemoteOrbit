@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — PROMOTED HARDWARE OWNER CORRECTIVE IMPLEMENTED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — ADMISSION ATOMIC PROMOTION CORRECTIVE IMPLEMENTED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -12,6 +12,7 @@ Repository: `Lost0rz/RemoteOrbit`
 - Installed candidate: `0.2.14 (43)`.
 - Human steady-state high-frequency retest: PASS.
 - Source implementation now includes the bounded promoted-B owner correction; merge/release remains stopped pending independent Web source audit and human corrective runtime acceptance.
+- The admission-atomic promotion correction is now implemented and locally validated; merge/release remains stopped pending independent Web source audit and human corrective runtime acceptance.
 - Evidence/design record: `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`.
 - Frozen 041 observability baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`.
 - `AGENTS.md` remains durable repository authority.
@@ -108,6 +109,28 @@ This is a serialization mechanism, not overlapping session ownership.
 - arm64 and x86_64 Release builds passed with the established commands below; protocol self-tests passed `3/3`; `git diff --check` passed. Build output contains only existing macOS deprecation warnings.
 - Changed product paths for this continuation are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`; no BLE, package, driver, TCC, or runtime files changed.
 - No package/install/runtime retest was performed. Human corrective runtime acceptance remains pending.
+
+### Admission-atomic promoted-B continuation
+
+- Stage A finding was confirmed against audited source/control HEAD `251536d1d46e73680140b10b2f8d6cb9d21b3e7f`: `startDirectVoicePress()` invoked promoted-B ownership/replay before its final admission guard, so a newly blocked BLE admission could reject after B DOWN replay and strand B hardware ownership.
+- Implemented the smallest existing-model correction: all coordinator admission guards now resolve before `onHardwareOptionGatePendingRepressPromote`. If admission is blocked, the pending hardware repress is canceled with a bounded tombstone before any B DOWN replay. If promotion ownership itself is unavailable, the same bounded cancellation path is used. Normal physical-UP-before-activation cancellation now carries its explicit reason through the same callback.
+- Required ordering is now `admission confirmed → promote/replay B DOWN → start B session`; no admission rejection follows B promotion/replay.
+- RED observed for `testAdmissionBlockedPromotedHardwareRepressDoesNotReplayOrLeakOwnership`: 3 assertion failures against the pre-fix source (unexpected B replay, held B owner, and active hardware gate). GREEN passed `1/1`; it proves no B DOWN replay, no held-UP owner, no active hardware gate, bounded pending tombstone consumption, no coordinator ownership leak, and idle state. Existing `testPromotedHardwareRepressOwnsMappedUpThroughOutputDrain` passed `1/1`.
+- Focused requested suites passed `240/240`, including VoicePipelineSimplification, VoicePressCoordinator, VoiceKeyFilter, VoiceBoundaryOrdering, VoiceTriggerRuntime, PostReleaseCaptureGrace, BLEBridge, AudioPipe, AudioPipeRealtime, AudioPipePlayoutReserve, and ATVVKeepAliveTelemetry.
+- Full Swift tests passed `597/597` with 0 failures.
+- arm64 and x86_64 Release builds passed with:
+  `swift build -c release --scratch-path /private/tmp/remoteorbit-042-arm64-release --triple arm64-apple-macos14.0`
+  and
+  `swift build -c release --scratch-path /private/tmp/remoteorbit-042-x86-release --triple x86_64-apple-macos14.0`.
+- Protocol self-tests passed `3/3` with exit `0`; `git diff --check` passed. Release output contained only existing macOS deprecation warnings.
+- Product source/test changes for this continuation are limited to `remote-orbit/Sources/RemoteOrbit/main.swift` and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`; control files are updated in the same transition commit. No BLE semantic, packaging, driver, TCC, or runtime files changed.
+- No package, install, runtime retest, merge, tag, release, or Gate F action was performed. Human corrective runtime acceptance remains pending.
+
+### Admission-atomic boundary flags
+
+- `ADMISSION_BEFORE_PROMOTION=YES`; `BLOCKED_PROMOTION_B_DOWN_REPLAY=NO`; `BLOCKED_PROMOTION_OWNER_LEAK=NO`.
+- `GLOBAL_UNKNOWN_RECLASSIFICATION=NO`; `LONG_LIVED_READY_CHANGED=NO`; `STRICT_READY_CHANGED=NO`; `MIC_OPEN_PROTOCOL_CHANGED=NO`.
+- `GATE_C_RING_CHANGED=NO`; `GATE_D_45MS_CHANGED=NO`; `DRIVER_RUNTIME_CHANGED=NO`; `TCC_RESET=NO`; `PACKAGE_INSTALL=NOT_RUN`; `MERGE_TAG_RELEASE=NO`; `GATE_F_CREATED=NO`.
 
 ## Next
 
