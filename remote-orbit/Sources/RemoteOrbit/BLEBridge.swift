@@ -194,6 +194,11 @@ final class BLEBridge: NSObject {
         var audioStopDrainCompleted = false
     }
 
+    private struct ReleasedHostMicOpenGrace {
+        let sessionID: String
+        let physicalReleaseObserved: Bool
+    }
+
     // ATVV service / characteristic UUIDs (Google Android TV Remote protocol).
     static let serviceUUID  = CBUUID(string: "AB5E0001-5A21-4F05-BC7D-AF01F617B664")
     static let commandUUID  = CBUUID(string: "AB5E0002-5A21-4F05-BC7D-AF01F617B664")  // host writes commands to remote
@@ -287,6 +292,7 @@ final class BLEBridge: NSObject {
     private var micOpenRequestCountForTestingStorage = 0
     private var micCloseRequestCountForTestingStorage = 0
     private var adoptedPhysicalRetirement: AdoptedPhysicalRetirement?
+    private var releasedHostMicOpenGrace: ReleasedHostMicOpenGrace?
     private var keepAliveSequence = 0
     private var lastKeepAliveElapsedMilliseconds: Double?
     private var firstAudioAt: Date?
@@ -356,6 +362,14 @@ final class BLEBridge: NSObject {
 
     var postReleaseGraceWaitingForTesting: Bool {
         bleQueue.sync { postReleaseGrace.isWaiting }
+    }
+
+    var postReleaseGraceSessionIDForTesting: String? {
+        bleQueue.sync { postReleaseGrace.currentSessionID }
+    }
+
+    var postReleaseGraceGenerationForTesting: UInt64 {
+        bleQueue.sync { postReleaseGrace.generationForTesting }
     }
 
     var canReuseReadyTransportForTesting: Bool {
@@ -440,6 +454,32 @@ final class BLEBridge: NSObject {
         performOnBLEQueueSynchronously {
             self.cancelPostReleaseGrace(reason: "test_close")
             self.sendMicCloseAfterPostReleaseGrace(sessionID: self.streamSessionID)
+        }
+    }
+
+    func receiveAudioStartForTesting(reason: UInt8, streamID: UInt8) {
+        performOnBLEQueueSynchronously {
+            self.handleControl(
+                Data([0x04, reason, ATVVCodec.adpcm16k.rawValue, streamID])
+            )
+        }
+    }
+
+    func expirePostReleaseGraceForTesting(
+        sessionID: String,
+        generation: UInt64
+    ) -> Bool {
+        if DispatchQueue.getSpecific(key: bleQueueKey) != nil {
+            return postReleaseGrace.expireForTesting(
+                sessionID: sessionID,
+                generation: generation
+            )
+        }
+        return bleQueue.sync {
+            postReleaseGrace.expireForTesting(
+                sessionID: sessionID,
+                generation: generation
+            )
         }
     }
 
@@ -661,6 +701,14 @@ final class BLEBridge: NSObject {
         }
         markAdoptedPhysicalReleaseIfNeeded(sessionID: sessionID)
         _ = postReleaseGrace.start(sessionID: sessionID)
+        if transportState.micOpenRequested, adoptedPhysicalRetirement == nil {
+            releasedHostMicOpenGrace = ReleasedHostMicOpenGrace(
+                sessionID: sessionID,
+                physicalReleaseObserved: true
+            )
+        } else {
+            releasedHostMicOpenGrace = nil
+        }
         print(postReleaseGraceLine(
             event: "POST_RELEASE_GRACE_STARTED",
             sessionID: sessionID,
@@ -693,11 +741,43 @@ final class BLEBridge: NSObject {
               postReleaseGrace.cancel(sessionID: sessionID) else {
             return false
         }
+        releasedHostMicOpenGrace = nil
         print(postReleaseGraceLine(
             event: "POST_RELEASE_GRACE_CANCELLED",
             sessionID: sessionID,
             reason: reason
         ))
+        return true
+    }
+
+    /// A new explicit physical ATVV start supersedes only a released host
+    /// MIC_OPEN owner. The old request is retired locally because a v1.0
+    /// MIC_CLOSE carries the mutable current stream ID and could close the
+    /// newly arrived physical stream.
+    private func supersedeReleasedHostMicOpenGraceIfNeeded(reason: UInt8) -> Bool {
+        guard reason == 0x03,
+              let owner = releasedHostMicOpenGrace,
+              owner.physicalReleaseObserved,
+              postReleaseGrace.currentSessionID == owner.sessionID,
+              audioStopDrainWorkItem == nil,
+              transportState.micOpenRequested else {
+            return false
+        }
+
+        let oldSessionWasStreaming = isStreaming && streamOwnership == .voiceSession
+        guard cancelPostReleaseGrace(reason: "physical_audio_start_superseded_host") else {
+            return false
+        }
+        transportState.finishVoiceSession()
+        releasedHostMicOpenGrace = nil
+        updateDiagnosticTransportState()
+        if oldSessionWasStreaming {
+            notifyStreaming(false)
+        }
+        print(
+            "[BLE] physical AUDIO_START superseded released HOST_MIC_OPEN "
+                + "session_id=\(owner.sessionID); ATVV READY retained"
+        )
         return true
     }
 
@@ -769,6 +849,9 @@ final class BLEBridge: NSObject {
         let wasStreaming = isStreaming
         let hadMicOpen = transportState.micOpenRequested
         transportState.finishVoiceSession()
+        if releasedHostMicOpenGrace?.sessionID == sessionID {
+            releasedHostMicOpenGrace = nil
+        }
         if adoptedPhysicalRetirement?.sessionID == sessionID {
             adoptedPhysicalRetirement = nil
         }
@@ -1641,7 +1724,9 @@ extension BLEBridge: CBPeripheralDelegate {
                 pendingAudioStopReason: pendingAudioStopReason
             ) {
             case .accepted:
-                cancelPostReleaseGraceIfIncompatibleSession()
+                if !supersedeReleasedHostMicOpenGraceIfNeeded(reason: reason) {
+                    cancelPostReleaseGraceIfIncompatibleSession()
+                }
                 break
             case let .ignoredDuringDrain(currentStreamID, incomingStreamID, reason):
                 let reasonText = reason.map { String(format: "0x%02x", $0) } ?? "none"

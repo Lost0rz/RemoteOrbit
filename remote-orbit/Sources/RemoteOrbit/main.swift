@@ -346,12 +346,43 @@ final class VoicePressCoordinator {
         let usesHardwareOption: Bool
         let preparesRemoteTransport: Bool
         let classifiedTriggerKey: VoiceTriggerKey?
+        let isDirectSession: Bool
+        let directProfile: VoiceInputProfile?
         var isStillHeld = true
+
+        init(
+            sessionID: UUID,
+            physicalDownAt: TimeInterval,
+            onShortTap: (() -> Void)?,
+            usesLocalMicrophone: Bool,
+            togglesPersistentVoiceSession: Bool,
+            bypassesShortClassification: Bool,
+            usesHardwareOption: Bool,
+            preparesRemoteTransport: Bool,
+            classifiedTriggerKey: VoiceTriggerKey?,
+            isDirectSession: Bool = false,
+            directProfile: VoiceInputProfile? = nil,
+            isStillHeld: Bool = true
+        ) {
+            self.sessionID = sessionID
+            self.physicalDownAt = physicalDownAt
+            self.onShortTap = onShortTap
+            self.usesLocalMicrophone = usesLocalMicrophone
+            self.togglesPersistentVoiceSession = togglesPersistentVoiceSession
+            self.bypassesShortClassification = bypassesShortClassification
+            self.usesHardwareOption = usesHardwareOption
+            self.preparesRemoteTransport = preparesRemoteTransport
+            self.classifiedTriggerKey = classifiedTriggerKey
+            self.isDirectSession = isDirectSession
+            self.directProfile = directProfile
+            self.isStillHeld = isStillHeld
+        }
     }
 
     private enum DeferredRepressWaitReason: Equatable {
         case previousRoute
         case audioDrain
+        case directOutputDrain
     }
 
     private struct PendingPersistentToggle {
@@ -818,6 +849,43 @@ final class VoicePressCoordinator {
         profile: VoiceInputProfile,
         usesHardwareOption: Bool
     ) -> Bool {
+        if directSession,
+           directPhysicalUp,
+           directOutputDrainRequested,
+           !directOutputDrained,
+           preHIDPhysicalStreaming {
+            if pendingRepress == nil && !deferredRepressAwaitingActivation {
+                pendingRepress = PendingRepress(
+                    sessionID: sessionID,
+                    physicalDownAt: ProcessInfo.processInfo.systemUptime,
+                    onShortTap: nil,
+                    usesLocalMicrophone: false,
+                    togglesPersistentVoiceSession: false,
+                    bypassesShortClassification: true,
+                    usesHardwareOption: usesHardwareOption,
+                    preparesRemoteTransport: false,
+                    classifiedTriggerKey: nil,
+                    isDirectSession: true,
+                    directProfile: profile
+                )
+                deferredRepressAwaitingActivation = true
+                deferredRepressWaitReason = .directOutputDrain
+                lastRepressDecisionForTesting = "deferred-direct-output-drain"
+                logAdmissionDecision(
+                    sessionID: sessionID,
+                    result: "deferred",
+                    reason: "direct_output_drain"
+                )
+                print(
+                    "[PRESS][\(String(sessionID.uuidString.prefix(4)))] "
+                        + "direct re-press deferred until output drain"
+                )
+            } else {
+                lastRepressDecisionForTesting = "deferred-direct-output-drain-already-pending"
+                print("[PRESS] direct re-press already pending")
+            }
+            return true
+        }
         guard mode == .idle,
               gestureID == nil,
               !directSession,
@@ -1005,11 +1073,17 @@ final class VoicePressCoordinator {
         pendingVoiceUIHidden = false
         gestureID = nil
         _ = syntheticOptionTrigger.abort(sessionID: sessionID)
-        AudioPipe.shared.endRemoteCandidate()
+        if !preHIDPhysicalStreaming {
+            AudioPipe.shared.endRemoteCandidate()
+        }
         _ = setRemoteRouted(false)
         if mode != .idle { setMode(.idle) }
         VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
         VoiceTimingLogger.end(sessionID: sessionID)
+        if deferredRepressWaitReason == .directOutputDrain,
+           pendingRepress?.isDirectSession == true {
+            scheduleDeferredRepressActivation(waitReason: .directOutputDrain)
+        }
     }
 
     /// Enters the existing route/hold lifecycle after the voice-specific
@@ -1291,6 +1365,17 @@ final class VoicePressCoordinator {
 
     @discardableResult
     func keyUp() -> Bool {
+        if directSession,
+           deferredRepressWaitReason == .directOutputDrain,
+           pendingRepress?.isDirectSession == true {
+            pendingRepress = nil
+            deferredRepressAwaitingActivation = false
+            deferredRepressActivationWorkItem?.cancel()
+            deferredRepressActivationWorkItem = nil
+            deferredRepressWaitReason = nil
+            print("[PRESS] pending direct re-press released before activation")
+            return false
+        }
         if directSession {
             return finishDirectVoicePressRelease()
         }
@@ -2181,6 +2266,20 @@ final class VoicePressCoordinator {
         deferredRepressWaitReason = nil
         guard pendingRepress.isStillHeld else { return }
 
+        if pendingRepress.isDirectSession {
+            guard preHIDPhysicalStreaming,
+                  startDirectVoicePress(
+                      sessionID: pendingRepress.sessionID,
+                      profile: pendingRepress.directProfile ?? .defaultProfile,
+                      usesHardwareOption: pendingRepress.usesHardwareOption
+                  ) else {
+                print("[PRESS] direct re-press activation lost physical candidate")
+                return
+            }
+            lastRepressDecisionForTesting = "admitted-after-direct-output-drain"
+            return
+        }
+
         let heldDuration = max(
             0,
             ProcessInfo.processInfo.systemUptime - pendingRepress.physicalDownAt
@@ -2210,10 +2309,12 @@ final class VoicePressCoordinator {
         )
     }
 
-    private func scheduleDeferredRepressActivation() {
+    private func scheduleDeferredRepressActivation(
+        waitReason: DeferredRepressWaitReason = .previousRoute
+    ) {
         guard pendingRepress != nil else { return }
         deferredRepressAwaitingActivation = true
-        deferredRepressWaitReason = .previousRoute
+        deferredRepressWaitReason = waitReason
         deferredRepressActivationWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }

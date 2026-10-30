@@ -219,6 +219,109 @@ final class BLEBridgeTests: XCTestCase {
         XCTAssertTrue(harness.press.hasReleaseOrTailOwnershipForReconfiguration)
     }
 
+    func testHOST_AUDIO_STOP_DRAINED_THEN_REASON03_BEFORE_HID_SUPERSEDES_HOST_GRACE() {
+        let bridge = BLEBridge()
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { _, _ in }
+        )
+        defer {
+            bridge.stop()
+            press.stop()
+        }
+        bridge.onPreHIDPhysicalStreamChanged = { [weak press] streaming, _ in
+            press?.setPreHIDPhysicalStreaming(streaming)
+        }
+        press.onStateChanged = { state in
+            if state == .opening {
+                bridge.requestVoiceActivationForTesting()
+            }
+        }
+
+        bridge.requestVoiceActivationForTesting()
+        bridge.beginAudioStartForTesting()
+        bridge.releasePhysicalVoiceInputForTesting()
+        bridge.beginAudioStopDrainForTesting()
+        bridge.completeAudioStopDrainForTesting()
+        XCTAssertTrue(bridge.postReleaseGraceWaitingForTesting)
+
+        bridge.receiveAudioStartForTesting(reason: 0x03, streamID: 0x4c)
+
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .preHIDPhysical)
+        XCTAssertFalse(bridge.postReleaseGraceWaitingForTesting)
+        XCTAssertFalse(bridge.voiceInputRequestedForTesting)
+        XCTAssertFalse(bridge.micOpenRequestedForTesting)
+        XCTAssertEqual(bridge.micCloseRequestCountForTesting, 0)
+        XCTAssertTrue(bridge.canReuseReadyTransportForTesting)
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .voiceSession)
+    }
+
+    func testSUPERSEDED_HOST_GRACE_CALLBACK_CANNOT_CLOSE_NEW_PHYSICAL_STREAM() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.requestVoiceActivationForTesting()
+        bridge.releasePhysicalVoiceInputForTesting()
+        let oldSessionID = bridge.postReleaseGraceSessionIDForTesting!
+        let oldGeneration = bridge.postReleaseGraceGenerationForTesting
+
+        bridge.receiveAudioStartForTesting(reason: 0x03, streamID: 0x4d)
+
+        XCTAssertFalse(
+            bridge.expirePostReleaseGraceForTesting(
+                sessionID: oldSessionID,
+                generation: oldGeneration
+            )
+        )
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .preHIDPhysical)
+        XCTAssertEqual(bridge.micCloseRequestCountForTesting, 0)
+    }
+
+    func testSUPERSEDED_HOST_REQUEST_RETAINS_READY() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.requestVoiceActivationForTesting()
+        bridge.releasePhysicalVoiceInputForTesting()
+        bridge.receiveAudioStartForTesting(reason: 0x03, streamID: 0x4e)
+
+        XCTAssertTrue(bridge.canReuseReadyTransportForTesting)
+        XCTAssertFalse(bridge.micOpenRequestedForTesting)
+    }
+
+    func testNORMAL_HOST_AUDIO_START_REASON_NOT_03_IS_NOT_SUPERSEDED() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.requestVoiceActivationForTesting()
+        bridge.releasePhysicalVoiceInputForTesting()
+        bridge.receiveAudioStartForTesting(reason: 0x02, streamID: 0x4f)
+
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .voiceSession)
+        XCTAssertTrue(bridge.micOpenRequestedForTesting)
+        XCTAssertTrue(bridge.postReleaseGraceWaitingForTesting)
+    }
+
+    func testREASON03_WITHOUT_RELEASED_HOST_GRACE_DOES_NOT_APPLY_HOST_SUPERSESSION_RULE() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.requestVoiceActivationForTesting()
+        bridge.receiveAudioStartForTesting(reason: 0x03, streamID: 0x50)
+
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .voiceSession)
+        XCTAssertTrue(bridge.micOpenRequestedForTesting)
+        XCTAssertFalse(bridge.postReleaseGraceWaitingForTesting)
+    }
+
     func testAdoptPhysicalStreamWithoutDuplicateMicOpen() {
         let bridge = BLEBridge()
         defer { bridge.stop() }

@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — HOST_MIC_OPEN Rapid Re-press Corrective
 
-Status: `READY_FOR_LOCAL_CORRECTIVE`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
@@ -133,3 +133,21 @@ Return actual evidence including:
 - control alignment / unresolved / next safe action.
 
 After successful implementation, update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together, push only the existing 042 branch, verify local/remote equality, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. No package/install or runtime retest before independent Web source audit.
+
+## Observed execution evidence
+
+- Audited start control HEAD: `3d0ae437bb43efaca529a7278de519141a65d31d`; live remote remained equal after fetch/reconcile before control update.
+- The corrective is implemented within the authorized boundary. HOST_MIC_OPEN supersession is reason `0x03` plus matching released host grace, physical release, and no active AUDIO_STOP drain; it locally retires only the old host intent, cancels its grace callback, suppresses its MIC_CLOSE, preserves READY, and admits the incoming stream as `preHIDPhysical`.
+- Direct re-press serialization uses exactly one pending direct slot containing the new session ID, profile, and hardware/synthetic trigger mode. It waits for old output drain and trigger UP, preserves the live pre-HID candidate, activates on the next main-queue turn, and cancels cleanly on an early pending HID UP.
+- New deterministic tests passed: 9/9. Affected focused suites passed: 217/217. Full Swift tests passed: 590/590.
+- arm64 Release build passed with the repository flow equivalent command:
+  `swift build -c release --scratch-path /private/tmp/remoteorbit-042-arm64-release --triple arm64-apple-macos14.0`.
+- x86_64 Release build passed with:
+  `swift build -c release --scratch-path /private/tmp/remoteorbit-042-x86-release --triple x86_64-apple-macos14.0`.
+- Protocol self-tests passed 3/3. `git diff --check` passed.
+- Product source/test changes are limited to the five paths listed in `CURRENT_STATUS.md`; no packaging script changed.
+- No package, install, driver/TCC mutation, runtime retest, merge, tag, release, or Gate F action was performed.
+
+## Stop state
+
+This task is now `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The next safe action is to push this existing 042 branch, verify exact local/remote equality, and await the independent source audit. Human corrective runtime acceptance remains pending and is not claimed by this execution.

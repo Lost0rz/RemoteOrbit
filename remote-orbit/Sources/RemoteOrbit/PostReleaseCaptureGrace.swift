@@ -73,6 +73,10 @@ final class PostReleaseCaptureGraceController {
         activeSessionID
     }
 
+    var generationForTesting: UInt64 {
+        generation
+    }
+
     var configuredDurationForTesting: TimeInterval {
         duration
     }

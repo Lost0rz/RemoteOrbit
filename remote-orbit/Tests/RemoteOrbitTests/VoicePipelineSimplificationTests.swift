@@ -449,6 +449,175 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.stop()
     }
 
+    func testHOST_NO_TERMINAL_STREAM_THEN_REASON03_DURING_RELEASE_GRACE_DEFERS_DIRECT_REPRESS() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        var completeDrain: (() -> Void)?
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
+        let firstSessionID = UUID()
+        let nextSessionID = UUID()
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: firstSessionID,
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        XCTAssertNotNil(completeDrain)
+
+        press.setPreHIDPhysicalStreaming(true)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: nextSessionID,
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertEqual(press.pendingRepressSessionID, nextSessionID)
+        XCTAssertEqual(events.map(\.isDown), [true])
+
+        completeDrain?()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        XCTAssertNil(press.pendingRepressSessionID)
+        XCTAssertEqual(press.currentGestureIDForDiagnostics, nextSessionID)
+        XCTAssertEqual(events.map(\.isDown), [true, false, true])
+        press.stop()
+    }
+
+    func testPENDING_DIRECT_REPRESS_RELEASE_BEFORE_ACTIVATION_CLEARS_WITHOUT_TRIGGER_LEAK() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        var completeDrain: (() -> Void)?
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+
+        press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        press.setPreHIDPhysicalStreaming(true)
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertFalse(press.keyUp())
+        XCTAssertNil(press.pendingRepressSessionID)
+
+        completeDrain?()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        XCTAssertEqual(events.map(\.isDown), [true, false])
+        XCTAssertNil(press.currentGestureIDForDiagnostics)
+        press.stop()
+    }
+
+    func testONLY_ONE_PENDING_DIRECT_REPRESS_ALLOWED() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        var completeDrain: (() -> Void)?
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        press.setPreHIDPhysicalStreaming(true)
+
+        let firstPending = UUID()
+        let secondPending = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: firstPending,
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: secondPending,
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertEqual(press.pendingRepressSessionID, firstPending)
+        XCTAssertEqual(events.map(\.isDown), [true])
+        completeDrain?()
+        press.stop()
+    }
+
+    func testPREVIOUS_DIRECT_OUTPUT_DRAIN_AND_TRIGGER_UP_COMPLETE_BEFORE_NEW_TRIGGER_DOWN() {
+        var events: [(key: VoiceTriggerKey, isDown: Bool)] = []
+        var completeDrain: (() -> Void)?
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, isDown in
+            events.append((key, isDown))
+        })
+        let press = VoicePressCoordinator(optionTrigger: trigger)
+        press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
+
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        press.setPreHIDPhysicalStreaming(true)
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: UUID(),
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        XCTAssertEqual(events.map(\.isDown), [true])
+
+        completeDrain?()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        XCTAssertEqual(events.map(\.isDown), [true, false, true])
+        press.stop()
+    }
+
     func testHardwareVoiceDownReleasesCapturedGateImmediatelyButUpWaitsForDrain() {
         var order: [String] = []
         var completeDrain: (() -> Void)?

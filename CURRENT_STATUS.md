@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — HOST_MIC_OPEN_RAPID_REPRESS_DESIGN_RESOLVED / READY_FOR_LOCAL_CORRECTIVE`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — HOST_MIC_OPEN_RAPID_REPRESS_CORRECTIVE_IMPLEMENTED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
@@ -66,6 +66,22 @@ This is a serialization mechanism, not overlapping session ownership.
 - No global UNKNOWN remap.
 - No Gate F.
 
+## Observed corrective implementation evidence
+
+- Audited control HEAD before mutation: `3d0ae437bb43efaca529a7278de519141a65d31d`; fetch/reconcile found no concurrent remote movement.
+- Implemented only the bounded HOST_MIC_OPEN grace supersession and direct-session one-slot re-press serialization authorized by `CURRENT_TASK.md`.
+- Host supersession is gated by reason `0x03`, a matching released HOST_MIC_OPEN grace, physical release observed, no active AUDIO_STOP drain barrier, and matching grace ownership. The old voice intent is retired locally, the old delayed callback is canceled, no superseded MIC_CLOSE is sent, READY is retained, and the incoming stream becomes `preHIDPhysical`.
+- Direct re-press captures session ID, profile, and hardware/synthetic trigger mode in one pending slot. It emits no new trigger DOWN until old output drain and trigger UP complete; pending HID UP cancels without trigger leakage. A live pre-HID candidate is preserved through old coordinator completion.
+- Deterministic corrective tests: 9/9 new cases passed; affected focused suites: 217/217 passed; full Swift tests: 590/590 passed.
+- Release builds passed with existing macOS deprecation warnings:
+  `swift build -c release --scratch-path /private/tmp/remoteorbit-042-arm64-release --triple arm64-apple-macos14.0`
+  and
+  `swift build -c release --scratch-path /private/tmp/remoteorbit-042-x86-release --triple x86_64-apple-macos14.0`.
+- Protocol self-tests: 3/3 passed. `git diff --check`: passed.
+- Changed paths are limited to `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`, `remote-orbit/Sources/RemoteOrbit/PostReleaseCaptureGrace.swift`, `remote-orbit/Sources/RemoteOrbit/main.swift`, `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift`, and `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`.
+- No package/install/runtime retest was performed. Installed candidate remains historical `0.2.14 (43)`; human corrective runtime acceptance is pending.
+- Long-lived READY, strict READY, ATVV protocol/codec, Gate C ring, Gate D 45 ms reserve, driver, TCC, and Gate F state were not changed.
+
 ## Next
 
-Implement only the bounded corrective defined in `CURRENT_TASK.md`, push the existing 042 branch, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, merge, tag, or release before the independent source audit.
+Push the existing 042 branch and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install, perform human runtime retest, merge, tag, release, or create Gate F before the independent source audit.
