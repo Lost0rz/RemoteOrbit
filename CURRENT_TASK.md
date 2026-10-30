@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Corrective Candidate Preparation
 
-Status: `READY_FOR_LOCAL_CORRECTIVE_CANDIDATE_PREPARATION`
+Status: `READY_FOR_HUMAN_CORRECTIVE_RUNTIME_RETEST`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
@@ -107,9 +107,36 @@ The first human retest must target the exact regression rather than broad featur
 
 A human PASS plus evidence from the corrective candidate is required before merge/release consideration.
 
+## Candidate preparation receipt
+
+Preparation completed on the existing 042 writer without product-source or packaging-script mutation.
+
+- Start control HEAD: `961661d25f74253f95320faf19ea79cc8d4cee24`; local/remote equality was verified before preparation.
+- Accepted corrective source: `7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c`.
+- Pre-build `git diff --name-status 7dfd2e0c9ab71d3fa437be9b4c5cfac1282d9b1c..961661d25f74253f95320faf19ea79cc8d4cee24` contained only `CURRENT_STATUS.md` and `CURRENT_TASK.md`.
+- Worktree was clean before and after build/package/install; generated `dist` outputs are ignored.
+- Build/package command: `./package-dmg.sh --reuse-driver`; arm64 and x86_64 Release builds succeeded, followed by Universal2 app and DMG creation.
+- App: `/private/tmp/remoteorbit-voice-pipeline-simplification-042/remote-orbit/dist/RemoteOrbit.app`.
+- DMG: `/private/tmp/remoteorbit-voice-pipeline-simplification-042/dist/RemoteOrbit-0.2.14.dmg`.
+- App executable SHA-256: `b2acee7ab8070ea82f066c32e47e2aab493cc7bccd065ed284757e0568b81404`.
+- DMG SHA-256: `71e130248f8d8685ff12c274e7449750c5c31bddf55e530cf44b380e5aa6b616`.
+- Bundle identity: `com.lost0rz.RemoteOrbit`, version `0.2.14`, build `43`, architectures `x86_64 arm64`; packaged source-head is the start control HEAD.
+- Source app, read-only mounted DMG app, and installed app had matching source-head, metadata, executable hash, and app-bundle file hashes; all passed deep strict code-sign verification.
+- Old candidate PID `80225` exited cleanly. Installed corrective candidate is PID `8511` at `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`.
+- RemoteOrbit Mic process readiness: log recorded IOProc `id=73`, `48000 Hz stereo`, and default-input restoration. Device remains `RemoteOrbit Mic 2ch`, default, 2-channel, USB.
+- RC003 readiness: connected BLE device vendor `0x2717` / product `0x32B8`; app log recorded BLE ready, HID permissions, suppressor ready, monitored HID connection, and voice-key mapping enabled. Diagnostic readback recorded `HID_VERIFY result=MATCH` for PID `8511`.
+- Diagnostic readiness: installed CLI `diagnostics status` found the existing journal in read-only mode, and `diagnostics verify` returned `ok=true`, schema version `1`.
+- Installed HAL driver version `596` remained code-sign valid with identical pre/post file hashes. No driver or TCC mutation was performed.
+
+Preparation flags:
+
+`SOURCE_CHANGED=NO`  `PACKAGE_SCRIPT_CHANGED=NO`  `DRIVER_CHANGED=NO`  `TCC_RESET=NO`  `MERGE_TAG_RELEASE=NO`  `GATE_F_CREATED=NO`
+
+`HUMAN_CORRECTIVE_RUNTIME_RETEST: PENDING`
+
 ## Delivery / stop state
 
-If candidate preparation succeeds:
+Candidate preparation succeeded:
 
 - update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
 - commit/push only governance/evidence records on the existing 042 branch if required;
