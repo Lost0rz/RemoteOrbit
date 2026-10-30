@@ -1,90 +1,64 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — READY_FOR_LOCAL_GATE_B`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
 
 - Active control branch: `codex/voice-pipeline-simplification-042`.
 - 042 parent / frozen evidence baseline: `codex/diagnostic-hardening-041` at `ac3132986197bfee4440bb8f388e3d2e5f478f03`.
-- 041 is retained as `FROZEN_OBSERVABILITY_BASELINE`: its one-shot diagnostics, exporter, packaged Air observation candidate, and evidence conclusions remain available for before/after comparison. It is not being merged, tagged, released, or mutated by Gate 0.
-- Gate 0 established the 042 control branch. Gate A was implemented in the canonical writer worktree `/private/tmp/remoteorbit-voice-pipeline-simplification-042` on the active branch. ATVV/BLE transport, AudioPipe, driver, packaging, installed runtime, Air runtime, and TCC boundaries remain unchanged.
 - `AGENTS.md` remains the durable repository rule authority and is unchanged.
 - `CURRENT_TASK.md` is the sole active execution authorization for 042.
-- PR #25 / `codex/release-v0.2.15` and PR #26 / `codex/mapping-config-simplify-040` remain preserved and out of scope for 042 unless a later explicit transition says otherwise.
+- PR #25 / `codex/release-v0.2.15` and PR #26 / `codex/mapping-config-simplify-040` remain preserved and out of scope unless a later explicit transition says otherwise.
+
+## Gate A — independently accepted
+
+Gate A implementation lineage:
+
+- Gate 0 control transition: `6ab19f409210dad5aef55301bff6e4cd8e5ff5c6`.
+- Gate A implementation: `718a85f20362c8826305a49fb6c2dc40bf96dff0`.
+- Gate A tail-order corrective / audited semantic head: `50b1d9efabe15f04d5479b39af227d0e6f43a4e3`.
+
+Independent Web `CODE_DIFF` audit at `50b1d9e...` is `PASS` for the Gate A boundary:
+
+- production microphone HID DOWN enters the direct `OPENING → STREAMING → DRAINING → IDLE` path without the old 300 ms SHORT/LONG classifier;
+- selected `VoiceInputProfile` is captured once and owns the same trigger through release;
+- Persistent/Receiver A-B voice modes are not reachable from the production microphone path;
+- physical UP keeps the remote route/candidate active until the existing BLE transport/audio-stop completion signal;
+- `BLEBridge` keeps its existing post-release grace and 350 ms AUDIO_STOP drain, and only after that boundary does the direct path disable the remote route, drain queued output, and release the captured trigger;
+- no Gate B/C implementation was introduced by the Gate A corrective; `BLEBridge.swift` and `AudioPipe.swift` were unchanged in that corrective.
+
+Local executor verification recorded at the audited semantic head: Swift tests 510/510, focused voice/BLE/ATVV/AudioPipe/diagnostic suites pass, arm64/x86_64 release builds pass, protocol self-tests 3/3, `git diff --check` pass.
+
+Human natural-use/UI acceptance, installed runtime, TCC state, and Air-side acceptance remain owner-owned and pending; they are not prerequisites for beginning the bounded Gate B source change, but they remain required before final product acceptance/release.
 
 ## Accepted product direction
 
-The voice key is now defined as transport control, not mode control:
+The voice key is transport control, not mode control:
 
 - physical voice DOWN starts one remote-voice session;
-- physical voice UP begins a clean drain/stop sequence;
-- the voice key no longer owns SHORT/LONG/DOUBLE classification, Persistent voice mode, receiver A/B switching, or input-method switching;
-- voice-input/IME trigger choice becomes a low-frequency menu-bar profile selection with a persisted selected profile;
-- profile switching must not change an active voice session mid-press.
+- physical voice UP begins a clean stop/drain sequence;
+- no SHORT/LONG/DOUBLE/Persistent/Receiver-A-B mode on the primary voice path;
+- input-method trigger selection is a low-frequency persisted menu-bar `VoiceInputProfile`;
+- a session captures one profile and cannot switch mid-session.
 
-The primary product goal is a single deterministic path from Xiaomi RC003 remote audio to the selected voice-input trigger and `RemoteOrbit Mic 2ch`, with minimal state and measurable start/continuity/tail behavior.
-
-## Architecture decisions retained for the plan
-
-- Preserve the existing ATVV protocol implementation unless later evidence proves a protocol defect.
-- Preserve 041 diagnostic authority, bounded traces, underrun episodes, exporter, and privacy boundary; adapt semantics only as the product pipeline changes.
-- Separate long-lived ATVV transport readiness from short-lived voice-stream state in a later gate.
-- Move BLE ingestion off the UI/control scheduling path in a later gate.
-- Replace the current dynamic/locking audio queue with a fixed-capacity realtime-safe producer/consumer path in a later gate.
-- Tune any small jitter reserve only after the structural transport/audio changes are independently measurable.
-- Tail shutdown should ultimately be event-driven with bounded safety timeouts, not a stack of fixed-delay ownership rules.
+The product goal is one deterministic Xiaomi RC003 → ATVV → PCM → `RemoteOrbit Mic 2ch` path with minimal control-state noise and measurable start/continuity/tail behavior.
 
 ## Current authorized next gate
 
-`Gate A — Voice control-plane simplification` is implemented and locally verified. The current stop state is `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; no Gate B work is authorized.
+`Gate B — Long-lived ATVV transport + dedicated BLE ingestion queue` is now authorized.
 
-Gate A may change voice-session/controller semantics, trigger-profile configuration, menu/profile presentation needed by that contract, compatibility migration for old trigger preferences, and tests/diagnostic semantics directly coupled to removal of the old voice modes.
+Gate B must preserve the Gate A direct voice-session contract while changing only the transport/control scheduling architecture required to:
 
-Gate A must NOT change:
+1. separate app-lifetime ATVV connection readiness from per-press voice-stream lifetime;
+2. keep a prepared/ready ATVV connection alive across normal voice sessions where CoreBluetooth/device state permits;
+3. move CoreBluetooth delegate/notification handling from `.main` to one dedicated serial queue;
+4. marshal only lightweight control/UI state back to the main queue;
+5. preserve ATVV command/framing/codec/sample-rate/AUDIO_SYNC semantics, existing 041 observability, existing tail-drain semantics, and the current AudioPipe data plane.
 
-- CoreBluetooth connection lifetime or delegate queue;
-- ATVV protocol/codec/sample-rate semantics;
-- BLE reconnect/keepalive behavior except where dead old-mode code must be detached without changing transport behavior;
-- AudioPipe queue/playout/resampling/gain policy;
-- jitter-buffer policy;
-- virtual audio driver behavior;
-- packaging/install/runtime/TCC state;
-- merge/tag/release state;
-- 041 always-on probe scope beyond the minimum semantic adaptation required by removal of old state names.
+Gate B must NOT implement Gate C/D/E: no SPSC audio ring, no CoreAudio render rewrite, no jitter-buffer tuning, no codec/gain/resampler change, no new start/tail delay policy, no driver/package/install/TCC/Air runtime change, and no merge/tag/release.
 
-Planned Gates B–E remain design intent only and are not authorized for implementation until Gate A is completed, independently audited, and the control plane is advanced.
+## Next action
 
-## Gate A target behavior
-
-- No 300 ms voice SHORT/LONG classifier on the primary voice path.
-- No Persistent voice-session state on the primary voice path.
-- No dual-receiver voice gesture state on the primary voice path.
-- Selected voice profile is resolved before a session and remains fixed for that session.
-- Physical DOWN begins trigger/remote-voice opening immediately through the existing transport boundary.
-- Physical UP begins draining; trigger release remains ordered after already-received remote PCM/output drain so RemoteOrbit does not add avoidable tail truncation.
-- Existing hardware-trigger delivery should be simplified rather than replaced gratuitously; synthetic delivery remains fallback-only where already required.
-- Existing 041 observability remains capable of comparing input edge, MIC_OPEN/AUDIO_START/AUDIO_FIRST, BLE/decode/PCM/render continuity, underrun, and output/tail boundaries.
-
-## Gate A local receipt
-
-- Canonical writer: `/private/tmp/remoteorbit-voice-pipeline-simplification-042`.
-- Audited parent before implementation: `6ab19f409210dad5aef55301bff6e4cd8e5ff5c6` on `codex/voice-pipeline-simplification-042`.
-- Production microphone HID edges now use one direct `OPENING → STREAMING → DRAINING → IDLE` lifecycle; selected `VoiceInputProfile` identity is captured before trigger DOWN and retained through trigger UP.
-- Profile migration reads only the legacy momentary trigger; Persistent and Receiver B preferences remain compatibility projections/non-authorities for the primary path.
-- UI exposes the direct transport contract and a menu-bar profile selector; old microphone short/long/dual cards are no longer rendered.
-- Validation: `swift test --package-path remote-orbit` passed 505/505; arm64 release build passed; x86_64 release build passed; `./remote-orbit/run-self-tests.sh` passed 3/3; `git diff --check` passed.
-- Gate A tail corrective completed from audited implementation parent `718a85f20362c8826305a49fb6c2dc40bf96dff0`: direct physical UP now enters `DRAINING`, arms the captured hardware release, requests the existing AppController/BLE stop flow, and keeps the remote AudioPipe route/candidate active until the existing `onStreamingChanged(false)` transport/audio-stop boundary. Only then does it end the candidate, deactivate the route, request output drain, and release the same trigger after output completion. Transport-loss and no-`AUDIO_START` paths use the same observed-stop boundary; no fixed delay was added.
-- Tail corrective validation: `swift test --package-path remote-orbit` passed 510/510; focused VoicePipelineSimplification, VoiceBoundaryOrdering, VoiceTriggerRuntime, BLEBridge, ATVV telemetry, AudioPipe, AudioDataPlaneDiagnostics, VoiceBoundaryDiagnostics, DiagnosticHardening, and P1A5 suites passed; arm64 and x86_64 release builds passed; protocol self-tests passed 3/3; `git diff --check` passed. `BLEBridge.swift` and `AudioPipe.swift` are unchanged.
-- Human natural-use/UI acceptance, rendered visual inspection, independent Web audit, installed runtime, TCC, and Air-side acceptance remain unverified/user-owned.
-
-## Gate A tail corrective receipt
-
-- The corrected ordering is: `PHYSICAL_UP → DRAINING / hardware release armed → existing AppController stop request → existing transport/audio-stop completion → end remote candidate + route inactive → output drain → captured trigger UP → IDLE`.
-- Focused coverage includes active-release ordering, late-tail PCM eligibility, stream-stop/output-drain trigger ownership, no-`AUDIO_START` release cleanup, rapid next-session admission, hardware-trigger release, and AppController stop-callback ordering.
-- No change was made to BLEBridge post-release grace/AUDIO_STOP duration, CoreBluetooth/ATVV behavior, AudioPipe architecture, jitter, driver, packaging, installation, TCC, Air runtime, menu/profile behavior, or planned Gates B–E.
-
-## Stop state
-
-Remain at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not begin Gates B–E, merge, tag, release, install, mutate the Air runtime, or advance the control plane without the explicitly authorized post-audit transition.
+Local construction should fetch the exact live 042 branch, reconcile against this control state, establish one canonical writer, and execute Gate B only. After implementation/verification, push the same authorized branch and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not begin Gate C automatically.
