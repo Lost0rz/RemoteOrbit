@@ -115,10 +115,28 @@ uses no ordinary lock, allocation, queue, wait, or dynamic collection.
 This is source/test evidence only. No installed, hardware, Air, or natural-use
 acceptance is claimed.
 
+### Gate D decision/reset serialization corrective result
+
+The follow-up Web re-audit found that reserve `decision()` could be in flight
+before `outputRing.read()` while producer reset was already proceeding. The
+corrective `AudioPipePlayoutReserveLifecycleGate` now has scalar states
+`IDLE`, `DECISION_IN_FLIGHT`, and `RESET_IN_PROGRESS`. Render attempts one
+non-blocking decision claim and returns reserve `WAIT` immediately when reset
+or another decision owns the gate. Producer reset may yield off the realtime
+path until the old decision releases, then clears reserve state, timestamp, and
+start metadata before releasing reset ownership. Snapshots retry off-path
+across lifecycle/state changes and never expose stale partial metadata.
+
+Deterministic tests cover reset waiting behind a held decision, immediate
+decision failure while reset owns the gate, stale-decision non-resurrection,
+new-session metadata isolation, and the no-wait/no-spin decision source
+contract. This remains source/test evidence only; no installed, hardware, Air,
+or natural-use acceptance is claimed.
+
 ### Gate D verification receipt
 
-- Focused corrective AudioPipe/reserve suites: `22/22` passed.
-- Full Swift test suite: `552/552` passed.
+- Focused decision/reset corrective AudioPipe/reserve suites: `27/27` passed.
+- Full Swift test suite: `557/557` passed.
 - arm64 Release build: passed.
 - x86_64 Release build: passed.
 - Protocol self-tests: `3/3` passed.

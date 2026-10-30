@@ -201,6 +201,33 @@ Corrective focused suites passed `22/22`; the full Swift suite passed `552/552`.
 Both release builds, protocol self-tests, and diff check passed. No accepted
 Gate D candidate metric or policy changed.
 
+### Gate D decision/reset serialization corrective result
+
+The follow-up Web re-audit found one remaining race: an old render callback
+could own `playoutReserve.decision()` before `outputRing.read()` while a new
+session reset was already in progress. The new bounded lifecycle gate uses:
+
+```text
+IDLE
+├─ realtime decision claim → DECISION_IN_FLIGHT → release → IDLE
+└─ producer reset claim → RESET_IN_PROGRESS → clear state/metadata → IDLE
+```
+
+The realtime path performs one non-blocking CAS. Failure to claim because a
+decision or reset is active returns `WAIT` immediately, with no spin, yield,
+lock, dispatch, allocation, or PCM consumption. Producer reset alone may yield
+until an already-running decision releases, then clears the reserve state,
+reset timestamp, start timestamp, start depth, and start reason before reset
+ownership is released. Off-path snapshots retry around the lifecycle gate and
+reserve state publication.
+
+Deterministic tests prove reset waits behind a held decision, reset-owned
+decision failure is immediate and non-starting, stale decisions cannot
+resurrect a new session, and session B cannot inherit session A start metadata.
+The existing inactive-empty, tail-bypass, activation-order, reserve-wait
+diagnostic, and no-rearm contracts remain covered. Decision/reset corrective
+focused coverage is `27/27`; the full Swift suite is `557/557`.
+
 ### Semantics that must remain unchanged
 
 - Gate A voice key/profile/trigger ownership;
@@ -253,7 +280,7 @@ Final diff must prove no Gate E, BLE/ATVV, driver/runtime/install/TCC, or unrela
 
 ## Completion / stop state
 
-Gate D corrective implementation and verification are complete:
+Gate D decision/reset corrective implementation and verification are complete:
 
 - update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
 - commit all authorized Gate D changes;

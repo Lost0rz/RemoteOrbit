@@ -3,6 +3,127 @@ import XCTest
 @testable import RemoteOrbit
 
 final class AudioPipePlayoutReserveTests: XCTestCase {
+    func testDecisionBlocksResetPublicationOrder() {
+        let reserve = AudioPipePlayoutReserve(candidate: .milliseconds45)
+        reserve.reset(at: 1_000)
+        XCTAssertEqual(
+            reserve.decision(remoteActive: true, queuedFrames: 2_160, now: 2_000),
+            .consume
+        )
+        let sessionASnapshot = reserve.snapshot(at: 3_000)
+        XCTAssertEqual(sessionASnapshot.state, .started)
+        XCTAssertEqual(sessionASnapshot.startDepthFrames, 2_160)
+
+        XCTAssertTrue(reserve.claimDecisionForTesting())
+        let resetWaiting = expectation(description: "reset waits for decision")
+        let resetFinished = expectation(description: "reset completes after decision")
+        DispatchQueue.global(qos: .userInitiated).async {
+            reserve.resetForTesting(at: 10_000) {
+                resetWaiting.fulfill()
+            }
+            resetFinished.fulfill()
+        }
+
+        wait(for: [resetWaiting], timeout: 1)
+        reserve.releaseDecisionForTesting()
+        wait(for: [resetFinished], timeout: 1)
+
+        let resetSnapshot = reserve.snapshot(at: 11_000)
+        XCTAssertEqual(resetSnapshot.state, .waitingForReserve)
+        XCTAssertNil(resetSnapshot.startDepthFrames)
+        XCTAssertNil(resetSnapshot.startReason)
+    }
+
+    func testResetNeverBlocksRealtimeDecision() {
+        let reserve = AudioPipePlayoutReserve(candidate: .milliseconds45)
+        reserve.reset(at: 1_000)
+        reserve.beginResetForTesting()
+
+        XCTAssertEqual(
+            reserve.decision(remoteActive: true, queuedFrames: 2_160, now: 2_000),
+            .wait
+        )
+        reserve.endResetForTesting()
+
+        let snapshot = reserve.snapshot(at: 3_000)
+        XCTAssertEqual(snapshot.state, .waitingForReserve)
+        XCTAssertNil(snapshot.startDepthFrames)
+        XCTAssertNil(snapshot.startReason)
+    }
+
+    func testStaleDecisionCannotResurrectNewSession() {
+        let reserve = AudioPipePlayoutReserve(candidate: .milliseconds45)
+        reserve.reset(at: 1_000)
+        XCTAssertEqual(
+            reserve.decision(remoteActive: true, queuedFrames: 2_160, now: 2_000),
+            .consume
+        )
+        XCTAssertTrue(reserve.claimDecisionForTesting())
+
+        let resetFinished = expectation(description: "new session reset")
+        DispatchQueue.global(qos: .userInitiated).async {
+            reserve.reset(at: 10_000)
+            resetFinished.fulfill()
+        }
+        reserve.releaseDecisionForTesting()
+        wait(for: [resetFinished], timeout: 1)
+
+        XCTAssertEqual(
+            reserve.decision(remoteActive: true, queuedFrames: 480, now: 11_000),
+            .wait
+        )
+        let sessionBSnapshot = reserve.snapshot(at: 11_000)
+        XCTAssertEqual(sessionBSnapshot.state, .waitingForReserve)
+        XCTAssertNil(sessionBSnapshot.startDepthFrames)
+        XCTAssertNil(sessionBSnapshot.startReason)
+    }
+
+    func testStaleDecisionCannotCorruptNewSessionStartMetadata() {
+        let reserve = AudioPipePlayoutReserve(candidate: .milliseconds45)
+        reserve.reset(at: 1_000)
+        XCTAssertEqual(
+            reserve.decision(remoteActive: true, queuedFrames: 2_160, now: 2_000),
+            .consume
+        )
+        XCTAssertTrue(reserve.claimDecisionForTesting())
+
+        let resetFinished = expectation(description: "new session reset")
+        DispatchQueue.global(qos: .userInitiated).async {
+            reserve.reset(at: 10_000)
+            resetFinished.fulfill()
+        }
+        reserve.releaseDecisionForTesting()
+        wait(for: [resetFinished], timeout: 1)
+
+        XCTAssertEqual(
+            reserve.decision(remoteActive: true, queuedFrames: 2_160, now: 12_000),
+            .consume
+        )
+        let sessionBSnapshot = reserve.snapshot(at: 13_000)
+        XCTAssertEqual(sessionBSnapshot.state, .started)
+        XCTAssertEqual(sessionBSnapshot.startDepthFrames, 2_160)
+        XCTAssertEqual(sessionBSnapshot.startReason, .threshold)
+        XCTAssertEqual(sessionBSnapshot.waitDurationNanoseconds, 2_000)
+    }
+
+    func testDecisionSourceHasNoRealtimeWaitOrSpin() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/RemoteOrbit/AudioPipePlayoutReserve.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let decisionStart = try XCTUnwrap(source.range(of: "func decision("))
+        let snapshotStart = try XCTUnwrap(
+            source.range(of: "func snapshot(", range: decisionStart.upperBound..<source.endIndex)
+        )
+        let decisionBody = String(source[decisionStart.lowerBound..<snapshotStart.lowerBound])
+
+        XCTAssertFalse(decisionBody.contains("sched_yield"))
+        XCTAssertFalse(decisionBody.contains("while true"))
+        XCTAssertFalse(decisionBody.contains("Thread.sleep"))
+        XCTAssertTrue(decisionBody.contains("tryAcquireDecision"))
+    }
     func testCandidatesConvertToExact48kFrameThresholds() {
         XCTAssertEqual(AudioPipePlayoutReserveCandidate.zero.frames, 0)
         XCTAssertEqual(AudioPipePlayoutReserveCandidate.milliseconds45.frames, 2_160)

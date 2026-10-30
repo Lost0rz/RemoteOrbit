@@ -42,10 +42,51 @@ struct AudioPipePlayoutReserveSnapshot: Equatable {
     let startReason: AudioPipePlayoutReserveStartReason?
 }
 
+/// Serializes reserve decisions with producer-side session reset. The render
+/// side only attempts one CAS and never waits; reset is the only path allowed
+/// to yield while an already-running decision retires.
+final class AudioPipePlayoutReserveLifecycleGate: @unchecked Sendable {
+    // 0 = idle, 1 = decision in flight, 2 = reset in progress.
+    private var state: Int32 = 0
+
+    @discardableResult
+    func tryAcquireDecision() -> Bool {
+        OSAtomicCompareAndSwap32Barrier(0, 1, &state)
+    }
+
+    func releaseDecision() {
+        _ = OSAtomicCompareAndSwap32Barrier(1, 0, &state)
+    }
+
+    func acquireReset(onFirstWait: (() -> Void)? = nil) {
+        var reportedWait = false
+        while true {
+            if OSAtomicCompareAndSwap32Barrier(0, 2, &state) {
+                return
+            }
+            if !reportedWait {
+                onFirstWait?()
+                reportedWait = true
+            }
+            sched_yield()
+        }
+    }
+
+    func releaseReset() {
+        _ = OSAtomicCompareAndSwap32Barrier(2, 0, &state)
+    }
+
+    func isIdle() -> Bool {
+        OSAtomicAdd32Barrier(0, &state) == 0
+    }
+}
+
 /// One fixed startup threshold for one remote stream. The render-facing
 /// decision uses only bounded scalar atomics; all evidence is read off-path.
 final class AudioPipePlayoutReserve: @unchecked Sendable {
     let candidate: AudioPipePlayoutReserveCandidate
+
+    private let lifecycleGate = AudioPipePlayoutReserveLifecycleGate()
 
     // 0 = waiting, 1 = metadata publication in progress, 2 = started.
     // AudioPipe has one CoreAudio render-side writer. The intermediate scalar
@@ -62,13 +103,10 @@ final class AudioPipePlayoutReserve: @unchecked Sendable {
     }
 
     func reset(at timestampNanoseconds: UInt64) {
-        // Withdraw STARTED before clearing its metadata. A concurrent snapshot
-        // can therefore only observe the old coherent state or fresh waiting.
-        atomicStore32(0, to: &state)
-        atomicStore64(safeInt64(timestampNanoseconds), to: &resetTimestampNanoseconds)
-        atomicStore64(0, to: &startTimestampNanoseconds)
-        atomicStore64(0, to: &startDepthFrames)
-        atomicStore32(0, to: &startReason)
+        reset(
+            at: timestampNanoseconds,
+            onFirstWait: nil
+        )
     }
 
     func decision(
@@ -76,6 +114,11 @@ final class AudioPipePlayoutReserve: @unchecked Sendable {
         queuedFrames: Int,
         now timestampNanoseconds: UInt64
     ) -> AudioPipePlayoutReserveDecision {
+        guard lifecycleGate.tryAcquireDecision() else {
+            return .wait
+        }
+        defer { lifecycleGate.releaseDecision() }
+
         let currentState = atomicLoad32(&state)
         guard currentState == 0 else {
             return currentState == 1 ? .wait : .consume
@@ -111,6 +154,7 @@ final class AudioPipePlayoutReserve: @unchecked Sendable {
 
     func snapshot(at timestampNanoseconds: UInt64) -> AudioPipePlayoutReserveSnapshot {
         while true {
+            guard lifecycleGate.isIdle() else { continue }
             let stateBefore = atomicLoad32(&state)
             let reset = UInt64(max(0, atomicLoad64(&resetTimestampNanoseconds)))
             let startedAt = UInt64(max(0, atomicLoad64(&startTimestampNanoseconds)))
@@ -118,7 +162,7 @@ final class AudioPipePlayoutReserve: @unchecked Sendable {
             let reason = Self.reason(rawValue: atomicLoad32(&startReason))
             let stateAfter = atomicLoad32(&state)
 
-            guard stateBefore == stateAfter else { continue }
+            guard stateBefore == stateAfter, lifecycleGate.isIdle() else { continue }
 
             let started = stateAfter == 2
             let waitEnd = startedAt > 0 ? startedAt : timestampNanoseconds
@@ -132,6 +176,50 @@ final class AudioPipePlayoutReserve: @unchecked Sendable {
                 startReason: started ? reason : nil
             )
         }
+    }
+
+    // Deterministic test seams exercise the same lifecycle gate used by the
+    // production decision/reset paths without adding a render-time hook.
+    @discardableResult
+    func claimDecisionForTesting() -> Bool {
+        lifecycleGate.tryAcquireDecision()
+    }
+
+    func releaseDecisionForTesting() {
+        lifecycleGate.releaseDecision()
+    }
+
+    func beginResetForTesting() {
+        lifecycleGate.acquireReset()
+    }
+
+    func endResetForTesting() {
+        lifecycleGate.releaseReset()
+    }
+
+    func resetForTesting(
+        at timestampNanoseconds: UInt64,
+        onFirstWait: @escaping () -> Void
+    ) {
+        reset(
+            at: timestampNanoseconds,
+            onFirstWait: onFirstWait
+        )
+    }
+
+    private func reset(
+        at timestampNanoseconds: UInt64,
+        onFirstWait: (() -> Void)?
+    ) {
+        lifecycleGate.acquireReset(onFirstWait: onFirstWait)
+        // Withdraw STARTED before clearing its metadata. Because reset owns
+        // the lifecycle gate, no stale decision can publish after this point.
+        atomicStore32(0, to: &state)
+        atomicStore64(safeInt64(timestampNanoseconds), to: &resetTimestampNanoseconds)
+        atomicStore64(0, to: &startTimestampNanoseconds)
+        atomicStore64(0, to: &startDepthFrames)
+        atomicStore32(0, to: &startReason)
+        lifecycleGate.releaseReset()
     }
 
     private func startOnce(
