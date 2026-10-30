@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Corrective Candidate Preparation
 
-Status: `READY_FOR_LOCAL_CORRECTIVE_CANDIDATE_PREPARATION`
+Status: `READY_FOR_HUMAN_CORRECTIVE_RUNTIME_RETEST`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
@@ -80,4 +80,33 @@ Return observed values for:
 
 ## Human boundary
 
-After candidate preparation, stop. The user owns the RC003 retest. The first retest should reproduce the prior stress condition: rapid repeated press/release/open-close cycles without restarting RemoteOrbit or reconnecting RC003, while checking waveform, recognized speech and continued next-session admission.
+Candidate preparation is complete and the human corrective runtime retest is
+PENDING. The user owns the RC003 retest. The first retest should reproduce the
+prior stress condition: rapid repeated press/release/open-close cycles without
+restarting RemoteOrbit or reconnecting RC003, while checking waveform,
+recognized speech and continued next-session admission.
+
+Observed preparation evidence:
+
+- accepted source: `b1736f2feedd7ed13e4520ecdfaa0c6bf6e9b332`;
+- live control HEAD before this transition:
+  `5a14d381267d108724af2acb334ef1e366a72df9`;
+- post-source range contains only the two control files;
+- package command: `./package-dmg.sh --reuse-driver`;
+- App executable SHA-256:
+  `ea55c09a7b5a936ef5bd0d0e0fc9ef30713747ef4e5e0ef79d527497a5b69910`;
+- DMG SHA-256:
+  `2e906bef34d7caf4c6a2d0e886f5d9be95929a73a2f3236b672114731e420ef8`;
+- installed App executable matched the packaged executable byte-for-byte;
+- installed identity: `com.lost0rz.RemoteOrbit`, `0.2.14`, build `43`,
+  Universal2, ad-hoc signature valid;
+- running identity: PID `38260`, executable under
+  `/Applications/RemoteOrbit.app`;
+- RemoteOrbit Mic, RC003 BLE/HID, and diagnostic journal/CLI readiness were
+  observed;
+- only `/Applications/RemoteOrbit.app` was replaced; driver and TCC were not
+  changed.
+
+Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together in the transition
+commit, push only the existing 042 branch, verify exact local/remote equality,
+and stop at `READY_FOR_HUMAN_CORRECTIVE_RUNTIME_RETEST`.
