@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-30
-State: RO-DIAGNOSTIC-HARDENING-041 — AUTHORIZED / UNIVERSAL2_PACKAGING_CORRECTIVE
+State: RO-DIAGNOSTIC-HARDENING-041 — WAITING_FOR_AIR_OBSERVATION
 Repository: Lost0rz/RemoteOrbit
 
 ## Current authority
@@ -20,6 +20,7 @@ Repository: Lost0rz/RemoteOrbit
 - Packaging corrective authorization starts from control HEAD `840aadd2e56ee67c136092f8af4a28d83b38d172` and is limited to `remote-orbit-audio-driver/build-driver.sh` plus these control files.
 - The follow-on packaging blocker is the existing `package-app.sh` x86 invocation: `-Xswiftc -target` did not keep the complete SwiftPM graph/link architecture-consistent; x86_64 linking observed arm64 objects and failed with `_main` undefined.
 - Universal2 corrective authorization starts from local packaging HEAD `1631bd25ded1080fa04b823bcf77f9e0250a867c` and is limited to `remote-orbit/package-app.sh` plus these control files. The two local packaging commits remain preserved and are not to be reset or dropped.
+- Universal2 packaging implementation HEAD: `1310e67939f0d3ee25b9a2f4818f8be835610e38` (`fix: build Universal2 app with explicit SwiftPM triples`).
 - The paired control update after implementation is the final control transition for this corrective; its exact SHA and remote match are verified in the delivery receipt.
 - Independent Web audit blocker receipt: exact remote head `2d699f107b8ebb55b117243f0ac5d5fe1b2dfbc1`; corrective scope is limited to the six evidence-accuracy blockers in the audit.
 - Latest independent Web audit stop receipt: exact remote head `6489517dca8a7d6fb5aeabee973e3240ac2434c9`; runtime probe closure is accepted and the only authorized corrective is exporter evidence-receipt truthfulness.
@@ -98,6 +99,15 @@ The target is evidence closure, not a production behavior fix. After this packag
 - Remove the old `-Xswiftc -target` packaging method. Do not modify `Package.swift`, Swift product source, app version semantics, or use Rosetta/object copying.
 - Reuse the already verified Universal2 driver through the existing `package-dmg.sh --reuse-driver` path. If SwiftPM cannot build both explicit triples, stop with the exact toolchain error.
 
+## Air observation DMG packaged
+
+- Independent Web CODE_DIFF audit PASS is the authorization basis. The audited product semantic HEAD remains `840aadd2e56ee67c136092f8af4a28d83b38d172`; the packaged source HEAD is `1310e67939f0d3ee25b9a2f4818f8be835610e38`.
+- Candidate: `/private/tmp/remoteorbit-diagnostic-hardening-041/dist/RemoteOrbit-0.2.14.dmg`; size `6279849` bytes; SHA-256 `a631e089a9405cff98ebb19333a30471e688cf6923dac2f7247e85781888c896`.
+- App: `com.lost0rz.RemoteOrbit`, version `0.2.14`, build `43`, source stamp `1310e67939f0d3ee25b9a2f4818f8be835610e38`, executable architectures `x86_64 arm64`, executable SHA-256 `11b5c1385468c371fdc2f67e3fb8fd77446dabe0b8975a4aed3432c9f50b7b9c`.
+- Embedded driver: `audio.local.RemoteOrbitAudio2chXX`, `RemoteOrbitAudio`, minOS `13.0`, architectures `x86_64 arm64`, executable SHA-256 `cbf56478b380efb14bc14edfe87eb03b68bbaf763665fe56f24f04c7b0073364`.
+- App and embedded driver deep/strict codesign passed. The DMG mounted read-only, contained only the expected app, Applications symlink, documentation, read-me, and volume icon; executable hashes matched pre-DMG artifacts; unmount passed.
+- No app/driver installation, `/Applications/RemoteOrbit.app` replacement, driver reload, TCC mutation, Air mutation, merge, tag, or release occurred. The paired control receipt commit is the final control head; its exact SHA and remote match are verified in the delivery receipt.
+
 ## Current next action
 
-Authorize and verify the Universal2 packaging corrective, then produce and independently verify one DMG before recording the packaging receipt in both control files. Do not modify HID, BLE, AudioPipe, runtime probes, PR #25, PR #26, or Air runtime.
+Push the complete local 041 lineage, verify the exact remote head and clean worktree, then wait for owner Air natural-use observation. Do not install or launch the candidate, and do not modify HID, BLE, AudioPipe, runtime probes, PR #25, PR #26, or Air runtime.

@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTIC-HARDENING-041 — One-shot Incident Evidence Closure
 
-Status: `AUTHORIZED / PACKAGING_TOOLCHAIN_CORRECTIVE`
+Status: `WAITING_FOR_AIR_OBSERVATION`
 
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -380,3 +380,37 @@ After package-app verification passes, run the existing
 then update both control files together with the complete packaging receipt and
 push the full local 041 lineage. If Universal2 build or DMG generation fails,
 preserve the exact blocker and do not claim packaging success.
+
+## Air observation DMG packaging delivered
+
+The deployment-target and Universal2 packaging corrections both passed. The
+independent Web CODE_DIFF audit PASS is the authorization basis. The audited
+product semantic HEAD remains
+`840aadd2e56ee67c136092f8af4a28d83b38d172`; the packaged source HEAD is
+`1310e67939f0d3ee25b9a2f4818f8be835610e38`. Only packaging scripts and control
+files changed after the audited product HEAD; no RemoteOrbit Swift product
+source changed.
+
+Final candidate receipt:
+
+- DMG: `/private/tmp/remoteorbit-diagnostic-hardening-041/dist/RemoteOrbit-0.2.14.dmg`;
+- size: `6279849` bytes;
+- DMG SHA-256: `a631e089a9405cff98ebb19333a30471e688cf6923dac2f7247e85781888c896`;
+- App: `com.lost0rz.RemoteOrbit`, version `0.2.14`, build `43`;
+- source stamp: `1310e67939f0d3ee25b9a2f4818f8be835610e38`;
+- App executable architectures: `x86_64 arm64`;
+- App executable SHA-256: `11b5c1385468c371fdc2f67e3fb8fd77446dabe0b8975a4aed3432c9f50b7b9c`;
+- embedded driver: `audio.local.RemoteOrbitAudio2chXX`, name `RemoteOrbitAudio`, minOS `13.0`, architectures `x86_64 arm64`;
+- embedded driver executable SHA-256: `cbf56478b380efb14bc14edfe87eb03b68bbaf763665fe56f24f04c7b0073364`.
+
+Verification: ARM64 and x86_64 slice builds passed with dedicated SwiftPM
+scratch directories and explicit triples; input slices were arm64-only and
+x86_64-only; lipo produced Universal2; App and embedded driver deep/strict
+codesign passed; DMG read-only mount, expected contents, pre/post-DMG App and
+driver hashes, and unmount all passed. No config, backup, logs, recordings, or
+other user-data artifacts were packaged.
+
+The candidate was not installed or launched. `/Applications/RemoteOrbit.app`,
+the installed driver, TCC, CoreAudio, Air runtime, PR #25, PR #26, and
+`codex/observability-039` were not modified. The next action is owner-controlled
+Air natural-use observation; human acceptance remains pending.
