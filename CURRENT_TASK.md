@@ -1,211 +1,189 @@
 # RemoteOrbit Current Task
 
-## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Single-Path Voice Pipeline
+## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Gate C Realtime-safe Audio Data Plane
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `READY_FOR_LOCAL_GATE_C`
 
 Repository: `Lost0rz/RemoteOrbit`
 
 Active branch: `codex/voice-pipeline-simplification-042`
 
-Baseline / frozen evidence parent: `ac3132986197bfee4440bb8f388e3d2e5f478f03`
+Frozen evidence baseline: `ac3132986197bfee4440bb8f388e3d2e5f478f03`
 
-Gate A audited semantic head: `50b1d9efabe15f04d5479b39af227d0e6f43a4e3`
+Gate A accepted semantic head: `50b1d9efabe15f04d5479b39af227d0e6f43a4e3`
+
+Gate B accepted semantic head: `ae0bf10874d34ce556b4b73a506b22f6a9a1a412`
 
 ## Objective
 
-Replace the previous multi-mode voice-key control surface with one deterministic remote-voice path, then simplify the underlying transport/audio architecture gate-by-gate while preserving ATVV protocol correctness and the 041 observability baseline.
+Continue the already-decided single-path voice architecture by making the PCM playback data plane realtime-safe and bounded without changing BLE/ATVV semantics or introducing jitter tuning.
 
-Product contract:
+The user-facing product contract remains:
 
 ```text
 VOICE DOWN
-→ begin the captured voice-input trigger + remote voice opening immediately
+→ trigger + remote voice opening
+→ BLE/ATVV decode
+→ PCM playback
 
 VOICE UP
-→ stop remote capture through the existing clean transport/audio drain
-→ release the same captured trigger only after already-received output is drained
+→ BLE/audio-stop tail completes
+→ queued output drains
+→ same trigger UP
 ```
 
-The voice key is transport control, not mode control.
+Gate C changes only the decoded-PCM → CoreAudio data plane.
 
-## User / project decisions
+## Prior accepted gates
 
-1. The voice key has one high-frequency responsibility: remote voice start/stop.
-2. No voice-key SHORT/LONG/DOUBLE/Persistent/Receiver-A-B mode on the primary path.
-3. Voice-input/IME selection is a low-frequency menu-bar `VoiceInputProfile` action.
-4. A session captures one profile/trigger identity and cannot switch it mid-session.
-5. Primary optimization target is complete, stable Xiaomi RC003 audio delivery to the selected voice input, especially start, active continuity, and clean tail behavior.
-6. Structural transport/audio changes must be separated into evidence-bounded gates so improvements/regressions remain attributable.
+### Gate A — CLOSED / PASS
 
-## Retained evidence / compatibility authority
+Single direct voice-session path; no production SHORT/LONG/DOUBLE/Persistent/Receiver-A-B mode; captured VoiceInputProfile owns the whole session; tail trigger release remains downstream of BLE/audio and output drain.
 
-- Keep existing ATVV v0.4/v1.0 protocol behavior unless new evidence proves a protocol defect.
-- Keep 041 `voice_attempt_id`, BLE/decode/PCM/render ordering evidence, underrun episodes, runtime health, DiagnosticAuthority, bounded trace, DiagnosticExporter, and privacy limits.
-- Keep historical 041 evidence as a before/after baseline; do not reinterpret old observations as proof of a new root cause.
-- Do not add another always-on diagnostic ring or duplicate diagnostic authority.
-- Human natural-use/UI acceptance remains owner-owned and cannot be replaced by machine interaction.
+### Gate B — CLOSED / PASS
 
-## Gate A — CLOSED / INDEPENDENT AUDIT PASS
+Accepted head: `ae0bf10874d34ce556b4b73a506b22f6a9a1a412`.
 
-Accepted semantic head: `50b1d9efabe15f04d5479b39af227d0e6f43a4e3`.
+- dedicated serial BLE queue `com.remoteorbit.ble`;
+- strict ATVV READY and healthy READY reuse across sessions;
+- main callback isolation;
+- genuine failure clears stale transport state;
+- post-release grace / 350 ms AUDIO_STOP drain / admission barrier preserved;
+- no AudioPipe architecture or jitter change.
 
-Independent Web `CODE_DIFF` audit accepted the Gate A boundary after the tail-order corrective:
-
-- production DOWN does not wait for the 300 ms classifier;
-- the production microphone path uses one direct session lifecycle;
-- one `VoiceInputProfile`/trigger identity is captured per session;
-- Persistent and receiver A/B voice paths are not production microphone authorities;
-- physical UP enters `DRAINING`, arms release ownership, and requests the existing BLE stop flow while the AudioPipe remote route remains active;
-- existing BLE post-release grace + AUDIO_STOP drain completes before remote route deactivation/output drain;
-- captured trigger UP occurs only after output drain;
-- no-audio-start, transport-loss, rapid-next-session, and hardware-trigger release paths have focused coverage;
-- the tail corrective did not modify `BLEBridge.swift`, `AudioPipe.swift`, ATVV protocol, driver, packaging, installation, or Air runtime.
-
-Recorded executor verification at that semantic head: full Swift tests 510/510, focused voice/BLE/ATVV/AudioPipe/diagnostic suites pass, arm64 and x86_64 release builds pass, protocol self-tests 3/3, and `git diff --check` pass.
-
-This Gate A source acceptance does not claim installed/Air natural-use acceptance or final release readiness.
-
-## Gate B — Long-lived ATVV transport + dedicated BLE ingestion queue — IMPLEMENTED / WAITING_FOR_INDEPENDENT_WEB_AUDIT
+## Gate C — Realtime-safe audio data plane — AUTHORIZED
 
 ### Goal
 
-Separate ATVV connection readiness from voice-stream lifetime and remove CoreBluetooth ingestion from the UI/control scheduling domain, without changing ATVV protocol semantics or the AudioPipe data plane.
+Replace the current dynamic, lock-sharing PCM queue/render path with a bounded fixed-capacity producer/consumer path so the CoreAudio realtime callback does not allocate, compact Swift Arrays, perform formatting/I/O, or acquire the current ordinary producer lock.
 
 ### Required target model
 
-Transport lifetime:
+Producer side:
 
 ```text
-DISCONNECTED
-→ CONNECTING
-→ READY
+BLE queue
+→ ATVV decode
+→ existing gain/limiter/resample semantics
+→ fixed-capacity PCM ring write
 ```
 
-Voice-stream lifetime remains owned by the Gate A direct session:
+Consumer side:
 
 ```text
-IDLE
-→ OPENING
-→ STREAMING
-→ DRAINING
-→ IDLE
+CoreAudio IOProc
+→ fixed-capacity PCM ring read
+→ copy directly to output buffers
+→ zero-fill true underflow
+→ return
 ```
 
-Normal successful voice release must close the ATVV voice stream but keep the prepared connection/discovery/subscription/capability state `READY` for the next press where the device/CoreBluetooth state permits.
-
-A real disconnect, Bluetooth power/state change, notification/service failure, explicit app shutdown, or other existing fatal transport condition may leave `READY` and use bounded reconnect/recovery logic.
+Single producer is the existing BLE/audio submission path. Single consumer is the CoreAudio render callback.
 
 ### Authorized work
 
-1. Refactor `BLEVoiceTransportState`/`BLEBridge` so connection/discovery/subscription/capability readiness is app/transport lifecycle state rather than normal per-press teardown state.
-2. Preserve `MIC_OPEN` / `MIC_CLOSE` as per-voice-session operations.
-3. Preserve the existing physical-UP post-release grace and AUDIO_STOP drain semantics while detaching them from normal peripheral disconnect.
-4. Keep the connection ready after normal session completion instead of scheduling `cancelPeripheralConnection` merely because one voice press ended.
-5. Ensure the next direct voice press can request `MIC_OPEN` against an already-ready transport without repeating connect/service/characteristic/capability setup.
-6. Move `CBCentralManager` delegate and associated peripheral notification ingestion from `.main` to one dedicated serial BLE queue with an appropriate QoS.
-7. Keep BLE/ATVV transport state mutation serialized on that queue. Do not introduce concurrent writers to `BLEBridge` state.
-8. Marshal only bounded state/UI callbacks to the main queue when main-thread ownership is required. Audio notification parse/decode must not depend on main-queue scheduling.
-9. Preserve the existing decode path and `AudioPipe.feed` contract for Gate B; do not redesign the PCM/render data plane yet.
-10. Adapt diagnostics/tests only as required to truthfully distinguish transport readiness from per-session streaming state.
-11. Preserve safe reconnect after genuine disconnect/failure, sleep/wake/Bluetooth transitions insofar as the existing implementation already handles them; do not weaken current recovery in order to keep a connection alive.
-12. Preserve one canonical writer and push only the authorized 042 branch.
+1. Introduce one fixed-capacity SPSC PCM ring or equivalently bounded single-writer/single-reader structure for remote PCM playout.
+2. Preallocate storage needed by the realtime render path before callbacks begin.
+3. Remove dynamic `pendingOutput` growth/compaction from the active realtime path.
+4. Remove the ordinary shared producer/consumer `NSLock` from the realtime callback path. If a minimal atomic/index mechanism is required, keep it bounded and realtime-appropriate.
+5. Preserve current submitted/rendered/queue-depth/underrun/tail/overflow diagnostic meaning. Adapt counters only where necessary to remain truthful with the new representation.
+6. Preserve existing AudioPipe public behavior used by Gate A/B, including remote candidate/routing, output-drain completion, diagnostics snapshots, local-mic behavior, gain/limiter/resample semantics, and virtual-device output contract.
+7. Keep output drain event-driven by actual queued PCM becoming empty, not by introducing a new arbitrary fixed delay.
+8. Keep explicit bounded overflow behavior. If the fixed ring becomes full, record the drop truthfully; do not silently overwrite unread PCM unless the current task implementation explicitly proves that policy is required and tests it.
+9. Preserve one canonical writer and existing 041 observability authority.
 
-### Gate B implementation receipt
+### Realtime requirements
 
-- Transport lifetime is explicit: `DISCONNECTED → CONNECTING → READY`; voice-stream lifetime remains `IDLE → OPENING → STREAMING → DRAINING → IDLE`.
-- `CBCentralManager` and associated peripheral delegate/notification handling use one dedicated serial `com.remoteorbit.ble` queue. BLE/ATVV state writes and timers are queue-owned; UI/control callbacks explicitly marshal to the main queue, while audio frame decode and `AudioPipe.feed` do not wait on main.
-- Normal release sends `MIC_CLOSE` after the existing post-release grace, completes the existing `350 ms` AUDIO_STOP drain/admission barrier, and retains a healthy peripheral's discovery/subscription/capability state as `READY`. The bounded `600 ms` safety timeout only clears stale transport state when AUDIO_STOP is missing.
-- A second session can request `MIC_OPEN` from `READY` without repeating connect, service/characteristic discovery, subscription, or capability negotiation. Genuine reset/disconnect paths still clear stale state and use bounded reconnect logic.
-- Gate A tail ordering, stale `AUDIO_START` admission rejection, AudioPipe architecture/render path, ATVV v0.4/v1.0 and codec/ADPCM/sample-rate/AUDIO_SYNC/keepalive behavior, and 041 diagnostics/privacy remain preserved.
-- Verification receipt: full Swift tests `521/521` passed; arm64 release build passed; x86_64 release build passed; protocol self-tests `3/3` passed; `git diff --check` passed.
-- No Gate C/D/E, driver/package/install/TCC/Air, merge, tag, or release work was performed.
+The production CoreAudio render callback must not perform:
 
-### Gate B strict READY corrective — locally implemented / audit pending
+- heap allocation for per-callback sample arrays;
+- Swift Array append/removeFirst/compaction/growth;
+- ordinary blocking `NSLock` acquisition shared with the producer;
+- disk/file I/O;
+- JSON/string formatting/log printing;
+- main-thread dispatch/waits.
 
-Independent Web audit identified a readiness race: capabilities acceptance could
-mark READY before `didUpdateNotificationState` positively confirmed both audio and
-control notifications. The corrective is bounded to the existing Gate B writer:
+The callback may perform fixed-size/index arithmetic, bounded memory copies, zero-fill, and realtime-safe counter updates needed for existing diagnostics.
 
-- `BLEVoiceTransportState` now records all three required characteristic discoveries, both required notification confirmations, and capabilities acceptance.
-- One `evaluateATVVReadiness()` path is the only production READY transition; capabilities-first and notify-first orders converge exactly once, while partial notify and incomplete MIC_OPEN eligibility remain not READY.
-- Notify error/disabled callbacks use the existing failure/reset path; new setup/reset clears all facts, and current peripheral/characteristic identity checks reject obsolete confirmations.
-- Normal session close retains strict READY facts and second-session reuse; no AudioPipe, protocol, jitter, Gate A, driver, packaging, install, TCC, Air, or Gate C/D/E changes were made.
-- Corrective receipt: BLEBridge strict readiness tests `28/28`; full Swift tests `521/521`; arm64/x86_64 release builds passed; protocol self-tests `3/3`; `git diff --check` passed.
+### Semantics that must remain unchanged
 
-### Gate B state/ownership requirements
+- ATVV v0.4/v1.0 command/framing/capability/codec semantics;
+- ADPCM decode and sample-rate selection;
+- CoreBluetooth dedicated queue and strict READY model from Gate B;
+- keepalive/reconnect/discovery/subscription behavior;
+- Gate A direct voice/session/profile/trigger ownership;
+- physical-UP post-release grace and 350 ms AUDIO_STOP drain;
+- current gain/limiter behavior;
+- current 16 kHz/8 kHz → output-rate resampling behavior unless a purely mechanical buffer-interface adaptation is required;
+- virtual audio driver behavior and format;
+- current user-visible start/tail policy.
 
-- `READY` means required ATVV characteristics are discovered/subscribed and capabilities accepted.
-- `voiceInputRequested`/`micOpenRequested` are session intents, not connection-lifetime authorities.
-- Normal `VOICE UP` must not set transport `isStarted=false` or clear discovered characteristics solely because a voice session ended.
-- Normal post-release completion must leave the transport reusable if the peripheral remains connected/healthy.
-- Fatal/reset paths must still clear stale characteristic/capability state before reconnect.
-- `onStreamingChanged(false)` must continue to represent the completed current stream/tail boundary used by Gate A; moving queues must not make trigger release occur before the BLE/audio drain boundary.
-- `onVoiceSessionAdmissionAvailable` or its truthful successor must remain ordered after the previous AUDIO_STOP drain barrier retires.
-- Main-thread UI callbacks must never become a prerequisite for receiving/decoding the next BLE audio notification.
+### Forbidden in Gate C
 
-### Gate B forbidden changes
+Do NOT:
 
-Do NOT in Gate B:
+- add or tune a jitter reserve / playout startup threshold;
+- add a multi-frame intentional latency buffer beyond the ring capacity needed for bounded transport between producer/consumer;
+- change BLE/ATVV protocol or connection lifecycle;
+- change codec, gain, limiter, sample-rate policy, or speech processing;
+- change menu/profile/voice-key semantics;
+- redesign Gate A/B state machines;
+- add new always-on diagnostic authorities/rings unrelated to the PCM transport structure;
+- package/install/replace the app, reload CoreAudio, mutate TCC, or alter Air runtime;
+- merge, tag, release, close preserved PRs, or mutate 039/040/041;
+- begin Gate D or Gate E automatically.
 
-- change ATVV command bytes, command ordering required by the protocol, codec selection, ADPCM decoder semantics, sample rate, AUDIO_SYNC behavior, gain, or resampling;
-- change AudioPipe queue representation, queue capacity, `NSLock`/render architecture, CoreAudio callback implementation, underrun correction, or local-mic/audio routing semantics except the minimum call-site queue hop required for thread correctness;
-- add/tune a jitter buffer or multi-frame playout reserve;
-- redesign Gate A `VoiceInputProfile`, menu UX, direct voice-key semantics, or trigger ownership;
-- change the user-visible start/tail policy beyond preserving the existing Gate A ordering;
-- add a new diagnostic authority/ring or expand privacy-sensitive logging;
-- change virtual audio driver behavior;
-- package/install/replace `/Applications/RemoteOrbit.app`, reload CoreAudio, mutate TCC, or alter Air runtime;
-- merge, tag, release, close preserved PRs, or mutate historical 039/040/041 branches;
-- begin Gate C/D/E automatically.
+If a desired change materially alters playout latency/jitter policy, STOP and leave it for Gate D.
 
-If a safe dedicated BLE queue requires a small explicit main-queue hop at an AppKit/HUD/configuration boundary, that is inside Gate B. If it appears to require AudioPipe architecture changes, STOP and report the dependency instead of silently entering Gate C.
-
-## Gate B verification requirements
+## Gate C verification requirements
 
 At minimum prove:
 
-1. exact starting live branch/head and clean canonical writer;
-2. normal first session reaches READY and streams successfully through the unchanged ATVV/decode/AudioPipe contract;
-3. normal session release completes post-release grace + AUDIO_STOP drain + Gate A output drain without disconnecting the healthy peripheral;
-4. after normal session completion, transport remains/re-enters READY with characteristics/capabilities reusable;
-5. a second session from READY requests MIC_OPEN without repeating connect/service discovery/characteristic discovery/capability negotiation;
-6. genuine disconnect/failure clears stale transport state and can use the existing bounded reconnect path;
-7. no stale `AUDIO_START` from the previous stream is accepted across the drain barrier;
-8. CoreBluetooth delegate/notification ingestion runs on the dedicated serial BLE queue rather than `.main`;
-9. UI/control callbacks that require main-thread ownership are marshalled explicitly and do not block audio ingestion;
-10. BLE transport state has one serialized writer domain and no newly introduced cross-queue data race is evident in code/tests;
-11. Gate A tail ordering remains intact: remote route stays eligible through transport/audio-stop completion, output drain follows, captured trigger UP remains last;
-12. rapid sequential sessions behave deterministically across READY/stream drain boundaries;
-13. existing ATVV protocol tests pass unchanged in semantic expectation;
-14. existing AudioPipe focused tests pass without AudioPipe architecture changes;
-15. existing 041 diagnostic/exporter/continuity tests remain truthful;
-16. full Swift tests, arm64 release build, x86_64 release build, protocol self-tests, and `git diff --check` pass in the established repository flow;
-17. final diff proves no Gate C/D/E implementation leaked into Gate B.
+1. exact live branch/head and clean canonical writer before mutation;
+2. one fixed-capacity PCM producer/consumer structure owns the active remote playout queue;
+3. producer and consumer have one clear ownership model with no ordinary blocking lock in the CoreAudio realtime callback;
+4. render callback performs no per-callback heap allocation or dynamic collection mutation;
+5. ordered PCM written by the producer is rendered in order without duplication/reordering;
+6. true underflow zero-fills only the missing output portion and increments truthful underrun evidence;
+7. ring-full/overflow policy is bounded, deterministic, tested, and reflected in existing overflow evidence;
+8. queue-depth diagnostics are derived truthfully from the new ring state;
+9. output-drain completion fires only after the submitted queue has actually drained and preserves Gate A trigger-up ordering;
+10. tail PCM submitted before transport stop remains renderable after remote route deactivation until the queue is empty;
+11. rapid session transitions do not leak stale PCM from one session into another;
+12. local-mic/non-remote behavior remains unchanged where covered;
+13. Gate B BLE queue/READY tests pass unchanged in semantic expectation;
+14. ATVV protocol tests pass unchanged in semantic expectation;
+15. 041 continuity/diagnostic/export tests remain truthful;
+16. focused AudioPipe tests include wraparound, partial read/write, exact-full/empty, underflow, overflow, drain, reset/session boundary, and counter behavior;
+17. full Swift tests pass;
+18. arm64 release build passes;
+19. x86_64 release build passes;
+20. protocol self-tests pass;
+21. `git diff --check` passes;
+22. final diff proves no Gate D jitter tuning and no Gate E start/tail policy change leaked into Gate C.
 
-## Gates C–E — PLANNED / NOT AUTHORIZED
+## Evidence to return
 
-### Gate C — Realtime-safe audio data plane
+The executor receipt must report:
 
-Design intent only: fixed-capacity SPSC PCM ring, preallocated CoreAudio render path, no ordinary blocking lock/dynamic Array growth or compaction on the realtime callback, retained bounded counters/traces.
+- old vs new AudioPipe queue model;
+- ring capacity and why it is structural capacity rather than intentional jitter reserve;
+- producer/consumer ownership;
+- realtime callback operations after the change;
+- overflow/underflow policy;
+- output-drain semantics;
+- diagnostics/counter mapping;
+- exact changed paths;
+- focused and full verification results;
+- explicit confirmation that BLE/ATVV, jitter policy, Gate A/B semantics, driver/runtime were not changed.
 
-### Gate D — Small measured jitter reserve
+## Completion / stop state
 
-Design intent only: after Gate C, evaluate the smallest reserve that absorbs observed 30–80 ms arrival jitter without material dictation latency; permanent delivery deficit remains a separate problem.
-
-### Gate E — Start/tail boundary convergence
-
-Design intent only: receiver/trigger ready no later than audio start, event-driven tail convergence with bounded safety timeouts, no avoidable RemoteOrbit truncation.
-
-No Gate C/D/E mutation is authorized by the current task phase.
-
-## Gate B completion / stop state
-
-Gate B implementation and verification are complete locally:
+After Gate C implementation and verification:
 
 - update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
-- commit all authorized Gate B changes;
-- push only `codex/voice-pipeline-simplification-042` and verify remote identity;
+- commit all authorized Gate C changes;
+- push only `codex/voice-pipeline-simplification-042` and verify exact remote identity;
 - stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`;
-- do not begin Gate C automatically;
+- do not begin Gate D/E automatically;
 - do not merge, tag, release, install, mutate TCC, or change the Air runtime.
