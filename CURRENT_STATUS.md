@@ -1,19 +1,34 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — CORRECTIVE_REQUIRED`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Current authority
 
 - Active branch: `codex/voice-pipeline-simplification-042`.
 - Live branch before this control transition: `4902223a28d1b051dd36608df16eb946377aa3fe`.
+- Independent Web `CODE_DIFF` audit reviewed `f1b0f700fe618d744afdb0a3350b33cc87880d53` and returned `STOP`.
 - Independent Web `CODE_DIFF` audit PASS remains valid for the prior admission-atomic source through `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`.
 - Installed RC003 candidate: `0.2.14 (43)`, packaged from control state `00106e6d02b6fc21030737cd660b456976db68e9`; this candidate FAILED final Task 042 human runtime acceptance under extreme rapid re-press.
 - Driver and TCC were not changed during runtime preparation or testing.
 - Evidence/design authority: `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`.
 - `AGENTS.md` remains durable repository authority.
 - `CURRENT_TASK.md` remains the sole active execution authorization.
+
+## Current source-audit STOP
+
+The audit found that a B `AUDIO_START` superseding A's physical `AUDIO_STOP`
+drain retires only the BLE ingress barrier. It does not terminally retire A's
+direct coordinator transport lifecycle, so A may not reach output drain,
+trigger-UP/ACK, and direct-session completion while B remains pending. A plain
+`streaming=false` notification is unsafe because A teardown can clear B's
+already-established candidate/prebuffer.
+
+The newly authorized bounded corrective is to publish an explicit A transport
+supersession terminal event that preserves B candidate ownership, then let the
+existing output-drain and trigger-UP/ACK serialization promote B. No protocol,
+driver, TCC, READY, tail, debounce, Gate C, or Gate D change is authorized.
 
 ## RC003 corrective implementation evidence
 
@@ -132,8 +147,8 @@ Keep generic 180 ms debounce behavior. For the microphone voice key only, a rapi
 
 ## Next
 
-The source corrective and deterministic regressions are delivered on the
-existing Task 042 branch. Push the existing branch, verify exact local/remote
-equality, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not
-package/install or perform the human RC003 runtime retest until independent Web
-source audit accepts this state.
+Implement and test the bounded A-terminal/B-preservation corrective, update
+these controls with the implementation evidence, push only the existing 042
+branch, verify exact local/remote equality, and stop at
+`WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install or perform the
+human RC003 runtime retest.

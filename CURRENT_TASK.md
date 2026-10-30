@@ -2,13 +2,29 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Rapid Re-press Transport-Epoch Corrective
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `CORRECTIVE_REQUIRED`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
 Evidence/design authority: `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`
 Prior source-audit PASS target: `6fb609ea9fdda31cbe7dbd87b78c64839e47a065`
 Runtime-preparation head before this corrective: `e19d57719019bcf415e9853d5a2ad0ac2e453773`
+
+## Source-audit STOP reconciliation (2026-10-31)
+
+Independent Web `CODE_DIFF` audit reviewed source state
+`f1b0f700fe618d744afdb0a3350b33cc87880d53` and returned `STOP`.
+
+When B `AUDIO_START` supersedes A's physical `AUDIO_STOP` drain, the current
+source retires A's BLE ingress barrier but does not publish A's terminal
+transport-stop boundary to the direct coordinator. A can therefore fail to
+reach output drain, trigger-UP/ACK, and `completeDirectVoiceSession` while B
+remains pending. A plain `streaming=false` notification is insufficient because
+the A teardown path can clear B's candidate/prebuffer.
+
+This task now authorizes only the bounded A-terminal/B-preservation corrective
+below. The current source, tests, and control records must be updated together
+again after implementation.
 
 ## Objective
 
@@ -66,6 +82,23 @@ At minimum prove:
 9. non-0x03/same-stream input does not use this supersession;
 10. normal 350 ms tail behavior and prior HOST_MIC_OPEN safety stay green.
 
+## Additional corrective requirement
+
+Prove the complete lifecycle, not isolated callbacks:
+
+```text
+B AUDIO_START supersedes A ingress
+-> terminally retire A transport ownership while preserving B candidate PCM
+-> finish A queued output drain
+-> finish A trigger-UP / replay-ACK lifecycle
+-> promote B
+-> adopt B's preserved candidate PCM
+```
+
+The test must also prove stale A retirement cannot clear or mutate B. If this
+cannot be separated within the existing coordinator/AudioPipe ownership model,
+stop and report the exact dependency instead of broadening the architecture.
+
 ## Delivered implementation evidence (2026-10-31)
 
 - Finding validated: the old source rejected all AUDIO_START events during a
@@ -96,6 +129,7 @@ If the smallest fix cannot preserve these boundaries, STOP and return evidence.
 
 Return start/final/local/remote identity, exact failure-model validation, transport-epoch predicate and stale-callback protection, candidate isolation, candidate preservation across old drain, earlier re-press deferral, live-candidate truth, debounce result, RED/GREEN tests, focused/full tests/builds/self-tests/diff check, changed paths, preserved-boundary flags, unresolved issues and next safe action.
 
-After successful source implementation, push only the existing 042 branch,
-verify remote equality, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not
-package/install before that audit.
+After successful source implementation, update `CURRENT_STATUS.md` and this
+file together, push the existing 042 branch, verify remote equality, and stop
+at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install before that
+audit.
