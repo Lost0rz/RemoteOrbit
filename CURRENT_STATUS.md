@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031 — RUNNER_SETUP_PENDING`
+State: `RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031 — REGISTRATION_PENDING`
 Repository: `Lost0rz/RemoteOrbit`
 Control parent before this task: `85061ab13ebe57ed485f06966f90275a6f53a6b9`
 Active branch: `codex/ci-self-hosted-runner-migration-20261031`
@@ -29,6 +29,11 @@ Authoritative workspace: `/Volumes/Jack-Dev/Projects/remoteorbit`
   registration was found at task start.
 - Official actions/runner release observed: `v2.338.2`; the macOS ARM64 asset is
   available.
+- Workflow authority added at `.github/workflows/remoteorbit-ci.yml`; no prior
+  workflow existed on the fetched baseline.
+- Local pure-software verification passed: protocol self-tests, full Swift tests
+  (`623`, `0` failures), native Release build, and build-only Universal2 packaging
+  smoke. No app/driver installation or CoreAudio/TCC mutation was performed.
 
 ## Active task
 
@@ -39,8 +44,6 @@ acceptance remain separate and must not be changed or reinterpreted.
 
 ## Next
 
-Audit the existing runner convention and repository build/test entry points, add the
-long-lived self-hosted workflow and only the necessary CI helper/control records,
-register `remoteorbit-macmini` with label `remoteorbit`, install the official macOS
+Register `remoteorbit-macmini` with label `remoteorbit`, install the official macOS
 service, run a bounded remote smoke, then push and open a Draft PR. Stop on token,
 admin, duplicate-runner, host-mutation, product-code, or unknown-state boundaries.

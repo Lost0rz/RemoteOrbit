@@ -1,0 +1,80 @@
+name: RemoteOrbit CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remoteorbit-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test-and-build:
+    name: Swift tests and Release build
+    runs-on: [self-hosted, macOS, ARM64, remoteorbit]
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Record runner environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          macos_version="$(sw_vers -productVersion)"
+          architecture="$(uname -m)"
+          swift_version="$(swift --version | head -n 1)"
+          developer_dir="$(xcode-select -p)"
+          {
+            echo "### RemoteOrbit runner environment"
+            echo "- runner: \`${RUNNER_NAME}\`"
+            echo "- OS: macOS \`${macos_version}\`"
+            echo "- architecture: \`${architecture}\`"
+            echo "- Swift: \`${swift_version}\`"
+            echo "- Xcode developer directory: \`${developer_dir}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$architecture" = "arm64"
+          test -n "$RUNNER_NAME"
+
+      - name: Source contract checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f remote-orbit/Package.swift
+          test -d remote-orbit/Sources/RemoteOrbit
+          test -d remote-orbit/Tests/RemoteOrbitTests
+
+      - name: Protocol self-tests
+        shell: bash
+        run: ./remote-orbit/run-self-tests.sh
+
+      - name: Full Swift tests
+        shell: bash
+        working-directory: remote-orbit
+        run: swift test
+
+      - name: Native Release build
+        shell: bash
+        working-directory: remote-orbit
+        run: swift build -c release
+
+      - name: Build-only packaging smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./remote-orbit/package-app.sh
+          test -x remote-orbit/dist/RemoteOrbit.app/Contents/MacOS/RemoteOrbit
+          test -f remote-orbit/dist/RemoteOrbit.app/Contents/Info.plist
+          test -f remote-orbit/dist/RemoteOrbit.app/Contents/Resources/RemoteOrbit.icns
+          architectures="$(lipo -archs remote-orbit/dist/RemoteOrbit.app/Contents/MacOS/RemoteOrbit)"
+          test "$architectures" = "arm64 x86_64" || test "$architectures" = "x86_64 arm64"
