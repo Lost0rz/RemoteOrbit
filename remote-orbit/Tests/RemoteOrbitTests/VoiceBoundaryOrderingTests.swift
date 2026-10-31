@@ -12,6 +12,7 @@ final class VoiceBoundaryOrderingTests: XCTestCase {
             shortBinding: .preset(.disabled),
             source: .hidMonitor
         )
+        XCTAssertTrue(harness.voicePress.promoteLongOnlyCandidateForTesting())
 
         let records = try harness.records()
         _ = try XCTUnwrap(records.firstIndex { $0["event"] as? String == "OPTION_GATE_BEGIN" })
@@ -39,6 +40,7 @@ final class VoiceBoundaryOrderingTests: XCTestCase {
             shortBinding: .preset(.disabled),
             source: .voiceKeyFilterFallback
         )
+        XCTAssertTrue(harness.voicePress.promoteLongOnlyCandidateForTesting())
         let pressRecords = try harness.records()
         let press = try XCTUnwrap(pressRecords.first { $0["event"] as? String == "VOICE_PRESS_ENTRY" })
         let gestureID = try XCTUnwrap(press["gesture_id"] as? String)
@@ -82,6 +84,7 @@ final class VoiceBoundaryOrderingTests: XCTestCase {
                 shortBinding: .preset(.disabled),
                 source: source
             )
+            XCTAssertTrue(harness.voicePress.promoteLongOnlyCandidateForTesting())
             harness.controller.finishVoicePressRelease(source: source, stopVoiceInput: {})
 
             let records = try harness.records()

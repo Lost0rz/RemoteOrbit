@@ -35,6 +35,7 @@ final class VoiceInputSourceDiagnosticsTests: XCTestCase {
             shortBinding: .voiceKeyDefault,
             source: .hidMonitor
         )
+        XCTAssertTrue(voicePress.promoteLongOnlyCandidateForTesting())
         controller.finishVoicePressRelease(source: .hidMonitor, stopVoiceInput: {})
 
         logger.flush()

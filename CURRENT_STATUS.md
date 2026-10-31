@@ -1,69 +1,35 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-IME-READINESS-PROMPT-SYNC-043 — HUMAN_ACCEPTANCE_PENDING / CI_BASELINE_MERGED`
+State: `RO-IME-READINESS-PROMPT-SYNC-043 — SOURCE_AUDIT_PASS / PR_CI_PENDING`
 Repository: `Lost0rz/RemoteOrbit`
-Remote-verified `main`: `489af61a1b081781bcc386fe7476bc37479c79dd`
-Active product authority branch: `codex/ime-readiness-stability-043`
-Remote-verified active branch HEAD: `4493657ae266072b95b159e539fa2e7fb6aa2a35`
-Accepted Task 043 product source: `ed96d2285b7a3a24aecb30c09aebc38ccc4c4b16`
+Integration branch: `codex/task043-main-integration`
+Integration base: `main@75d042acf8c116d8a465b987da4257c6af7ff357`
+Audited Task 043 control HEAD: `6edd87ee6d096e3db7e5b515661737e7a72966d7`
+Audited corrective product source: `e4af810b9a981eaec4f31b2863ea59285504dda4`
+Human runtime acceptance: `DEFERRED UNTIL AFTER MERGE BY EXPLICIT USER AUTHORIZATION`
 
-## Repository / CI facts
+## Audit result
 
-- PR #29 (`ci: migrate RemoteOrbit to dedicated macOS ARM64 runner`) was merged into
-  `main` as merge commit `489af61a1b081781bcc386fe7476bc37479c79dd`.
-- Durable workflow `.github/workflows/remoteorbit-ci.yml` is now on `main`.
-- Verified PR smoke run `41205072836` completed successfully on runner
-  `remoteorbit-macmini` using macOS ARM64; full Swift tests reported `623` passed,
-  Release build passed, and Universal2 packaging smoke passed.
-- The CI migration changed only the durable workflow plus control files; no product
-  source, HAL driver, CoreAudio, TCC, or installed app mutation was part of that task.
-- This remote-only reconciliation does not claim the runner's current local process,
-  LaunchAgent, disk usage, or installed runtime state beyond previously captured
-  evidence.
+Formal `CODE_DIFF` audit: `PASS`.
+Audit independence: `FRESH_CONTEXT` (not separate-agent/human).
 
-## Task 043 authority
+The repeated `SHORT x N -> LONG` corrective is accepted: released/unpromoted pending handoff ownership may be superseded; still-held and active/promoted ownership remain protected; bounded SHORT tombstone suppression remains authoritative; no new unbounded state/timer exists.
 
-Task 043 remains the only active product/runtime gate. Its branch records:
+Exact-source verification already passed on `remoteorbit-macmini`: focused 51/0, full Swift 651/0, Release build PASS.
 
-- independent source audit: PASS;
-- accepted runtime candidate source: exactly `ed96d2285b7a3a24aecb30c09aebc38ccc4c4b16`;
-- frozen semantics: SHORT <300 ms = no-op; LONG >=300 ms = direct voice lifecycle;
-  release = direct drain/close; bounded SHORT→LONG handoff remains authoritative;
-- no Persistent/dual-mode production authority;
-- no first-PCM activation gate;
-- readiness monitoring remains advisory and bounded.
+## Integration construction
 
-The Task 043 branch still records `RUNTIME_SOAK_IN_PROGRESS / HUMAN_ACCEPTANCE_PENDING`.
-No product-source mutation, merge, release, driver/TCC/CoreAudio change, or next voice
-architecture task is authorized until explicit human PASS/FAIL is recorded there.
+This branch is a fresh semantic integration onto current `main`, not a wholesale merge of the historically diverged Task 043 branch.
 
-## Planned next task — not yet authorized
+It preserves `.github/workflows/remoteorbit-ci.yml` and current durable CI authority, imports only the Task 043 product/test/design files that differ from main, and merges the durable LONG-only voice invariant into `AGENTS.md`.
 
-After Task 043 receives explicit human PASS, is reconciled, and its accepted source is
-safely integrated into the next baseline, the planned next task is:
+No BLEBridge, AudioPipe, ATVV, driver, packaging, installed app, TCC, CoreAudio or unrelated product mutation is part of this integration.
 
-`RO-VOICE-LEGACY-RETIREMENT-DIAGNOSTICS-GATING-045`
+## Current gate
 
-Planned objectives:
+Open PR to `main` and require durable self-hosted CI on `[self-hosted, macOS, ARM64, remoteorbit]`. Before merge, re-read live `main`, PR head/base, PR diff and CI result. Merge only if all are aligned and green.
 
-1. Make normal logging OFF truly disable persistent diagnostic disk I/O and related
-   diagnostic scheduling/serialization work while preserving only bounded low-cost
-   in-memory correctness state.
-2. Retire obsolete Persistent Session / Dual Receiver production UI, settings,
-   runtime state machines, configuration migration, callbacks, and obsolete contract
-   tests.
-3. Preserve current LONG-only correctness mechanisms: candidate timer, SHORT
-   discard/tombstone, mapped-trigger suppression, rapid re-press ownership,
-   synthetic fallback, pre-HID candidate/prebuffer, BLE READY reuse, and output drain.
-4. Add regression/source-contract tests proving legacy production authority cannot
-   reappear and that logging OFF produces zero persistent diagnostic writes.
-5. Run the durable self-hosted CI and final human runtime acceptance after source
-   audit.
+No installation or release is authorized. Real RC003/Doubao acceptance remains pending and will be performed by the user after merge.
 
-This planned task is intentionally blocked by Task 043 human acceptance and closeout.
-
-## Next
-
-Record only an explicit human `PASS` or `FAIL` for Task 043. Until then, continue only
-read-only planning/audit; do not mutate product source for Task 045.
+Task 045 remains blocked until the later human acceptance/Task 043 closeout or another explicit user authorization.

@@ -44,16 +44,6 @@ struct VoiceReceiverProcessSnapshot: Equatable {
     let inputDeviceIDs: [UInt32]
 }
 
-struct VoiceReceiverProcessObservation: Equatable {
-    let snapshot: VoiceReceiverProcessSnapshot
-    let runningInputListenerInstalled: Bool
-    let inputDevicesListenerInstalled: Bool
-
-    var hasCompleteListenerAuthority: Bool {
-        runningInputListenerInstalled && inputDevicesListenerInstalled
-    }
-}
-
 enum VoiceReceiverReadinessEvaluator {
     static func evaluate(
         processes: [VoiceReceiverProcessSnapshot],
@@ -61,40 +51,11 @@ enum VoiceReceiverReadinessEvaluator {
         excludingPID: Int32,
         apiAvailable: Bool = true
     ) -> VoiceReceiverReadiness {
-        evaluate(
-            observations: processes.map {
-                VoiceReceiverProcessObservation(
-                    snapshot: $0,
-                    runningInputListenerInstalled: true,
-                    inputDevicesListenerInstalled: true
-                )
-            },
-            targetDeviceID: targetDeviceID,
-            excludingPID: excludingPID,
-            systemListenerInstalled: true,
-            apiAvailable: apiAvailable
-        )
-    }
-
-    static func evaluate(
-        observations: [VoiceReceiverProcessObservation],
-        targetDeviceID: UInt32,
-        excludingPID: Int32,
-        systemListenerInstalled: Bool,
-        apiAvailable: Bool = true
-    ) -> VoiceReceiverReadiness {
         guard apiAvailable else {
             return .unsupported
         }
 
-        guard systemListenerInstalled,
-              observations.allSatisfy(\.hasCompleteListenerAuthority)
-        else {
-            return .unsupported
-        }
-
-        guard let consumer = observations
-            .map(\.snapshot)
+        guard let consumer = processes
             .filter({
                 $0.pid != excludingPID
                     && $0.runningInput
@@ -137,252 +98,95 @@ enum VoiceHUDProjection {
     }
 }
 
-final class VoiceReceiverReadinessObserver {
-    typealias StateHandler = (VoiceReceiverReadiness) -> Void
+/// The synchronous property reads used by CoreAudioVoiceReceiverProbe.
+/// Keeping this seam separate makes the candidate-selection rules testable
+/// without creating live Core Audio objects in unit tests.
+protocol VoiceReceiverReadSource: AnyObject {
+    func targetDeviceID(named name: String) -> AudioDeviceID?
+    func processObjectIDs() -> [AudioObjectID]?
+    func processPID(_ objectID: AudioObjectID) -> Int32?
+    func processIsRunningInput(_ objectID: AudioObjectID) -> Bool?
+    func processInputDeviceIDs(_ objectID: AudioObjectID) -> [AudioDeviceID]?
+    func processBundleID(_ objectID: AudioObjectID) -> String?
+}
 
-    private struct ListenerRegistration {
-        let objectID: AudioObjectID
-        let address: AudioObjectPropertyAddress
-        let listener: AudioObjectPropertyListenerBlock
-    }
-
-    private let queue = DispatchQueue(
-        label: "com.lost0rz.RemoteOrbit.voice-receiver-readiness",
-        qos: .utility
-    )
-    private let stateLock = NSLock()
-    private let excludedPID: Int32
-    private let targetDeviceName: String
-    private var started = false
-    private var targetDeviceID: AudioDeviceID?
-    private var processObjectIDs: [AudioObjectID] = []
-    private var processListenerAuthority: [AudioObjectID: Bool] = [:]
-    private var systemListenerAddress: AudioObjectPropertyAddress?
-    private var systemListener: AudioObjectPropertyListenerBlock?
-    private var processListeners: [ListenerRegistration] = []
-    private var state: VoiceReceiverReadiness = .unsupported
-
-    var onStateChanged: StateHandler?
-
-    init(
-        excludedPID: Int32 = Int32(getpid()),
-        targetDeviceName: String = "RemoteOrbit Mic 2ch"
-    ) {
-        self.excludedPID = excludedPID
-        self.targetDeviceName = targetDeviceName
-    }
-
-    var currentState: VoiceReceiverReadiness {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return state
-    }
-
-    func start() {
-        queue.async { [weak self] in
-            self?.startOnQueue()
-        }
-    }
-
-    func stop() {
-        queue.sync { [weak self] in
-            self?.stopOnQueue()
-        }
-    }
-
-    private func startOnQueue() {
-        guard !started else { return }
-        started = true
-
+/// Default read-only Core Audio property access. It has no listener, timer,
+/// callback, or retained process-object lifecycle.
+final class CoreAudioVoiceReceiverReadSource: VoiceReceiverReadSource {
+    func targetDeviceID(named name: String) -> AudioDeviceID? {
         guard #available(macOS 14.2, *) else {
-            publish(.unsupported)
-            return
+            return nil
         }
-
-        guard let deviceID = findTargetDeviceID() else {
-            publish(.unsupported)
-            return
-        }
-        targetDeviceID = deviceID
-
-        guard installSystemProcessListListener() else {
-            publish(.unsupported)
-            return
-        }
-        refreshProcessObjects()
+        return targetDeviceIDAvailable(named: name)
     }
 
-    private func stopOnQueue() {
-        guard started else { return }
-        removeProcessListeners()
-        if let listener = systemListener,
-           var address = systemListenerAddress {
-            _ = AudioObjectRemovePropertyListenerBlock(
-                AudioObjectID(kAudioObjectSystemObject),
-                &address,
-                queue,
-                listener
-            )
+    func processObjectIDs() -> [AudioObjectID]? {
+        guard #available(macOS 14.2, *) else {
+            return nil
         }
-        systemListener = nil
-        systemListenerAddress = nil
-        processObjectIDs.removeAll()
-        processListenerAuthority.removeAll()
-        started = false
+        return processObjectIDsAvailable()
     }
 
-    @available(macOS 14.2, *)
-    private func installSystemProcessListListener() -> Bool {
-        guard systemListener == nil else { return true }
+    func processPID(_ objectID: AudioObjectID) -> Int32? {
+        guard #available(macOS 14.2, *) else {
+            return nil
+        }
+        var pid: pid_t = 0
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyProcessObjectList,
+            mSelector: kAudioProcessPropertyPID,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            self?.refreshFromListener()
-        }
-        guard AudioObjectAddPropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject),
+        var size = UInt32(MemoryLayout<pid_t>.size)
+        guard AudioObjectGetPropertyData(
+            objectID,
             &address,
-            queue,
-            listener
+            0,
+            nil,
+            &size,
+            &pid
         ) == noErr else {
-            return false
+            return nil
         }
-        systemListenerAddress = address
-        systemListener = listener
-        return true
+        return Int32(pid)
     }
 
-    private func refreshFromListener() {
-        queue.async { [weak self] in
-            guard let self else { return }
-            guard #available(macOS 14.2, *) else {
-                self.publish(.unsupported)
-                return
-            }
-            self.refreshProcessObjects()
+    func processIsRunningInput(_ objectID: AudioObjectID) -> Bool? {
+        guard #available(macOS 14.2, *) else {
+            return nil
         }
-    }
-
-    @available(macOS 14.2, *)
-    private func refreshProcessObjects() {
-        guard let objectIDs = readProcessObjectIDs() else {
-            removeProcessListeners()
-            processObjectIDs.removeAll()
-            processListenerAuthority.removeAll()
-            publish(.unsupported)
-            return
-        }
-
-        removeProcessListeners()
-        processObjectIDs = objectIDs
-        processListenerAuthority.removeAll(keepingCapacity: true)
-        for objectID in objectIDs {
-            processListenerAuthority[objectID] = installProcessListeners(for: objectID)
-        }
-
-        guard processListenerAuthority.values.allSatisfy({ $0 }),
-              let targetDeviceID
-        else {
-            publish(.unsupported)
-            return
-        }
-        publish(evaluateCurrentProcesses(targetDeviceID: targetDeviceID))
-    }
-
-    @available(macOS 14.2, *)
-    private func installProcessListeners(for objectID: AudioObjectID) -> Bool {
-        let addresses = [
-            AudioObjectPropertyAddress(
-                mSelector: kAudioProcessPropertyIsRunningInput,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            ),
-            AudioObjectPropertyAddress(
-                mSelector: kAudioProcessPropertyDevices,
-                mScope: kAudioObjectPropertyScopeInput,
-                mElement: kAudioObjectPropertyElementMain
-            ),
-        ]
-
-        var complete = true
-        for address in addresses {
-            var listenerAddress = address
-            let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-                self?.refreshFromListener()
-            }
-            guard AudioObjectAddPropertyListenerBlock(
-                objectID,
-                &listenerAddress,
-                queue,
-                listener
-            ) == noErr else {
-                complete = false
-                continue
-            }
-            processListeners.append(
-                ListenerRegistration(
-                    objectID: objectID,
-                    address: address,
-                    listener: listener
-                )
-            )
-        }
-        return complete
-    }
-
-    private func removeProcessListeners() {
-        for registration in processListeners {
-            var address = registration.address
-            _ = AudioObjectRemovePropertyListenerBlock(
-                registration.objectID,
-                &address,
-                queue,
-                registration.listener
-            )
-        }
-        processListeners.removeAll()
-    }
-
-    @available(macOS 14.2, *)
-    private func evaluateCurrentProcesses(
-        targetDeviceID: AudioDeviceID
-    ) -> VoiceReceiverReadiness {
-        var observations: [VoiceReceiverProcessObservation] = []
-        for objectID in processObjectIDs {
-            guard let snapshot = readProcessSnapshot(objectID),
-                  let hasCompleteListenerAuthority = processListenerAuthority[objectID]
-            else {
-                return .unsupported
-            }
-            observations.append(
-                VoiceReceiverProcessObservation(
-                    snapshot: snapshot,
-                    runningInputListenerInstalled: hasCompleteListenerAuthority,
-                    inputDevicesListenerInstalled: hasCompleteListenerAuthority
-                )
-            )
-        }
-        return VoiceReceiverReadinessEvaluator.evaluate(
-            observations: observations,
-            targetDeviceID: targetDeviceID,
-            excludingPID: excludedPID,
-            systemListenerInstalled: systemListener != nil
-        )
-    }
-
-    @available(macOS 14.2, *)
-    private func readProcessObjectIDs() -> [AudioObjectID]? {
+        var value: UInt32 = 0
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyProcessObjectList,
+            mSelector: kAudioProcessPropertyIsRunningInput,
             mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(
+            objectID,
+            &address,
+            0,
+            nil,
+            &size,
+            &value
+        ) == noErr else {
+            return nil
+        }
+        return value != 0
+    }
+
+    func processInputDeviceIDs(_ objectID: AudioObjectID) -> [AudioDeviceID]? {
+        guard #available(macOS 14.2, *) else {
+            return nil
+        }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioProcessPropertyDevices,
+            mScope: kAudioObjectPropertyScopeInput,
             mElement: kAudioObjectPropertyElementMain
         )
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(
-            AudioObjectID(kAudioObjectSystemObject),
+            objectID,
             &address,
             0,
             nil,
@@ -390,105 +194,38 @@ final class VoiceReceiverReadinessObserver {
         ) == noErr else {
             return nil
         }
-        var objectIDs = [AudioObjectID](
+        guard size > 0 else {
+            return []
+        }
+        var deviceIDs = [AudioDeviceID](
             repeating: 0,
-            count: Int(size) / MemoryLayout<AudioObjectID>.size
+            count: Int(size) / MemoryLayout<AudioDeviceID>.size
         )
         guard AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
+            objectID,
             &address,
             0,
             nil,
             &size,
-            &objectIDs
+            &deviceIDs
         ) == noErr else {
             return nil
         }
-        return objectIDs
+        return deviceIDs
+    }
+
+    func processBundleID(_ objectID: AudioObjectID) -> String? {
+        guard #available(macOS 14.2, *) else {
+            return nil
+        }
+        return readStringProperty(
+            objectID: objectID,
+            selector: kAudioProcessPropertyBundleID
+        )
     }
 
     @available(macOS 14.2, *)
-    private func readProcessSnapshot(
-        _ objectID: AudioObjectID
-    ) -> VoiceReceiverProcessSnapshot? {
-        var pid: pid_t = 0
-        var pidAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioProcessPropertyPID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var pidSize = UInt32(MemoryLayout<pid_t>.size)
-        guard AudioObjectGetPropertyData(
-            objectID,
-            &pidAddress,
-            0,
-            nil,
-            &pidSize,
-            &pid
-        ) == noErr else {
-            return nil
-        }
-
-        var runningInput: UInt32 = 0
-        var runningAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioProcessPropertyIsRunningInput,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var runningSize = UInt32(MemoryLayout<UInt32>.size)
-        guard AudioObjectGetPropertyData(
-            objectID,
-            &runningAddress,
-            0,
-            nil,
-            &runningSize,
-            &runningInput
-        ) == noErr else {
-            return nil
-        }
-
-        var devicesAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioProcessPropertyDevices,
-            mScope: kAudioObjectPropertyScopeInput,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var devicesSize: UInt32 = 0
-        var inputDeviceIDs: [AudioDeviceID] = []
-        if AudioObjectGetPropertyDataSize(
-            objectID,
-            &devicesAddress,
-            0,
-            nil,
-            &devicesSize
-        ) == noErr, devicesSize > 0 {
-            inputDeviceIDs = [AudioDeviceID](
-                repeating: 0,
-                count: Int(devicesSize) / MemoryLayout<AudioDeviceID>.size
-            )
-            if AudioObjectGetPropertyData(
-                objectID,
-                &devicesAddress,
-                0,
-                nil,
-                &devicesSize,
-                &inputDeviceIDs
-            ) != noErr {
-                inputDeviceIDs = []
-            }
-        }
-
-        return VoiceReceiverProcessSnapshot(
-            pid: Int32(pid),
-            bundleID: readStringProperty(
-                objectID: objectID,
-                selector: kAudioProcessPropertyBundleID
-            ),
-            runningInput: runningInput != 0,
-            inputDeviceIDs: inputDeviceIDs
-        )
-    }
-
-    private func findTargetDeviceID() -> AudioDeviceID? {
+    private func targetDeviceIDAvailable(named name: String) -> AudioDeviceID? {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -519,11 +256,51 @@ final class VoiceReceiverReadinessObserver {
             return nil
         }
         return deviceIDs.first(where: {
-            readStringProperty(objectID: $0, selector: kAudioObjectPropertyName)?
-                .caseInsensitiveCompare(targetDeviceName) == .orderedSame
+            readStringProperty(
+                objectID: $0,
+                selector: kAudioObjectPropertyName
+            )?.caseInsensitiveCompare(name) == .orderedSame
         })
     }
 
+    @available(macOS 14.2, *)
+    private func processObjectIDsAvailable() -> [AudioObjectID]? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyProcessObjectList,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &size
+        ) == noErr else {
+            return nil
+        }
+        guard size > 0 else {
+            return []
+        }
+        var objectIDs = [AudioObjectID](
+            repeating: 0,
+            count: Int(size) / MemoryLayout<AudioObjectID>.size
+        )
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &size,
+            &objectIDs
+        ) == noErr else {
+            return nil
+        }
+        return objectIDs
+    }
+
+    @available(macOS 14.2, *)
     private func readStringProperty(
         objectID: AudioObjectID,
         selector: AudioObjectPropertySelector
@@ -547,15 +324,251 @@ final class VoiceReceiverReadinessObserver {
         }
         return value?.takeRetainedValue() as String?
     }
+}
+
+protocol VoiceReceiverReadinessProbe: AnyObject {
+    func beginGeneration()
+    func sample() -> VoiceReceiverReadiness
+}
+
+/// One synchronous, fail-closed snapshot of external input consumption.
+final class CoreAudioVoiceReceiverProbe: VoiceReceiverReadinessProbe {
+    private let source: VoiceReceiverReadSource
+    private let excludedPID: Int32
+    private let targetDeviceName: String
+    private var cachedTargetDeviceID: AudioDeviceID?
+
+    init(
+        excludedPID: Int32 = Int32(getpid()),
+        targetDeviceName: String = "RemoteOrbit Mic 2ch",
+        source: VoiceReceiverReadSource = CoreAudioVoiceReceiverReadSource()
+    ) {
+        self.excludedPID = excludedPID
+        self.targetDeviceName = targetDeviceName
+        self.source = source
+    }
+
+    func beginGeneration() {
+        cachedTargetDeviceID = nil
+    }
+
+    func sample() -> VoiceReceiverReadiness {
+        guard #available(macOS 14.2, *) else {
+            return .unsupported
+        }
+
+        guard let targetDeviceID = cachedTargetDeviceID
+                ?? source.targetDeviceID(named: targetDeviceName)
+        else {
+            return .unsupported
+        }
+        cachedTargetDeviceID = targetDeviceID
+
+        guard let processObjectIDs = source.processObjectIDs() else {
+            return .unsupported
+        }
+
+        for objectID in processObjectIDs {
+            guard let pid = source.processPID(objectID) else {
+                continue
+            }
+            if pid == excludedPID {
+                continue
+            }
+            guard let runningInput = source.processIsRunningInput(objectID) else {
+                continue
+            }
+            if !runningInput {
+                continue
+            }
+            guard let inputDeviceIDs = source.processInputDeviceIDs(objectID),
+                  inputDeviceIDs.contains(targetDeviceID)
+            else {
+                continue
+            }
+
+            return .listening(
+                consumerPID: pid,
+                bundleID: source.processBundleID(objectID)
+            )
+        }
+
+        return .inactive
+    }
+}
+
+protocol VoiceReceiverReadinessTimer: AnyObject {
+    var eventHandler: (() -> Void)? { get set }
+
+    func schedule(
+        deadline: DispatchTime,
+        repeating: DispatchTimeInterval,
+        leeway: DispatchTimeInterval
+    )
+    func resume()
+    func cancel()
+}
+
+private final class DispatchSourceVoiceReceiverReadinessTimer: VoiceReceiverReadinessTimer {
+    private let source: DispatchSourceTimer
+    private var handler: (() -> Void)?
+
+    init(queue: DispatchQueue) {
+        source = DispatchSource.makeTimerSource(queue: queue)
+    }
+
+    var eventHandler: (() -> Void)? {
+        get { handler }
+        set {
+            handler = newValue
+            source.setEventHandler(handler: newValue)
+        }
+    }
+
+    func schedule(
+        deadline: DispatchTime,
+        repeating: DispatchTimeInterval,
+        leeway: DispatchTimeInterval
+    ) {
+        source.schedule(deadline: deadline, repeating: repeating, leeway: leeway)
+    }
+
+    func resume() {
+        source.resume()
+    }
+
+    func cancel() {
+        source.cancel()
+    }
+}
+
+/// Session-scoped scheduler for receiver readiness. It owns one serial queue,
+/// one optional timer, and one synchronous sample at a time.
+final class VoiceReceiverReadinessMonitor {
+    typealias StateHandler = (VoiceReceiverReadiness) -> Void
+    typealias TimerFactory = (DispatchQueue) -> VoiceReceiverReadinessTimer
+
+    private let queue: DispatchQueue
+    private let probe: VoiceReceiverReadinessProbe
+    private let timerFactory: TimerFactory
+    private let timerInterval: DispatchTimeInterval
+    private let timerLeeway: DispatchTimeInterval
+    private var timer: VoiceReceiverReadinessTimer?
+    private var generation: UInt64 = 0
+    private var isActive = false
+    private var state: VoiceReceiverReadiness = .unsupported
+
+    var onStateChanged: StateHandler?
+
+    init(
+        probe: VoiceReceiverReadinessProbe = CoreAudioVoiceReceiverProbe(),
+        queue: DispatchQueue = DispatchQueue(
+            label: "com.lost0rz.RemoteOrbit.voice-receiver-readiness",
+            qos: .utility
+        ),
+        timerFactory: @escaping TimerFactory = {
+            DispatchSourceVoiceReceiverReadinessTimer(queue: $0)
+        },
+        timerInterval: DispatchTimeInterval = .milliseconds(100),
+        timerLeeway: DispatchTimeInterval = .milliseconds(20)
+    ) {
+        self.probe = probe
+        self.queue = queue
+        self.timerFactory = timerFactory
+        self.timerInterval = timerInterval
+        self.timerLeeway = timerLeeway
+    }
+
+    func activate() {
+        queue.async { [weak self] in
+            self?.activateOnQueue()
+        }
+    }
+
+    func deactivate() {
+        queue.async { [weak self] in
+            self?.deactivateOnQueue()
+        }
+    }
+
+    private func activateOnQueue() {
+        guard !isActive else {
+            return
+        }
+
+        isActive = true
+        generation &+= 1
+        let activeGeneration = generation
+        probe.beginGeneration()
+        publish(probe.sample())
+
+        let newTimer = timerFactory(queue)
+        newTimer.eventHandler = { [weak self] in
+            self?.handleTimerTick(generation: activeGeneration)
+        }
+        newTimer.schedule(
+            deadline: .now() + timerInterval,
+            repeating: timerInterval,
+            leeway: timerLeeway
+        )
+        timer = newTimer
+        newTimer.resume()
+    }
+
+    private func deactivateOnQueue() {
+        guard isActive || timer != nil else {
+            return
+        }
+
+        isActive = false
+        generation &+= 1
+        timer?.cancel()
+        timer = nil
+        publish(.inactive)
+    }
+
+    /// The DispatchSourceTimer targets `queue`, so the handler samples
+    /// directly here. There is deliberately no extra dispatch or work-item
+    /// per tick, and the serial queue prevents overlapping samples.
+    private func handleTimerTick(generation timerGeneration: UInt64) {
+        guard isActive, timerGeneration == generation else {
+            return
+        }
+        publish(probe.sample())
+    }
 
     private func publish(_ newState: VoiceReceiverReadiness) {
-        stateLock.lock()
-        let changed = state != newState
+        guard state != newState else {
+            return
+        }
         state = newState
-        stateLock.unlock()
-        guard changed else { return }
-        DispatchQueue.main.async { [weak self] in
-            self?.onStateChanged?(newState)
+        let handler = onStateChanged
+        DispatchQueue.main.async {
+            handler?(newState)
+        }
+    }
+
+    // Deterministic test seams. They execute on the same serial queue as the
+    // production timer and expose only bounded scheduler state.
+    var currentStateForTesting: VoiceReceiverReadiness {
+        queue.sync { state }
+    }
+
+    func waitForIdleForTesting() {
+        queue.sync {}
+    }
+
+    var activeTimerCountForTesting: Int {
+        queue.sync { timer == nil ? 0 : 1 }
+    }
+
+    var currentGenerationForTesting: UInt64 {
+        queue.sync { generation }
+    }
+
+    func invokeTimerGenerationForTesting(_ timerGeneration: UInt64) {
+        queue.sync {
+            handleTimerTick(generation: timerGeneration)
         }
     }
 }

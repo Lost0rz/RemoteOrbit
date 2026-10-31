@@ -340,6 +340,38 @@ enum PendingHardwareOptionRepressBeginResult: Equatable {
     }
 }
 
+/// A cancellable one-shot used only for the private LONG-only admission
+/// candidate. The factory is injectable so lifecycle stress tests can drive
+/// callbacks without creating thousands of real GCD timers.
+final class VoicePressCandidateTimer {
+    private let cancelAction: () -> Void
+    private var cancelled = false
+
+    init(cancelAction: @escaping () -> Void) {
+        self.cancelAction = cancelAction
+    }
+
+    func cancel() {
+        guard !cancelled else { return }
+        cancelled = true
+        cancelAction()
+    }
+
+    var isCancelled: Bool { cancelled }
+
+    static func gcdFactory(
+        delay: TimeInterval,
+        fire: @escaping () -> Void
+    ) -> VoicePressCandidateTimer {
+        let work = DispatchWorkItem(block: fire)
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + max(0, delay),
+            execute: work
+        )
+        return VoicePressCandidateTimer(cancelAction: work.cancel)
+    }
+}
+
 final class VoicePressCoordinator {
     enum State: Equatable {
         case idle
@@ -408,6 +440,29 @@ final class VoicePressCoordinator {
         let waitingGateOwner: UUID
     }
 
+    private enum LongOnlyTriggerStrategy {
+        case hardware
+        case syntheticHandoff
+    }
+
+    private struct LongOnlyCandidate {
+        let sessionID: UUID
+        let physicalDownAt: TimeInterval
+        let profile: VoiceInputProfile
+        let targetApplicationBundleIdentifier: String?
+        let usesHardwareOption: Bool
+        let waitsForPreviousOwnership: Bool
+        let candidateOwnsTransportPrewarm: Bool
+        let candidateOwnsPhysicalAttempt: Bool
+        let candidatePhysicalAttemptID: UUID?
+        let triggerStrategy: LongOnlyTriggerStrategy
+        let generation: UUID
+        var isStillHeld = true
+        var longConfirmed = false
+        var previousVoiceOwnershipReady: Bool
+        var triggerOwnershipReady: Bool
+    }
+
     var onStateChanged: ((State) -> Void)?
     /// Lets the HUD update when a long press receives its first real remote
     /// audio frame, without changing the gesture state itself.
@@ -416,7 +471,23 @@ final class VoicePressCoordinator {
     /// classifier. The event tap temporarily stores the original CGEvents
     /// until the gesture state decides whether to replay or drop them.
     var onHardwareOptionGateBegin: ((UUID) -> Void)?
+    /// Result-bearing variant used by the LONG-only candidate. A rejected
+    /// owner must reject the physical gesture before any candidate is armed.
+    var onHardwareOptionGateBeginResult: ((UUID) -> Bool)?
+    /// A SHORT tombstone keeps owning delayed mapped Option edges. A new
+    /// hardware candidate may wait privately behind it, but must not steal it.
+    var onHardwareOptionGateBeginDeferredBehindShortDiscard: ((UUID) -> Bool)?
+    /// Register the one overlap candidate that will inherit a synthetic
+    /// trigger after the active SHORT tombstone hands suppression to it.
+    var onHardwareOptionGateShortHandoffBegin: ((UUID) -> Bool)?
+    /// Keep bounded physical suppression alive when an overlap candidate
+    /// releases before the active SHORT tombstone retires.
+    var onHardwareOptionGateShortHandoffReleased: ((UUID) -> Bool)?
     var onHardwareOptionGateLongReady: ((UUID) -> Void)?
+    /// LONG-only confirmation is independent from mapped Option-down arrival.
+    var onHardwareOptionGateLongConfirmed: ((UUID) -> Void)?
+    /// Transfer a discarded candidate into bounded mapped-trigger suppression.
+    var onHardwareOptionGateShortDiscard: ((UUID) -> Bool)?
     /// Discard the mapped trigger when a persistent IME hold becomes an
     /// audio-only remote segment.
     var onHardwareOptionGateSuppressForAudioOnly: ((UUID) -> Bool)?
@@ -433,6 +504,10 @@ final class VoicePressCoordinator {
     /// A disabled short press may prepare ATVV while classification is
     /// pending. This does not release Option or expose the voice HUD.
     var onRemoteTransportPreparation: (() -> Void)?
+    var onRemoteTransportCancellation: (() -> Void)?
+    /// Called only after a private candidate has been promoted into the
+    /// existing direct opening lifecycle. Focus work belongs here, not at DOWN.
+    var onLongOnlyCandidatePromoted: ((UUID, String?) -> Void)?
     /// Complete a long gesture only after queued remote PCM has rendered.
     var onRemoteOutputDrain: ((UUID, @escaping () -> Void) -> Void)?
     /// Returns true while BLE cleanup owns the admission boundary for a new
@@ -489,12 +564,17 @@ final class VoicePressCoordinator {
     private let releaseBounceDebounce: TimeInterval = 0.18
     private var mode: State = .idle
     private var holdWorkItem: DispatchWorkItem?
+    private var longOnlyCandidateTimer: VoicePressCandidateTimer?
+    private var longOnlyCandidate: LongOnlyCandidate?
+    private let candidateTimerFactory:
+        (TimeInterval, @escaping () -> Void) -> VoicePressCandidateTimer
     private var tailWorkItem: DispatchWorkItem?
     private var tailSessionID: UUID?
     private var remoteStreaming = false
     private var preHIDPhysicalStreaming = false
     private var remoteAudioAvailable = false
     private var remoteRouted = false
+    private var physicalTriggerSuppressionActive = false
     private var longInputStarted = false
     private var classifiedDualReceiverHold = false
     private var classifiedDualReceiverTriggerKey: VoiceTriggerKey?
@@ -544,10 +624,14 @@ final class VoicePressCoordinator {
 
     init(
         optionTrigger: VoiceOptionTrigger = .shared,
-        diagnosticLogger: VoiceDiagnosticLogger? = nil
+        diagnosticLogger: VoiceDiagnosticLogger? = nil,
+        candidateTimerFactory: @escaping
+            (TimeInterval, @escaping () -> Void) -> VoicePressCandidateTimer =
+            VoicePressCandidateTimer.gcdFactory
     ) {
         syntheticOptionTrigger = optionTrigger
         self.diagnosticLogger = diagnosticLogger
+        self.candidateTimerFactory = candidateTimerFactory
     }
 
     /// Only these short actions need RemoteOrbit to capture the Mac's
@@ -590,6 +674,54 @@ final class VoicePressCoordinator {
         gestureID
     }
 
+    var hasLongOnlyCandidateForTesting: Bool {
+        longOnlyCandidate != nil
+    }
+
+    var longOnlyCandidateOwnsTransportPrewarmForTesting: Bool {
+        longOnlyCandidate?.candidateOwnsTransportPrewarm ?? false
+    }
+
+    var longOnlyCandidateOwnsPhysicalAttemptForTesting: Bool {
+        longOnlyCandidate?.candidateOwnsPhysicalAttempt ?? false
+    }
+
+    var longOnlyCandidateTriggerOwnershipReadyForTesting: Bool {
+        longOnlyCandidate?.triggerOwnershipReady ?? false
+    }
+
+    var longOnlyCandidateUsesSyntheticHandoffForTesting: Bool {
+        longOnlyCandidate?.triggerStrategy == .syntheticHandoff
+    }
+
+    var longOnlyCandidatePreviousOwnershipReadyForTesting: Bool {
+        longOnlyCandidate?.previousVoiceOwnershipReady ?? false
+    }
+
+    var longOnlyCandidateTimerActiveForTesting: Bool {
+        longOnlyCandidateTimer != nil
+    }
+
+    var longOnlyCandidateLongConfirmedForTesting: Bool {
+        longOnlyCandidate?.longConfirmed ?? false
+    }
+
+    var longOnlyCandidateSessionIDForTesting: UUID? {
+        longOnlyCandidate?.sessionID
+    }
+
+    /// Test seam for exercising the real promotion path without waiting on a
+    /// wall-clock timer. Production input reaches the same method from the
+    /// one-shot 300 ms candidate timer.
+    @discardableResult
+    func promoteLongOnlyCandidateForTesting() -> Bool {
+        guard var candidate = longOnlyCandidate else { return false }
+        candidate.longConfirmed = true
+        longOnlyCandidate = candidate
+        tryPromoteLongOnlyCandidate(sessionID: candidate.sessionID)
+        return directSession || longOnlyCandidate == nil
+    }
+
     var capturedVoiceProfileForTesting: VoiceInputProfile? {
         capturedVoiceProfile
     }
@@ -620,6 +752,7 @@ final class VoicePressCoordinator {
 
     var hasActiveVoiceOwnershipForTriggerReconfiguration: Bool {
         mode != .idle
+            || longOnlyCandidate != nil
             || pendingRepress != nil
             || gestureID != nil
             || remoteRouted
@@ -636,7 +769,7 @@ final class VoicePressCoordinator {
     }
 
     var hasVoiceKeyHeldForReconfiguration: Bool {
-        mode != .idle
+        mode != .idle || longOnlyCandidate != nil
     }
 
     var hasReleaseOrTailOwnershipForReconfiguration: Bool {
@@ -669,6 +802,8 @@ final class VoicePressCoordinator {
                 ? "persistent_open" : "idle",
             "gesture_id": gestureID?.uuidString ?? "none",
             "pending_repress": pendingRepress != nil,
+            "long_only_candidate": longOnlyCandidate != nil,
+            "long_only_candidate_long_confirmed": longOnlyCandidate?.longConfirmed ?? false,
             "pending_persistent_toggle": pendingPersistentToggle != nil,
             "pending_persistent_toggle_gate_owner": pendingPersistentToggle?.waitingGateOwner.uuidString ?? "none",
             "remote_routed": remoteRouted,
@@ -720,9 +855,20 @@ final class VoicePressCoordinator {
         usesHardwareOption: Bool = false,
         preparesRemoteTransport: Bool = false,
         profile: VoiceInputProfile? = nil,
-        directSession: Bool = false
+        directSession: Bool = false,
+        longOnlyAdmission: Bool = false,
+        targetApplicationBundleIdentifier: String? = nil
     ) -> Bool {
         if directSession {
+            if longOnlyAdmission {
+                return startLongOnlyDirectCandidate(
+                    sessionID: sessionID,
+                    profile: profile ?? .defaultProfile,
+                    usesHardwareOption: usesHardwareOption,
+                    preparesRemoteTransport: preparesRemoteTransport,
+                    targetApplicationBundleIdentifier: targetApplicationBundleIdentifier
+                )
+            }
             return startDirectVoicePress(
                 sessionID: sessionID,
                 profile: profile ?? .defaultProfile,
@@ -876,6 +1022,388 @@ final class VoicePressCoordinator {
         return accepted
     }
 
+    /// Gate-A production entry. The physical microphone press is private until
+    /// the 300 ms boundary; only promotion enters the existing direct session.
+    @discardableResult
+    private func startLongOnlyDirectCandidate(
+        sessionID: UUID,
+        profile: VoiceInputProfile,
+        usesHardwareOption: Bool,
+        preparesRemoteTransport: Bool,
+        targetApplicationBundleIdentifier: String?
+    ) -> Bool {
+        guard longOnlyCandidate == nil else {
+            logAdmissionDecision(
+                sessionID: sessionID,
+                result: "rejected",
+                reason: "long_only_candidate_already_active"
+            )
+            return false
+        }
+
+        if directSession,
+           directPhysicalUp,
+           !directOutputDrained,
+           livePhysicalCandidateForAdmission {
+            guard pendingRepress == nil,
+                  !deferredRepressAwaitingActivation,
+                  let oldSessionID = gestureID else {
+                return false
+            }
+            if usesHardwareOption {
+                guard let beginResult = onHardwareOptionGatePendingRepressBegin?(
+                    sessionID,
+                    oldSessionID
+                ), beginResult.isArmed else {
+                    lastRepressDecisionForTesting =
+                        "pending-hardware-owner-failed"
+                    logAdmissionDecision(
+                        sessionID: sessionID,
+                        result: "rejected",
+                        reason: "pending_hardware_repress_begin_failed"
+                    )
+                    return false
+                }
+                pendingDirectHardwareRepressAwaitingOldUp =
+                    beginResult.awaitsOldUpAcknowledgement
+                pendingDirectHardwareRepressOldSessionID = oldSessionID
+                pendingDirectHardwareRepressACompleted = false
+                pendingDirectHardwareRepressDownCaptured = false
+            } else {
+                pendingDirectHardwareRepressAwaitingOldUp = false
+                pendingDirectHardwareRepressOldSessionID = nil
+                pendingDirectHardwareRepressACompleted = false
+                pendingDirectHardwareRepressDownCaptured = false
+            }
+            pendingRepress = PendingRepress(
+                sessionID: sessionID,
+                physicalDownAt: ProcessInfo.processInfo.systemUptime,
+                onShortTap: nil,
+                usesLocalMicrophone: false,
+                togglesPersistentVoiceSession: false,
+                bypassesShortClassification: true,
+                usesHardwareOption: usesHardwareOption,
+                preparesRemoteTransport: preparesRemoteTransport,
+                classifiedTriggerKey: nil,
+                isDirectSession: true,
+                directProfile: profile
+            )
+            deferredRepressAwaitingActivation = true
+            deferredRepressWaitReason = .directOutputDrain
+            lastRepressDecisionForTesting = "deferred-direct-output-drain"
+            armLongOnlyCandidate(
+                sessionID: sessionID,
+                physicalDownAt: ProcessInfo.processInfo.systemUptime,
+                profile: profile,
+                targetApplicationBundleIdentifier: targetApplicationBundleIdentifier,
+                usesHardwareOption: usesHardwareOption,
+                waitsForPreviousOwnership: true,
+                preparesRemoteTransport: preparesRemoteTransport,
+                triggerOwnershipReady: true
+            )
+            logAdmissionDecision(
+                sessionID: sessionID,
+                result: "deferred",
+                reason: "direct_output_drain"
+            )
+            return true
+        }
+
+        guard mode == .idle,
+              gestureID == nil,
+              !directSession,
+              !hasReleaseOrTailOwnershipForReconfiguration,
+              pendingRepress == nil,
+              !deferredRepressAwaitingActivation else {
+            logAdmissionDecision(
+                sessionID: sessionID,
+                result: "rejected",
+                reason: "voice_session_busy"
+            )
+            return false
+        }
+
+        var triggerOwnershipReady = true
+        var triggerStrategy: LongOnlyTriggerStrategy = .hardware
+        if usesHardwareOption {
+            let began: Bool
+            if let beginResult = onHardwareOptionGateBeginResult {
+                began = beginResult(sessionID)
+            } else {
+                onHardwareOptionGateBegin?(sessionID)
+                began = true
+            }
+            if !began {
+                guard onHardwareOptionGateBeginDeferredBehindShortDiscard?(sessionID) == true else {
+                    logAdmissionDecision(
+                        sessionID: sessionID,
+                        result: "rejected",
+                        reason: "hardware_option_owner_begin_failed"
+                    )
+                    return false
+                }
+                if let beginHandoff = onHardwareOptionGateShortHandoffBegin {
+                    guard beginHandoff(sessionID) else {
+                        logAdmissionDecision(
+                            sessionID: sessionID,
+                            result: "rejected",
+                            reason: "short_tombstone_handoff_slot_busy"
+                        )
+                        return false
+                    }
+                    triggerStrategy = .syntheticHandoff
+                }
+                triggerOwnershipReady = false
+            }
+        }
+
+        armLongOnlyCandidate(
+            sessionID: sessionID,
+            physicalDownAt: ProcessInfo.processInfo.systemUptime,
+            profile: profile,
+            targetApplicationBundleIdentifier: targetApplicationBundleIdentifier,
+            usesHardwareOption: usesHardwareOption,
+            waitsForPreviousOwnership: false,
+            preparesRemoteTransport: preparesRemoteTransport,
+            triggerOwnershipReady: triggerOwnershipReady,
+            triggerStrategy: triggerStrategy
+        )
+        return true
+    }
+
+    private func beginCandidatePhysicalAttempt(
+        for sessionID: UUID
+    ) -> (attemptID: UUID?, ownsAttempt: Bool) {
+        let existingAttemptID = VoiceAttemptDiagnostics.shared.currentID
+        let returnedAttemptID = VoiceAttemptDiagnostics.shared.beginPhysicalAttempt(
+            state: [
+                "physical_source": .string("long_only_candidate"),
+                "candidate_session_id": .string(sessionID.uuidString),
+            ]
+        )
+        let currentAttemptID = VoiceAttemptDiagnostics.shared.currentID
+        let belongsToActiveDirectSession: Bool = {
+            guard directSession,
+                  let activeGestureID = gestureID else { return false }
+            return VoiceAttemptDiagnostics.shared.attemptID(
+                for: activeGestureID.uuidString
+            ) == returnedAttemptID.uuidString
+        }()
+        // The raw HID monitor may have created the attempt immediately before
+        // AppController reaches this seam. A direct overlap, however, must
+        // inherit A's attempt and never claim/end it for B.
+        let ownsAttempt = returnedAttemptID == currentAttemptID
+            && !belongsToActiveDirectSession
+            && (existingAttemptID == nil || !directSession)
+        return (returnedAttemptID, ownsAttempt)
+    }
+
+    private func armLongOnlyCandidate(
+        sessionID: UUID,
+        physicalDownAt: TimeInterval,
+        profile: VoiceInputProfile,
+        targetApplicationBundleIdentifier: String?,
+        usesHardwareOption: Bool,
+        waitsForPreviousOwnership: Bool,
+        preparesRemoteTransport: Bool,
+        triggerOwnershipReady: Bool,
+        triggerStrategy: LongOnlyTriggerStrategy = .hardware
+    ) {
+        let generation = UUID()
+        let physicalAttempt = beginCandidatePhysicalAttempt(for: sessionID)
+        let ownsTransportPrewarm = preparesRemoteTransport && !waitsForPreviousOwnership
+        longOnlyCandidate = LongOnlyCandidate(
+            sessionID: sessionID,
+            physicalDownAt: physicalDownAt,
+            profile: profile,
+            targetApplicationBundleIdentifier: targetApplicationBundleIdentifier,
+            usesHardwareOption: usesHardwareOption,
+            waitsForPreviousOwnership: waitsForPreviousOwnership,
+            candidateOwnsTransportPrewarm: ownsTransportPrewarm,
+            candidateOwnsPhysicalAttempt: physicalAttempt.ownsAttempt,
+            candidatePhysicalAttemptID: physicalAttempt.attemptID,
+            triggerStrategy: triggerStrategy,
+            generation: generation,
+            previousVoiceOwnershipReady: !waitsForPreviousOwnership,
+            triggerOwnershipReady: triggerOwnershipReady
+        )
+        AudioPipe.shared.beginRemoteCandidate()
+        if ownsTransportPrewarm {
+            onRemoteTransportPreparation?()
+        }
+        scheduleLongOnlyCandidateTimer(
+            sessionID: sessionID,
+            generation: generation,
+            physicalDownAt: physicalDownAt
+        )
+    }
+
+    private func scheduleLongOnlyCandidateTimer(
+        sessionID: UUID,
+        generation: UUID,
+        physicalDownAt: TimeInterval
+    ) {
+        longOnlyCandidateTimer?.cancel()
+        let elapsed = max(
+            0,
+            ProcessInfo.processInfo.systemUptime - physicalDownAt
+        )
+        let remaining = max(0, Self.holdActivationThreshold - elapsed)
+        longOnlyCandidateTimer = candidateTimerFactory(remaining) { [weak self] in
+            self?.longOnlyCandidateTimerFired(
+                sessionID: sessionID,
+                generation: generation
+            )
+        }
+    }
+
+    private func longOnlyCandidateTimerFired(
+        sessionID: UUID,
+        generation: UUID
+    ) {
+        guard var candidate = longOnlyCandidate,
+              candidate.sessionID == sessionID,
+              candidate.generation == generation else {
+            return
+        }
+        longOnlyCandidateTimer = nil
+        guard candidate.isStillHeld else { return }
+        candidate.longConfirmed = true
+        longOnlyCandidate = candidate
+        tryPromoteLongOnlyCandidate(sessionID: sessionID)
+    }
+
+    private func tryPromoteLongOnlyCandidate(sessionID: UUID) {
+        guard let candidate = longOnlyCandidate,
+              candidate.sessionID == sessionID,
+              candidate.isStillHeld,
+              candidate.longConfirmed,
+              candidate.triggerOwnershipReady else {
+            return
+        }
+
+        if candidate.waitsForPreviousOwnership {
+            tryActivatePendingDirectHardwareRepress()
+            return
+        }
+        guard candidate.previousVoiceOwnershipReady else { return }
+        guard mode == .idle,
+              gestureID == nil,
+              !directSession,
+              !hasReleaseOrTailOwnershipForReconfiguration,
+              isVoiceSessionAdmissionBlocked?() != true else {
+            return
+        }
+        promoteLongOnlyCandidate(candidate)
+    }
+
+    private func promoteLongOnlyCandidate(_ candidate: LongOnlyCandidate) {
+        guard longOnlyCandidate?.sessionID == candidate.sessionID else { return }
+        longOnlyCandidateTimer?.cancel()
+        longOnlyCandidateTimer = nil
+        longOnlyCandidate = nil
+        let activated = startDirectVoicePress(
+            sessionID: candidate.sessionID,
+            profile: candidate.profile,
+            usesHardwareOption: candidate.triggerStrategy == .hardware
+                ? candidate.usesHardwareOption
+                : false,
+            fromLongOnlyCandidate: true,
+            syntheticHandoff: candidate.triggerStrategy == .syntheticHandoff
+        )
+        guard activated else {
+            finishFailedLongOnlyCandidate(candidate)
+            return
+        }
+        onLongOnlyCandidatePromoted?(
+            candidate.sessionID,
+            candidate.targetApplicationBundleIdentifier
+        )
+        logAdmissionDecision(
+            sessionID: candidate.sessionID,
+            result: "admitted",
+            reason: "long_hold_confirmed"
+        )
+    }
+
+    private func finishFailedLongOnlyCandidate(_ candidate: LongOnlyCandidate) {
+        if candidate.triggerStrategy == .syntheticHandoff {
+            _ = onHardwareOptionGateShortHandoffReleased?(candidate.sessionID)
+                ?? false
+        } else if candidate.usesHardwareOption {
+            if candidate.triggerOwnershipReady {
+                _ = onHardwareOptionGateShortDiscard?(candidate.sessionID)
+                    ?? false
+            }
+        } else {
+            _ = syntheticOptionTrigger.abort(sessionID: candidate.sessionID)
+        }
+        if candidate.candidateOwnsTransportPrewarm {
+            onRemoteTransportCancellation?()
+        }
+        AudioPipe.shared.endRemoteCandidate()
+        endCandidatePhysicalAttemptIfOwned(candidate)
+    }
+
+    private func endCandidatePhysicalAttemptIfOwned(_ candidate: LongOnlyCandidate) {
+        guard candidate.candidateOwnsPhysicalAttempt,
+              let candidateAttemptID = candidate.candidatePhysicalAttemptID,
+              VoiceAttemptDiagnostics.shared.currentID == candidateAttemptID else {
+            return
+        }
+        VoiceAttemptDiagnostics.shared.end(sessionID: nil)
+    }
+
+    private func cancelLongOnlyCandidate(reason: String) -> Bool {
+        guard let candidate = longOnlyCandidate else { return false }
+        longOnlyCandidateTimer?.cancel()
+        longOnlyCandidateTimer = nil
+        longOnlyCandidate = nil
+        if pendingRepress?.sessionID == candidate.sessionID {
+            pendingRepress?.isStillHeld = false
+            pendingRepress = nil
+            deferredRepressAwaitingActivation = false
+            deferredRepressActivationWorkItem?.cancel()
+            deferredRepressActivationWorkItem = nil
+            deferredRepressWaitReason = nil
+            if candidate.usesHardwareOption {
+                onHardwareOptionGatePendingRepressCancel?(
+                    candidate.sessionID,
+                    reason
+                )
+            }
+            clearPendingDirectHardwareRepressState()
+        } else if candidate.triggerStrategy == .syntheticHandoff {
+            _ = onHardwareOptionGateShortHandoffReleased?(candidate.sessionID)
+                ?? false
+        } else if candidate.usesHardwareOption {
+            if candidate.triggerOwnershipReady {
+                _ = onHardwareOptionGateShortDiscard?(candidate.sessionID)
+                    ?? false
+            }
+        } else {
+            _ = syntheticOptionTrigger.abort(sessionID: candidate.sessionID)
+        }
+        if candidate.candidateOwnsTransportPrewarm {
+            onRemoteTransportCancellation?()
+        }
+        AudioPipe.shared.endRemoteCandidate()
+        endCandidatePhysicalAttemptIfOwned(candidate)
+        if reason != "physical-up-before-promotion" {
+            diagnosticLogger?.log(
+                category: "voice",
+                event: "LONG_CANDIDATE_CANCELLED",
+                gestureID: candidate.sessionID,
+                key: candidate.profile.triggerKey,
+                fields: [
+                    "reason": reason,
+                    "long_confirmed": candidate.longConfirmed,
+                ]
+            )
+        }
+        return true
+    }
+
     /// Gate A production path. Voice DOWN owns one profile and trigger from
     /// this point until output drain completes; no timing classifier or
     /// receiver/session mode participates in the lifecycle.
@@ -883,7 +1411,9 @@ final class VoicePressCoordinator {
         sessionID: UUID,
         profile: VoiceInputProfile,
         usesHardwareOption: Bool,
-        promotingPendingHardwareRepress: Bool = false
+        promotingPendingHardwareRepress: Bool = false,
+        fromLongOnlyCandidate: Bool = false,
+        syntheticHandoff: Bool = false
     ) -> Bool {
         if directSession,
            directPhysicalUp,
@@ -998,6 +1528,7 @@ final class VoicePressCoordinator {
         directOutputDrainRequested = false
         directOutputDrained = false
         usesHardwareOptionPath = usesHardwareOption
+        physicalTriggerSuppressionActive = syntheticHandoff
         gestureID = sessionID
         gesturePhysicalDownUptime = ProcessInfo.processInfo.systemUptime
         remoteAudioAvailable = false
@@ -1024,13 +1555,17 @@ final class VoicePressCoordinator {
         )
         VoiceTimingLogger.mark("BLE_START_REQUEST", sessionID: sessionID)
 
-        // Arm the existing hardware capture before releasing the mapped DOWN.
-        // The release is immediate at opening; it is no longer tied to first
-        // PCM or a 300 ms hold boundary.
+        // A LONG-only candidate armed the hardware capture at raw DOWN. At
+        // promotion, confirm it independently of whether mapped DOWN has
+        // arrived; the filter keeps the gate alive for a late mapped edge.
         if usesHardwareOption {
             if !promotingPendingHardwareRepress {
-                onHardwareOptionGateBegin?(sessionID)
-                onHardwareOptionGateLongReady?(sessionID)
+                if fromLongOnlyCandidate {
+                    onHardwareOptionGateLongConfirmed?(sessionID)
+                } else {
+                    onHardwareOptionGateBegin?(sessionID)
+                    onHardwareOptionGateLongReady?(sessionID)
+                }
             }
             VoiceTimingLogger.mark("OPTION_GATE_RELEASE", sessionID: sessionID)
         } else {
@@ -1072,7 +1607,9 @@ final class VoicePressCoordinator {
                 "trigger_key": capturedVoiceProfile?.triggerKey.rawValue ?? "unknown",
             ]
         )
-        onHardwareOptionGatePhysicalUp?(sessionID)
+        if usesHardwareOptionPath || physicalTriggerSuppressionActive {
+            onHardwareOptionGatePhysicalUp?(sessionID)
+        }
         setMode(.draining)
         VoiceTimingLogger.mark("STOP_REQUESTED", sessionID: sessionID)
         if directTransportStopObserved {
@@ -1135,6 +1672,9 @@ final class VoicePressCoordinator {
             if self.usesHardwareOptionPath {
                 self.onHardwareOptionGateOutputDrained?(sessionID)
             } else if self.capturedVoiceProfile?.triggerKey != nil {
+                if self.physicalTriggerSuppressionActive {
+                    self.onHardwareOptionGateOutputDrained?(sessionID)
+                }
                 _ = self.syntheticOptionTrigger.sendUp(sessionID: sessionID)
             } else {
                 _ = self.syntheticOptionTrigger.abort(sessionID: sessionID)
@@ -1167,6 +1707,7 @@ final class VoicePressCoordinator {
         remoteAudioAvailable = false
         onRemoteAudioChanged?(false)
         usesHardwareOptionPath = false
+        physicalTriggerSuppressionActive = false
         remoteOutputDrainRequestedSessionID = nil
         remoteOutputDrainedSessionID = nil
         physicalUpSessionID = nil
@@ -1200,9 +1741,23 @@ final class VoicePressCoordinator {
               !directSession else {
             return
         }
+        if let candidate = longOnlyCandidate,
+           candidate.sessionID == pending.sessionID {
+            guard candidate.longConfirmed, candidate.isStillHeld else {
+                return
+            }
+            guard candidate.triggerOwnershipReady else { return }
+        } else {
+            guard pending.isStillHeld else { return }
+        }
         if pending.usesHardwareOption,
            !pendingDirectHardwareRepressDownCaptured {
             return
+        }
+        if var candidate = longOnlyCandidate,
+           candidate.sessionID == pending.sessionID {
+            candidate.previousVoiceOwnershipReady = true
+            longOnlyCandidate = candidate
         }
         scheduleDeferredRepressActivation(waitReason: .directOutputDrain)
     }
@@ -1496,6 +2051,26 @@ final class VoicePressCoordinator {
 
     @discardableResult
     func keyUp() -> Bool {
+        if let candidate = longOnlyCandidate {
+            let heldDuration = max(
+                0,
+                ProcessInfo.processInfo.systemUptime - candidate.physicalDownAt
+            )
+            if !candidate.longConfirmed,
+               heldDuration >= Self.holdActivationThreshold,
+               var current = longOnlyCandidate {
+                current.longConfirmed = true
+                longOnlyCandidate = current
+                tryPromoteLongOnlyCandidate(sessionID: current.sessionID)
+            }
+            if longOnlyCandidate != nil {
+                _ = cancelLongOnlyCandidate(reason: "physical-up-before-promotion")
+                return true
+            }
+            if directSession {
+                return finishDirectVoicePressRelease()
+            }
+        }
         if deferredRepressWaitReason == .directOutputDrain,
            let pendingValue = pendingRepress,
            pendingValue.isDirectSession {
@@ -1756,7 +2331,53 @@ final class VoicePressCoordinator {
         }
     }
 
+    private func armCandidateTriggerOwnershipIfAvailable() {
+        guard var candidate = longOnlyCandidate,
+              candidate.triggerStrategy == .hardware,
+              candidate.usesHardwareOption,
+              !candidate.triggerOwnershipReady,
+              candidate.isStillHeld else {
+            return
+        }
+        let began: Bool
+        if let beginResult = onHardwareOptionGateBeginResult {
+            began = beginResult(candidate.sessionID)
+        } else {
+            onHardwareOptionGateBegin?(candidate.sessionID)
+            began = true
+        }
+        guard began else { return }
+        candidate.triggerOwnershipReady = true
+        longOnlyCandidate = candidate
+        tryPromoteLongOnlyCandidate(sessionID: candidate.sessionID)
+    }
+
+    /// The filter transfers the active SHORT tombstone into B's physical
+    /// suppression owner before notifying this coordinator. B is then free to
+    /// promote through its permanently selected synthetic fallback strategy;
+    /// it must never reopen a physical replay gate for the same gesture.
+    func longOnlyTriggerHandoffDidBecomeReady(sessionID: UUID) {
+        guard var candidate = longOnlyCandidate,
+              candidate.sessionID == sessionID,
+              candidate.triggerStrategy == .syntheticHandoff,
+              candidate.isStillHeld else {
+            return
+        }
+        candidate.triggerOwnershipReady = true
+        longOnlyCandidate = candidate
+        tryPromoteLongOnlyCandidate(sessionID: sessionID)
+    }
+
+    func longOnlyTriggerHandoffWasInvalidated(
+        sessionID: UUID,
+        reason: String
+    ) {
+        guard longOnlyCandidate?.sessionID == sessionID else { return }
+        _ = cancelLongOnlyCandidate(reason: "short-handoff-\(reason)")
+    }
+
     func suppressedHardwareGateDidClose(ownerID: UUID) {
+        armCandidateTriggerOwnershipIfAvailable()
         guard let pending = pendingPersistentToggle,
               pending.waitingGateOwner == ownerID else { return }
         pendingPersistentToggle = nil
@@ -1795,6 +2416,7 @@ final class VoicePressCoordinator {
     }
 
     func suppressedHardwareGateWasInvalidated(ownerID: UUID, reason: String) {
+        armCandidateTriggerOwnershipIfAvailable()
         guard pendingPersistentToggle?.waitingGateOwner == ownerID else { return }
         cancelPendingPersistentToggle(reason: reason)
     }
@@ -2066,6 +2688,7 @@ final class VoicePressCoordinator {
     }
 
     func stop() {
+        _ = cancelLongOnlyCandidate(reason: "stop")
         if directSession, let sessionID = gestureID {
             if !directPhysicalUp {
                 _ = finishDirectVoicePressRelease()
@@ -2076,6 +2699,13 @@ final class VoicePressCoordinator {
             return
         }
         stopCurrentVoiceState(preservingDeferredRepress: false)
+    }
+
+    /// A removed HID device cannot deliver the matching physical UP. Retire
+    /// the private candidate and its bounded trigger/transport ownership at
+    /// the same identity-preserving boundary as the rest of HID cleanup.
+    func cancelLongOnlyCandidateForHIDRemoval() {
+        _ = cancelLongOnlyCandidate(reason: "hid-removed")
     }
 
     func stopCurrentVoiceStatePreservingDeferredRepress() {
@@ -2091,6 +2721,15 @@ final class VoicePressCoordinator {
     /// retired. Activate the retained physical press on the next main-queue
     /// turn so Session A's callback stack cannot run into Session B.
     func voiceSessionAdmissionBecameAvailable() {
+        if let candidate = longOnlyCandidate,
+           candidate.longConfirmed,
+           candidate.isStillHeld {
+            if candidate.waitsForPreviousOwnership {
+                tryActivatePendingDirectHardwareRepress()
+            } else {
+                tryPromoteLongOnlyCandidate(sessionID: candidate.sessionID)
+            }
+        }
         guard deferredRepressAwaitingActivation,
               deferredRepressWaitReason == .audioDrain,
               pendingRepress != nil,
@@ -2149,6 +2788,9 @@ final class VoicePressCoordinator {
     /// End the current transport segment while retaining a persistent IME
     /// session. A transport loss is a segment boundary, never a session tap.
     func handleTransportLoss(deviceRemoved: Bool = false) {
+        if deviceRemoved {
+            _ = cancelLongOnlyCandidate(reason: "hid-removed")
+        }
         if directSession {
             remoteStreaming = false
             directTransportStopObserved = true
@@ -2456,6 +3098,14 @@ final class VoicePressCoordinator {
 
     private func activatePendingRepressIfHeld() {
         guard let pendingRepress else { return }
+        let longOnlyCandidate = self.longOnlyCandidate
+        if pendingRepress.isDirectSession,
+           let longOnlyCandidate,
+           (longOnlyCandidate.sessionID != pendingRepress.sessionID
+                || !longOnlyCandidate.longConfirmed
+                || !longOnlyCandidate.isStillHeld) {
+            return
+        }
         self.pendingRepress = nil
         deferredRepressWaitReason = nil
         guard pendingRepress.isStillHeld else {
@@ -2479,8 +3129,23 @@ final class VoicePressCoordinator {
             )
             clearPendingDirectHardwareRepressState()
             guard activated else {
+                if let longOnlyCandidate {
+                    self.longOnlyCandidate = nil
+                    self.longOnlyCandidateTimer?.cancel()
+                    self.longOnlyCandidateTimer = nil
+                    finishFailedLongOnlyCandidate(longOnlyCandidate)
+                }
                 print("[PRESS] direct re-press activation rejected")
                 return
+            }
+            if let longOnlyCandidate {
+                self.longOnlyCandidate = nil
+                self.longOnlyCandidateTimer?.cancel()
+                self.longOnlyCandidateTimer = nil
+                onLongOnlyCandidatePromoted?(
+                    longOnlyCandidate.sessionID,
+                    longOnlyCandidate.targetApplicationBundleIdentifier
+                )
             }
             lastRepressDecisionForTesting = "admitted-after-direct-output-drain"
             return
@@ -2907,8 +3572,13 @@ final class VoiceKeyFilter {
             return flags + key
         }
     }
+    private struct PendingLongOnlySuppressionHandoff {
+        let gestureID: UUID
+        var releasedBeforeHandoff = false
+    }
     private var pendingReplayedHardwareOptionUp: PendingReplayedHardwareOptionUp?
     private var pendingHardwareOptionRepress: PendingHardwareOptionRepress?
+    private var pendingLongOnlySuppressionHandoff: PendingLongOnlySuppressionHandoff?
     private(set) var momentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
     /// Compatibility alias for callers that historically meant the mapped
     /// remote-microphone key.
@@ -2917,6 +3587,7 @@ final class VoiceKeyFilter {
     private var deferredOptionUpSeen = false
     private var deferredOptionDownEvents: [CGEvent] = []
     private var deferredOptionUpEvents: [CGEvent] = []
+    private var longConfirmedOptionGestureID: UUID?
     private var heldHardwareOptionSessionID: UUID?
     private var heldHardwareOptionUpEvents: [CGEvent] = []
     private var heldHardwareOptionFlagsUpSeen = false
@@ -2927,6 +3598,9 @@ final class VoiceKeyFilter {
     private var voiceTriggerReconfigurationKeyCodes: Set<CGKeyCode>?
     var suppressedHardwareTriggerSessionID: UUID? {
         optionGate.suppressedSessionID
+    }
+    var hasShortTapDiscardOwnership: Bool {
+        optionGate.shortTapDiscardSessionID != nil
     }
     var pendingReplayedHardwareOptionUpGestureID: UUID? {
         pendingReplayedHardwareOptionUp?.gestureID
@@ -2940,6 +3614,9 @@ final class VoiceKeyFilter {
     var pendingHardwareOptionRepressIsCancelledForTesting: Bool {
         pendingHardwareOptionRepress?.cancelled ?? false
     }
+    var pendingLongOnlySuppressionHandoffGestureIDForTesting: UUID? {
+        pendingLongOnlySuppressionHandoff?.gestureID
+    }
     var onReplayedHardwareOptionUpPassAcknowledged: ((UUID) -> Void)?
     var onPendingHardwareOptionRepressDownCaptured: ((UUID) -> Void)?
     var hasActiveHardwareTriggerOwnership: Bool {
@@ -2948,6 +3625,7 @@ final class VoiceKeyFilter {
             || heldHardwareOptionSessionID != nil
             || pendingReplayedHardwareOptionUp != nil
             || pendingHardwareOptionRepress != nil
+            || pendingLongOnlySuppressionHandoff != nil
             || hardwareOptionReleaseArmed
             || !heldHardwareOptionUpEvents.isEmpty
             || voiceKeyIsDown
@@ -2966,6 +3644,8 @@ final class VoiceKeyFilter {
     var onVoiceKeyUp: (() -> Void)?
     var onSuppressedHardwareTriggerSafelyClosed: ((UUID) -> Void)?
     var onSuppressedHardwareTriggerInvalidated: ((UUID, String) -> Void)?
+    var onLongOnlySuppressionHandoffReady: ((UUID) -> Void)?
+    var onLongOnlySuppressionHandoffInvalidated: ((UUID, String) -> Void)?
 
     var diagnosticStateFields: [String: Any] {
         [
@@ -3381,6 +4061,14 @@ final class VoiceKeyFilter {
             key: momentaryVoiceTriggerKey,
             fields: ["edge": edge == .down ? "down" : "up"]
         )
+        if edge == .down,
+           longConfirmedOptionGestureID == optionGate.activeSessionID,
+           let gestureID = optionGate.activeSessionID {
+            releaseDeferredOption(
+                gestureID: gestureID,
+                reason: "long-confirmed-late-mapped-down"
+            )
+        }
         return true
     }
 
@@ -3495,6 +4183,82 @@ final class VoiceKeyFilter {
         return true
     }
 
+    /// Reserve the one bounded B handoff slot while A's SHORT tombstone still
+    /// owns ambiguous mapped Option components. B remains private and emits
+    /// no trigger until the filter transfers suppression atomically.
+    @discardableResult
+    func beginLongOnlySuppressionHandoff(gestureID: UUID) -> Bool {
+        guard optionGate.shortTapDiscardSessionID != nil else {
+            return false
+        }
+        if let pending = pendingLongOnlySuppressionHandoff,
+           !pending.releasedBeforeHandoff {
+            return false
+        }
+        pendingLongOnlySuppressionHandoff = PendingLongOnlySuppressionHandoff(
+            gestureID: gestureID
+        )
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_LONG_ONLY_HANDOFF_BEGIN",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey
+        )
+        return true
+    }
+
+    /// B released before A's tombstone retired. Keep the handoff reservation
+    /// so late B physical components receive bounded suppression after A
+    /// closes, but never emit a synthetic trigger for B.
+    @discardableResult
+    func releaseLongOnlySuppressionHandoff(gestureID: UUID) -> Bool {
+        if var pending = pendingLongOnlySuppressionHandoff,
+           pending.gestureID == gestureID {
+            pending.releasedBeforeHandoff = true
+            pendingLongOnlySuppressionHandoff = pending
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "OPTION_GATE_LONG_ONLY_HANDOFF_RELEASED",
+                gestureID: gestureID,
+                key: momentaryVoiceTriggerKey,
+                fields: ["before_handoff": true]
+            )
+            return true
+        }
+        guard optionGate.suppressedSessionID == gestureID,
+              optionGate.shortTapDiscardSessionID == nil else {
+            return false
+        }
+        return retireLongOnlySuppressionOwner(
+            gestureID: gestureID,
+            reason: "candidate-released-after-handoff"
+        )
+    }
+
+    private func retireLongOnlySuppressionOwner(
+        gestureID: UUID,
+        reason: String
+    ) -> Bool {
+        guard optionGate.suppressedSessionID == gestureID,
+              optionGate.shortTapDiscardSessionID == nil else {
+            return false
+        }
+        cancelSuppressedTriggerReleaseCompletion()
+        _ = optionGate.armSuppressedRelease(sessionID: gestureID)
+        guard optionGate.markSuppressedOutputDrainCompleted(sessionID: gestureID) else {
+            return false
+        }
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_LONG_ONLY_HANDOFF_DISCARD",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey,
+            fields: ["reason": reason]
+        )
+        scheduleSuppressedTriggerReleaseCompletion(sessionID: gestureID)
+        return true
+    }
+
     /// Testable event-tap seam: consume every configured-trigger edge while a
     /// discarded down still owns the lifecycle.
     @discardableResult
@@ -3567,6 +4331,30 @@ final class VoiceKeyFilter {
         gestureID: UUID,
         reason: String
     ) -> Bool {
+        if let pending = pendingLongOnlySuppressionHandoff,
+           optionGate.isShortTapDiscardSession(sessionID: gestureID),
+           optionGate.transferShortTapDiscardToAudioOnlySuppression(
+               sessionID: pending.gestureID
+           ) {
+            pendingLongOnlySuppressionHandoff = nil
+            cancelSuppressedTriggerReleaseCompletion()
+            diagnosticLogger?.log(
+                category: "filter",
+                event: "OPTION_GATE_LONG_ONLY_HANDOFF_READY",
+                gestureID: pending.gestureID,
+                key: momentaryVoiceTriggerKey,
+                fields: ["previous_owner": gestureID.uuidString]
+            )
+            if pending.releasedBeforeHandoff {
+                _ = retireLongOnlySuppressionOwner(
+                    gestureID: pending.gestureID,
+                    reason: "released-before-handoff"
+                )
+            } else {
+                onLongOnlySuppressionHandoffReady?(pending.gestureID)
+            }
+            return true
+        }
         guard optionGate.completeSuppressed(sessionID: gestureID) else { return false }
         cancelSuppressedTriggerReleaseCompletion()
         diagnosticLogger?.log(
@@ -3596,6 +4384,8 @@ final class VoiceKeyFilter {
               optionGate.resetSuppressed(sessionID: owner) else {
             return false
         }
+        let invalidatedHandoff = pendingLongOnlySuppressionHandoff
+        pendingLongOnlySuppressionHandoff = nil
         cancelSuppressedTriggerReleaseCompletion()
         diagnosticLogger?.log(
             category: "filter",
@@ -3609,6 +4399,12 @@ final class VoiceKeyFilter {
                 + "gesture=\(owner.uuidString) reason=\(reason)"
         )
         onSuppressedHardwareTriggerInvalidated?(owner, reason)
+        if let invalidatedHandoff {
+            onLongOnlySuppressionHandoffInvalidated?(
+                invalidatedHandoff.gestureID,
+                reason
+            )
+        }
         return true
     }
 
@@ -3729,7 +4525,27 @@ final class VoiceKeyFilter {
     /// into a fresh Option event pair when ready.
     /// This prevents the first Option edge from beating a stale WebKit text
     /// client without blocking the event-tap thread.
-    func beginOptionDeferral(gestureID: UUID) {
+    @discardableResult
+    func beginOptionDeferral(gestureID: UUID) -> Bool {
+        beginOptionDeferral(
+            gestureID: gestureID,
+            preservingShortDiscard: false
+        )
+    }
+
+    @discardableResult
+    func beginLongOnlyOptionDeferral(gestureID: UUID) -> Bool {
+        beginOptionDeferral(
+            gestureID: gestureID,
+            preservingShortDiscard: true
+        )
+    }
+
+    @discardableResult
+    private func beginOptionDeferral(
+        gestureID: UUID,
+        preservingShortDiscard: Bool
+    ) -> Bool {
         if let pendingGestureID = pendingReplayedHardwareOptionUpGestureID,
            pendingGestureID != gestureID {
             invalidatePendingReplayedHardwareOptionUp(
@@ -3737,7 +4553,8 @@ final class VoiceKeyFilter {
                 reason: "superseded"
             )
         }
-        if let shortTapOwner = optionGate.shortTapDiscardSessionID {
+        if !preservingShortDiscard,
+           let shortTapOwner = optionGate.shortTapDiscardSessionID {
             _ = resetSuppressedHardwareTrigger(
                 gestureID: shortTapOwner,
                 reason: "new-voice-gesture"
@@ -3750,7 +4567,7 @@ final class VoiceKeyFilter {
                 gestureID: owner,
                 fields: ["owner": owner.uuidString, "incoming": gestureID.uuidString]
             )
-            return
+            return false
         }
         if let heldSessionID = heldHardwareOptionSessionID,
            heldSessionID != gestureID {
@@ -3788,9 +4605,10 @@ final class VoiceKeyFilter {
                     "incoming": gestureID.uuidString,
                 ]
             )
-            return
+            return false
         }
         _ = syntheticOptionTrigger.begin(sessionID: gestureID)
+        longConfirmedOptionGestureID = nil
         deferredOptionDownSeen = false
         deferredOptionUpSeen = false
         deferredOptionDownEvents.removeAll(keepingCapacity: true)
@@ -3802,6 +4620,52 @@ final class VoiceKeyFilter {
             gestureID: gestureID,
             key: momentaryVoiceTriggerKey
         )
+        return true
+    }
+
+    /// Confirm a long press independently from mapped Option-down arrival.
+    /// A late mapped down remains inside the active gate and is released from
+    /// the same capture seam when it arrives.
+    @discardableResult
+    func confirmLongOption(gestureID: UUID) -> Bool {
+        guard optionGate.activeSessionID == gestureID else { return false }
+        longConfirmedOptionGestureID = gestureID
+        if deferredOptionDownSeen {
+            releaseDeferredOption(
+                gestureID: gestureID,
+                reason: "long-confirmed-mapped-down-ready"
+            )
+        }
+        return true
+    }
+
+    /// Transfer a short or otherwise unpromoted candidate into the existing
+    /// bounded trigger-discard owner. This deliberately does not cancel the
+    /// gate: late hidutil Option edges must still be consumed safely.
+    @discardableResult
+    func discardDeferredHardwareTrigger(
+        gestureID: UUID,
+        reason: String
+    ) -> Bool {
+        cancelSuppressedTriggerReleaseCompletion()
+        guard optionGate.beginShortTapDiscard(sessionID: gestureID) else {
+            return false
+        }
+        _ = syntheticOptionTrigger.abort(sessionID: gestureID)
+        longConfirmedOptionGestureID = nil
+        deferredOptionDownSeen = false
+        deferredOptionUpSeen = false
+        deferredOptionDownEvents.removeAll(keepingCapacity: true)
+        deferredOptionUpEvents.removeAll(keepingCapacity: true)
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_SHORT_DISCARD",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey,
+            fields: ["reason": reason]
+        )
+        scheduleSuppressedTriggerReleaseCompletion(sessionID: gestureID)
+        return true
     }
 
     /// Drop any older physical gate before a new gesture selects its Option
@@ -3812,7 +4676,8 @@ final class VoiceKeyFilter {
             cancelDeferredOption(gestureID: gestureID, reason: reason)
         } else if let gestureID = heldHardwareOptionSessionID {
             abortHeldHardwareOption(gestureID: gestureID, reason: reason)
-        } else if let gestureID = optionGate.suppressedSessionID {
+        } else if let gestureID = optionGate.suppressedSessionID,
+                  optionGate.shortTapDiscardSessionID == nil {
             _ = resetSuppressedHardwareTrigger(
                 gestureID: gestureID,
                 reason: reason
@@ -3857,6 +4722,7 @@ final class VoiceKeyFilter {
         let optionUpEvents = deferredOptionUpEvents
         deferredOptionDownSeen = false
         deferredOptionUpSeen = false
+        longConfirmedOptionGestureID = nil
         deferredOptionDownEvents.removeAll(keepingCapacity: true)
         deferredOptionUpEvents.removeAll(keepingCapacity: true)
         guard let resolution = optionGate.resolve(sessionID: gestureID) else {
@@ -3919,6 +4785,13 @@ final class VoiceKeyFilter {
             key: momentaryVoiceTriggerKey
         )
         _ = armSuppressedHardwareTriggerRelease(gestureID: gestureID)
+        if optionGate.activeSessionID == gestureID {
+            _ = discardDeferredHardwareTrigger(
+                gestureID: gestureID,
+                reason: "physical-up-before-mapped-down"
+            )
+            return
+        }
         guard heldHardwareOptionSessionID == gestureID else { return }
         hardwareOptionReleaseArmed = true
         print("[VOICE] hardware Option-up armed gesture=\(gestureID.uuidString)")
@@ -4066,6 +4939,7 @@ final class VoiceKeyFilter {
         _ = syntheticOptionTrigger.abort(sessionID: gestureID)
         deferredOptionDownSeen = false
         deferredOptionUpSeen = false
+        longConfirmedOptionGestureID = nil
         deferredOptionDownEvents.removeAll(keepingCapacity: true)
         deferredOptionUpEvents.removeAll(keepingCapacity: true)
         print(
@@ -4450,7 +5324,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let hidMonitor = HIDMonitor()
     private let buttonGestureRecognizer = ButtonGestureRecognizer()
     private let actionHUD = RemoteActionHUD()
-    private let voiceReceiverReadinessObserver = VoiceReceiverReadinessObserver()
+    private let voiceReceiverReadinessMonitor = VoiceReceiverReadinessMonitor()
+    private var lastReceiverReadiness: VoiceReceiverReadiness = .inactive
     private let keymapOverlayController = KeymapOverlayController()
     /// The contextual mapping overlay is a press-and-hold surface. Keep the
     /// originating button so its release can dismiss only its own overlay.
@@ -4593,8 +5468,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         voicePress.onRemoteTransportPreparation = { [weak self] in
             self?.prepareVoiceTransport()
         }
-        voiceReceiverReadinessObserver.onStateChanged = { [weak self] readiness in
+        voiceReceiverReadinessMonitor.onStateChanged = { [weak self] readiness in
             guard let self else { return }
+            self.lastReceiverReadiness = readiness
             self.diagnosticLogger.log(
                 category: "voice",
                 event: "VOICE_RECEIVER_READINESS",
@@ -5539,6 +6415,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func cancelDualReceiverGestureStateForHIDRemoval() {
         hidConnected = false
+        voicePress.cancelLongOnlyCandidateForHIDRemoval()
         if let pendingReplayGestureID = filter.pendingReplayedHardwareOptionUpGestureID {
             filter.cancelDeferredOption(
                 gestureID: pendingReplayGestureID,
@@ -6008,72 +6885,24 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         false
     }
 
-    func beginVoicePress(
-        targetApplicationBundleIdentifier lockedTarget: String? = nil,
-        shortBinding: ButtonBinding? = nil,
-        source: VoicePressInputSource = .voiceKeyFilterFallback
+    /// Focus work is part of the public direct opening lifecycle, never the
+    /// private DOWN-to-300ms candidate. The target is the identity captured at
+    /// physical DOWN, so promotion cannot retarget an already-held gesture.
+    private func beginVoiceFocusPreparation(
+        gestureID: UUID,
+        targetApplicationBundleIdentifier target: String?
     ) {
-        guard !voiceTriggerReconfigurationInProgress,
-              !voiceTriggerRuntimeLocked else {
-            print("[VOICE] press rejected during trigger reconfiguration or runtime lock")
-            return
-        }
-        let gestureID = UUID()
-        let occurrenceUptime = diagnosticUptimeProvider()
-        let hidConnectedAtEntry = hidConnected
-        let filterSkipVoiceKeyAtEntry = filter.skipVoiceKey
-        let momentaryKeyAtEntry = currentMomentaryVoiceTriggerKey
-        let target = lockedTarget
-            ?? MappingStore.preferredApplicationBundleIdentifier()
         let needsFloatTabsFocus = FloatTabsCommandClient.shouldPrepareInputFocus(
             for: target
         )
         let needsCodexFocus = !needsFloatTabsFocus
             && CodexCommandAdapter.shouldPrepareInputFocus(for: target)
-        // Focus repair is useful for the text insertion target, but it must
-        // never gate the physical Option edge or remote audio. AX/WebKit can
-        // be slow or unavailable even while the receiver is already working.
-        let needsFocusPreparation = needsFloatTabsFocus || needsCodexFocus
-        let pressAccepted = voicePress.keyDown(
-            sessionID: gestureID,
-            usesHardwareOption: isVoiceHIDMappingEnabled(),
-            preparesRemoteTransport: true,
-            profile: currentVoiceInputProfile,
-            directSession: true
-        )
-        diagnosticLogger.log(
-            category: "voice",
-            event: "VOICE_PRESS_ENTRY",
-            gestureID: gestureID,
-            fields: [
-                "source": source.rawValue,
-                "hid_connected": hidConnectedAtEntry,
-                "filter_skip_voice_key": filterSkipVoiceKeyAtEntry,
-                "observer_uptime": occurrenceUptime,
-                "momentary_key": momentaryKeyAtEntry.rawValue,
-                "voice_input_profile_id": currentVoiceInputProfile.id,
-                "voice_input_trigger_key": currentVoiceInputProfile.triggerKey.rawValue,
-                "classifier": "none",
-            ]
-        )
-        guard pressAccepted else {
-            return
-        }
+        guard needsFloatTabsFocus || needsCodexFocus else { return }
 
         if let previousGestureID = voiceFocusTransactions.activeGestureID {
             voiceFocusSafetyWorkItem?.cancel()
             voiceFocusSafetyWorkItem = nil
             _ = voiceFocusTransactions.cancel(previousGestureID)
-        }
-        // Hardware activation already supersedes an older gate inside
-        // beginOptionDeferral. Only the synthetic fallback needs the
-        // coordinator call site to clear a stale physical gate here.
-        if !isVoiceHIDMappingEnabled() {
-            filter.cancelActiveOptionDeferral(reason: "superseded-by-new-gesture")
-        }
-
-        guard needsFocusPreparation else {
-            return
         }
         voiceFocusTransactions.begin(gestureID)
         armVoiceFocusSafetyTimeout(gestureID: gestureID)
@@ -6111,6 +6940,59 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 source: "Codex",
                 reason: reason
             )
+        }
+    }
+
+    func beginVoicePress(
+        targetApplicationBundleIdentifier lockedTarget: String? = nil,
+        shortBinding: ButtonBinding? = nil,
+        source: VoicePressInputSource = .voiceKeyFilterFallback
+    ) {
+        guard !voiceTriggerReconfigurationInProgress,
+              !voiceTriggerRuntimeLocked else {
+            print("[VOICE] press rejected during trigger reconfiguration or runtime lock")
+            return
+        }
+        let gestureID = UUID()
+        let occurrenceUptime = diagnosticUptimeProvider()
+        let hidConnectedAtEntry = hidConnected
+        let filterSkipVoiceKeyAtEntry = filter.skipVoiceKey
+        let momentaryKeyAtEntry = currentMomentaryVoiceTriggerKey
+        let target = lockedTarget
+            ?? MappingStore.preferredApplicationBundleIdentifier()
+        let pressAccepted = voicePress.keyDown(
+            sessionID: gestureID,
+            usesHardwareOption: isVoiceHIDMappingEnabled(),
+            preparesRemoteTransport: true,
+            profile: currentVoiceInputProfile,
+            directSession: true,
+            longOnlyAdmission: true,
+            targetApplicationBundleIdentifier: target
+        )
+        diagnosticLogger.log(
+            category: "voice",
+            event: "VOICE_PRESS_ENTRY",
+            gestureID: gestureID,
+            fields: [
+                "source": source.rawValue,
+                "hid_connected": hidConnectedAtEntry,
+                "filter_skip_voice_key": filterSkipVoiceKeyAtEntry,
+                "observer_uptime": occurrenceUptime,
+                "momentary_key": momentaryKeyAtEntry.rawValue,
+                "voice_input_profile_id": currentVoiceInputProfile.id,
+                "voice_input_trigger_key": currentVoiceInputProfile.triggerKey.rawValue,
+                "classifier": "none",
+            ]
+        )
+        guard pressAccepted else {
+            return
+        }
+
+        // Hardware activation already supersedes an older gate inside
+        // beginOptionDeferral. Only the synthetic fallback needs the
+        // coordinator call site to clear a stale physical gate here.
+        if !isVoiceHIDMappingEnabled() {
+            filter.cancelActiveOptionDeferral(reason: "superseded-by-new-gesture")
         }
     }
 
@@ -6197,7 +7079,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let hudState = VoiceHUDProjection.state(
             for: state,
             remoteAudioAvailable: voicePress.hasRemoteAudio,
-            receiverReadiness: voiceReceiverReadinessObserver.currentState
+            receiverReadiness: lastReceiverReadiness
         ) else {
             actionHUD.dismiss()
             return
@@ -6366,16 +7248,43 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // Gate A starts ATVV as soon as the physical voice key goes down.
                 self?.activateVoiceInput()
             }
+            switch state {
+            case .opening, .pending, .holding, .streaming:
+                self?.voiceReceiverReadinessMonitor.activate()
+            case .draining, .idle:
+                self?.lastReceiverReadiness = .inactive
+                self?.voiceReceiverReadinessMonitor.deactivate()
+            }
             self?.updateVoiceHUD(for: state)
         }
         voicePress.onRemoteAudioChanged = { [weak self] _ in
             guard let self else { return }
             self.updateVoiceHUD(for: self.voicePress.currentStateForTesting)
         }
-        voiceReceiverReadinessObserver.start()
         voicePress.onHardwareOptionGateBegin = { [weak self] gestureID in
             guard let self else { return }
             self.filter.beginOptionDeferral(gestureID: gestureID)
+        }
+        voicePress.onHardwareOptionGateBeginResult = { [weak self] gestureID in
+            self?.filter.beginLongOnlyOptionDeferral(gestureID: gestureID) ?? false
+        }
+        voicePress.onHardwareOptionGateBeginDeferredBehindShortDiscard = { [weak self] _ in
+            self?.filter.hasShortTapDiscardOwnership ?? false
+        }
+        voicePress.onHardwareOptionGateShortHandoffBegin = { [weak self] gestureID in
+            self?.filter.beginLongOnlySuppressionHandoff(gestureID: gestureID) ?? false
+        }
+        voicePress.onHardwareOptionGateShortHandoffReleased = { [weak self] gestureID in
+            self?.filter.releaseLongOnlySuppressionHandoff(gestureID: gestureID) ?? false
+        }
+        voicePress.onHardwareOptionGateLongConfirmed = { [weak self] gestureID in
+            _ = self?.filter.confirmLongOption(gestureID: gestureID)
+        }
+        voicePress.onHardwareOptionGateShortDiscard = { [weak self] gestureID in
+            self?.filter.discardDeferredHardwareTrigger(
+                gestureID: gestureID,
+                reason: "short-or-unpromoted-candidate"
+            ) ?? false
         }
         voicePress.onHardwareOptionGateLongReady = { [weak self] gestureID in
             self?.filter.releaseDeferredOption(
@@ -6425,6 +7334,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 reason: reason
             )
         }
+        filter.onLongOnlySuppressionHandoffReady = { [weak self] gestureID in
+            self?.voicePress.longOnlyTriggerHandoffDidBecomeReady(sessionID: gestureID)
+        }
+        filter.onLongOnlySuppressionHandoffInvalidated = { [weak self] gestureID, reason in
+            self?.voicePress.longOnlyTriggerHandoffWasInvalidated(
+                sessionID: gestureID,
+                reason: reason
+            )
+        }
         voicePress.onHardwareOptionGateCancel = { [weak self] gestureID in
             self?.filter.cancelDeferredOption(
                 gestureID: gestureID,
@@ -6433,6 +7351,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         voicePress.onRemoteTransportPreparation = { [weak self] in
             self?.prepareVoiceTransport()
+        }
+        voicePress.onRemoteTransportCancellation = { [weak self] in
+            self?.cancelVoiceTransportPreparation()
+        }
+        voicePress.onLongOnlyCandidatePromoted = { [weak self] gestureID, target in
+            self?.beginVoiceFocusPreparation(
+                gestureID: gestureID,
+                targetApplicationBundleIdentifier: target
+            )
         }
         voicePress.onRemoteOutputDrain = { _, completion in
             AudioPipe.shared.waitForOutputDrain(completion: completion)
@@ -7190,7 +8117,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        voiceReceiverReadinessObserver.stop()
+        voiceReceiverReadinessMonitor.deactivate()
         frontmostApplicationDiagnosticsObserver?.stop()
         frontmostApplicationDiagnosticsObserver = nil
         stopRecordingStatusPulse()

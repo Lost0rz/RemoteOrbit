@@ -187,6 +187,56 @@ final class VoiceKeyFilterTests: XCTestCase {
         filter.cancelDeferredOption(gestureID: sessionID, reason: "test-cleanup")
     }
 
+    func testLongConfirmationKeepsGateOpenUntilLateMappedDownArrives() {
+        var events: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { events.append(($0, $1)) })
+        let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
+        let sessionID = UUID()
+
+        XCTAssertTrue(filter.beginOptionDeferral(gestureID: sessionID))
+        XCTAssertTrue(filter.confirmLongOption(gestureID: sessionID))
+        XCTAssertTrue(filter.isOptionDeferralActive(for: sessionID))
+        XCTAssertTrue(filter.captureDeferredHardwareOptionEdgeForTesting(.down, copied: false))
+
+        XCTAssertFalse(filter.isOptionDeferralActive(for: sessionID))
+        XCTAssertEqual(events.map { $0.1 }, [true])
+    }
+
+    func testShortDiscardConsumesLateMappedEdgesWithoutSyntheticTrigger() {
+        let trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in
+            XCTFail("a short candidate must not emit a synthetic trigger")
+        })
+        let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
+        let sessionID = UUID()
+
+        XCTAssertTrue(filter.beginOptionDeferral(gestureID: sessionID))
+        XCTAssertTrue(
+            filter.discardDeferredHardwareTrigger(
+                gestureID: sessionID,
+                reason: "short-candidate-test"
+            )
+        )
+        XCTAssertEqual(filter.suppressedHardwareTriggerSessionID, sessionID)
+        XCTAssertTrue(
+            filter.shouldSuppressDiscardedHardwareTriggerEvent(
+                keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
+                type: .flagsChanged
+            )
+        )
+        XCTAssertTrue(
+            filter.shouldSuppressDiscardedHardwareTriggerEvent(
+                keyCode: VoiceTriggerKey.leftOption.cgKeyCode,
+                type: .keyUp
+            )
+        )
+        XCTAssertTrue(
+            filter.resetSuppressedHardwareTrigger(
+                gestureID: sessionID,
+                reason: "short-candidate-test-cleanup"
+            )
+        )
+    }
+
     func testReadOnlyHardwareOwnershipReportsActiveAndSuppressedGates() {
         let trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in })
         let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
