@@ -201,10 +201,10 @@ process, driver, LaunchAgent, or TCC state without local evidence.
    permission claims require evidence from the product process or an equivalent
    identity-preserving check.
 10. Symptom recovery, restart success, reload success, or temporary stability does
-   not by itself establish root cause. Separate observed recovery from causal proof.
+    not by itself establish root cause. Separate observed recovery from causal proof.
 11. Do not substitute one evidence class for another. Source evidence, protocol
-   evidence, hardware evidence, runtime identity, packaging evidence, and permission
-   evidence answer different questions.
+    evidence, hardware evidence, runtime identity, packaging evidence, and permission
+    evidence answer different questions.
 
 ## Forensic and side-effect discipline
 
@@ -233,3 +233,14 @@ process, driver, LaunchAgent, or TCC state without local evidence.
 18. A task is not closed merely because tests pass. Reconcile current state, callers,
     active worktree/PR, remaining uncertainty, and the explicit acceptance criteria.
 19. A merge does not automatically authorize a release.
+
+## Durable voice interaction invariant
+
+20. The RC003 microphone button has one user-visible voice mode. A quick SHORT tap
+    (release before the accepted 300 ms hold boundary) is a no-op: it must not replay
+    the IME trigger, synthesize a tap, toggle/open/close a Persistent session, or show
+    voice/readiness HUD state. A held LONG press crossing the 300 ms boundary promotes
+    into the direct remote voice lifecycle; release then follows the existing direct
+    drain/close path. Persistent and dual-receiver semantics are not production
+    authorities for the microphone button unless the user explicitly changes this
+    durable product contract in a future governed task.

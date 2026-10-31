@@ -1,77 +1,45 @@
 # RemoteOrbit Current Task
 
-## RO-IME-READINESS-PROMPT-SYNC-043 — Human runtime acceptance gate
+## RO-IME-READINESS-PROMPT-SYNC-043 — main integration / merge gate
 
-Status: `HUMAN_ACCEPTANCE_PENDING`
-TASK_CLASS: `VERIFY / HUMAN_ACCEPTANCE`
+Status: `SOURCE_AUDIT_PASS / PR_CI_PENDING`
+TASK_CLASS: `INTEGRATE / MERGE`
 Repository: `Lost0rz/RemoteOrbit`
-Active authority branch: `codex/ime-readiness-stability-043`
-Remote-verified branch HEAD: `4493657ae266072b95b159e539fa2e7fb6aa2a35`
-Accepted product source: `ed96d2285b7a3a24aecb30c09aebc38ccc4c4b16`
+Integration branch: `codex/task043-main-integration`
+Integration base: `main@75d042acf8c116d8a465b987da4257c6af7ff357`
+Audited source authority: `e4af810b9a981eaec4f31b2863ea59285504dda4`
+User authorization: source-audit PASS may proceed directly to merge; final human audit/runtime test is deferred until after merge.
 
-## Current authority
+## Authorized integration
 
-Task 043 is the only active product/runtime task. The CI migration task
-`RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031` is CLOSED by merged PR #29 at
-`489af61a1b081781bcc386fe7476bc37479c79dd`.
+Use a fresh integration tree from current main. Preserve main's durable self-hosted CI authority and import only the already-audited Task 043 semantic delta:
 
-No new product implementation is authorized by this control transition.
+- `remote-orbit/Sources/RemoteOrbit/main.swift`
+- `remote-orbit/Sources/RemoteOrbit/VoiceReceiverReadiness.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/VoiceBoundaryOrderingTests.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/VoiceInputSourceDiagnosticsTests.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/VoiceKeyFilterTests.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/VoicePressCoordinatorTests.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/VoiceReceiverReadinessTests.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/VoiceTriggerRuntimeTests.swift`
+- `docs/design/2026-10-31-043-long-only-voice-gate-audit.md`
+- `docs/design/2026-10-31-043-long-only-voice-gate-corrective.md`
+- `docs/design/2026-10-31-043-long-only-voice-gate-final-audit-addendum.md`
+- merged durable LONG-only invariant in `AGENTS.md`;
+- these control files.
 
-## Required human acceptance
+Do not import stale Task 043 control history wholesale. Do not change BLEBridge, AudioPipe, ATVV, driver, packaging, TCC, CoreAudio or installed runtime.
 
-The user owns final Task 043 runtime acceptance. Record only explicit PASS/FAIL for:
+## Merge gates
 
-1. quick SHORT tap -> no visible action / no Doubao voice session;
-2. normal LONG -> Doubao voice input opens and receives audio;
-3. LONG release -> normal drain/close;
-4. SHORT followed immediately by LONG -> LONG opens exactly once;
-5. repeated LONG / release / LONG;
-6. several rapid/repeated LONG interactions around the accepted Doubao
-   post-processing edge;
-7. HUD/readiness activates only for admitted LONG and clears after release;
-8. runtime/resource soak shows no recurrence of the prior CoreAudio listener/memory
-   amplification failure.
+1. PR targets live `main` and its head is the exact integration commit being audited.
+2. PR diff is limited to the authorized paths above and preserves `.github/workflows/remoteorbit-ci.yml`.
+3. Durable CI is actually picked up by `remoteorbit-macmini` under `[self-hosted, macOS, ARM64, remoteorbit]` and all required checks pass.
+4. Live `main` has not moved incompatibly before merge; if it moved, reconcile rather than force.
+5. Merge uses `expected_head_sha` and no stale/force merge.
 
-## Allowed actions now
+## After merge
 
-- read-only source/runtime evidence review;
-- collect/finalize already-authorized Task 043 runtime/resource evidence;
-- record the user's explicit PASS or FAIL;
-- if PASS, perform the separately governed Task 043 closeout/audit/merge transition;
-- if FAIL, freeze the fresh incident and return to minimum-observable incident work.
+Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together on merged `main` to record `TASK_043_MERGED / HUMAN_ACCEPTANCE_DEFERRED`.
 
-## Forbidden until Task 043 PASS and closeout
-
-Do not modify product source, voice semantics, BLE/ATVV, AudioPipe, HID, readiness,
-HAL driver, TCC, CoreAudio configuration, or start the planned legacy retirement /
-diagnostic gating implementation.
-
-## Planned next task — not authorized yet
-
-`RO-VOICE-LEGACY-RETIREMENT-DIAGNOSTICS-GATING-045`
-
-The next task is already design-scoped but remains blocked. Its intended boundary is:
-
-- existing `记录运行日志` becomes the authority for persistent runtime diagnostic
-  logging, including ordinary log, voice diagnostic JSONL, diagnostic authority
-  journal, runtime-health heartbeat, and other persistent diagnostic emission;
-- `保存调试录音` remains independent and opt-in;
-- logging OFF must avoid persistent diagnostic writes and unnecessary serialization /
-  scheduling work, while bounded in-memory correctness counters/state may remain;
-- retire Persistent Session and Dual Receiver product semantics, UI/configuration,
-  runtime ownership paths, stale migration, and obsolete contract tests;
-- preserve LONG-only candidate, SHORT tombstone/discard, mapped-trigger suppression,
-  pending re-press, synthetic fallback, pre-HID candidate/prebuffer, BLE READY reuse,
-  output drain, and current Task 043 readiness behavior;
-- add source-contract and regression tests preventing legacy authority from returning;
-- verify on `remoteorbit-macmini`, then require independent source audit and final
-  human runtime acceptance before merge.
-
-Do not create the implementation branch from current `main`: Task 043 accepted source
-has not yet been closed/merged, so doing so would build the retirement task on the
-wrong product baseline.
-
-## Next action
-
-Wait for explicit human Task 043 `PASS` or `FAIL`. Read-only planning may continue;
-product mutation may not.
+Do not install/release or claim human PASS. The user will perform the final combined human audit/runtime test later. Task 045 remains blocked until that acceptance/closeout unless explicitly reauthorized.

@@ -726,9 +726,10 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             shortBinding: .voiceKeyDefault,
             source: .voiceKeyFilterFallback
         )
+        XCTAssertTrue(harness.controller.voicePress.promoteLongOnlyCandidateForTesting())
 
         XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .opening)
-        XCTAssertEqual(prewarmCount, 0)
+        XCTAssertEqual(prewarmCount, 1)
         XCTAssertEqual(routeCount, 1)
         XCTAssertEqual(harness.triggerEvents.map { $0.isDown }, [true])
         XCTAssertTrue(harness.mappingCalls.isEmpty)
@@ -756,9 +757,10 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             shortBinding: .voiceKeyDefault,
             source: .voiceKeyFilterFallback
         )
+        XCTAssertTrue(harness.controller.voicePress.promoteLongOnlyCandidateForTesting())
 
         XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .opening)
-        XCTAssertEqual(prewarmCount, 0)
+        XCTAssertEqual(prewarmCount, 1)
         XCTAssertEqual(routeCount, 1)
         XCTAssertEqual(harness.triggerEvents.map { $0.isDown }, [true])
         XCTAssertTrue(harness.mappingCalls.isEmpty)
@@ -793,9 +795,10 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             shortBinding: .voiceKeyDefault,
             source: .voiceKeyFilterFallback
         )
+        XCTAssertTrue(harness.controller.voicePress.promoteLongOnlyCandidateForTesting())
 
         XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .opening)
-        XCTAssertEqual(prewarmCount, 0)
+        XCTAssertEqual(prewarmCount, 1)
         XCTAssertEqual(routeCount, 1)
         XCTAssertEqual(harness.triggerEvents.map { $0.isDown }, [true])
     }
@@ -874,6 +877,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             .unavailable(.legacyMappingRestoreFailed)
         )
         harness.controller.beginVoicePress(source: .voiceKeyFilterFallback)
+        XCTAssertTrue(harness.controller.voicePress.promoteLongOnlyCandidateForTesting())
 
         XCTAssertEqual(harness.controller.dualReceiverVoiceMode, .unavailable(.legacyMappingRestoreFailed))
         XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .opening)
@@ -1395,6 +1399,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
     func testActiveControllerVoicePressRejectsChangeWithoutPersistence() {
         let harness = VoiceTriggerRuntimeHarness(persistedKey: .leftOption)
         harness.controller.beginVoicePress()
+        XCTAssertTrue(harness.controller.voicePress.promoteLongOnlyCandidateForTesting())
         XCTAssertEqual(harness.controller.voicePress.currentStateForTesting, .opening)
 
         XCTAssertEqual(apply(.rightCommand, to: harness.controller), .busyActiveHold)
