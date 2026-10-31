@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031 — REMOTE_SMOKE_PENDING`
+State: `RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031 — REMOTE_SMOKE_PASS — DRAFT_PR_OPEN`
 Repository: `Lost0rz/RemoteOrbit`
 Control parent before this task: `85061ab13ebe57ed485f06966f90275a6f53a6b9`
 Active branch: `codex/ci-self-hosted-runner-migration-20261031`
@@ -40,6 +40,14 @@ Authoritative workspace: `/Volumes/Jack-Dev/Projects/remoteorbit`
   `/Users/ox_miles/Library/LaunchAgents/actions.runner.Lost0rz-RemoteOrbit.remoteorbit-macmini.plist`;
   `launchctl` reports the service loaded and `Runner.Listener` is alive. No
   `Runner.Worker` is present while idle.
+- Remote smoke run `41204204122` completed `success` from PR head `1e4aeda`; job
+  `124545860116` was picked up by runner `remoteorbit-macmini` with the required
+  labels. The run passed checkout, environment/source checks, protocol self-tests,
+  all Swift tests, native Release build, and build-only packaging smoke.
+- After the job, GitHub still reports the runner `online` and `busy=false`; the
+  isolated `_work` directory measured about `420M` with no cleanup of unknown files.
+- Draft PR #29 is open and mergeable at head `1e4aeda`; no merge or `main` mutation
+  was performed.
 
 ## Active task
 
@@ -50,6 +58,5 @@ acceptance remain separate and must not be changed or reinterpreted.
 
 ## Next
 
-Push this branch, open a Draft PR, run a bounded remote smoke, verify the job was
-picked up by this exact runner, then reconcile the final controls. Stop on token,
-admin, duplicate-runner, host-mutation, product-code, or unknown-state boundaries.
+Keep PR #29 Draft for review. Do not merge or change Task 043 runtime acceptance;
+the dedicated runner/service may remain online and idle for future RemoteOrbit CI.

@@ -2,7 +2,7 @@
 
 ## RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031 — Dedicated macOS ARM64 CI
 
-Status: `RUNNER_ONLINE — REMOTE_SMOKE_PENDING`
+Status: `REMOTE_SMOKE_PASS — DRAFT_PR_OPEN`
 TASK_CLASS: `EXECUTION`
 Repository: `Lost0rz/RemoteOrbit`
 Canonical remote: `https://github.com/Lost0rz/remoteorbit.git`
@@ -66,7 +66,9 @@ build directories; it does not install the app or driver or mutate CoreAudio/TCC
 The runner is registered and online as `remoteorbit-macmini` (GitHub runner ID `21`)
 with labels `self-hosted`, `macOS`, `ARM64`, and `remoteorbit`. The official service
 is installed through `svc.sh` at the shared runner root, and `Runner.Listener` is
-alive while idle. Remote job pickup is not yet proven.
+alive while idle. Remote smoke run `41204204122` completed successfully from PR
+head `1e4aeda`; job `124545860116` was picked up by `remoteorbit-macmini` and all
+workflow steps passed. GitHub reports the runner online and idle again afterward.
 
 ## Authorized repository changes
 
@@ -102,3 +104,7 @@ runner, and host-runtime-mutation `NONE`. Verify the remote branch after pushing
 Commit the control transition and implementation on this branch, push only this
 authorized branch, open a Draft PR for `Lost0rz/RemoteOrbit`, do not merge, and
 stop with human/runtime acceptance of RemoteOrbit still separate.
+
+The authorized outcome is complete for this task. PR #29 remains Draft and the
+runner is intentionally left installed, service-managed, online, and idle for
+future RemoteOrbit pull-request and `main` CI.
