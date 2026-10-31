@@ -1,83 +1,66 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — SOURCE_AUDIT_STOP / CORRECTIVE_REQUIRED`
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
 
 ## Current authority
 
-- Corrective source is committed locally at `3d7b55cc557e52e994ff5c5a6b4c2217189f2751` (`Fix RC003 owner race admission boundaries`), descended from reconciled control head `b193e1a2382e2b132ac6a472a72e151ea5d7f38b`.
-- The corrective has not been packaged, installed, or hardware-runtime tested.
-- Installed app identity was verified during the failed run: `/Applications/RemoteOrbit.app`, PID `31333`, version `0.2.14 (43)`, executable SHA-256 `2799d6a4b2b13a08f4304e00b75962c2dfaf95fd6d25e65894ae7e7ad30ee935`.
-- Independent Web `CODE_DIFF` audit of `ef606a3f...` remains a source-level PASS; the fresh RC003 hardware/runtime acceptance is now FAIL.
-- New runtime evidence/design addendum: `docs/incidents/2026-10-31-042-rc003-runtime-owner-race.md`.
-- Prior design authority remains `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`.
-- `AGENTS.md` remains durable repository authority; `CURRENT_TASK.md` is the sole active execution authorization.
+- Audited source corrective: `3d7b55cc557e52e994ff5c5a6b4c2217189f2751`.
+- Control handoff before this audit: `b81117cf1cd06688c0e4cc08397c42b78de81f48`.
+- Independent Web `CODE_DIFF` audit result: `STOP`.
+- Human RC003 runtime acceptance remains `FAIL`; no new package/install/runtime retest is authorized.
+- Evidence/design authorities remain:
+  - `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`
+  - `docs/incidents/2026-10-31-042-rc003-runtime-owner-race.md`
 
-## Human runtime result
+## Audit result
 
-Human RC003 acceptance: `FAIL`.
+Corrective A (production `noOptionEdge` pending-owner timing) is source-level acceptable:
 
-The user reproduced the remaining symptom under extreme rapid release/re-press: Doubao can show the listening waveform while the new utterance carries no usable RemoteOrbit audio/transcription.
+- pending hardware begin now carries both B and serialized-behind A identities;
+- no-old-UP-owner arming is explicit rather than treated as failure;
+- B mapped DOWN is captured/suppressed while pending;
+- promotion waits for both A completion and B DOWN capture;
+- early B UP cancellation and the old held-UP/replay-ACK path remain represented by deterministic tests.
 
-The latest capture is sufficient for corrective work. No additional broad probe phase is required.
+Corrective B still has one blocking callback-ordering defect.
 
-### Finding A — production hardware-owner timing gap
+### Blocking finding — released HOST_MIC_OPEN active-drain supersession can clear B candidate
 
-Fresh diagnostics contain:
+The BLE supersession predicate itself is narrow and appropriate, but the host-grace retirement path calls `notifyStreaming(false)` before B is installed and before `notifyPhysicalTransportSuperseded()` is enqueued.
 
-- `PHYSICAL_TRANSPORT_SUPERSEDED`: 18;
-- direct re-press deferred for `direct_output_drain`: 10;
-- later rejected as `pending_hardware_repress_owner_missing`: 10;
-- `PENDING_HARDWARE_REPRESS_BEGIN`: 0;
-- `PENDING_HARDWARE_REPRESS_PROMOTE`: 0;
-- `REPLAY_UP_PASS_ACK`: 0;
-- production hardware gate release resolved `noOptionEdge` on all 36 direct openings in the fresh run, with matching stale old Option-up release observations.
+All three callbacks are dispatched asynchronously to the main queue. By the time the old `streaming=false` callback runs, BLE may already have installed B as a live `.preHIDPhysical` candidate. `VoicePressCoordinator.setRemoteStreaming(false)` then observes the direct A session and can enter `finishDirectTransportStop()`. At that moment `preserveCandidateForDirectTransportStop` is still false because the later physical-supersession callback has not run yet. The existing teardown therefore calls `AudioPipe.endRemoteCandidate()`, which clears `pendingRemotePrebuffer` and deactivates the candidate.
 
-The deployed ordering differs from the prior deterministic test assumption. The direct path arms and immediately resolves the hardware gate before the mapped Option DOWN reaches the event tap. That DOWN therefore passes to Doubao, but no `heldHardwareOptionSessionID` is created. During a rapid B re-press the coordinator still records B as deferred, while `VoiceKeyFilter.beginPendingHardwareOptionRepress` silently fails because it requires an old filter-owned UP/replay owner. B's mapped DOWN can then pass to Doubao and open a waveform. When A drains, B promotion fails because there is no pending hardware owner/captured DOWN, so the B candidate never becomes the active RemoteOrbit route. This directly explains waveform-without-audio.
+The subsequent `handlePhysicalTransportSupersession()` callback sets preservation too late.
 
-### Finding B — released HOST_MIC_OPEN drain still blocks physical B
+This violates the required invariant that B candidate/prebuffer survive A terminal retirement.
 
-The fresh run also contains three terminal HOST_MIC_OPEN drain overlaps where old `streamID=0` is inside the 350 ms AUDIO_STOP drain and a new explicit physical `reason=0x03` / new stream ID is ignored as `late AUDIO_START`.
+The new BLE tests verify transport state, READY, stale drain/grace protection and no duplicate MIC_CLOSE, but they do not exercise the real `BLEBridge -> main-queue onStreamingChanged(false) -> VoicePressCoordinator -> AudioPipe` ordering. Therefore the reported 609/609 test pass does not close this blocker.
 
-- one matching HID DOWN was rejected `voice_session_busy`;
-- two matching HID DOWN/UP pairs were suppressed by debounce after the physical start had already been discarded.
+## Required next corrective
 
-The existing released-HOST supersession rule only activates after the drain barrier is gone, so it is too late for this overlap.
+Stay in Task 042. Do not redesign the transport model.
 
-## Corrective direction
+The smallest corrective must ensure that released-HOST active-drain supersession cannot execute an old-A `streaming=false` teardown path that clears B before the coordinator knows the replacement candidate must be preserved.
 
-The two bounded corrections are implemented and locally verified:
+Acceptable shape: use a single supersession terminal notification/order for this path, or otherwise establish preservation before any old-A terminal callback can invoke candidate teardown. Do not add timers, Doubao cooldown, new probes, AudioPipe redesign, parallel decoders, or global drain/debounce changes.
 
-1. make direct-output-drain B hardware capture explicit even when A has no filter-owned old-UP owner; do not ignore pending-owner arm failure; require a two-condition promotion barrier: A terminal/output ownership complete and B mapped DOWN actually captured;
-2. allow a new physical reason `0x03` / different stream ID to supersede a terminal released HOST_MIC_OPEN drain when released-host grace proves A is already physically released, while preserving queued A output, READY, epoch protection and stale-MIC_CLOSE safety.
+Add one deterministic cross-component regression that uses the real asynchronous callback ordering and proves:
 
-## Source corrective evidence
-
-- Finding A validation: the deployed no-owner `noOptionEdge` ordering was reproduced. `PendingHardwareOptionRepressBeginResult` distinguishes awaiting old-UP acknowledgement, no old-UP owner, and rejection; the coordinator observes rejection, captures/suppresses B mapped DOWN, and promotes only after A terminal/output completion and B DOWN capture.
-- Finding B validation: active drain + released HOST_MIC_OPEN grace + physical release + reason `0x03` + different stream ID now supersedes narrowly; old host intent/grace is retired without `MIC_CLOSE`, READY remains reusable, and stale drain/grace callbacks cannot retire B.
-- RED evidence: the pre-corrective no-owner regression failed because the pending hardware owner could not be captured.
-- GREEN evidence: the deployed-order no-owner lifecycle, A-before-B-DOWN ordering, explicit begin failure, early-B-UP cancellation, old-UP/replay-ACK path, released-host active-drain supersession, stale-callback protection, focused suites, full suite, release builds and protocol self-tests all passed.
-- Focused suites: `VoicePipelineSimplificationTests` 34/34, `VoiceKeyFilterTests` 16/16, `BLEBridgeTests` 50/50, `HIDButtonDownPolicyTests` 5/5, `AudioPipeTests` 12/12.
-- Full Swift tests: 609/609 passed.
-- Release builds: arm64 and x86_64 source binaries passed architecture checks using the established package build triples.
-- Protocol self-tests: 3/3 passed. `git diff --check`: passed.
-- Changed product/test paths: `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`, `remote-orbit/Sources/RemoteOrbit/main.swift`, `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift`, `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`.
-- No package/install/runtime retest, driver/CoreAudio/TCC mutation, merge/tag/release, or Gate F occurred.
-
-Do not add a generic Doubao delay/re-arm timer yet. The user's observation that Doubao may reject input while post-processing remains plausible, but the current capture already proves two independent RemoteOrbit failures. Revisit IME readiness only after these internal failures are removed and a later capture shows healthy RemoteOrbit route/render with Doubao still refusing speech.
+`released HOST A + active drain -> physical B reason03/new stream -> B candidate/prebuffer installed -> A terminal retirement -> B candidate/prebuffer still present -> B later adoption/promotion succeeds`.
 
 ## Preserved boundaries
 
-- Keep the normal 350 ms no-replacement tail window.
-- Keep generic 180 ms debounce except existing evidence-gated physical-candidate bypass.
-- Preserve candidate PCM isolation, A-terminal/B-candidate supersession, HOST stale-MIC_CLOSE safety, READY, Gate C ring, Gate D 45 ms reserve, ATVV codec/framing and driver/TCC behavior.
-- No global UNKNOWN remap.
-- No driver/TCC mutation.
-- No package/install/runtime retest before the next independent Web source audit.
+- 350 ms normal no-replacement tail unchanged.
+- Generic 180 ms debounce unchanged.
+- No Doubao post-processing delay/re-arm workaround.
+- READY / strict READY, Gate C ring, Gate D 45 ms reserve, ATVV codec/framing unchanged.
+- Driver/CoreAudio/TCC unchanged.
+- No package/install/hardware runtime retest before the next independent Web source audit.
 - No merge/tag/release/Gate F.
 
 ## Next
 
-Push and verify the existing Task 042 branch after the paired control receipt commit, then stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Independent Web source audit is the next safe action. Human RC003 runtime acceptance remains pending and user-owned.
+Implement only the callback-ordering/candidate-preservation corrective on the existing Task 042 branch, verify deterministically, push, and stop again at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
