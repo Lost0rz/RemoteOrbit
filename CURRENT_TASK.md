@@ -24,6 +24,24 @@ Unify RemoteOrbit iconography around one recognizable `remote + orbit` mother ma
 - make the macOS menu bar use a monochrome RemoteOrbit template mark rather than swapping unrelated SF Symbols by status;
 - keep operational state in menu/status text; any future icon-state decoration must preserve the mother mark.
 
+## Implemented
+
+- `remote-orbit/Brand/RemoteOrbitMark.svg` is the canonical editable vector mother mark.
+- `ProductBranding.swift` now uses `NSApp.applicationIconImage` for Settings/About.
+- `ProductBrandMark.menuBarTemplateImage(size:)` renders the canonical mark as a monochrome macOS template image.
+- Existing full-color application icon is intentionally retained.
+
+## Remaining authorized action
+
+Apply the bounded `main.swift` wiring change in a complete local checkout:
+
+- replace only `setStatusIcon(systemName:color:)` so it assigns `ProductBrandMark.menuBarTemplateImage(size: 18)`;
+- preserve the existing method signature/callers so ready/waiting/connecting/error/recording status logic and menu text remain untouched;
+- run focused build/tests and inspect Settings/About + menu bar;
+- update control state and create a reviewable PR after verification.
+
+A deterministic patch script was produced for this one-method local change because this remote-only GitHub connector cannot safely rewrite the >300 KB `main.swift` from truncated read output.
+
 ## Scope
 
 Authorized source changes are limited to product branding assets/UI plumbing needed for the icon system, plus focused tests or verification helpers where useful.
