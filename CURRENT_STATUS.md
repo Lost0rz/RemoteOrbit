@@ -1,16 +1,16 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAVE_A_IMPLEMENTATION_IN_PROGRESS`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Control parent before this execution: `fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
-Audited source authority: `main@650a2c011bb640379842ab866d696302c4adc52e`
+Audited source authority: `main@fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
 Execution branch: `codex/task045a-diagnostics-gating`
 Execution workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045a-diagnostics-gating`
 Execution start HEAD: `fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
 Task 043: `MERGED / HUMAN_ACCEPTANCE_DEFERRED / USER-OWNED`
 Task 045 overall: `ACTIVE`
-Task 045A: `DIAGNOSTICS_GATING / IMPLEMENTATION_IN_PROGRESS`
+Task 045A: `DIAGNOSTICS_GATING / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 ## Accepted design
 
@@ -67,5 +67,17 @@ Task 043 human runtime acceptance remains deferred; Task 045 work must not relab
 
 - Fresh execution worktree and branch were created from the live fetched `origin/main`
   at `fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`.
-- Wave A implementation is the sole active writer in the execution workspace.
-- No implementation or runtime mutation has been performed yet.
+- Wave A implementation was the sole active writer in the execution workspace.
+- Implementation commit: `4720fbd2f6322e687281cdaf9c7db2ab6c10a098`.
+- Remote branch is verified at the same SHA:
+  `origin/codex/task045a-diagnostics-gating`.
+- Draft PR: `https://github.com/Lost0rz/RemoteOrbit/pull/31` (`OPEN / DRAFT`).
+- Remote machine gate: workflow run `41213661059`, job `124573621925`, runner
+  `remoteorbit-macmini`, conclusion `success` at the exact implementation SHA.
+  Full Swift tests (`656/656`), native Release build, and Universal2 build-only
+  packaging smoke passed; packaging log verified `x86_64 arm64`.
+- Local verification also passed: focused changed-boundary tests (`26/26`), full
+  Swift tests (`656/656`), `swift build -c release`, and `git diff --check`.
+- No app/driver/CoreAudio/TCC installation or runtime mutation was performed.
+- Final state is intentionally waiting for independent web audit. Human UI/runtime
+  acceptance remains user-owned and pending; no merge, tag, or release occurred.

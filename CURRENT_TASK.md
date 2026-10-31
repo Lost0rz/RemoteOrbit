@@ -2,10 +2,10 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave A diagnostics gating
 
-Status: `IMPLEMENTATION_IN_PROGRESS`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `BOUNDED PRODUCT IMPLEMENTATION`
 Repository: `Lost0rz/RemoteOrbit`
-Audited base: `main@650a2c011bb640379842ab866d696302c4adc52e`
+Audited base: `main@fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
 Control parent before execution: `fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
 Implementation branch: `codex/task045a-diagnostics-gating`
 Workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045a-diagnostics-gating`
@@ -13,11 +13,18 @@ Execution start HEAD: `fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
 Design authority: `docs/design/2026-10-31-045-diagnostics-gating-and-legacy-retirement.md`
 Human runtime acceptance: `Task 043 still DEFERRED / USER-OWNED`
 
-## Authorized next action
+## Completed execution and handoff
 
-This execution context was created from current live `main` and may implement **Wave A diagnostics gating only**.
+This execution context was created from current live `main` and implemented **Wave A diagnostics gating only**.
 
-The implementation must preserve all current voice semantics and correctness owners while making ordinary diagnostics disabled mode near-zero overhead.
+The implementation preserves all current voice semantics and correctness owners while making ordinary diagnostics disabled mode near-zero overhead.
+
+Implementation commit: `4720fbd2f6322e687281cdaf9c7db2ab6c10a098`.
+Draft PR: `https://github.com/Lost0rz/RemoteOrbit/pull/31`.
+Remote branch head is verified at the implementation commit. Remote CI run
+`41213661059` / job `124573621925` passed on `remoteorbit-macmini`: focused source
+contracts, protocol self-tests, full Swift tests (`656/656`), native Release build,
+and Universal2 build-only packaging smoke (`x86_64 arm64`).
 
 ## Required Wave A behavior
 
@@ -83,7 +90,7 @@ Do NOT in Wave A:
 - install/reload the driver, restart CoreAudio, change TCC/default devices;
 - tag/release or merge the implementation PR.
 
-## Tests required before handoff return
+## Tests completed before handoff return
 
 Add focused tests proving disabled-mode work is absent at the relevant ownership seam. Prefer explicit counters/test seams over timing-only assertions.
 
@@ -97,7 +104,7 @@ At minimum establish:
 - recording OFF creates no WAV/RAW; existing recording ON tests remain green;
 - current LONG-only regression tests remain unchanged and green.
 
-Then run the durable machine gate on `remoteorbit-macmini`:
+The durable machine gate ran on `remoteorbit-macmini`:
 
 1. focused changed-boundary tests;
 2. full `swift test`;
@@ -111,6 +118,10 @@ Use this one fresh branch/worktree and one Draft PR for Wave A. `CURRENT_STATUS.
 update them atomically again for the final handoff state as required by governance.
 
 Stop after push/PR + machine verification at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge.
+
+Independent web audit is now the next authorized control-plane step. Human UI/runtime
+acceptance remains user-owned and pending. No installation, driver/CoreAudio/TCC
+mutation, tag, release, or merge was performed.
 
 ## Return evidence
 
