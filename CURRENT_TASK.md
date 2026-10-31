@@ -2,11 +2,11 @@
 
 ## RO-IME-READINESS-PROMPT-SYNC-043 — Final Merge / Runtime / DMG Closeout
 
-Status: `MERGE_PACKAGE_AUTHORIZED / PREMERGE_VERIFIED`
+Status: `READY_FOR_HUMAN_RUNTIME_UI_ACCEPTANCE`
 
 Repository: `Lost0rz/RemoteOrbit`
-Active branch: `codex/ime-readiness-prompt-sync-043`
-Merged main baseline: `e090bd74692c44996c1e9d0a08c28512ec2bc92c`
+Active branch: `main`
+Merged main baseline: `8b76ee336d36e9dd58d072bd5ab1dae208b3a77f`
 Accepted Task 043 source head: `b7b676fa23c17ff51b51dc9f4d42ecc3157829ab`
 Design authority: `docs/design/2026-10-31-043-ime-readiness-prompt-sync.md`
 
@@ -53,6 +53,40 @@ passed with 623 tests and 0 failures. Both `arm64-apple-macosx13.0` and
 `git diff --check` passed. No protected voice/BLE/AudioPipe/ATVV/HID/IME/receiver/
 HUD implementation path changed.
 
+## Merge/package/runtime closeout evidence
+
+The accepted 043 branch fast-forwarded into `main` at
+`8b76ee336d36e9dd58d072bd5ab1dae208b3a77f`; the stale release branch was not
+merged. The existing driver build flow produced the bundled Universal2
+`RemoteOrbitAudio.driver` only. No system driver install/unload/reload and no TCC
+mutation occurred.
+
+From exact merged-main source, `./remote-orbit/package-app.sh` produced
+`remote-orbit/dist/RemoteOrbit.app` with bundle
+`com.lost0rz.RemoteOrbit`, version `0.2.15`, build `44`, Universal2
+`x86_64 arm64`, source stamp `8b76ee336d36e9dd58d072bd5ab1dae208b3a77f`,
+executable SHA-256
+`59de94acd12aa3fa491fd9ffeefce94c16991f8d746a9491bb99225e3a86b908`, icon
+SHA-256 `0955a856d62d1a30b6226ab004a230d7b22f9240093bffb2cbd50be4778e7645`,
+and successful deep strict codesign verification. `./remote-orbit/install-app.sh`
+replaced only `/Applications/RemoteOrbit.app`; installed executable and icon
+hashes matched the packaged copies.
+
+The installed candidate launched with PID `84580` at
+`/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`. Startup-only evidence
+reports BLE ready, RC003 connected (`0x2717/0x32B8`), HID input/accessibility
+permissions and event suppressor ready, `RemoteOrbit Mic 2ch` IOProc started and
+restored as the default USB input, and log/journal writers active. The installed
+diagnostic CLI `status` and `verify` commands succeeded. These are not human
+runtime or UI acceptance.
+
+A one-off DMG was created and verified at
+`/Users/ox_miles/Desktop/RemoteOrbit-0.2.15.dmg`, SHA-256
+`43d276994a44e48a31c0d6d1adfcf9133b82b0c94e69c1934fe7b3d5adbbd890`. Read-only
+mount verification proved the embedded App executable matched the packaged App
+byte-for-byte, with the same bundle/version/build/source stamp, Universal2
+architectures, and deep strict codesign result.
+
 ## Merge authority
 
 After the icon audit and required verification pass, merge this same Task 043 branch into the live `main`. Preserve exact accepted history where practical. Re-read live `main` before merge; if it has advanced incompatibly, stop and reconcile instead of force-updating.
@@ -98,4 +132,6 @@ No force-push to `main`. Do not delete unique local work. Do not merge the stale
 
 ## Completion
 
-If the full closeout succeeds, update controls on `main` to record Task 043 merged and runtime candidate/DMG prepared, push and verify remote `main`, then stop for owner human runtime/UI acceptance. Do not claim human acceptance from build/startup checks.
+Push this control receipt to `main`, verify exact local/remote equality, then stop
+at `READY_FOR_HUMAN_RUNTIME_UI_ACCEPTANCE`. Do not claim human acceptance from
+build/startup checks or the DMG.

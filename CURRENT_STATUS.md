@@ -1,10 +1,10 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-IME-READINESS-PROMPT-SYNC-043 — MERGE_PACKAGE_AUTHORIZED / PREMERGE_VERIFIED`
+State: `RO-IME-READINESS-PROMPT-SYNC-043 — READY_FOR_HUMAN_RUNTIME_UI_ACCEPTANCE`
 Repository: `Lost0rz/RemoteOrbit`
-Active branch: `codex/ime-readiness-prompt-sync-043`
-Merged main baseline: `e090bd74692c44996c1e9d0a08c28512ec2bc92c`
+Active branch: `main`
+Merged main baseline: `8b76ee336d36e9dd58d072bd5ab1dae208b3a77f`
 Accepted Task 043 source head: `b7b676fa23c17ff51b51dc9f4d42ecc3157829ab`
 
 ## Accepted implementation state
@@ -34,6 +34,39 @@ arm64 and x86_64 macOS 13 Release builds passed; protocol self-tests passed; and
 `git diff --check` passed. The protected voice, BLE, AudioPipe, ATVV, HID, IME,
 receiver-readiness, and HUD implementation files have no diff.
 
+## Merge/package/runtime closeout evidence
+
+The accepted 043 branch fast-forwarded into `main` at
+`8b76ee336d36e9dd58d072bd5ab1dae208b3a77f`; no stale release branch was merged.
+The unchanged driver build flow produced an embedded Universal2
+`RemoteOrbitAudio.driver`, but the system driver was not installed, unloaded, or
+reloaded. The canonical `./remote-orbit/package-app.sh` then built
+`remote-orbit/dist/RemoteOrbit.app` from that exact source head.
+
+Packaged App evidence: bundle `com.lost0rz.RemoteOrbit`, version `0.2.15`, build
+`44`, architectures `x86_64 arm64`, source stamp
+`8b76ee336d36e9dd58d072bd5ab1dae208b3a77f`, executable SHA-256
+`59de94acd12aa3fa491fd9ffeefce94c16991f8d746a9491bb99225e3a86b908`, icon
+SHA-256 `0955a856d62d1a30b6226ab004a230d7b22f9240093bffb2cbd50be4778e7645`, and
+deep strict codesign verification passed. The App was installed with
+`./remote-orbit/install-app.sh` at `/Applications/RemoteOrbit.app`; installed
+executable and icon hashes exactly matched the packaged copies.
+
+The installed App launched at PID `84580` with executable path
+`/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`. Startup logs report
+BLE ready, RC003 connected (`VID 0x2717`, `PID 0x32B8`), HID input/accessibility
+permissions and suppressor ready, `RemoteOrbit Mic 2ch` IOProc started and
+restored as default USB input, and active log/journal writers. Read-only
+diagnostic CLI `status` and `verify` succeeded. TCC and installed system driver
+were not mutated; human hardware/runtime/UI acceptance remains pending.
+
+DMG evidence: one-off staging produced
+`/Users/ox_miles/Desktop/RemoteOrbit-0.2.15.dmg`, SHA-256
+`43d276994a44e48a31c0d6d1adfcf9133b82b0c94e69c1934fe7b3d5adbbd890`. Its
+read-only mounted App matched the packaged executable byte-for-byte, retained
+the same bundle/version/build/source stamp and Universal2 architectures, and
+passed deep strict codesign verification before detach.
+
 ## Current owner request
 
 The owner has locally replaced the application icon and authorizes the final stage closeout:
@@ -56,7 +89,6 @@ No tag or GitHub Release publication is authorized by this stage. Human runtime/
 
 ## Next
 
-Commit and push this verified icon/release/control delta on the existing 043
-branch, fast-forward the accepted stage into live `main`, build/install the exact
-merged-main App, create and verify the DMG, then stop for owner runtime/UI
-acceptance. Human acceptance remains pending.
+Push this control receipt to `main`, verify exact local/remote equality, and stop
+for owner human runtime/UI acceptance. Do not claim acceptance from startup
+checks, packaging, or the DMG.
