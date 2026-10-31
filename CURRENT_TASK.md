@@ -2,107 +2,92 @@
 
 ## RO-IME-READINESS-PROMPT-SYNC-043 — Receiver Readiness / HUD Truth
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `SOURCE_AUDIT_STOP / CORRECTIVE_REQUIRED`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/ime-readiness-prompt-sync-043`
 Merged main baseline: `e090bd74692c44996c1e9d0a08c28512ec2bc92c`
 Design authority: `docs/design/2026-10-31-043-ime-readiness-prompt-sync.md`
+Audited implementation: `9c4187590065fb8a01b6ef3f356baaf30265d068`
 
 ## Objective
 
-Make the RemoteOrbit voice HUD truthful when the external IME has not actually begun listening, without reopening the accepted Task 042 transport/audio ownership architecture.
+Make the voice HUD truthful about external IME listening without reopening Task 042 transport/audio ownership.
 
-## Authorized implementation
+## Accepted implementation semantics
 
-### Phase A — readiness signal spike
+Keep the existing Task 043 design:
 
-Implement the smallest testable/read-only Core Audio receiver observer needed to validate whether the target runtime can reliably answer:
+- `VoicePressCoordinator` remains transport/session authority only;
+- `VoiceReceiverReadinessObserver` is read-only;
+- external listening truth requires a process other than RemoteOrbit with active input IO and input-scoped membership for `RemoteOrbit Mic 2ch`;
+- `.streaming`, `AUDIO_START`, `AUDIO_FIRST`, or remote-audio availability alone must never produce green `正在语音中`;
+- unsupported/untrusted observer state must project conservatively to non-green HUD states.
 
-`Is a process other than RemoteOrbit actively using RemoteOrbit Mic 2ch as an input device?`
+## Authorized corrective
 
-Required behavior:
+Implement the smallest correction for observer observation-authority failure handling.
 
-- availability-gated Core Audio process-object API usage;
-- exclude the RemoteOrbit PID;
-- require active input IO and input-scoped device membership matching the RemoteOrbit Mic device ID;
-- represent `unsupported/unknown` explicitly;
-- no polling loop in the HUD layer; observer owns bounded observation mechanics;
-- no effect on voice admission, trigger timing, BLE, AudioPipe or route state.
+Required semantics:
 
-Validate on the target environment against four cases:
+1. A durable `.inactive` / `.listening` state may be published only after the observer has established the listener authority required to observe subsequent truth changes.
+2. If the system process-list listener cannot be installed, stop trusted evaluation and publish/retain `.unsupported`.
+3. For each process whose snapshot can affect readiness, failure to establish the required running-input/device listeners must not allow that snapshot to become durable `.listening` truth.
+4. If observation authority is lost or cannot be refreshed safely, degrade to `.unsupported` (or equivalent explicit untrusted state) and ensure the HUD becomes non-green.
+5. Correct Core Audio process-object availability checks to the actual supported boundary (`macOS 14.2+`) while preserving `.macOS(.v13)` deployment compatibility.
+6. Do not change the accepted HUD state model or Task 042 behavior.
 
-1. normal IME listening -> observer must report listening;
-2. IME stopped -> observer must report inactive;
-3. rapid re-press ignored while Doubao is still post-processing -> observer must remain inactive;
-4. later successful reopen -> observer must transition to listening.
+## Required deterministic regressions
 
-If the signal is unsupported, unstable, or false-positive during post-processing, STOP the external-confirmation path. Continue only with truthful local HUD semantics; do not add a substitute heuristic.
+Add testable seams as narrowly as necessary and prove at minimum:
 
-### Phase B — HUD truth projection
+- initial process snapshot would evaluate to listening, but system listener installation fails -> final observer truth is unsupported/non-listening;
+- process snapshot would evaluate to listening, but one required process listener cannot be established -> it cannot produce durable listening truth;
+- established listening followed by observation-authority failure/loss -> state falls back to unsupported/non-green;
+- unsupported observer + local streaming/audio-ready never yields green `recording`;
+- existing evaluator/HUD tests remain green.
 
-If Phase A passes, integrate receiver readiness into AppController HUD projection.
-
-Required presentation semantics:
-
-- local activation starting -> `等待输入法` / pending;
-- RemoteOrbit audio live but no receiver confirmed -> `音频已就绪` / non-green ready state;
-- external receiver confirmed -> `正在语音中` / green recording state;
-- draining/ending -> existing truthful ending state.
-
-Regression rule: `.streaming`, `AUDIO_START`, `AUDIO_FIRST`, or `onRemoteAudioChanged(true)` alone must never produce the green external-listening claim.
-
-`RemoteActionHUD` remains presentation-only. `VoicePressCoordinator` remains transport/session authority only.
+Do not make tests depend on real Doubao or live Core Audio process objects for the deterministic failure paths.
 
 ## Expected product-source scope
 
 Normally limited to:
 
-- new `remote-orbit/Sources/RemoteOrbit/VoiceReceiverReadiness.swift`;
-- `remote-orbit/Sources/RemoteOrbit/main.swift` for wiring/projection;
-- `remote-orbit/Sources/RemoteOrbit/RemoteActionHUD.swift` for truthful voice presentation states;
-- directly corresponding tests.
+- `remote-orbit/Sources/RemoteOrbit/VoiceReceiverReadiness.swift`;
+- `remote-orbit/Tests/RemoteOrbitTests/VoiceReceiverReadinessTests.swift`;
+- control files at completion.
 
-Do not modify `BLEBridge.swift` or `AudioPipe.swift`. If implementation appears to require those files, STOP and return evidence.
+`main.swift` and `RemoteActionHUD.swift` should not need product changes for this corrective. If they do, keep changes strictly limited to representing observer trust loss; if broader behavior changes appear necessary, STOP.
+
+Do not modify `BLEBridge.swift`, `AudioPipe.swift`, ATVV, driver code, HID ownership/debounce, or the package deployment target.
 
 ## Explicit non-goals
 
-No fixed cooldown, automatic retry/replay, delayed trigger, buffered admission waiting, Doubao-specific process-name hardcoding, private API, Accessibility scraping, unified-log scraping, driver/CoreAudio/TCC mutation, package/install/runtime replacement, merge/tag/release/Gate F.
+No fixed cooldown, trigger retry/replay, trigger delay, admission gating, speech buffering, Doubao-specific hardcoding/private API/AX/log scraping, driver/CoreAudio/TCC mutation, package/install/runtime replacement, merge/tag/release/Gate F.
 
 ## Verification
 
 At minimum:
 
-- observer unit tests including supported/listening/inactive/unsupported states;
-- HUD projection unit tests;
-- regression: `.streaming` / remote audio alone cannot produce green `正在语音中`;
-- regression: confirmed external consumer can produce green state;
-- regression: observer unsupported/lost -> conservative non-green fallback;
-- Task 042 focused regressions remain green;
+- new observer-authority failure regressions;
+- all existing Task 043 readiness/HUD tests;
+- Task 042 focused regressions;
 - full Swift tests;
 - arm64 Release;
 - x86_64 Release;
+- protocol self-tests;
 - `git diff --check`;
-- macOS 13 deployment target unchanged.
+- `.macOS(.v13)` unchanged;
+- no `BLEBridge.swift` or `AudioPipe.swift` product diff.
 
 ## Completion
 
-Implementation and verification completed on the existing 043 branch. Gate A was validated on the target host (`macOS 26.6.2`, build `25G83`) with a disposable Core Audio process-object probe for `RemoteOrbit Mic 2ch` (device ID `79`, UID `RemoteOrbit Mic2ch_UID`). The probe excluded RemoteOrbit (`PID 95613`, bundle `com.lost0rz.RemoteOrbit`) and required active input plus input-scoped device membership. It observed Doubao (`PID 859`, bundle `com.bytedance.inputmethod.doubaoime`) as listening during normal listening and later successful reopen, and inactive during stopped and rapid ignored re-press/post-processing states.
+If the bounded corrective and verification succeed:
 
-The implementation uses the confirmed receiver signal for HUD truth projection. It is limited to `VoiceReceiverReadiness.swift`, `main.swift`, `RemoteActionHUD.swift`, and corresponding tests. `BLEBridge.swift`, `AudioPipe.swift`, ATVV, driver, TCC, Task 042 timing/ownership, and the macOS 13 deployment target were not changed.
+1. update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
+2. record exact RED/GREEN evidence for listener-authority failure handling;
+3. commit on the existing Task 043 branch;
+4. push and verify remote equality plus clean worktree;
+5. stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
-Observed verification:
-
-- readiness/HUD tests: `10/10`;
-- Task 042 focused suites: `34/34`, `51/51`, `53/53`;
-- full Swift test: `620/620`;
-- arm64 Release: passed, executable architecture `arm64`;
-- x86_64 Release: passed, executable architecture `x86_64`;
-- protocol self-tests: `3/3`;
-- `git diff --check`: passed.
-
-The controls were updated together, the existing 043 branch was pushed, and local/remote equality plus a clean worktree were verified. No package/install/runtime replacement, merge/tag/release, or Gate F was performed. Human UI acceptance remains `PENDING`.
-
-Next action: independent Web source audit of the exact pushed 043 implementation. Do not package/install or claim human UI/runtime acceptance before that audit and the user-owned acceptance step.
-
-Do not package/install or claim human UI/runtime acceptance before that independent source audit.
+Do not package/install or claim human UI/runtime acceptance before the next independent source audit.
