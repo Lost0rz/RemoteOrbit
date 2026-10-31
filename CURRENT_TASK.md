@@ -1,8 +1,8 @@
 # RemoteOrbit Current Task
 
-## RO-BRAND-ICON-UNIFICATION-044 — IN PROGRESS
+## RO-BRAND-ICON-UNIFICATION-044 — WAITING FOR HUMAN UI ACCEPTANCE
 
-Status: `IN_PROGRESS`
+Status: `WAITING_FOR_HUMAN_UI_ACCEPTANCE`
 
 Repository: `Lost0rz/RemoteOrbit`
 Canonical branch: `main`
@@ -18,58 +18,43 @@ Task 043 (`RO-IME-READINESS-PROMPT-SYNC-043`) remains a separate follow-on voice
 
 Unify RemoteOrbit iconography around one recognizable `remote + orbit` mother mark:
 
-- add an editable canonical SVG vector asset;
-- keep the existing full-color application icon as the Dock/app treatment;
-- make Settings/About show the actual application icon instead of a separately drawn green SF-Symbol tile;
-- make the macOS menu bar use a monochrome RemoteOrbit template mark rather than swapping unrelated SF Symbols by status;
-- keep operational state in menu/status text; any future icon-state decoration must preserve the mother mark.
+- keep a single editable canonical SVG vector asset;
+- retain the existing full-color application icon as the Dock/app treatment;
+- make Settings/About follow the actual application icon;
+- make the macOS menu bar use a stable monochrome RemoteOrbit template mark rather than swapping unrelated SF Symbols by state;
+- keep operational state in menu/status text.
 
 ## Implemented
 
 - `remote-orbit/Brand/RemoteOrbitMark.svg` is the canonical editable vector mother mark.
-- `ProductBranding.swift` now uses `NSApp.applicationIconImage` for Settings/About.
-- `ProductBrandMark.menuBarTemplateImage(size:)` renders the canonical mark as a monochrome macOS template image.
-- Existing full-color application icon is intentionally retained.
+- `ProductBranding.swift` uses `NSApp.applicationIconImage` for Settings/About.
+- `ProductBrandMark.menuBarTemplateImage(size:)` renders the canonical `remote + orbit` mark as a macOS template image with `isTemplate = true`.
+- `main.swift` now keeps the existing `setStatusIcon(systemName:color:)` call boundary but always assigns `ProductBrandMark.menuBarTemplateImage(size: 18)`; state-specific SF Symbol/color arguments no longer replace the brand silhouette.
+- Existing ready/waiting/connecting/error/recording decision logic and status/menu text are preserved.
+- Existing full-color application/Dock icon remains unchanged.
+
+## Verification
+
+- Direct commit diff for the large `main.swift` rewrite was verified before branch publication: exactly one file changed, limited to the `setStatusIcon` implementation (`+2/-26`).
+- Static source checks establish that Settings follows `NSApp.applicationIconImage`, the menu renderer is template-compatible, the canonical SVG exists, and the status-item call site uses the RemoteOrbit mark.
+- No BLE, HID, AudioPipe, voice-session, IME, driver, CoreAudio, TCC, or LaunchAgent source/behavior change is part of this task.
+- `swift test` / `swift build`: `NOT_RUN_REMOTE_ENVIRONMENT`. Attempted GitHub Actions jobs failed at runner startup before any repository step executed; this is not a code/test failure and is not promoted to PASS.
+- Installed runtime verification: `NOT_RUN`; installation is outside Task 044 authority.
+- Human UI acceptance: `PENDING`.
 
 ## Remaining authorized action
 
-Apply the bounded `main.swift` wiring change in a complete local checkout:
+User syncs `codex/brand-icon-unification-044` locally, builds/runs the development candidate, and visually checks:
 
-- replace only `setStatusIcon(systemName:color:)` so it assigns `ProductBrandMark.menuBarTemplateImage(size: 18)`;
-- preserve the existing method signature/callers so ready/waiting/connecting/error/recording status logic and menu text remain untouched;
-- run focused build/tests and inspect Settings/About + menu bar;
-- update control state and create a reviewable PR after verification.
+1. Settings/About shows the current app icon rather than the old green tile.
+2. Menu bar shows the stable monochrome RemoteOrbit `remote + orbit` mark in macOS light/dark appearance.
+3. Status/menu text still communicates ready/waiting/connecting/error/recording state.
 
-A deterministic patch script was produced for this one-method local change because this remote-only GitHub connector cannot safely rewrite the >300 KB `main.swift` from truncated read output.
+After explicit human acceptance, Task 044 may be closed/merged only under a separate authorized transition. Do not merge, install, release, or advance Task 043 automatically.
 
-## Scope
-
-Authorized source changes are limited to product branding assets/UI plumbing needed for the icon system, plus focused tests or verification helpers where useful.
-
-Expected affected surfaces:
-
-- `remote-orbit/Brand/`
-- `remote-orbit/Sources/RemoteOrbit/ProductBranding.swift`
-- the bounded status-item icon rendering code in `remote-orbit/Sources/RemoteOrbit/main.swift`
-- packaging/resource inclusion only if required for the vector/template asset
-- `AGENTS.md`, `CURRENT_STATUS.md`, `CURRENT_TASK.md`
-
-## Non-goals
+## Non-goals / stop boundary
 
 - No BLE, HID, AudioPipe, voice-session, IME timing/readiness, diagnostic semantics, or remote-control behavior changes.
 - No driver/CoreAudio/TCC/LaunchAgent mutation.
 - No app installation, release, tag, or merge to `main` without a separate acceptance decision.
-- Do not redesign the accepted full-color app icon unless required to make the canonical mark technically consistent.
-
-## Acceptance
-
-1. A single editable RemoteOrbit vector mother mark exists and visually reads as `remote + orbit` at small sizes.
-2. Settings/About no longer hardcodes the old green `circle.dotted.and.circle` tile and instead follows the application identity.
-3. The menu-bar brand silhouette remains stable across ready/waiting/connecting/error/recording states; status remains available in text.
-4. Menu-bar artwork is template-compatible for macOS light/dark menu bars.
-5. Focused source/build verification passes without touching voice/audio behavior.
-6. Human visual acceptance remains user-owned.
-
-## Stop boundary
-
-Stop after implementation, focused verification, remote branch delivery, and a reviewable PR. Do not merge, install, release, or advance Task 043 automatically.
+- Stop at remote branch + reviewable PR with human UI acceptance pending.

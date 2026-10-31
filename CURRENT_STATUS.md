@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-BRAND-ICON-UNIFICATION-044 — IN_PROGRESS / LOCAL_WIRING_REQUIRED`
+State: `RO-BRAND-ICON-UNIFICATION-044 — WAITING_FOR_HUMAN_UI_ACCEPTANCE`
 Repository: `Lost0rz/RemoteOrbit`
 Canonical branch: `main`
 Active task branch: `codex/brand-icon-unification-044`
@@ -17,28 +17,22 @@ Active task branch: `codex/brand-icon-unification-044`
 
 - Added canonical editable vector mother mark at `remote-orbit/Brand/RemoteOrbitMark.svg` using the compact `remote + orbit` silhouette.
 - Updated `ProductBranding.swift` so Settings/About uses `NSApp.applicationIconImage` instead of the old green rounded tile + `circle.dotted.and.circle` SF Symbol.
-- Added `ProductBrandMark.menuBarTemplateImage(size:)`, a template-compatible monochrome renderer that follows the same mother-mark geometry.
+- Added `ProductBrandMark.menuBarTemplateImage(size:)`, a monochrome renderer following the same mother-mark geometry and using `image.isTemplate = true`.
+- Updated `main.swift` so the existing status-icon API always renders `ProductBrandMark.menuBarTemplateImage(size: 18)` while preserving all existing status callers and menu/status text.
 - Existing full-color application/Dock icon remains unchanged.
-- Durable brand-asset authority was added to `AGENTS.md` during Task 044 activation.
-
-## Remaining implementation boundary
-
-The existing menu-bar call site is still in `remote-orbit/Sources/RemoteOrbit/main.swift`. Its `setStatusIcon(systemName:color:)` implementation still rasterizes state-specific SF Symbols. The required source change is bounded to replacing that method body with `ProductBrandMark.menuBarTemplateImage(size: 18)` while preserving all callers/status text.
-
-This chat is operating through a remote GitHub connector whose write action replaces an entire UTF-8 file. `main.swift` is over 300 KB and the connector returns its read content truncated, so rewriting the complete file from this execution context would risk corrupting unrelated source. The unsafe whole-file rewrite was therefore not performed.
-
-A deterministic one-method patch script has been produced for application in a full local checkout. After that patch, focused build/tests and visual inspection are still required.
+- Temporary remote-wiring workflow/trigger files used during implementation were removed from the final branch.
 
 ## Verification state
 
-- Canonical SVG: created and small-size preview inspected.
-- Settings/About source replacement: committed remotely.
-- Menu-bar template renderer: committed remotely.
-- Menu-bar call-site wiring: `PENDING_LOCAL_PATCH`.
-- Swift build/tests: `NOT_RUN` in this remote-only execution context.
+- Large-file publication was evidence-gated: an unreferenced commit was created first and compared against the active Task 044 head before branch advancement.
+- The `main.swift` comparison showed exactly one modified file and only the `setStatusIcon` implementation changed (`+2/-26`); no voice/audio/HID/IME file changed in that publication step.
+- Static source verification: `PASS` for canonical SVG presence, Settings app-icon usage, template renderer, and menu-bar call-site wiring.
+- `swift test`: `NOT_RUN_REMOTE_ENVIRONMENT`.
+- `swift build`: `NOT_RUN_REMOTE_ENVIRONMENT`.
+- Three attempted GitHub Actions jobs failed at runner startup before any repository step executed. They provide no source/test failure evidence and are not treated as verification PASS.
 - Installed runtime verification: `NOT_RUN`; installation is outside Task 044 authority.
 - Human visual acceptance: `PENDING`.
 
-## Side-effect boundary
+## Current boundary
 
-No voice/audio/HID/IME behavior mutation, installation, release, tag, driver/CoreAudio/TCC/LaunchAgent mutation, or merge to `main` is authorized in Task 044.
+The implementation is remotely delivered on `codex/brand-icon-unification-044` and is ready for local sync and user-owned visual acceptance. A reviewable PR may be opened, but no merge to `main`, installation, release, tag, driver/CoreAudio/TCC/LaunchAgent mutation, or Task 043 advancement is authorized by this state.
