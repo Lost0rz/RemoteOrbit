@@ -2,6 +2,82 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceReceiverReadinessTests: XCTestCase {
+    private func matchingObservation(
+        runningInputListenerInstalled: Bool = true,
+        inputDevicesListenerInstalled: Bool = true
+    ) -> VoiceReceiverProcessObservation {
+        VoiceReceiverProcessObservation(
+            snapshot: VoiceReceiverProcessSnapshot(
+                pid: 200,
+                bundleID: "com.bytedance.inputmethod.doubaoime",
+                runningInput: true,
+                inputDeviceIDs: [79]
+            ),
+            runningInputListenerInstalled: runningInputListenerInstalled,
+            inputDevicesListenerInstalled: inputDevicesListenerInstalled
+        )
+    }
+
+    func testSystemListenerFailureCannotPublishListening() {
+        let state = VoiceReceiverReadinessEvaluator.evaluate(
+            observations: [matchingObservation()],
+            targetDeviceID: 79,
+            excludingPID: 100,
+            systemListenerInstalled: false
+        )
+
+        XCTAssertEqual(state, .unsupported)
+        XCTAssertFalse(state.isListening)
+    }
+
+    func testPartialProcessListenerAuthorityCannotPublishListening() {
+        let state = VoiceReceiverReadinessEvaluator.evaluate(
+            observations: [
+                matchingObservation(inputDevicesListenerInstalled: false)
+            ],
+            targetDeviceID: 79,
+            excludingPID: 100,
+            systemListenerInstalled: true
+        )
+
+        XCTAssertEqual(state, .unsupported)
+        XCTAssertFalse(state.isListening)
+    }
+
+    func testAuthorityLossAfterListeningFallsBackToUnsupportedAndNonGreenHUD() {
+        let listening = VoiceReceiverReadinessEvaluator.evaluate(
+            observations: [matchingObservation()],
+            targetDeviceID: 79,
+            excludingPID: 100,
+            systemListenerInstalled: true
+        )
+        let afterAuthorityLoss = VoiceReceiverReadinessEvaluator.evaluate(
+            observations: [
+                matchingObservation(runningInputListenerInstalled: false)
+            ],
+            targetDeviceID: 79,
+            excludingPID: 100,
+            systemListenerInstalled: true
+        )
+
+        XCTAssertEqual(
+            listening,
+            .listening(
+                consumerPID: 200,
+                bundleID: "com.bytedance.inputmethod.doubaoime"
+            )
+        )
+        XCTAssertEqual(afterAuthorityLoss, .unsupported)
+        XCTAssertEqual(
+            VoiceHUDProjection.state(
+                for: .streaming,
+                remoteAudioAvailable: true,
+                receiverReadiness: afterAuthorityLoss
+            ),
+            .voiceAudioReady
+        )
+    }
+
     func testEvaluatorReportsExternalConsumerListening() {
         let state = VoiceReceiverReadinessEvaluator.evaluate(
             processes: [

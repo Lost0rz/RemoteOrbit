@@ -44,6 +44,16 @@ struct VoiceReceiverProcessSnapshot: Equatable {
     let inputDeviceIDs: [UInt32]
 }
 
+struct VoiceReceiverProcessObservation: Equatable {
+    let snapshot: VoiceReceiverProcessSnapshot
+    let runningInputListenerInstalled: Bool
+    let inputDevicesListenerInstalled: Bool
+
+    var hasCompleteListenerAuthority: Bool {
+        runningInputListenerInstalled && inputDevicesListenerInstalled
+    }
+}
+
 enum VoiceReceiverReadinessEvaluator {
     static func evaluate(
         processes: [VoiceReceiverProcessSnapshot],
@@ -51,11 +61,40 @@ enum VoiceReceiverReadinessEvaluator {
         excludingPID: Int32,
         apiAvailable: Bool = true
     ) -> VoiceReceiverReadiness {
+        evaluate(
+            observations: processes.map {
+                VoiceReceiverProcessObservation(
+                    snapshot: $0,
+                    runningInputListenerInstalled: true,
+                    inputDevicesListenerInstalled: true
+                )
+            },
+            targetDeviceID: targetDeviceID,
+            excludingPID: excludingPID,
+            systemListenerInstalled: true,
+            apiAvailable: apiAvailable
+        )
+    }
+
+    static func evaluate(
+        observations: [VoiceReceiverProcessObservation],
+        targetDeviceID: UInt32,
+        excludingPID: Int32,
+        systemListenerInstalled: Bool,
+        apiAvailable: Bool = true
+    ) -> VoiceReceiverReadiness {
         guard apiAvailable else {
             return .unsupported
         }
 
-        guard let consumer = processes
+        guard systemListenerInstalled,
+              observations.allSatisfy(\.hasCompleteListenerAuthority)
+        else {
+            return .unsupported
+        }
+
+        guard let consumer = observations
+            .map(\.snapshot)
             .filter({
                 $0.pid != excludingPID
                     && $0.runningInput
@@ -117,6 +156,7 @@ final class VoiceReceiverReadinessObserver {
     private var started = false
     private var targetDeviceID: AudioDeviceID?
     private var processObjectIDs: [AudioObjectID] = []
+    private var processListenerAuthority: [AudioObjectID: Bool] = [:]
     private var systemListenerAddress: AudioObjectPropertyAddress?
     private var systemListener: AudioObjectPropertyListenerBlock?
     private var processListeners: [ListenerRegistration] = []
@@ -154,7 +194,7 @@ final class VoiceReceiverReadinessObserver {
         guard !started else { return }
         started = true
 
-        guard #available(macOS 14.0, *) else {
+        guard #available(macOS 14.2, *) else {
             publish(.unsupported)
             return
         }
@@ -165,7 +205,10 @@ final class VoiceReceiverReadinessObserver {
         }
         targetDeviceID = deviceID
 
-        installSystemProcessListListener()
+        guard installSystemProcessListListener() else {
+            publish(.unsupported)
+            return
+        }
         refreshProcessObjects()
     }
 
@@ -184,12 +227,13 @@ final class VoiceReceiverReadinessObserver {
         systemListener = nil
         systemListenerAddress = nil
         processObjectIDs.removeAll()
+        processListenerAuthority.removeAll()
         started = false
     }
 
-    @available(macOS 14.0, *)
-    private func installSystemProcessListListener() {
-        guard systemListener == nil else { return }
+    @available(macOS 14.2, *)
+    private func installSystemProcessListListener() -> Bool {
+        guard systemListener == nil else { return true }
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyProcessObjectList,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -204,17 +248,17 @@ final class VoiceReceiverReadinessObserver {
             queue,
             listener
         ) == noErr else {
-            publish(.unsupported)
-            return
+            return false
         }
         systemListenerAddress = address
         systemListener = listener
+        return true
     }
 
     private func refreshFromListener() {
         queue.async { [weak self] in
             guard let self else { return }
-            guard #available(macOS 14.0, *) else {
+            guard #available(macOS 14.2, *) else {
                 self.publish(.unsupported)
                 return
             }
@@ -222,25 +266,34 @@ final class VoiceReceiverReadinessObserver {
         }
     }
 
-    @available(macOS 14.0, *)
+    @available(macOS 14.2, *)
     private func refreshProcessObjects() {
-        guard let objectIDs = readProcessObjectIDs(),
-              let targetDeviceID
-        else {
+        guard let objectIDs = readProcessObjectIDs() else {
+            removeProcessListeners()
+            processObjectIDs.removeAll()
+            processListenerAuthority.removeAll()
             publish(.unsupported)
             return
         }
 
         removeProcessListeners()
         processObjectIDs = objectIDs
+        processListenerAuthority.removeAll(keepingCapacity: true)
         for objectID in objectIDs {
-            installProcessListeners(for: objectID)
+            processListenerAuthority[objectID] = installProcessListeners(for: objectID)
+        }
+
+        guard processListenerAuthority.values.allSatisfy({ $0 }),
+              let targetDeviceID
+        else {
+            publish(.unsupported)
+            return
         }
         publish(evaluateCurrentProcesses(targetDeviceID: targetDeviceID))
     }
 
-    @available(macOS 14.0, *)
-    private func installProcessListeners(for objectID: AudioObjectID) {
+    @available(macOS 14.2, *)
+    private func installProcessListeners(for objectID: AudioObjectID) -> Bool {
         let addresses = [
             AudioObjectPropertyAddress(
                 mSelector: kAudioProcessPropertyIsRunningInput,
@@ -254,6 +307,7 @@ final class VoiceReceiverReadinessObserver {
             ),
         ]
 
+        var complete = true
         for address in addresses {
             var listenerAddress = address
             let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
@@ -265,6 +319,7 @@ final class VoiceReceiverReadinessObserver {
                 queue,
                 listener
             ) == noErr else {
+                complete = false
                 continue
             }
             processListeners.append(
@@ -275,6 +330,7 @@ final class VoiceReceiverReadinessObserver {
                 )
             )
         }
+        return complete
     }
 
     private func removeProcessListeners() {
@@ -290,21 +346,34 @@ final class VoiceReceiverReadinessObserver {
         processListeners.removeAll()
     }
 
-    @available(macOS 14.0, *)
+    @available(macOS 14.2, *)
     private func evaluateCurrentProcesses(
         targetDeviceID: AudioDeviceID
     ) -> VoiceReceiverReadiness {
-        let snapshots = processObjectIDs.compactMap {
-            readProcessSnapshot($0)
+        var observations: [VoiceReceiverProcessObservation] = []
+        for objectID in processObjectIDs {
+            guard let snapshot = readProcessSnapshot(objectID),
+                  let hasCompleteListenerAuthority = processListenerAuthority[objectID]
+            else {
+                return .unsupported
+            }
+            observations.append(
+                VoiceReceiverProcessObservation(
+                    snapshot: snapshot,
+                    runningInputListenerInstalled: hasCompleteListenerAuthority,
+                    inputDevicesListenerInstalled: hasCompleteListenerAuthority
+                )
+            )
         }
         return VoiceReceiverReadinessEvaluator.evaluate(
-            processes: snapshots,
+            observations: observations,
             targetDeviceID: targetDeviceID,
-            excludingPID: excludedPID
+            excludingPID: excludedPID,
+            systemListenerInstalled: systemListener != nil
         )
     }
 
-    @available(macOS 14.0, *)
+    @available(macOS 14.2, *)
     private func readProcessObjectIDs() -> [AudioObjectID]? {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyProcessObjectList,
@@ -338,7 +407,7 @@ final class VoiceReceiverReadinessObserver {
         return objectIDs
     }
 
-    @available(macOS 14.0, *)
+    @available(macOS 14.2, *)
     private func readProcessSnapshot(
         _ objectID: AudioObjectID
     ) -> VoiceReceiverProcessSnapshot? {

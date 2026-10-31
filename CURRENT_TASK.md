@@ -2,7 +2,7 @@
 
 ## RO-IME-READINESS-PROMPT-SYNC-043 — Receiver Readiness / HUD Truth
 
-Status: `SOURCE_AUDIT_STOP / CORRECTIVE_REQUIRED`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/ime-readiness-prompt-sync-043`
@@ -80,14 +80,18 @@ At minimum:
 - `.macOS(.v13)` unchanged;
 - no `BLEBridge.swift` or `AudioPipe.swift` product diff.
 
+## Corrective evidence
+
+The pre-corrective deterministic RED run executed 13 authority/readiness tests with 6 assertion failures: system listener failure returned `listening` instead of `.unsupported`; partial process listener authority returned `listening`; and authority loss after listening remained `listening` and projected green `recording`.
+
+The corrective now makes system process-list listener installation explicit, requires complete per-process running-input and input-device listener authority before publishing durable `.inactive` or `.listening`, and degrades refresh/authority loss to `.unsupported`. The availability boundary is `macOS 14.2+` while `Package.swift` remains `.macOS(.v13)`.
+
+GREEN evidence: authority/readiness tests `13/13`; Task 042 focused suites `34/34`, `51/51`, `53/53`; full Swift test `623/623`; arm64 Release `arm64`; x86_64 Release `x86_64`; protocol self-tests `3/3`; `git diff --check` passed. `BLEBridge.swift`, `AudioPipe.swift`, `main.swift`, `RemoteActionHUD.swift`, ATVV, driver/TCC, and Task 042 ownership/timing have no product diff. No package/install/runtime replacement, merge/tag/release, or Gate F was performed. Human UI acceptance remains `PENDING`.
+
 ## Completion
 
-If the bounded corrective and verification succeed:
+The bounded corrective and required verification completed on the existing Task 043 branch. `CURRENT_STATUS.md` and `CURRENT_TASK.md` are updated together below in the delivery commit. After push, local/remote equality and a clean worktree will be verified, then the task stops at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
-1. update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together;
-2. record exact RED/GREEN evidence for listener-authority failure handling;
-3. commit on the existing Task 043 branch;
-4. push and verify remote equality plus clean worktree;
-5. stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+Next action: independent Web source audit of the exact pushed corrective. Do not package/install or claim human UI/runtime acceptance before that audit.
 
 Do not package/install or claim human UI/runtime acceptance before the next independent source audit.

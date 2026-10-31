@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-IME-READINESS-PROMPT-SYNC-043 — SOURCE_AUDIT_STOP / CORRECTIVE_REQUIRED`
+State: `RO-IME-READINESS-PROMPT-SYNC-043 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/ime-readiness-prompt-sync-043`
 Merged main baseline: `e090bd74692c44996c1e9d0a08c28512ec2bc92c`
@@ -50,6 +50,14 @@ Not authorized:
 - package/install/runtime replacement before the next independent source audit;
 - merge/tag/release/Gate F.
 
+## Corrective verification evidence
+
+The observer-authority corrective is implemented only in `VoiceReceiverReadiness.swift` and its corresponding tests. The system process-list listener now returns explicit success/failure; failed installation stops trusted refresh and publishes `.unsupported`. Each process must have both the running-input and input-device listeners installed before its snapshot can contribute to durable readiness. Refresh/read failures and authority loss fall back to `.unsupported`. Process-object availability guards are `macOS 14.2+`; `Package.swift` remains `.macOS(.v13)`.
+
+Deterministic RED evidence against the pre-corrective path: the new authority seam produced `listening` for system-listener failure, partial process-listener authority, and authority loss after an established listening state; the latter also projected green `recording`. The focused run executed 13 tests with 6 assertion failures across those three cases. After correction, the same 13 tests passed with 0 failures, including non-green HUD fallback.
+
+Additional observed verification: Task 042 focused suites `34/34`, `51/51`, and `53/53`; full Swift test `623/623`; arm64 Release produced an `arm64` executable; x86_64 Release produced an `x86_64` executable; protocol self-tests `3/3`; `git diff --check` passed. `BLEBridge.swift`, `AudioPipe.swift`, `main.swift`, `RemoteActionHUD.swift`, ATVV, driver/TCC, and Task 042 ownership/timing have no product diff. No package, install, runtime replacement, merge, tag, release, or Gate F was performed. Human UI acceptance remains `PENDING`.
+
 ## Next
 
-Implement only the observer-authority corrective on the existing Task 043 branch, rerun focused/full verification, update controls together, push, and stop again at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+Independent Web source audit of the exact pushed observer-authority corrective. Do not package/install or claim human UI/runtime acceptance before that audit and the user-owned acceptance step.
