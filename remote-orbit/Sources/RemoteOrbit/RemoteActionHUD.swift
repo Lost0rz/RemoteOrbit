@@ -5,6 +5,8 @@ import AppKit
 /// loop, so the current text field or web page keeps focus.
 enum RemoteActionHUDState: Equatable {
     case pending
+    case voiceStarting
+    case voiceAudioReady
     case recording
     case queued
     case success
@@ -13,6 +15,8 @@ enum RemoteActionHUDState: Equatable {
     var title: String {
         switch self {
         case .pending: return "识别中"
+        case .voiceStarting: return "等待输入法"
+        case .voiceAudioReady: return "音频已就绪"
         case .recording: return "正在语音中"
         case .queued: return "已排队"
         case .success: return "已执行"
@@ -23,6 +27,8 @@ enum RemoteActionHUDState: Equatable {
     var color: NSColor {
         switch self {
         case .pending: return .systemYellow
+        case .voiceStarting: return .systemYellow
+        case .voiceAudioReady: return .systemBlue
         case .recording: return .systemGreen
         case .queued: return .systemBlue
         case .success: return .systemGreen
@@ -168,6 +174,8 @@ final class RemoteActionHUD {
         let symbolName: String
         switch state {
         case .pending: symbolName = "waveform"
+        case .voiceStarting: symbolName = "waveform"
+        case .voiceAudioReady: symbolName = "waveform"
         case .recording: symbolName = "waveform"
         case .queued: symbolName = "clock"
         case .success: symbolName = "checkmark"

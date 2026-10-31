@@ -2,7 +2,7 @@
 
 ## RO-IME-READINESS-PROMPT-SYNC-043 — Receiver Readiness / HUD Truth
 
-Status: `IMPLEMENTATION_AUTHORIZED / READINESS_SPIKE_FIRST`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/ime-readiness-prompt-sync-043`
@@ -87,6 +87,22 @@ At minimum:
 
 ## Completion
 
-If implementation and verification succeed, update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together, push the existing 043 branch, verify remote equality and clean worktree, then stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+Implementation and verification completed on the existing 043 branch. Gate A was validated on the target host (`macOS 26.6.2`, build `25G83`) with a disposable Core Audio process-object probe for `RemoteOrbit Mic 2ch` (device ID `79`, UID `RemoteOrbit Mic2ch_UID`). The probe excluded RemoteOrbit (`PID 95613`, bundle `com.lost0rz.RemoteOrbit`) and required active input plus input-scoped device membership. It observed Doubao (`PID 859`, bundle `com.bytedance.inputmethod.doubaoime`) as listening during normal listening and later successful reopen, and inactive during stopped and rapid ignored re-press/post-processing states.
+
+The implementation uses the confirmed receiver signal for HUD truth projection. It is limited to `VoiceReceiverReadiness.swift`, `main.swift`, `RemoteActionHUD.swift`, and corresponding tests. `BLEBridge.swift`, `AudioPipe.swift`, ATVV, driver, TCC, Task 042 timing/ownership, and the macOS 13 deployment target were not changed.
+
+Observed verification:
+
+- readiness/HUD tests: `10/10`;
+- Task 042 focused suites: `34/34`, `51/51`, `53/53`;
+- full Swift test: `620/620`;
+- arm64 Release: passed, executable architecture `arm64`;
+- x86_64 Release: passed, executable architecture `x86_64`;
+- protocol self-tests: `3/3`;
+- `git diff --check`: passed.
+
+The controls were updated together, the existing 043 branch was pushed, and local/remote equality plus a clean worktree were verified. No package/install/runtime replacement, merge/tag/release, or Gate F was performed. Human UI acceptance remains `PENDING`.
+
+Next action: independent Web source audit of the exact pushed 043 implementation. Do not package/install or claim human UI/runtime acceptance before that audit and the user-owned acceptance step.
 
 Do not package/install or claim human UI/runtime acceptance before that independent source audit.

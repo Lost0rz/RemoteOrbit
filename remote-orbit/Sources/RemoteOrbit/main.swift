@@ -4450,6 +4450,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let hidMonitor = HIDMonitor()
     private let buttonGestureRecognizer = ButtonGestureRecognizer()
     private let actionHUD = RemoteActionHUD()
+    private let voiceReceiverReadinessObserver = VoiceReceiverReadinessObserver()
     private let keymapOverlayController = KeymapOverlayController()
     /// The contextual mapping overlay is a press-and-hold surface. Keep the
     /// originating button so its release can dismiss only its own overlay.
@@ -4591,6 +4592,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         voicePress.onRemoteTransportPreparation = { [weak self] in
             self?.prepareVoiceTransport()
+        }
+        voiceReceiverReadinessObserver.onStateChanged = { [weak self] readiness in
+            guard let self else { return }
+            self.diagnosticLogger.log(
+                category: "voice",
+                event: "VOICE_RECEIVER_READINESS",
+                fields: readiness.diagnosticFields
+            )
+            self.updateVoiceHUD(for: self.voicePress.currentStateForTesting)
         }
         voicePress.isVoiceSessionAdmissionBlocked = { [weak self] in
             self?.ble.isVoiceSessionAdmissionBlocked ?? false
@@ -6184,58 +6194,26 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func updateVoiceHUD(for state: VoicePressCoordinator.State) {
-        switch state {
-        case .idle:
+        guard let hudState = VoiceHUDProjection.state(
+            for: state,
+            remoteAudioAvailable: voicePress.hasRemoteAudio,
+            receiverReadiness: voiceReceiverReadinessObserver.currentState
+        ) else {
             actionHUD.dismiss()
-        case .opening:
-            actionHUD.show(
-                button: .microphone,
-                gesture: "按下",
-                action: "遥控器语音输入",
-                state: .pending,
-                keepsVisible: true
-            )
-        case .streaming:
-            actionHUD.show(
-                button: .microphone,
-                gesture: "按住",
-                action: "遥控器语音输入",
-                state: .recording,
-                keepsVisible: true
-            )
-        case .draining:
-            actionHUD.show(
-                button: .microphone,
-                gesture: "松开",
-                action: "语音收尾中",
-                state: .pending,
-                keepsVisible: true
-            )
-        case .pending:
-            guard voicePress.shouldShowPendingVoiceUI else {
-                actionHUD.dismiss()
-                return
-            }
-            actionHUD.show(
-                button: .microphone,
-                gesture: "按住",
-                action: "遥控器语音输入",
-                state: .pending,
-                keepsVisible: true
-            )
-        case .holding:
-            guard voicePress.hasRemoteAudio else {
-                actionHUD.dismiss()
-                return
-            }
-            actionHUD.show(
-                button: .microphone,
-                gesture: "按住",
-                action: "遥控器语音输入",
-                state: .recording,
-                keepsVisible: true
-            )
+            return
         }
+        if state == .pending, !voicePress.shouldShowPendingVoiceUI {
+            actionHUD.dismiss()
+            return
+        }
+        let isDraining = state == .draining
+        actionHUD.show(
+            button: .microphone,
+            gesture: isDraining ? "松开" : state == .opening ? "按下" : "按住",
+            action: isDraining ? "语音收尾中" : "遥控器语音输入",
+            state: hudState,
+            keepsVisible: true
+        )
     }
 
     private func completeVoiceFocus(
@@ -6390,20 +6368,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             self?.updateVoiceHUD(for: state)
         }
-        voicePress.onRemoteAudioChanged = { [weak self] available in
+        voicePress.onRemoteAudioChanged = { [weak self] _ in
             guard let self else { return }
-            if available {
-                self.actionHUD.show(
-                    button: .microphone,
-                    gesture: "按住",
-                    action: "遥控器语音输入",
-                    state: .recording,
-                    keepsVisible: true
-                )
-            } else {
-                self.actionHUD.dismiss()
-            }
+            self.updateVoiceHUD(for: self.voicePress.currentStateForTesting)
         }
+        voiceReceiverReadinessObserver.start()
         voicePress.onHardwareOptionGateBegin = { [weak self] gestureID in
             guard let self else { return }
             self.filter.beginOptionDeferral(gestureID: gestureID)
@@ -7245,6 +7214,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        voiceReceiverReadinessObserver.stop()
         frontmostApplicationDiagnosticsObserver?.stop()
         frontmostApplicationDiagnosticsObserver = nil
         stopRecordingStatusPulse()
