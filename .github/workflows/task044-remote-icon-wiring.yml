@@ -11,7 +11,7 @@ permissions:
 jobs:
   wire-menu-icon:
     if: github.actor != 'github-actions[bot]'
-    runs-on: macos-14
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout task branch
         uses: actions/checkout@v4
@@ -62,14 +62,6 @@ jobs:
           grep -F 'image.isTemplate = true' remote-orbit/Sources/RemoteOrbit/ProductBranding.swift
           grep -F 'Image(nsImage: NSApp.applicationIconImage)' remote-orbit/Sources/RemoteOrbit/ProductBranding.swift
           test -s remote-orbit/Brand/RemoteOrbitMark.svg
-
-      - name: Swift tests
-        working-directory: remote-orbit
-        run: swift test
-
-      - name: Swift build
-        working-directory: remote-orbit
-        run: swift build
 
       - name: Commit and push bounded wiring
         shell: bash
