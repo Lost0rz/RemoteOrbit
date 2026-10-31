@@ -169,6 +169,21 @@ process, driver, LaunchAgent, or TCC state without local evidence.
    classify it as reconciliation/drift; do not count the current executor as having
    performed that deletion.
 
+## Durable CI authority
+
+- `.github/workflows/remoteorbit-ci.yml` is the durable routine source/test/build CI
+  entry point for RemoteOrbit.
+- Routine macOS CI is expected to route to the repository-scoped self-hosted runner
+  labels `[self-hosted, macOS, ARM64, remoteorbit]` unless a later task explicitly
+  changes that authority.
+- CI is software/build-only by default. It must not install or replace
+  `/Applications/RemoteOrbit.app`, install/reload `RemoteOrbitAudio.driver`, restart
+  CoreAudio, reset/change TCC, alter default audio devices, or promote real
+  RC003/Doubao interaction to machine-owned product acceptance.
+- Runner unavailability is an infrastructure failure to report, not implicit
+  authority to fall back to paid GitHub-hosted macOS or mutate the host runtime.
+- Real hardware/runtime acceptance remains a separately authorized, human-owned gate.
+
 ## Runtime identity and evidence
 
 7. Treat these as distinct identities unless proven otherwise:

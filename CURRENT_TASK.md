@@ -1,111 +1,77 @@
 # RemoteOrbit Current Task
 
-## RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031 — Dedicated macOS ARM64 CI
+## RO-IME-READINESS-PROMPT-SYNC-043 — Human runtime acceptance gate
 
-Status: `REMOTE_SMOKE_PASS — DRAFT_PR_OPEN`
-TASK_CLASS: `EXECUTION`
+Status: `HUMAN_ACCEPTANCE_PENDING`
+TASK_CLASS: `VERIFY / HUMAN_ACCEPTANCE`
 Repository: `Lost0rz/RemoteOrbit`
-Canonical remote: `https://github.com/Lost0rz/remoteorbit.git`
-Control baseline: `85061ab13ebe57ed485f06966f90275a6f53a6b9`
-Implementation branch: `codex/ci-self-hosted-runner-migration-20261031`
-Workspace: `/Volumes/Jack-Dev/Projects/remoteorbit`
+Active authority branch: `codex/ime-readiness-stability-043`
+Remote-verified branch HEAD: `4493657ae266072b95b159e539fa2e7fb6aa2a35`
+Accepted product source: `ed96d2285b7a3a24aecb30c09aebc38ccc4c4b16`
 
-## Authority and objective
+## Current authority
 
-The user explicitly authorizes this task to establish a repository-scoped GitHub
-Actions self-hosted macOS ARM64 Runner on the current Mac mini and migrate
-RemoteOrbit's durable automated source checks, Swift tests, and Release build to
-that runner. This is CI/repository infrastructure work only. Task 043 product
-runtime acceptance, BLE, ATVV, AudioPipe, HID, voice state, and HAL-driver
-behavior remain outside scope and must remain untouched.
+Task 043 is the only active product/runtime task. The CI migration task
+`RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031` is CLOSED by merged PR #29 at
+`489af61a1b081781bcc386fe7476bc37479c79dd`.
 
-The durable target is one clear workflow, `.github/workflows/remoteorbit-ci.yml`,
-triggered by pull requests and pushes to `main`, using:
+No new product implementation is authorized by this control transition.
 
-```text
-runs-on: [self-hosted, macOS, ARM64, remoteorbit]
-```
+## Required human acceptance
 
-The target runner identity is `remoteorbit-macmini` with custom label `remoteorbit`,
-registered only for `Lost0rz/RemoteOrbit`. The runner must be installed outside the
-repository, preferably under the existing shared convention
-`/Users/ox_miles/CI/runners/remoteorbit`, with an isolated `_work` directory.
+The user owns final Task 043 runtime acceptance. Record only explicit PASS/FAIL for:
 
-## Required work
+1. quick SHORT tap -> no visible action / no Doubao voice session;
+2. normal LONG -> Doubao voice input opens and receives audio;
+3. LONG release -> normal drain/close;
+4. SHORT followed immediately by LONG -> LONG opens exactly once;
+5. repeated LONG / release / LONG;
+6. several rapid/repeated LONG interactions around the accepted Doubao
+   post-processing edge;
+7. HUD/readiness activates only for admitted LONG and clears after release;
+8. runtime/resource soak shows no recurrence of the prior CoreAudio listener/memory
+   amplification failure.
 
-1. Revalidate remote, branch, HEAD, worktree cleanliness, `origin/main`, open PRs,
-   workflow inventory, host architecture, macOS, Xcode, and Swift before mutation.
-2. Use the official `actions/runner` macOS ARM64 release. Obtain a one-time
-   registration token only through the authenticated GitHub CLI/API; never place a
-   token in source, task records, scripts, shell history, or logs.
-3. Use the official unattended configuration and `svc.sh` macOS service mechanism;
-   do not create a second custom daemon or plist. Verify installed/running service,
-   live Listener process, GitHub online/idle state, and normal session persistence.
-4. Add the durable workflow with bounded concurrency and a clean, reproducible
-   checkout. It must record macOS, architecture, Swift, Xcode path, and runner
-   name; verify the canonical Swift package paths; run the existing full Swift test
-   command; and run the canonical Release build after confirming it.
-5. Add packaging smoke only if it is demonstrably build-only and cannot install,
-   replace, reload, or mutate the host. Otherwise document that it is intentionally
-   omitted. Do not add the next-task Persistent/Dual Receiver retirement rules.
-6. Classify all existing workflows as keep/migrate/retire/historical. Retire only
-   completed task-specific workflows that can still trigger unwanted jobs; do not
-   remove a workflow that still carries current authority without explicit evidence.
-7. Use bounded runner/workspace hygiene. Do not read other worktrees or historical
-   `/private/tmp` evidence, reuse user build artifacts, or delete unknown files.
-8. Run at least one bounded remote smoke and preserve evidence that the job was
-   picked up by `remoteorbit-macmini`, including test/build result and proof of no
-   host runtime mutation.
+## Allowed actions now
 
-The workflow is now implemented at `.github/workflows/remoteorbit-ci.yml`. Local
-verification passed for protocol self-tests, full Swift tests (`623`, `0` failures),
-native Release build, and build-only Universal2 packaging smoke. The packaging
-smoke is safe because `package-app.sh` only writes checkout artifacts and temporary
-build directories; it does not install the app or driver or mutate CoreAudio/TCC.
+- read-only source/runtime evidence review;
+- collect/finalize already-authorized Task 043 runtime/resource evidence;
+- record the user's explicit PASS or FAIL;
+- if PASS, perform the separately governed Task 043 closeout/audit/merge transition;
+- if FAIL, freeze the fresh incident and return to minimum-observable incident work.
 
-The runner is registered and online as `remoteorbit-macmini` (GitHub runner ID `21`)
-with labels `self-hosted`, `macOS`, `ARM64`, and `remoteorbit`. The official service
-is installed through `svc.sh` at the shared runner root, and `Runner.Listener` is
-alive while idle. Implementation-head remote smoke run `41204522588` completed
-successfully; job `124546780458` was picked up by `remoteorbit-macmini` and all
-workflow steps passed. Follow-up control-only run `41204786216` also completed
-successfully. GitHub reports the runner online and idle again afterward.
+## Forbidden until Task 043 PASS and closeout
 
-## Authorized repository changes
+Do not modify product source, voice semantics, BLE/ATVV, AudioPipe, HID, readiness,
+HAL driver, TCC, CoreAudio configuration, or start the planned legacy retirement /
+diagnostic gating implementation.
 
-Only these paths may change:
+## Planned next task — not authorized yet
 
-- `CURRENT_STATUS.md` and `CURRENT_TASK.md` for this control transition and closeout;
-- `.github/workflows/**`;
-- CI-only helper scripts/documentation required by the workflow or runner.
+`RO-VOICE-LEGACY-RETIREMENT-DIAGNOSTICS-GATING-045`
 
-Do not change `remote-orbit/Sources/RemoteOrbit/**`,
-`remote-orbit-audio-driver/**`, or any BLE/ATVV/AudioPipe/HID/voice lifecycle
-behavior. Do not install or replace the product app or audio driver, restart
-`coreaudiod`, change TCC/Accessibility/Input Monitoring, change default devices,
-run real RC003/Doubao acceptance, delete logs/recordings/configuration, or merge
-to `main`.
+The next task is already design-scoped but remains blocked. Its intended boundary is:
 
-## STOP boundaries
+- existing `记录运行日志` becomes the authority for persistent runtime diagnostic
+  logging, including ordinary log, voice diagnostic JSONL, diagnostic authority
+  journal, runtime-health heartbeat, and other persistent diagnostic emission;
+- `保存调试录音` remains independent and opt-in;
+- logging OFF must avoid persistent diagnostic writes and unnecessary serialization /
+  scheduling work, while bounded in-memory correctness counters/state may remain;
+- retire Persistent Session and Dual Receiver product semantics, UI/configuration,
+  runtime ownership paths, stale migration, and obsolete contract tests;
+- preserve LONG-only candidate, SHORT tombstone/discard, mapped-trigger suppression,
+  pending re-press, synthetic fallback, pre-HID candidate/prebuffer, BLE READY reuse,
+  output drain, and current Task 043 readiness behavior;
+- add source-contract and regression tests preventing legacy authority from returning;
+- verify on `remoteorbit-macmini`, then require independent source audit and final
+  human runtime acceptance before merge.
 
-Stop and report without guessing if registration needs unavailable GitHub auth,
-admin permission, a duplicate or unknown `remoteorbit-macmini`, another authoritative
-RemoteOrbit self-hosted runner, any product/runtime host mutation, a product-code
-change to make CI pass, or unknown local runner/worktree state whose cleanup could
-lose data. Preserve local work and classify remote delivery as pending if push or
-PR creation cannot be verified.
+Do not create the implementation branch from current `main`: Task 043 accepted source
+has not yet been closed/merged, so doing so would build the retirement task on the
+wrong product baseline.
 
-## Verification and delivery
+## Next action
 
-Required evidence includes exact branch/HEAD and clean state, workflow syntax/source
-contract checks, environment evidence, full Swift tests, Release build result,
-runner registration/labels/online state, a remotely dispatched job picked up by this
-runner, and host-runtime-mutation `NONE`. Verify the remote branch after pushing.
-
-Commit the control transition and implementation on this branch, push only this
-authorized branch, open a Draft PR for `Lost0rz/RemoteOrbit`, do not merge, and
-stop with human/runtime acceptance of RemoteOrbit still separate.
-
-The authorized outcome is complete for this task. PR #29 remains Draft and the
-runner is intentionally left installed, service-managed, online, and idle for
-future RemoteOrbit pull-request and `main` CI.
+Wait for explicit human Task 043 `PASS` or `FAIL`. Read-only planning may continue;
+product mutation may not.
