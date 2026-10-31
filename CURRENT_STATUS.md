@@ -1,63 +1,38 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-IME-READINESS-PROMPT-SYNC-043 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-IME-READINESS-PROMPT-SYNC-043 — MERGE_PACKAGE_AUTHORIZED / ICON_AUDIT_PENDING`
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/ime-readiness-prompt-sync-043`
 Merged main baseline: `e090bd74692c44996c1e9d0a08c28512ec2bc92c`
-Design authority: `docs/design/2026-10-31-043-ime-readiness-prompt-sync.md`
-Audited implementation: `9c4187590065fb8a01b6ef3f356baaf30265d068`
+Accepted Task 043 source head: `b7b676fa23c17ff51b51dc9f4d42ecc3157829ab`
 
-## Predecessor Task 042
+## Accepted implementation state
 
-Task 042 is merged into `main` and CLOSED. Its accepted BLE/AudioPipe/pending-repress ownership model remains frozen for Task 043.
+Task 043 receiver-readiness/HUD work passed independent Web CODE_DIFF audit with only a non-blocking false-negative follow-up. Task 042 remains CLOSED and frozen.
 
-## Task 043 implementation status
+The owner explicitly accepts the remaining rapid-double-press boundary: if the previous IME session is still post-processing/cleaning up, a new physical press may still produce the RemoteOrbit press/HUD indication while Doubao does not reopen. No further optimization is requested for this behavior because truthful physical-button feedback and perfect IME-state synchronization conflict at this boundary.
 
-The bounded receiver-readiness/HUD implementation is source-level sound in its main path:
+## Current owner request
 
-- external receiver truth requires a non-RemoteOrbit PID, active input IO, and input-scoped membership for `RemoteOrbit Mic 2ch`;
-- internal `.streaming`, `AUDIO_START`, `AUDIO_FIRST`, or remote-audio availability alone no longer produces the green `正在语音中` HUD state;
-- `BLEBridge.swift`, `AudioPipe.swift`, ATVV, driver/TCC, Task 042 ownership/timing, and the macOS 13 deployment target were not changed.
+The owner has locally replaced the application icon and authorizes the final stage closeout:
 
-Independent Web CODE_DIFF audit found one blocking observer-authority defect:
+1. audit the local icon change and ensure it is durable in the reproducible packaging path rather than only in `dist` or another generated artifact;
+2. if needed, make only the smallest icon-packaging correction needed for the intended icon to survive `package-app.sh`;
+3. preserve all accepted Task 042/043 product semantics;
+4. verify the branch and merge the accepted stage into `main`;
+5. carry forward the previously authorized release candidate identity `0.2.15 (44)` without merging the stale `codex/release-v0.2.15` branch wholesale;
+6. build/package a Universal2 App from the exact merged `main`, install it at `/Applications/RemoteOrbit.app`, and launch it for owner testing;
+7. create a local `RemoteOrbit-0.2.15.dmg`, verify its contents/provenance, and return the local artifact path plus hashes.
 
-1. failure to install the system process-list listener publishes `.unsupported` but the code then continues into snapshot refresh/evaluation, which can republish `.inactive` or `.listening` without durable observation authority;
-2. individual process listener registration failures are ignored while the same process snapshot may still be accepted as long-lived listening truth;
-3. this allows a stale green HUD if the initial snapshot says listening but listener authority was never fully established;
-4. the Core Audio process-object availability guard should use the actual API availability boundary (`macOS 14.2+`), not `14.0`.
-
-## Authorized corrective direction
-
-Same Task 043. Do not redesign the HUD or receiver model.
-
-- Treat complete listener authority as a prerequisite for publishing durable `.inactive` / `.listening` truth.
-- If system listener setup fails, do not continue into trusted snapshot evaluation; remain/fall back `.unsupported`.
-- If required process listeners cannot be established for a process whose snapshot would otherwise affect readiness, that process must not contribute durable listening truth; observation-authority loss must conservatively remove green state.
-- Correct the runtime availability gate to macOS 14.2+ while keeping the package deployment target at macOS 13.
-- Add deterministic regressions for listener-installation failure and stale-listening prevention.
+Historical `codex/release-v0.2.15` is stale/diverged and is reference-only. Do not merge/cherry-pick it wholesale.
 
 ## Boundaries
 
-Not authorized:
+No further voice/HUD/receiver corrective is authorized unless a build/merge regression is proven. Do not change BLEBridge, AudioPipe, ATVV, HID ownership/timing, cooldown/retry behavior, driver source, TCC, or installed CoreAudio state. Building the unchanged driver artifact for packaging is allowed if the established App packaging flow requires it; reinstall/reload is not.
 
-- HUD redesign beyond the accepted Task 043 states;
-- BLEBridge/AudioPipe/ATVV changes;
-- Task 042 state-machine changes;
-- cooldown/retry/trigger delay/admission gating;
-- Doubao-specific private API / AX / unified-log scraping / process-name hardcoding;
-- driver/CoreAudio/TCC mutation;
-- package/install/runtime replacement before the next independent source audit;
-- merge/tag/release/Gate F.
-
-## Corrective verification evidence
-
-The observer-authority corrective is implemented only in `VoiceReceiverReadiness.swift` and its corresponding tests. The system process-list listener now returns explicit success/failure; failed installation stops trusted refresh and publishes `.unsupported`. Each process must have both the running-input and input-device listeners installed before its snapshot can contribute to durable readiness. Refresh/read failures and authority loss fall back to `.unsupported`. Process-object availability guards are `macOS 14.2+`; `Package.swift` remains `.macOS(.v13)`.
-
-Deterministic RED evidence against the pre-corrective path: the new authority seam produced `listening` for system-listener failure, partial process-listener authority, and authority loss after an established listening state; the latter also projected green `recording`. The focused run executed 13 tests with 6 assertion failures across those three cases. After correction, the same 13 tests passed with 0 failures, including non-green HUD fallback.
-
-Additional observed verification: Task 042 focused suites `34/34`, `51/51`, and `53/53`; full Swift test `623/623`; arm64 Release produced an `arm64` executable; x86_64 Release produced an `x86_64` executable; protocol self-tests `3/3`; `git diff --check` passed. `BLEBridge.swift`, `AudioPipe.swift`, `main.swift`, `RemoteActionHUD.swift`, ATVV, driver/TCC, and Task 042 ownership/timing have no product diff. No package, install, runtime replacement, merge, tag, release, or Gate F was performed. Human UI acceptance remains `PENDING`.
+No tag or GitHub Release publication is authorized by this stage. Human runtime/UI acceptance remains owner-owned and pending after installation.
 
 ## Next
 
-Independent Web source audit of the exact pushed observer-authority corrective. Do not package/install or claim human UI/runtime acceptance before that audit and the user-owned acceptance step.
+Local closeout card: reconcile the worktree, audit/commit only the intended icon delta, verify, merge to main, build/install the exact merged main App, create and verify the DMG, then stop for owner runtime acceptance.

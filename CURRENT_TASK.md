@@ -1,97 +1,78 @@
 # RemoteOrbit Current Task
 
-## RO-IME-READINESS-PROMPT-SYNC-043 — Receiver Readiness / HUD Truth
+## RO-IME-READINESS-PROMPT-SYNC-043 — Final Merge / Runtime / DMG Closeout
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `MERGE_PACKAGE_AUTHORIZED / ICON_AUDIT_PENDING`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/ime-readiness-prompt-sync-043`
 Merged main baseline: `e090bd74692c44996c1e9d0a08c28512ec2bc92c`
+Accepted Task 043 source head: `b7b676fa23c17ff51b51dc9f4d42ecc3157829ab`
 Design authority: `docs/design/2026-10-31-043-ime-readiness-prompt-sync.md`
-Audited implementation: `9c4187590065fb8a01b6ef3f356baaf30265d068`
 
 ## Objective
 
-Make the voice HUD truthful about external IME listening without reopening Task 042 transport/audio ownership.
+Close the current accepted development stage without reopening voice behavior: audit the owner's local icon replacement, merge the accepted Task 043 stage into `main`, then produce and install the exact merged-main App candidate and create a verified DMG for owner testing.
 
-## Accepted implementation semantics
+## Owner-accepted runtime limitation
 
-Keep the existing Task 043 design:
+No further corrective is requested for the following edge case: while the previous external IME session is still processing/cleaning up, an immediate rapid/double press may still show RemoteOrbit's physical-press/HUD indication even though Doubao does not reopen. A later press works after IME cleanup. This is accepted for the current stage and must not trigger a new cooldown/retry/state-machine change.
 
-- `VoicePressCoordinator` remains transport/session authority only;
-- `VoiceReceiverReadinessObserver` is read-only;
-- external listening truth requires a process other than RemoteOrbit with active input IO and input-scoped membership for `RemoteOrbit Mic 2ch`;
-- `.streaming`, `AUDIO_START`, `AUDIO_FIRST`, or remote-audio availability alone must never produce green `正在语音中`;
-- unsupported/untrusted observer state must project conservatively to non-green HUD states.
+## Icon audit authority
 
-## Authorized corrective
+The owner reports a local application-icon replacement that may not yet be committed/pushed. Before merge:
 
-Implement the smallest correction for observer observation-authority failure handling.
+- inspect the exact local diff and identify the durable source of the icon;
+- generated `dist/RemoteOrbit.icns` alone is not sufficient because `remote-orbit/package-app.sh` regenerates the icon through `Packaging/generate-icon.sh` on every build;
+- ensure the intended icon is represented in source-controlled packaging input/generator logic and that `Packaging/Info.plist` still resolves `RemoteOrbit.icns` correctly;
+- allow only the minimum icon-related packaging correction needed to make the intended icon reproducible;
+- reject/stop on unrelated local source changes rather than silently including them.
 
-Required semantics:
+Human visual approval of the icon remains owner-owned.
 
-1. A durable `.inactive` / `.listening` state may be published only after the observer has established the listener authority required to observe subsequent truth changes.
-2. If the system process-list listener cannot be installed, stop trusted evaluation and publish/retain `.unsupported`.
-3. For each process whose snapshot can affect readiness, failure to establish the required running-input/device listeners must not allow that snapshot to become durable `.listening` truth.
-4. If observation authority is lost or cannot be refreshed safely, degrade to `.unsupported` (or equivalent explicit untrusted state) and ensure the HUD becomes non-green.
-5. Correct Core Audio process-object availability checks to the actual supported boundary (`macOS 14.2+`) while preserving `.macOS(.v13)` deployment compatibility.
-6. Do not change the accepted HUD state model or Task 042 behavior.
+## Merge authority
 
-## Required deterministic regressions
+After the icon audit and required verification pass, merge this same Task 043 branch into the live `main`. Preserve exact accepted history where practical. Re-read live `main` before merge; if it has advanced incompatibly, stop and reconcile instead of force-updating.
 
-Add testable seams as narrowly as necessary and prove at minimum:
+Task 043 product behavior already accepted by Web audit must not be redesigned during closeout.
 
-- initial process snapshot would evaluate to listening, but system listener installation fails -> final observer truth is unsupported/non-listening;
-- process snapshot would evaluate to listening, but one required process listener cannot be established -> it cannot produce durable listening truth;
-- established listening followed by observation-authority failure/loss -> state falls back to unsupported/non-green;
-- unsupported observer + local streaming/audio-ready never yields green `recording`;
-- existing evaluator/HUD tests remain green.
+## Release-candidate identity
 
-Do not make tests depend on real Doubao or live Core Audio process objects for the deterministic failure paths.
+Carry forward the existing repository release authorization for:
 
-## Expected product-source scope
+- marketing version `0.2.15`;
+- build `44`;
+- Universal2 `arm64 + x86_64`;
+- bundle `com.lost0rz.RemoteOrbit`.
 
-Normally limited to:
+The historical branch `codex/release-v0.2.15` is stale/diverged from current main and MUST NOT be merged or cherry-picked wholesale. If current merged main still reports `0.2.14 (43)`, reapply only the release metadata needed for `0.2.15 (44)` on the current closeout line, preserving newer code/scripts. A current `RELEASE_NOTES_v0.2.15.md` may be created/updated if needed for artifact identity, but do not import stale product code.
 
-- `remote-orbit/Sources/RemoteOrbit/VoiceReceiverReadiness.swift`;
-- `remote-orbit/Tests/RemoteOrbitTests/VoiceReceiverReadinessTests.swift`;
-- control files at completion.
+## Build / install authority
 
-`main.swift` and `RemoteActionHUD.swift` should not need product changes for this corrective. If they do, keep changes strictly limited to representing observer trust loss; if broader behavior changes appear necessary, STOP.
+Build from the exact merged `main` checkout using the established `remote-orbit/package-app.sh`; it is the canonical Universal2 App packaging path and regenerates `RemoteOrbit.icns`.
 
-Do not modify `BLEBridge.swift`, `AudioPipe.swift`, ATVV, driver code, HID ownership/debounce, or the package deployment target.
+If that packaging flow expects the bundled HAL driver, rebuild the unchanged driver artifact from current merged source with the existing driver build script before App packaging. Do not reinstall/reload the system driver and do not mutate TCC/CoreAudio configuration.
 
-## Explicit non-goals
+Install using the established `remote-orbit/install-app.sh` to `/Applications/RemoteOrbit.app`, then launch the installed App. Verify source provenance, executable hash, bundle/version/build, architectures, codesign, path/PID, BLE/HID/accessibility readiness, virtual microphone/default input, and log writer. These startup checks are not human UI acceptance.
 
-No fixed cooldown, trigger retry/replay, trigger delay, admission gating, speech buffering, Doubao-specific hardcoding/private API/AX/log scraping, driver/CoreAudio/TCC mutation, package/install/runtime replacement, merge/tag/release/Gate F.
+## DMG authority
 
-## Verification
+Create a local DMG from the exact packaged App after main merge and App verification. If no current canonical `package-dmg.sh` exists, do not add a repository script solely for this closeout: use a one-off staging directory plus macOS `hdiutil` to create `RemoteOrbit-0.2.15.dmg`, preferably containing `RemoteOrbit.app` and an `/Applications` symlink.
 
-At minimum:
+Mount the produced DMG read-only and verify the contained App's executable SHA, version/build, bundle ID, architectures, and codesign match the intended packaged candidate before unmounting. Record DMG SHA-256 and final path.
 
-- new observer-authority failure regressions;
-- all existing Task 043 readiness/HUD tests;
-- Task 042 focused regressions;
-- full Swift tests;
-- arm64 Release;
-- x86_64 Release;
-- protocol self-tests;
-- `git diff --check`;
-- `.macOS(.v13)` unchanged;
-- no `BLEBridge.swift` or `AudioPipe.swift` product diff.
+## Required verification
 
-## Corrective evidence
+Before merge: icon-diff audit, focused Task 043 tests, Task 042 regression suites, full Swift tests, both Release architectures, protocol self-tests, and `git diff --check`.
 
-The pre-corrective deterministic RED run executed 13 authority/readiness tests with 6 assertion failures: system listener failure returned `listening` instead of `.unsupported`; partial process listener authority returned `listening`; and authority loss after listening remained `listening` and projected green `recording`.
+After merge/build: verify exact merged-main source stamp in the App, package-vs-installed executable SHA equality, version/build `0.2.15 (44)`, Universal2 architecture, codesign, icon resource presence/hash, and DMG-contained App identity.
 
-The corrective now makes system process-list listener installation explicit, requires complete per-process running-input and input-device listener authority before publishing durable `.inactive` or `.listening`, and degrades refresh/authority loss to `.unsupported`. The availability boundary is `macOS 14.2+` while `Package.swift` remains `.macOS(.v13)`.
+## Boundaries
 
-GREEN evidence: authority/readiness tests `13/13`; Task 042 focused suites `34/34`, `51/51`, `53/53`; full Swift test `623/623`; arm64 Release `arm64`; x86_64 Release `x86_64`; protocol self-tests `3/3`; `git diff --check` passed. `BLEBridge.swift`, `AudioPipe.swift`, `main.swift`, `RemoteActionHUD.swift`, ATVV, driver/TCC, and Task 042 ownership/timing have no product diff. No package/install/runtime replacement, merge/tag/release, or Gate F was performed. Human UI acceptance remains `PENDING`.
+Do not add any new voice/HUD/receiver behavior, cooldown, retry/replay, trigger delay, admission gating, BLEBridge/AudioPipe/ATVV change, HID timing change, driver-source change, TCC reset, CoreAudio restart, tag, or GitHub Release publication.
+
+No force-push to `main`. Do not delete unique local work. Do not merge the stale release branch.
 
 ## Completion
 
-The bounded corrective and required verification completed on the existing Task 043 branch. `CURRENT_STATUS.md` and `CURRENT_TASK.md` are updated together below in the delivery commit. After push, local/remote equality and a clean worktree will be verified, then the task stops at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
-
-Next action: independent Web source audit of the exact pushed corrective. Do not package/install or claim human UI/runtime acceptance before that audit.
-
-Do not package/install or claim human UI/runtime acceptance before the next independent source audit.
+If the full closeout succeeds, update controls on `main` to record Task 043 merged and runtime candidate/DMG prepared, push and verify remote `main`, then stop for owner human runtime/UI acceptance. Do not claim human acceptance from build/startup checks.
