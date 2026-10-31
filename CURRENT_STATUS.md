@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031 — REGISTRATION_PENDING`
+State: `RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031 — REMOTE_SMOKE_PENDING`
 Repository: `Lost0rz/RemoteOrbit`
 Control parent before this task: `85061ab13ebe57ed485f06966f90275a6f53a6b9`
 Active branch: `codex/ci-self-hosted-runner-migration-20261031`
@@ -34,6 +34,12 @@ Authoritative workspace: `/Volumes/Jack-Dev/Projects/remoteorbit`
 - Local pure-software verification passed: protocol self-tests, full Swift tests
   (`623`, `0` failures), native Release build, and build-only Universal2 packaging
   smoke. No app/driver installation or CoreAudio/TCC mutation was performed.
+- GitHub runner registration: ID `21`, name `remoteorbit-macmini`, status `online`,
+  `busy=false`, labels `self-hosted`, `macOS`, `ARM64`, `remoteorbit`.
+- Official service evidence: `.service` points to
+  `/Users/ox_miles/Library/LaunchAgents/actions.runner.Lost0rz-RemoteOrbit.remoteorbit-macmini.plist`;
+  `launchctl` reports the service loaded and `Runner.Listener` is alive. No
+  `Runner.Worker` is present while idle.
 
 ## Active task
 
@@ -44,6 +50,6 @@ acceptance remain separate and must not be changed or reinterpreted.
 
 ## Next
 
-Register `remoteorbit-macmini` with label `remoteorbit`, install the official macOS
-service, run a bounded remote smoke, then push and open a Draft PR. Stop on token,
+Push this branch, open a Draft PR, run a bounded remote smoke, verify the job was
+picked up by this exact runner, then reconcile the final controls. Stop on token,
 admin, duplicate-runner, host-mutation, product-code, or unknown-state boundaries.

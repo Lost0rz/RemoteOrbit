@@ -2,7 +2,7 @@
 
 ## RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031 — Dedicated macOS ARM64 CI
 
-Status: `WORKFLOW_IMPLEMENTED — RUNNER_REGISTRATION_PENDING`
+Status: `RUNNER_ONLINE — REMOTE_SMOKE_PENDING`
 TASK_CLASS: `EXECUTION`
 Repository: `Lost0rz/RemoteOrbit`
 Canonical remote: `https://github.com/Lost0rz/remoteorbit.git`
@@ -62,6 +62,11 @@ verification passed for protocol self-tests, full Swift tests (`623`, `0` failur
 native Release build, and build-only Universal2 packaging smoke. The packaging
 smoke is safe because `package-app.sh` only writes checkout artifacts and temporary
 build directories; it does not install the app or driver or mutate CoreAudio/TCC.
+
+The runner is registered and online as `remoteorbit-macmini` (GitHub runner ID `21`)
+with labels `self-hosted`, `macOS`, `ARM64`, and `remoteorbit`. The official service
+is installed through `svc.sh` at the shared runner root, and `Runner.Listener` is
+alive while idle. Remote job pickup is not yet proven.
 
 ## Authorized repository changes
 
