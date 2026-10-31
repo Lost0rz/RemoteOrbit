@@ -20,11 +20,12 @@ This execution context was created from current live `main` and implemented **Wa
 The implementation preserves all current voice semantics and correctness owners while making ordinary diagnostics disabled mode near-zero overhead.
 
 Implementation commit: `4720fbd2f6322e687281cdaf9c7db2ab6c10a098`.
+Control handoff commit: `a47d05e7a03ec97ef1a0506090828cd1e00114d4`.
 Draft PR: `https://github.com/Lost0rz/RemoteOrbit/pull/31`.
-Remote branch head is verified at the implementation commit. Remote CI run
-`41213661059` / job `124573621925` passed on `remoteorbit-macmini`: focused source
-contracts, protocol self-tests, full Swift tests (`656/656`), native Release build,
-and Universal2 build-only packaging smoke (`x86_64 arm64`).
+Remote branch and PR head were verified at the control handoff commit. Remote CI
+run `41214027305` / job `124574698531` passed on `remoteorbit-macmini`: focused
+source contracts, protocol self-tests, full Swift tests (`656/656`), native Release
+build, and Universal2 build-only packaging smoke (`x86_64 arm64`).
 
 ## Required Wave A behavior
 

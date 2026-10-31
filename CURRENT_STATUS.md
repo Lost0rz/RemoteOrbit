@@ -69,11 +69,14 @@ Task 043 human runtime acceptance remains deferred; Task 045 work must not relab
   at `fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`.
 - Wave A implementation was the sole active writer in the execution workspace.
 - Implementation commit: `4720fbd2f6322e687281cdaf9c7db2ab6c10a098`.
-- Remote branch is verified at the same SHA:
+- Control handoff commit: `a47d05e7a03ec97ef1a0506090828cd1e00114d4`.
+- At the final implementation handoff, remote branch and PR head were verified at
+  `a47d05e7a03ec97ef1a0506090828cd1e00114d4`:
   `origin/codex/task045a-diagnostics-gating`.
 - Draft PR: `https://github.com/Lost0rz/RemoteOrbit/pull/31` (`OPEN / DRAFT`).
-- Remote machine gate: workflow run `41213661059`, job `124573621925`, runner
-  `remoteorbit-macmini`, conclusion `success` at the exact implementation SHA.
+- Remote machine gate at the implementation handoff: workflow run `41214027305`,
+  job `124574698531`, runner `remoteorbit-macmini`, conclusion `success` at the
+  exact handoff SHA.
   Full Swift tests (`656/656`), native Release build, and Universal2 build-only
   packaging smoke passed; packaging log verified `x86_64 arm64`.
 - Local verification also passed: focused changed-boundary tests (`26/26`), full
