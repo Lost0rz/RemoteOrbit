@@ -6,13 +6,19 @@ OUTPUT_DIR="${1:-$SCRIPT_DIR/../dist}"
 PNG="$OUTPUT_DIR/RemoteOrbit-1024.png"
 ICONSET="$OUTPUT_DIR/RemoteOrbit.iconset"
 ICNS="$OUTPUT_DIR/RemoteOrbit.icns"
+SOURCE_SVG="$SCRIPT_DIR/../Brand/RemoteOrbitMark.svg"
+
+if [[ ! -f "$SOURCE_SVG" ]]; then
+  print -u2 "Missing canonical icon source: $SOURCE_SVG"
+  exit 1
+fi
 
 mkdir -p "$OUTPUT_DIR"
 ICON_CACHE="$(mktemp -d /private/tmp/remoteorbit-icon-cache.XXXXXX)"
 trap 'rm -rf "$ICON_CACHE"' EXIT
 SWIFT_MODULECACHE_PATH="$ICON_CACHE" \
 CLANG_MODULE_CACHE_PATH="$ICON_CACHE" \
-  swift "$SCRIPT_DIR/generate-icon.swift" "$PNG"
+  swift "$SCRIPT_DIR/generate-icon.swift" "$PNG" "$SOURCE_SVG"
 rm -rf "$ICONSET"
 mkdir -p "$ICONSET"
 

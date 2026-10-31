@@ -2,7 +2,7 @@
 
 ## RO-IME-READINESS-PROMPT-SYNC-043 — Final Merge / Runtime / DMG Closeout
 
-Status: `MERGE_PACKAGE_AUTHORIZED / ICON_AUDIT_PENDING`
+Status: `MERGE_PACKAGE_AUTHORIZED / PREMERGE_VERIFIED`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/ime-readiness-prompt-sync-043`
@@ -29,6 +29,29 @@ The owner reports a local application-icon replacement that may not yet be commi
 - reject/stop on unrelated local source changes rather than silently including them.
 
 Human visual approval of the icon remains owner-owned.
+
+## Reconciled icon and premerge evidence
+
+The reconciled 043 worktree was clean at control head
+`9e25c2538aadd64393007cd0f170a479c695b169`; no owner-provided dirty icon path or
+generated `dist/RemoteOrbit.icns` was present locally. The durable source used for
+this closeout is the verified Task 044 remote vector mark at
+`remote-orbit/Brand/RemoteOrbitMark.svg`, SHA-256
+`5af502da5e9a0ccfa299a1faf09288cd98279bb9cc3dee15b4aa517aaf2a0360`. Packaging
+now consumes this source on every `generate-icon.sh` invocation, so the generated
+ICNS is not a dist-only artifact. Settings/About uses
+`NSApp.applicationIconImage`; all status-icon calls retain their existing state
+selection but render the same Template Mark.
+
+The isolated generator produced a valid ICNS with all 10 standard sizes and was
+byte-identical across two runs (SHA-256
+`0955a856d62d1a30b6226ab004a230d7b22f9240093bffb2cbd50be4778e7645`). Focused
+tests passed: VoiceReceiverReadiness 13, VoicePressCoordinator 39,
+VoicePipelineSimplification 34, AudioPipe 12, and BLEBridge 51. Full Swift tests
+passed with 623 tests and 0 failures. Both `arm64-apple-macosx13.0` and
+`x86_64-apple-macosx13.0` Release builds passed, protocol self-tests passed, and
+`git diff --check` passed. No protected voice/BLE/AudioPipe/ATVV/HID/IME/receiver/
+HUD implementation path changed.
 
 ## Merge authority
 
