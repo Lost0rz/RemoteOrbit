@@ -1,45 +1,47 @@
 # RemoteOrbit Current Task
 
-## RO-IME-READINESS-PROMPT-SYNC-043 — main integration / merge gate
+## RO-IME-READINESS-PROMPT-SYNC-043 — post-merge human acceptance gate
 
-Status: `SOURCE_AUDIT_PASS / PR_CI_PENDING`
-TASK_CLASS: `INTEGRATE / MERGE`
+Status: `TASK_043_MERGED / HUMAN_ACCEPTANCE_DEFERRED`
+TASK_CLASS: `HUMAN_ACCEPTANCE / CLOSEOUT`
 Repository: `Lost0rz/RemoteOrbit`
-Integration branch: `codex/task043-main-integration`
-Integration base: `main@75d042acf8c116d8a465b987da4257c6af7ff357`
-Audited source authority: `e4af810b9a981eaec4f31b2863ea59285504dda4`
-User authorization: source-audit PASS may proceed directly to merge; final human audit/runtime test is deferred until after merge.
+Merged PR: `#30`
+Merged integration source: `722063ceab52ac4492faf2de426f21f2dd0833dd`
+Merge commit: `e8ef0d3b98be843408c7c1f3312c71c3eb3870f3`
+Machine audit: `PASS / FRESH_CONTEXT`
+Human runtime acceptance: `PENDING / USER-OWNED`
 
-## Authorized integration
+## Completed
 
-Use a fresh integration tree from current main. Preserve main's durable self-hosted CI authority and import only the already-audited Task 043 semantic delta:
+Task 043 source audit passed and PR #30 was merged after exact-head, live-main, mergeability and durable CI gates were all revalidated.
 
-- `remote-orbit/Sources/RemoteOrbit/main.swift`
-- `remote-orbit/Sources/RemoteOrbit/VoiceReceiverReadiness.swift`
-- `remote-orbit/Tests/RemoteOrbitTests/VoiceBoundaryOrderingTests.swift`
-- `remote-orbit/Tests/RemoteOrbitTests/VoiceInputSourceDiagnosticsTests.swift`
-- `remote-orbit/Tests/RemoteOrbitTests/VoiceKeyFilterTests.swift`
-- `remote-orbit/Tests/RemoteOrbitTests/VoicePressCoordinatorTests.swift`
-- `remote-orbit/Tests/RemoteOrbitTests/VoiceReceiverReadinessTests.swift`
-- `remote-orbit/Tests/RemoteOrbitTests/VoiceTriggerRuntimeTests.swift`
-- `docs/design/2026-10-31-043-long-only-voice-gate-audit.md`
-- `docs/design/2026-10-31-043-long-only-voice-gate-corrective.md`
-- `docs/design/2026-10-31-043-long-only-voice-gate-final-audit-addendum.md`
-- merged durable LONG-only invariant in `AGENTS.md`;
-- these control files.
+The final PR merge tree passed on `remoteorbit-macmini`:
 
-Do not import stale Task 043 control history wholesale. Do not change BLEBridge, AudioPipe, ATVV, driver, packaging, TCC, CoreAudio or installed runtime.
+- source contract checks;
+- protocol self-tests;
+- full `swift test`: `651 / 0`;
+- native Release build;
+- Universal2 build-only packaging smoke.
 
-## Merge gates
+No product install, HAL/driver install or reload, TCC mutation, CoreAudio restart/default-device mutation, tag, or release was performed.
 
-1. PR targets live `main` and its head is the exact integration commit being audited.
-2. PR diff is limited to the authorized paths above and preserves `.github/workflows/remoteorbit-ci.yml`.
-3. Durable CI is actually picked up by `remoteorbit-macmini` under `[self-hosted, macOS, ARM64, remoteorbit]` and all required checks pass.
-4. Live `main` has not moved incompatibly before merge; if it moved, reconcile rather than force.
-5. Merge uses `expected_head_sha` and no stale/force merge.
+## Current authority
 
-## After merge
+No additional Task 043 product mutation is authorized in this phase.
 
-Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together on merged `main` to record `TASK_043_MERGED / HUMAN_ACCEPTANCE_DEFERRED`.
+The next Task 043 acceptance action is user-owned manual validation of the merged behavior, including at minimum:
 
-Do not install/release or claim human PASS. The user will perform the final combined human audit/runtime test later. Task 045 remains blocked until that acceptance/closeout unless explicitly reauthorized.
+- repeated SHORT taps remain invisible/no-op;
+- `SHORT x 1/2/3/4 -> final LONG` enters voice exactly once;
+- normal LONG and release/drain behavior remains correct;
+- rapid LONG/release/LONG remains usable;
+- Doubao receives remote voice without obvious start/middle/end loss;
+- no recurrence of the receiver-readiness CPU/memory storm.
+
+If the user reports PASS, reconcile the installed/tested runtime identity and close Task 043. If the user reports a failure, open a fresh incident from that exact merged/runtime identity and return to evidence-first diagnosis.
+
+## Frozen boundary
+
+Do not install or release automatically and do not claim human PASS.
+
+Task 045 diagnostics-gating and Persistent/Dual-Receiver retirement remains blocked until Task 043 human acceptance/closeout, unless the user explicitly changes that authority in a later request.
