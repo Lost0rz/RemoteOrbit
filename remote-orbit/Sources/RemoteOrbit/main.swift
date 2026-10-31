@@ -7208,32 +7208,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
     }
 
-    private func setStatusIcon(systemName: String, color: NSColor = .white) {
-        guard let symbol = NSImage(
-            systemSymbolName: systemName,
-            accessibilityDescription: ProductIdentity.name
-        ) else { return }
-
-        // Do not rely on NSStatusBarButton's template-image tinting here.
-        // On some macOS menu-bar appearances the button ignores
-        // `contentTintColor` and renders the template symbol black. Rasterize
-        // the small symbol into the requested color so the visible pixels are
-        // deterministic in both light and dark menu bars.
-        let imageSize = NSSize(width: 18, height: 18)
-        let image = NSImage(size: imageSize)
-        image.lockFocus()
-        let imageRect = NSRect(origin: .zero, size: imageSize)
-        symbol.draw(
-            in: imageRect,
-            from: NSRect(origin: .zero, size: symbol.size),
-            operation: .sourceOver,
-            fraction: 1.0
-        )
-        color.set()
-        imageRect.fill(using: .sourceIn)
-        image.unlockFocus()
-        image.isTemplate = false
-
+    private func setStatusIcon(systemName _: String, color _: NSColor = .white) {
+        let image = ProductBrandMark.menuBarTemplateImage(size: 18)
         statusItem?.button?.image = image
         statusItem?.button?.title = ""
         statusItem?.button?.imageScaling = .scaleProportionallyDown
