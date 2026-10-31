@@ -1,33 +1,57 @@
 # RemoteOrbit Current Task
 
-## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — CLOSED
+## RO-BRAND-ICON-UNIFICATION-044 — IN PROGRESS
 
-Status: `CLOSED`
+Status: `IN_PROGRESS`
 
 Repository: `Lost0rz/RemoteOrbit`
 Canonical branch: `main`
+Active task branch: `codex/brand-icon-unification-044`
 
-## Completion
+## Authority
 
-Task 042 is complete and merged.
+User authorized a bounded visual-brand implementation on 2026-10-31: create a canonical RemoteOrbit vector mark and replace the inconsistent Settings/About and menu-bar icon treatments.
 
-Acceptance gates satisfied:
+Task 043 (`RO-IME-READINESS-PROMPT-SYNC-043`) remains a separate follow-on voice/IME task and is not modified by this work.
 
-- Corrective A independent source audit: PASS.
-- Corrective B independent source audit: PASS.
-- Focused/full implementation verification reported green before runtime packaging.
-- Fresh App-only candidate provenance verified.
-- User-owned RC003 runtime acceptance: PASS for the Task 042 core voice-pipeline scope.
-- `main` was fast-forwarded from `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9` through the accepted Task 042 history.
+## Objective
 
-The residual case where RemoteOrbit can display a voice-active HUD while Doubao has not actually reopened is not a Task 042 transport/audio ownership failure. It is extracted to Task 043: `RO-IME-READINESS-PROMPT-SYNC-043`.
+Unify RemoteOrbit iconography around one recognizable `remote + orbit` mother mark:
 
-## Prohibited follow-up under Task 042
+- add an editable canonical SVG vector asset;
+- keep the existing full-color application icon as the Dock/app treatment;
+- make Settings/About show the actual application icon instead of a separately drawn green SF-Symbol tile;
+- make the macOS menu bar use a monochrome RemoteOrbit template mark rather than swapping unrelated SF Symbols by status;
+- keep operational state in menu/status text; any future icon-state decoration must preserve the mother mark.
 
-Do not add IME cooldown/retry/readiness behavior under this closed task. Do not modify the accepted BLE/AudioPipe/pending-repress ownership model under Task 042 without a new explicit incident/task authority.
+## Scope
 
-No release/tag/Gate F is authorized by this closeout.
+Authorized source changes are limited to product branding assets/UI plumbing needed for the icon system, plus focused tests or verification helpers where useful.
 
-## Next task
+Expected affected surfaces:
 
-Reconcile and continue `RO-IME-READINESS-PROMPT-SYNC-043` from the merged `main` baseline.
+- `remote-orbit/Brand/`
+- `remote-orbit/Sources/RemoteOrbit/ProductBranding.swift`
+- the bounded status-item icon rendering code in `remote-orbit/Sources/RemoteOrbit/main.swift`
+- packaging/resource inclusion only if required for the vector/template asset
+- `AGENTS.md`, `CURRENT_STATUS.md`, `CURRENT_TASK.md`
+
+## Non-goals
+
+- No BLE, HID, AudioPipe, voice-session, IME timing/readiness, diagnostic semantics, or remote-control behavior changes.
+- No driver/CoreAudio/TCC/LaunchAgent mutation.
+- No app installation, release, tag, or merge to `main` without a separate acceptance decision.
+- Do not redesign the accepted full-color app icon unless required to make the canonical mark technically consistent.
+
+## Acceptance
+
+1. A single editable RemoteOrbit vector mother mark exists and visually reads as `remote + orbit` at small sizes.
+2. Settings/About no longer hardcodes the old green `circle.dotted.and.circle` tile and instead follows the application identity.
+3. The menu-bar brand silhouette remains stable across ready/waiting/connecting/error/recording states; status remains available in text.
+4. Menu-bar artwork is template-compatible for macOS light/dark menu bars.
+5. Focused source/build verification passes without touching voice/audio behavior.
+6. Human visual acceptance remains user-owned.
+
+## Stop boundary
+
+Stop after implementation, focused verification, remote branch delivery, and a reviewable PR. Do not merge, install, release, or advance Task 043 automatically.

@@ -1,35 +1,35 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — CLOSED`
+State: `RO-BRAND-ICON-UNIFICATION-044 — IN_PROGRESS`
 Repository: `Lost0rz/RemoteOrbit`
 Canonical branch: `main`
+Active task branch: `codex/brand-icon-unification-044`
 
-## Task 042 closeout
+## Reconciled baseline
 
-Task 042 RC003 voice-pipeline simplification is merged into `main` and CLOSED.
+- Canonical `main` was remotely verified at `e090bd74692c44996c1e9d0a08c28512ec2bc92c` before Task 044 activation.
+- Task 042 is CLOSED on `main`.
+- Task 043 (`RO-IME-READINESS-PROMPT-SYNC-043`) remains a separate voice/IME follow-on and is not part of this visual task.
+- Task 044 is authorized for RemoteOrbit brand/icon unification only.
 
-- Pre-merge main: `8f71cde21df6ca1f5a831a8b5390abbfde61e9d9`.
-- Human-acceptance / merge-authorization control: `c890adb3a4895c0915cb863d81be71b71b2ca191`.
-- Merge method: fast-forward; accepted Task 042 history was preserved exactly.
-- Corrective A source: `3d7b55cc557e52e994ff5c5a6b4c2217189f2751`.
-- Corrective B source: `b4904f2faf26535fd39ba97d3a5dd30440de13b9`.
-- Accepted App-only candidate executable SHA-256: `9bf5faa5706a26699b614714573300c4944cfb8dd6770454aea8d1c4e52bc535`.
-- Independent Web source audit: PASS.
-- Fresh user-owned RC003 runtime acceptance: PASS for Task 042 core voice-pipeline scope.
+## Verified icon baseline
 
-Accepted runtime behavior:
+- The full-color application icon is generated separately under `remote-orbit/Packaging/` and already uses a `remote + orbit` visual concept.
+- `ProductBranding.swift` currently draws a separate green rounded tile with SF Symbol `circle.dotted.and.circle`, so Settings/About does not automatically follow the application icon.
+- The menu-bar status item currently swaps unrelated SF Symbols (`exclamationmark.triangle`, `hourglass`, `waveform`, `waveform.slash`, `circle.dotted.and.circle`) based on runtime state and manually recolors them.
 
-- response speed acceptable;
-- no stuck Doubao waveform after physical release;
-- active Doubao voice bar receives RemoteOrbit audio;
-- prior waveform-without-audio and old-A/new-B ownership crossover failures were not reproduced;
-- extreme repress while Doubao is still finishing its own prior-session processing can fail to reopen the IME immediately, but normal activation resumes after the IME finishes.
+## Task 044 target state
 
-That remaining IME-readiness / HUD-truth issue is extracted to Task 043 and does not reopen Task 042.
+- One canonical editable vector mother mark: `remote + orbit`.
+- Existing full-color app icon retained as the application/Dock treatment unless implementation evidence requires a bounded adjustment.
+- Settings/About follows the real application identity rather than maintaining a second icon design.
+- Menu bar uses a stable monochrome RemoteOrbit template mark across runtime states; operational state remains expressed in status/menu text.
 
-No tag, release, Gate F, driver/CoreAudio/TCC mutation, or new runtime installation is part of this closeout.
+## Side-effect boundary
 
-## Next
+No voice/audio/HID/IME behavior mutation, installation, release, tag, driver/CoreAudio/TCC/LaunchAgent mutation, or merge to `main` is authorized in Task 044.
 
-Active follow-on work is `RO-IME-READINESS-PROMPT-SYNC-043`, on its separate task branch after reconciliation onto this merged main ancestry.
+## Human acceptance
+
+Human visual acceptance: `PENDING`.

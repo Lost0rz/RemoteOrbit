@@ -218,3 +218,17 @@ process, driver, LaunchAgent, or TCC state without local evidence.
 18. A task is not closed merely because tests pass. Reconcile current state, callers,
     active worktree/PR, remaining uncertainty, and the explicit acceptance criteria.
 19. A merge does not automatically authorize a release.
+
+## Brand asset authority
+
+20. The canonical RemoteOrbit mother mark is the editable vector asset at
+    `remote-orbit/Brand/RemoteOrbitMark.svg`. Product surfaces must derive their
+    RemoteOrbit identity from this mark or from the packaged application icon that
+    itself represents the same identity; do not introduce a separate ad-hoc product
+    logo in individual views.
+21. Settings/About should follow the packaged application icon instead of drawing a
+    second branded tile with an unrelated SF Symbol.
+22. The macOS menu-bar identity must preserve the RemoteOrbit mother-mark silhouette
+    and use template-compatible monochrome rendering. Runtime state should be
+    communicated through menu/status text or a bounded decoration, not by replacing
+    the brand with unrelated system symbols.
