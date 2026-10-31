@@ -1,64 +1,54 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-IME-READINESS-PROMPT-SYNC-043 — DESIGN_COMPLETE / IMPLEMENTATION_NOT_AUTHORIZED`
+State: `RO-IME-READINESS-PROMPT-SYNC-043 — IMPLEMENTATION_AUTHORIZED / READINESS_SPIKE_FIRST`
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/ime-readiness-prompt-sync-043`
+Merged main baseline: `e090bd74692c44996c1e9d0a08c28512ec2bc92c`
+Design reconciliation merge: `7c4ba75107e30cf3ca7110f9d61cc81842c37242`
+Design authority: `docs/design/2026-10-31-043-ime-readiness-prompt-sync.md`
 
-## Predecessor Task 042 runtime conclusion
+## Predecessor Task 042
 
-Task 042 core voice-pipeline acceptance is complete for its authorized scope based on the user's fresh RC003 runtime observations and preserved candidate logs from app identity:
+Task 042 is merged into `main` and CLOSED. Its accepted BLE/AudioPipe/pending-repress ownership model is frozen for Task 043.
 
-- `/Applications/RemoteOrbit.app`
-- version/build `0.2.14 (43)`
-- executable SHA-256 `9bf5faa5706a26699b614714573300c4944cfb8dd6770454aea8d1c4e52bc535`
-- runtime PID `95613`
+The fresh accepted candidate established:
 
-Human observations relevant to Task 042:
+- response speed acceptable;
+- no stuck Doubao waveform after release;
+- active Doubao voice bar receives RemoteOrbit audio;
+- prior waveform-without-audio and old-A/new-B ownership crossover failures were not reproduced.
 
-- overall reaction speed is acceptable;
-- the prior stuck-Doubao-waveform-after-release symptom was not reproduced;
-- whenever the Doubao voice bar actually appears, speech is accepted;
-- the prior waveform-without-RemoteOrbit-audio failure was not reproduced;
-- rapid re-press ownership/candidate crossover failures from Task 042 were not reproduced;
-- an extreme press can still arrive while the prior IME/session is cleaning up and fail to reopen Doubao, but the next press works after cleanup.
+The remaining defect is separate: RemoteOrbit can show its voice HUD while the external IME has not actually reopened/listened.
 
-The remaining user-visible defect is now separated from Task 042: RemoteOrbit can display its own voice HUD state even when Doubao has not actually entered a listening/capture state. This is classified as receiver-readiness / HUD truth mismatch rather than a BLE/AudioPipe ownership failure.
+## Task 043 authority
 
-Task 042 remains unmerged/unreleased. This control transition does not merge, tag, release, create Gate F, mutate driver/TCC/CoreAudio, or change product source.
-
-## Task 043 design authority
-
-Durable design: `docs/design/2026-10-31-043-ime-readiness-prompt-sync.md`.
-
-Verified current architecture facts:
-
-- `VoicePressCoordinator.State.streaming` is a RemoteOrbit transport/session state, not proof that the external IME is listening.
-- `AppController.updateVoiceHUD` currently maps `.streaming` directly to the green `recording` HUD state.
-- `voicePress.onRemoteAudioChanged(true)` also directly shows the green `recording` HUD state.
-- `RemoteActionHUDState.recording` renders the user-facing title `正在语音中`.
-- `AudioPipe` starts and keeps its own CoreAudio IOProc running for `RemoteOrbit Mic 2ch`, so device-level `kAudioDevicePropertyDeviceIsRunningSomewhere` cannot be treated as external-consumer readiness.
-- The package deployment target remains macOS 13.
-
-External platform research relevant to the design:
-
-- modern Core Audio exposes process objects and per-process `isRunningInput` state;
-- process-object/device properties are only available on newer macOS versions, so any observer must be availability-gated and preserve macOS 13 compatibility;
-- input-scoped process/device reporting must be runtime-validated before it is trusted because the platform has known edge-case behavior when processes switch devices while streaming.
-
-## Selected direction
-
-Task 043 is a truth-layer/HUD-synchronization task, not a new voice-pipeline corrective.
+Task 043 is now authorized for bounded implementation, with a mandatory readiness-signal spike before the observer may control the green listening HUD.
 
 Selected architecture:
 
-1. introduce a read-only `VoiceReceiverReadinessObserver` that attempts to detect an external process actively consuming `RemoteOrbit Mic 2ch`;
-2. keep `VoicePressCoordinator`, BLE ownership, AudioPipe routing, 350 ms tail, 180 ms debounce and Task 042 rapid-repress semantics unchanged;
-3. make AppController own the projection from local voice state + remote-audio availability + receiver readiness into the HUD;
-4. never show a user-facing `正在语音中` claim solely because RemoteOrbit reached `.streaming` or `AUDIO_FIRST`;
-5. do not add a fixed cooldown, trigger retry, trigger delay, Doubao-specific Accessibility scraping, unified-log scraping, or admission gating in Task 043;
-6. if the Core Audio process signal is unsupported or unreliable, fall back to a truthful local state such as `音频已就绪` / `等待输入法`, not a false external-listening claim.
+1. keep `VoicePressCoordinator`, BLE ownership, AudioPipe routing, 350 ms tail, 180 ms debounce and Task 042 rapid-repress semantics unchanged;
+2. add a read-only `VoiceReceiverReadinessObserver` outside those owners;
+3. runtime-validate Core Audio process/input/device membership on supported macOS before treating it as receiver truth;
+4. preserve macOS 13 compatibility with availability gating and explicit unsupported/unknown state;
+5. project HUD from local voice state + remote-audio readiness + receiver readiness;
+6. never show green `正在语音中` solely from `.streaming` or `AUDIO_FIRST`;
+7. if the readiness signal is unsupported or unreliable, fall back to truthful local states (`等待输入法` / `音频已就绪`) and STOP the external-confirmation path rather than inventing a substitute.
+
+## Boundaries
+
+Not authorized:
+
+- BLEBridge/AudioPipe ownership or timing changes;
+- Task 042 state-machine changes;
+- fixed cooldown;
+- automatic trigger retry;
+- trigger delay/admission gating;
+- Doubao-specific private API / AX / unified-log scraping / process-name hardcoding;
+- driver/CoreAudio/TCC mutation;
+- package/install/runtime replacement before source audit;
+- merge/tag/release/Gate F.
 
 ## Next
 
-Implementation is not yet authorized. The next safe action is user review of the Task 043 design, followed by a bounded construction card if approved.
+Execute the Task 043 construction card: first prove/disprove the Core Audio receiver-readiness signal on the target environment; only if reliable, connect it to HUD truth projection. Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT` after bounded implementation and verification.
