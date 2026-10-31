@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — RC003 Runtime Failure Corrective
 
-Status: `RC003_RUNTIME_ACCEPTANCE_FAIL / CORRECTIVE_REQUIRED`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
@@ -106,3 +106,15 @@ Return:
 - next safe action.
 
 After successful implementation, update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together, push only the existing Task 042 branch, verify remote delivery, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install before that audit.
+
+## Completion evidence for the current corrective
+
+- Source implementation commit: `3d7b55cc557e52e994ff5c5a6b4c2217189f2751` (`Fix RC003 owner race admission boundaries`), based on reconciled control head `b193e1a2382e2b132ac6a472a72e151ea5d7f38b`.
+- Corrective A is implemented with an explicit pending-owner begin result, coordinator-owned no-owner arming, B mapped-DOWN capture notification/suppression, the A-complete/B-DOWN-captured promotion barrier, explicit begin-failure cancellation, and existing early-UP/old-UP/replay-ACK lifecycle preservation.
+- Corrective B is implemented with the narrow active-drain released-host predicate: real pending stop reason, released HOST_MIC_OPEN ownership, physical release observed, reason `0x03`, and different stream ID. It retires only stale host ingress/grace intent without `MIC_CLOSE`, preserves READY and queued output, and retains epoch/stale-callback protection.
+- RED: the pre-corrective no-owner pending-owner regression failed at capture. GREEN: exact deployed ordering and all required corrective regressions passed.
+- Focused tests: `VoicePipelineSimplificationTests` 34/34; `VoiceKeyFilterTests` 16/16; `BLEBridgeTests` 50/50; `HIDButtonDownPolicyTests` 5/5; `AudioPipeTests` 12/12.
+- Full `swift test`: 609/609 passed. arm64 and x86_64 Release source builds passed. `run-self-tests.sh`: 3/3 passed. `git diff --check`: passed.
+- Product source/test paths changed only in `BLEBridge.swift`, `main.swift`, `BLEBridgeTests.swift`, and `VoicePipelineSimplificationTests.swift` under `remote-orbit/`.
+- Preserved: no global UNKNOWN remap, READY, strict readiness, 350 ms tail, 180 ms generic debounce, candidate PCM isolation, Gate C ring, Gate D 45 ms reserve, ATVV protocol/codec, driver/TCC/runtime policy. No package/install/runtime retest, merge/tag/release, or Gate F.
+- Control receipt transition: this paired `CURRENT_STATUS.md`/`CURRENT_TASK.md` update is the authoritative stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; the next safe action is independent Web source audit.

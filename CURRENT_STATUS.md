@@ -1,13 +1,14 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — RC003_RUNTIME_ACCEPTANCE_FAIL / CORRECTIVE_REQUIRED`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
 
 ## Current authority
 
-- Runtime candidate under test came from accepted product source `ef606a3f712304cf43da2e9fb849a87a0bb02a1b` plus control-only descendants.
+- Corrective source is committed locally at `3d7b55cc557e52e994ff5c5a6b4c2217189f2751` (`Fix RC003 owner race admission boundaries`), descended from reconciled control head `b193e1a2382e2b132ac6a472a72e151ea5d7f38b`.
+- The corrective has not been packaged, installed, or hardware-runtime tested.
 - Installed app identity was verified during the failed run: `/Applications/RemoteOrbit.app`, PID `31333`, version `0.2.14 (43)`, executable SHA-256 `2799d6a4b2b13a08f4304e00b75962c2dfaf95fd6d25e65894ae7e7ad30ee935`.
 - Independent Web `CODE_DIFF` audit of `ef606a3f...` remains a source-level PASS; the fresh RC003 hardware/runtime acceptance is now FAIL.
 - New runtime evidence/design addendum: `docs/incidents/2026-10-31-042-rc003-runtime-owner-race.md`.
@@ -47,10 +48,23 @@ The existing released-HOST supersession rule only activates after the drain barr
 
 ## Corrective direction
 
-Continue the existing Task 042 with two bounded corrections:
+The two bounded corrections are implemented and locally verified:
 
 1. make direct-output-drain B hardware capture explicit even when A has no filter-owned old-UP owner; do not ignore pending-owner arm failure; require a two-condition promotion barrier: A terminal/output ownership complete and B mapped DOWN actually captured;
 2. allow a new physical reason `0x03` / different stream ID to supersede a terminal released HOST_MIC_OPEN drain when released-host grace proves A is already physically released, while preserving queued A output, READY, epoch protection and stale-MIC_CLOSE safety.
+
+## Source corrective evidence
+
+- Finding A validation: the deployed no-owner `noOptionEdge` ordering was reproduced. `PendingHardwareOptionRepressBeginResult` distinguishes awaiting old-UP acknowledgement, no old-UP owner, and rejection; the coordinator observes rejection, captures/suppresses B mapped DOWN, and promotes only after A terminal/output completion and B DOWN capture.
+- Finding B validation: active drain + released HOST_MIC_OPEN grace + physical release + reason `0x03` + different stream ID now supersedes narrowly; old host intent/grace is retired without `MIC_CLOSE`, READY remains reusable, and stale drain/grace callbacks cannot retire B.
+- RED evidence: the pre-corrective no-owner regression failed because the pending hardware owner could not be captured.
+- GREEN evidence: the deployed-order no-owner lifecycle, A-before-B-DOWN ordering, explicit begin failure, early-B-UP cancellation, old-UP/replay-ACK path, released-host active-drain supersession, stale-callback protection, focused suites, full suite, release builds and protocol self-tests all passed.
+- Focused suites: `VoicePipelineSimplificationTests` 34/34, `VoiceKeyFilterTests` 16/16, `BLEBridgeTests` 50/50, `HIDButtonDownPolicyTests` 5/5, `AudioPipeTests` 12/12.
+- Full Swift tests: 609/609 passed.
+- Release builds: arm64 and x86_64 source binaries passed architecture checks using the established package build triples.
+- Protocol self-tests: 3/3 passed. `git diff --check`: passed.
+- Changed product/test paths: `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`, `remote-orbit/Sources/RemoteOrbit/main.swift`, `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift`, `remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift`.
+- No package/install/runtime retest, driver/CoreAudio/TCC mutation, merge/tag/release, or Gate F occurred.
 
 Do not add a generic Doubao delay/re-arm timer yet. The user's observation that Doubao may reject input while post-processing remains plausible, but the current capture already proves two independent RemoteOrbit failures. Revisit IME readiness only after these internal failures are removed and a later capture shows healthy RemoteOrbit route/render with Doubao still refusing speech.
 
@@ -66,4 +80,4 @@ Do not add a generic Doubao delay/re-arm timer yet. The user's observation that 
 
 ## Next
 
-Implement the bounded corrective on the existing Task 042 branch, add deterministic regressions matching the deployed ordering, run focused/full tests plus release/protocol checks, update controls with actual evidence, push and verify the existing branch, then stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+Push and verify the existing Task 042 branch after the paired control receipt commit, then stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Independent Web source audit is the next safe action. Human RC003 runtime acceptance remains pending and user-owned.
