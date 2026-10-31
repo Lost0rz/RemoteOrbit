@@ -1,56 +1,62 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-IME-READINESS-PROMPT-SYNC-043 — MEMORY_STABILITY_CORRECTIVE_AUTHORIZED`
+State: `RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031 — REMOTE_SMOKE_PASS — DRAFT_PR_OPEN`
 Repository: `Lost0rz/RemoteOrbit`
-Active branch: `main` control authority; implementation branch to use `codex/ime-readiness-stability-043`
-Merged product baseline: `8b76ee336d36e9dd58d072bd5ab1dae208b3a77f`
-Current main/control parent: `5144678bb529a2128e53f4eb285d752cdf45473a`
-Corrective design authority: `docs/design/2026-10-31-043-receiver-readiness-stability-corrective.md`
+Control parent before this task: `85061ab13ebe57ed485f06966f90275a6f53a6b9`
+Active branch: `codex/ci-self-hosted-runner-migration-20261031`
+Authoritative workspace: `/Volumes/Jack-Dev/Projects/remoteorbit`
 
-## Runtime incident
+## Repository identity
 
-Human acceptance of the merged 0.2.15 Task 043 candidate is BLOCKED by an established memory/CPU regression in `VoiceReceiverReadinessObserver`.
+- Canonical remote: `https://github.com/Lost0rz/remoteorbit.git` (`origin`)
+- Fetched `origin/main`: `85061ab13ebe57ed485f06966f90275a6f53a6b9`
+- Local branch was created from that exact fetched ref.
+- Previous Task 043 corrective authority remains preserved on
+  `codex/ime-readiness-stability-043` and its separate worktree; it is not being
+  edited, merged, or used as the CI writer.
+- Existing unrelated open PRs are #25, #26, and #28; none is this task.
 
-Frozen PID 14011 evidence:
+## Current host evidence
 
-- physical footprint about 6.0 GB;
-- default malloc zone about 6.4 GB / about 127.55 million allocations;
-- `Malloc Small` about 5.2 GB and `Malloc Large` about 0.8 GB;
-- CPU roughly 100-170% during the capture;
-- readiness queue active in 1848/1848 samples;
-- 877 samples in `AudioObjectAddPropertyListenerBlock` via `installProcessListeners`;
-- 816 samples in `AudioObjectRemovePropertyListenerBlock` via `removeProcessListeners`;
-- Core Audio HAL listener queue simultaneously saturated by property/listener work;
-- RemoteOrbit became unresponsive and the remote-button path stopped responding.
+- Host architecture: `arm64`
+- macOS: `26.6.2` (`25G83`)
+- Xcode developer directory: `/Applications/Xcode.app/Contents/Developer`
+- Swift: `6.4.2`
+- Existing runner convention: `/Users/ox_miles/CI/runners/<repository>` with the
+  official `svc.sh` launchd service and an isolated `_work` directory.
+- No local RemoteOrbit runner directory, process, launchd service, or GitHub
+  registration was found at task start.
+- Official actions/runner release observed: `v2.338.2`; the macOS ARM64 asset is
+  available.
+- Workflow authority added at `.github/workflows/remoteorbit-ci.yml`; no prior
+  workflow existed on the fetched baseline.
+- Local pure-software verification passed: protocol self-tests, full Swift tests
+  (`623`, `0` failures), native Release build, and build-only Universal2 packaging
+  smoke. No app/driver installation or CoreAudio/TCC mutation was performed.
+- GitHub runner registration: ID `21`, name `remoteorbit-macmini`, status `online`,
+  `busy=false`, labels `self-hosted`, `macOS`, `ARM64`, `remoteorbit`.
+- Official service evidence: `.service` points to
+  `/Users/ox_miles/Library/LaunchAgents/actions.runner.Lost0rz-RemoteOrbit.remoteorbit-macmini.plist`;
+  `launchctl` reports the service loaded and `Runner.Listener` is alive. No
+  `Runner.Worker` is present while idle.
+- Implementation-head remote smoke run `41204522588` completed `success`; job
+  `124546780458` was picked up by runner `remoteorbit-macmini` with the required
+  labels. The run passed checkout, environment/source checks, protocol self-tests,
+  all Swift tests, native Release build, and build-only packaging smoke. The
+  follow-up control-only run `41204786216` also completed `success`.
+- After the job, GitHub still reports the runner `online` and `busy=false`; the
+  isolated `_work` directory measured about `420M` with no cleanup of unknown files.
+- Draft PR #29 is open and mergeable; no merge or `main` mutation was performed.
 
-Root-cause status: `ESTABLISHED` for a listener-refresh/callback-amplification storm. The current implementation rebuilds the full Core Audio process-listener graph from property callbacks, creating unbounded listener/dispatch churn. The icon, log volume, and AudioPipe buffering are not supported as the source of this incident.
+## Active task
 
-## Selected corrective architecture
-
-Replace the persistent Core Audio listener graph with a session-scoped snapshot sampler:
-
-- zero Core Audio process property listeners in the readiness path;
-- one private serial queue;
-- at most one timer while the HUD needs receiver truth;
-- immediate sample on activation plus nominal 100 ms bounded sampling while active;
-- zero readiness timer/background sampling when idle/draining;
-- synchronous read-only Core Audio snapshots only;
-- fail-closed non-green state on unavailable/partial reads;
-- no readiness influence on BLE, AudioPipe, HID, trigger timing, admission, cooldown, retry, or Task 042 transport ownership.
-
-The previous anti-polling boundary is superseded specifically for this evidence-driven architectural replacement. This is not authorization for generic timers elsewhere.
-
-## Accepted limitation unchanged
-
-The owner still accepts the existing rapid-double-press edge: if Doubao is still post-processing the previous external IME session, RemoteOrbit may truthfully reflect the physical press while Doubao does not reopen. No cooldown/retry/state-machine optimization is requested for that edge.
-
-## Release/runtime status
-
-The existing 0.2.15 (44) App/DMG is NOT accepted for continued use because of the memory incident. Do not tag/publish it. Do not treat prior startup/package verification as runtime acceptance.
-
-Task 042 remains CLOSED and frozen.
+`RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031` is the sole active writer for this
+workspace. It is limited to repository CI infrastructure and the dedicated
+repository-scoped self-hosted runner. The normal RemoteOrbit runtime and Task 043
+acceptance remain separate and must not be changed or reinterpreted.
 
 ## Next
 
-Implement the bounded Task 043 readiness-stability corrective on `codex/ime-readiness-stability-043`, run source/regression verification, push and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. No package/install/runtime replacement before that source audit.
+Keep PR #29 Draft for review. Do not merge or change Task 043 runtime acceptance;
+the dedicated runner/service may remain online and idle for future RemoteOrbit CI.

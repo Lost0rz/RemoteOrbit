@@ -1,203 +1,111 @@
 # RemoteOrbit Current Task
 
-## RO-IME-READINESS-PROMPT-SYNC-043 — Receiver Readiness Stability Corrective
+## RO-CI-SELF-HOSTED-RUNNER-MIGRATION-20261031 — Dedicated macOS ARM64 CI
 
-Status: `MEMORY_STABILITY_CORRECTIVE_AUTHORIZED`
-
+Status: `REMOTE_SMOKE_PASS — DRAFT_PR_OPEN`
+TASK_CLASS: `EXECUTION`
 Repository: `Lost0rz/RemoteOrbit`
-Control authority: `main`
-Implementation branch: `codex/ime-readiness-stability-043`
-Merged product baseline: `8b76ee336d36e9dd58d072bd5ab1dae208b3a77f`
-Control parent before this reconciliation: `5144678bb529a2128e53f4eb285d752cdf45473a`
-Corrective design authority: `docs/design/2026-10-31-043-receiver-readiness-stability-corrective.md`
+Canonical remote: `https://github.com/Lost0rz/remoteorbit.git`
+Control baseline: `85061ab13ebe57ed485f06966f90275a6f53a6b9`
+Implementation branch: `codex/ci-self-hosted-runner-migration-20261031`
+Workspace: `/Volumes/Jack-Dev/Projects/remoteorbit`
 
-## Objective
+## Authority and objective
 
-Replace the faulty persistent Core Audio process-listener readiness observer with a bounded, long-lived-safe receiver-readiness architecture while preserving all accepted Task 042 voice behavior and the accepted Task 043 HUD semantics.
+The user explicitly authorizes this task to establish a repository-scoped GitHub
+Actions self-hosted macOS ARM64 Runner on the current Mac mini and migrate
+RemoteOrbit's durable automated source checks, Swift tests, and Release build to
+that runner. This is CI/repository infrastructure work only. Task 043 product
+runtime acceptance, BLE, ATVV, AudioPipe, HID, voice state, and HAL-driver
+behavior remain outside scope and must remain untouched.
 
-This remains Task 043. It is a corrective to the same receiver-readiness feature, not a successor task.
+The durable target is one clear workflow, `.github/workflows/remoteorbit-ci.yml`,
+triggered by pull requests and pushes to `main`, using:
 
-## Established incident
+```text
+runs-on: [self-hosted, macOS, ARM64, remoteorbit]
+```
 
-Human runtime acceptance is blocked by the 0.2.15 candidate's memory/CPU failure. PID 14011 evidence established a listener-refresh/callback-amplification storm:
+The target runner identity is `remoteorbit-macmini` with custom label `remoteorbit`,
+registered only for `Lost0rz/RemoteOrbit`. The runner must be installed outside the
+repository, preferably under the existing shared convention
+`/Users/ox_miles/CI/runners/remoteorbit`, with an isolated `_work` directory.
 
-- about 6.0 GB physical footprint;
-- about 127.55 million allocations in the default malloc zone;
-- readiness queue continuously active in the sample window;
-- dominant stacks repeatedly removing and adding Core Audio property-listener blocks;
-- simultaneous Core Audio HAL property/listener saturation;
-- high CPU and eventual app/input unresponsiveness.
+## Required work
 
-The current full listener-graph rebuild on process property callbacks is not acceptable for a permanent background service.
+1. Revalidate remote, branch, HEAD, worktree cleanliness, `origin/main`, open PRs,
+   workflow inventory, host architecture, macOS, Xcode, and Swift before mutation.
+2. Use the official `actions/runner` macOS ARM64 release. Obtain a one-time
+   registration token only through the authenticated GitHub CLI/API; never place a
+   token in source, task records, scripts, shell history, or logs.
+3. Use the official unattended configuration and `svc.sh` macOS service mechanism;
+   do not create a second custom daemon or plist. Verify installed/running service,
+   live Listener process, GitHub online/idle state, and normal session persistence.
+4. Add the durable workflow with bounded concurrency and a clean, reproducible
+   checkout. It must record macOS, architecture, Swift, Xcode path, and runner
+   name; verify the canonical Swift package paths; run the existing full Swift test
+   command; and run the canonical Release build after confirming it.
+5. Add packaging smoke only if it is demonstrably build-only and cannot install,
+   replace, reload, or mutate the host. Otherwise document that it is intentionally
+   omitted. Do not add the next-task Persistent/Dual Receiver retirement rules.
+6. Classify all existing workflows as keep/migrate/retire/historical. Retire only
+   completed task-specific workflows that can still trigger unwanted jobs; do not
+   remove a workflow that still carries current authority without explicit evidence.
+7. Use bounded runner/workspace hygiene. Do not read other worktrees or historical
+   `/private/tmp` evidence, reuse user build artifacts, or delete unknown files.
+8. Run at least one bounded remote smoke and preserve evidence that the job was
+   picked up by `remoteorbit-macmini`, including test/build result and proof of no
+   host runtime mutation.
 
-## Required architecture
+The workflow is now implemented at `.github/workflows/remoteorbit-ci.yml`. Local
+verification passed for protocol self-tests, full Swift tests (`623`, `0` failures),
+native Release build, and build-only Universal2 packaging smoke. The packaging
+smoke is safe because `package-app.sh` only writes checkout artifacts and temporary
+build directories; it does not install the app or driver or mutate CoreAudio/TCC.
 
-Implement the corrective design exactly at the ownership level, not as a throttle around the old listener graph.
+The runner is registered and online as `remoteorbit-macmini` (GitHub runner ID `21`)
+with labels `self-hosted`, `macOS`, `ARM64`, and `remoteorbit`. The official service
+is installed through `svc.sh` at the shared runner root, and `Runner.Listener` is
+alive while idle. Implementation-head remote smoke run `41204522588` completed
+successfully; job `124546780458` was picked up by `remoteorbit-macmini` and all
+workflow steps passed. Follow-up control-only run `41204786216` also completed
+successfully. GitHub reports the runner online and idle again afterward.
 
-### 1. Remove the production readiness listener graph
+## Authorized repository changes
 
-The Task 043 readiness implementation must contain no production calls to:
+Only these paths may change:
 
-- `AudioObjectAddPropertyListenerBlock`;
-- `AudioObjectRemovePropertyListenerBlock`.
+- `CURRENT_STATUS.md` and `CURRENT_TASK.md` for this control transition and closeout;
+- `.github/workflows/**`;
+- CI-only helper scripts/documentation required by the workflow or runner.
 
-Delete the system-process listener lifecycle, per-process listener registrations, listener-registration arrays/dictionaries, and callback-driven `refreshProcessObjects()` graph rebuild path from the readiness component.
+Do not change `remote-orbit/Sources/RemoteOrbit/**`,
+`remote-orbit-audio-driver/**`, or any BLE/ATVV/AudioPipe/HID/voice lifecycle
+behavior. Do not install or replace the product app or audio driver, restart
+`coreaudiod`, change TCC/Accessibility/Input Monitoring, change default devices,
+run real RC003/Doubao acceptance, delete logs/recordings/configuration, or merge
+to `main`.
 
-Do not leave the old listener model dormant behind a flag.
+## STOP boundaries
 
-### 2. Split monitor lifecycle from Core Audio snapshot reads
+Stop and report without guessing if registration needs unavailable GitHub auth,
+admin permission, a duplicate or unknown `remoteorbit-macmini`, another authoritative
+RemoteOrbit self-hosted runner, any product/runtime host mutation, a product-code
+change to make CI pass, or unknown local runner/worktree state whose cleanup could
+lose data. Preserve local work and classify remote delivery as pending if push or
+PR creation cannot be verified.
 
-Use a small testable separation equivalent to:
+## Verification and delivery
 
-- `CoreAudioVoiceReceiverProbe`: one synchronous read-only readiness sample;
-- `VoiceReceiverReadinessMonitor`: lifecycle/timer/state publication.
+Required evidence includes exact branch/HEAD and clean state, workflow syntax/source
+contract checks, environment evidence, full Swift tests, Release build result,
+runner registration/labels/online state, a remotely dispatched job picked up by this
+runner, and host-runtime-mutation `NONE`. Verify the remote branch after pushing.
 
-Exact names may vary if existing naming is clearer, but ownership must remain separated enough to unit-test scheduling without live Core Audio.
+Commit the control transition and implementation on this branch, push only this
+authorized branch, open a Draft PR for `Lost0rz/RemoteOrbit`, do not merge, and
+stop with human/runtime acceptance of RemoteOrbit still separate.
 
-### 3. Session-scoped bounded sampling
-
-Sampling is active only when the current voice/HUD state can use receiver truth:
-
-- active: `.opening`, `.pending`, `.holding`, `.streaming`;
-- inactive: `.draining`, `.idle`.
-
-On activation:
-
-- start a new generation;
-- sample immediately;
-- maintain at most one `DispatchSourceTimer` on one private serial queue;
-- nominal interval: 100 ms, with reasonable timer leeway.
-
-On deactivation:
-
-- invalidate the generation;
-- cancel/nil the timer;
-- ensure stale work cannot publish;
-- leave a conservative non-listening state.
-
-The timer handler must execute the sample directly on the monitor queue. It must not recursively enqueue another refresh to the same queue. No event can create an unbounded work-item backlog.
-
-### 4. Probe algorithm
-
-Each sample is read-only and synchronous:
-
-1. resolve/cache `RemoteOrbit Mic 2ch` for the active generation;
-2. read `kAudioHardwarePropertyProcessObjectList`;
-3. per process object, read PID and skip the RemoteOrbit PID immediately;
-4. read `kAudioProcessPropertyIsRunningInput`;
-5. only for running-input processes, read input-scoped `kAudioProcessPropertyDevices`;
-6. only for a positive target-device match, read bundle ID if desired for diagnostics;
-7. publish `.listening` only from a fully positive sample.
-
-Fail closed:
-
-- top-level process-list/device-resolution failure -> `.unsupported` / non-green;
-- individual object disappears/read fails -> skip it for this tick;
-- candidate device-membership read fails -> candidate does not count as listening;
-- bundle ID is optional metadata and must not decide readiness truth.
-
-### 5. HUD semantics stay frozen
-
-Preserve the accepted projection:
-
-- opening/pending -> `等待输入法` / non-green;
-- local audio ready without confirmed external receiver -> `音频已就绪` / non-green;
-- fresh external receiver match -> `正在语音中` / green;
-- draining -> existing draining/pending presentation.
-
-Receiver readiness remains advisory. It must not admit, reject, delay, retry, replay, or otherwise control the voice path.
-
-## Resource invariants
-
-Production code and tests must establish:
-
-- Core Audio property listener count in readiness path = 0;
-- idle readiness timer count = 0;
-- active timer count <= 1;
-- concurrently executing readiness samples <= 1;
-- queued deferred readiness refreshes <= 1 (prefer 0; timer-source coalescing/direct execution);
-- no retained per-process snapshots between ticks;
-- no unbounded listener/work-item/dictionary growth tied to interaction count.
-
-## Required tests
-
-Add deterministic seams/fakes and prove at minimum:
-
-1. activation performs immediate sample and creates at most one timer;
-2. repeated activation is idempotent;
-3. deactivate cancels sampling;
-4. stale generation cannot publish after deactivate/reactivate;
-5. large synthetic tick/lifecycle stress (target at least 100,000 operations) leaves bounded scheduler state rather than N queued work items;
-6. own PID excluded;
-7. `runningInput == false` avoids device-membership read;
-8. positive listening requires target input device membership;
-9. per-object read failures are fail-closed and later ticks recover;
-10. top-level query failure is non-green;
-11. HUD projection semantics remain unchanged;
-12. source guard proves no readiness path references `AudioObjectAddPropertyListenerBlock` or `AudioObjectRemovePropertyListenerBlock`.
-
-## Regression verification
-
-Run current Task 043 focused tests and the Task 042 regression suites, then:
-
-- full Swift tests;
-- arm64 Release;
-- x86_64 Release;
-- protocol self-tests;
-- `git diff --check`.
-
-Explicitly confirm no product diff in:
-
-- `BLEBridge.swift`;
-- `AudioPipe.swift`;
-- ATVV;
-- HID ownership/timing;
-- Task 042 pending-repress/transport ownership;
-- driver/TCC/CoreAudio configuration.
-
-`main.swift` may change only to activate/deactivate the readiness monitor from existing voice-state ownership and to remove the always-on listener observer lifecycle.
-
-## Runtime verification sequencing
-
-This implementation card stops after source/regression verification and remote delivery at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
-
-Do not package/install a new candidate before independent Web source audit.
-
-After that audit passes, a separate runtime card will require a clean restart and memory/CPU soak proving:
-
-- zero readiness add/remove-listener stacks;
-- readiness queue idle outside active voice interaction;
-- no sustained readiness CPU saturation;
-- no monotonic memory growth with interaction count;
-- post-warmup RSS remains within a conservative tens-of-MB band rather than scaling toward hundreds of MB/GB;
-- actual Doubao listening still turns the HUD green and stop returns it non-green.
-
-## Accepted limitation unchanged
-
-Do not attempt to fix the accepted rapid-double-press edge while the prior Doubao session is still post-processing. No cooldown/retry/replay/state-machine change is authorized for that behavior.
-
-## Boundaries
-
-Not authorized:
-
-- incremental/persistent Core Audio process-listener registry as an alternative implementation;
-- throttling/debouncing the old listener graph and calling it fixed;
-- background readiness polling while voice/HUD is inactive;
-- receiver readiness as voice admission/timing authority;
-- BLEBridge/AudioPipe/ATVV/HID corrective changes;
-- driver reinstall/reload, TCC reset, CoreAudio restart;
-- tag/release/DMG publication;
-- permanent memory watchdog as a substitute for bounded ownership.
-
-## Delivery
-
-Use one clean worktree/branch for `codex/ime-readiness-stability-043` from the reconciled main control head. Preserve any unique local work.
-
-If implementation and verification succeed:
-
-1. update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together on the corrective branch;
-2. commit and push the existing corrective branch;
-3. verify local/remote equality and clean worktree;
-4. stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
-
-Do not merge to `main` yet.
+The authorized outcome is complete for this task. PR #29 remains Draft and the
+runner is intentionally left installed, service-managed, online, and idle for
+future RemoteOrbit pull-request and `main` CI.
