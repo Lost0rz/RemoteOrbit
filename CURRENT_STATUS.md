@@ -1,14 +1,15 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — SOURCE_AUDIT_STOP / CORRECTIVE_REQUIRED`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
 
 ## Current authority
 
-- Audited source corrective: `3d7b55cc557e52e994ff5c5a6b4c2217189f2751`.
-- Control handoff before this audit: `b81117cf1cd06688c0e4cc08397c42b78de81f48`.
+- Corrective A source remains unchanged at `3d7b55cc557e52e994ff5c5a6b4c2217189f2751`.
+- Corrective B callback-ordering source is committed at `b4904f2faf26535fd39ba97d3a5dd30440de13b9`.
+- Control handoff before this corrective: `9907005054ff795df947b743dae15e6d9ad08671`.
 - Independent Web `CODE_DIFF` audit result: `STOP`.
 - Human RC003 runtime acceptance remains `FAIL`; no new package/install/runtime retest is authorized.
 - Evidence/design authorities remain:
@@ -25,9 +26,9 @@ Corrective A (production `noOptionEdge` pending-owner timing) is source-level ac
 - promotion waits for both A completion and B DOWN capture;
 - early B UP cancellation and the old held-UP/replay-ACK path remain represented by deterministic tests.
 
-Corrective B still has one blocking callback-ordering defect.
+Corrective B's callback-ordering defect was reproduced, corrected and deterministically verified.
 
-### Blocking finding — released HOST_MIC_OPEN active-drain supersession can clear B candidate
+### Finding — released HOST_MIC_OPEN active-drain supersession could clear B candidate
 
 The BLE supersession predicate itself is narrow and appropriate, but the host-grace retirement path calls `notifyStreaming(false)` before B is installed and before `notifyPhysicalTransportSuperseded()` is enqueued.
 
@@ -35,21 +36,24 @@ All three callbacks are dispatched asynchronously to the main queue. By the time
 
 The subsequent `handlePhysicalTransportSupersession()` callback sets preservation too late.
 
-This violates the required invariant that B candidate/prebuffer survive A terminal retirement.
+This violated the required invariant that B candidate/prebuffer survive A terminal retirement.
 
-The new BLE tests verify transport state, READY, stale drain/grace protection and no duplicate MIC_CLOSE, but they do not exercise the real `BLEBridge -> main-queue onStreamingChanged(false) -> VoicePressCoordinator -> AudioPipe` ordering. Therefore the reported 609/609 test pass does not close this blocker.
+The new cross-component regression reproduced this exact ordering before the fix.
 
-## Required next corrective
+## Corrective B implementation evidence
 
-Stay in Task 042. Do not redesign the transport model.
+- Exact source change: in `supersedeReleasedHostMicOpenGraceIfNeeded`, ordinary `notifyStreaming(false)` now executes only when `oldSessionWasStreaming && !allowActiveDrain`. The active-drain replacement path therefore emits only `onPhysicalTransportSuperseded` followed by `onPreHIDPhysicalStreamChanged(true)`.
+- RED: `testReleasedHostActiveDrainSupersessionPreservesCandidateThroughRealMainQueueTerminalOrdering` failed before the fix because ordinary old-A `streaming=false` was emitted and B candidate samples changed from `4` to `0` after the main-queue terminal callbacks.
+- GREEN: the same test passed 1/1. Ordinary old-A `streaming=false` was not emitted; physical supersession callback count was `1`; B candidate samples remained `4` before and after A terminal/output retirement; A completed and released its coordinator session; stale A grace expiration returned false; stale A drain completion left B `.preHIDPhysical` with `4` candidate samples; MIC_CLOSE count remained `0`; B later adopted as `voiceSession` and consumed the candidate prebuffer.
+- Corrective A unchanged: `main.swift` has no diff from `3d7b55cc...`; `VoicePipelineSimplificationTests` remained green at 34/34.
+- Focused suites: `VoicePipelineSimplificationTests` 34/34, `BLEBridgeTests` 51/51, `VoiceKeyFilterTests` 16/16, `HIDButtonDownPolicyTests` 5/5, `AudioPipeTests` 12/12.
+- Full Swift tests: 610/610 passed.
+- Release builds: arm64 and x86_64 source binaries passed architecture checks using the established package build triples.
+- Protocol self-tests: 3/3 passed. `git diff --check`: passed.
+- Product source scope: `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift` only; test scope: `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift`; no `main.swift` or `AudioPipe.swift` change.
+- No package/install/runtime retest, driver/CoreAudio/TCC mutation, merge/tag/release, new probe, or Gate F occurred.
 
-The smallest corrective must ensure that released-HOST active-drain supersession cannot execute an old-A `streaming=false` teardown path that clears B before the coordinator knows the replacement candidate must be preserved.
-
-Acceptable shape: use a single supersession terminal notification/order for this path, or otherwise establish preservation before any old-A terminal callback can invoke candidate teardown. Do not add timers, Doubao cooldown, new probes, AudioPipe redesign, parallel decoders, or global drain/debounce changes.
-
-Add one deterministic cross-component regression that uses the real asynchronous callback ordering and proves:
-
-`released HOST A + active drain -> physical B reason03/new stream -> B candidate/prebuffer installed -> A terminal retirement -> B candidate/prebuffer still present -> B later adoption/promotion succeeds`.
+The bounded implementation uses the existing single physical-supersession terminal boundary and does not redesign the transport model.
 
 ## Preserved boundaries
 
@@ -63,4 +67,4 @@ Add one deterministic cross-component regression that uses the real asynchronous
 
 ## Next
 
-Implement only the callback-ordering/candidate-preservation corrective on the existing Task 042 branch, verify deterministically, push, and stop again at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+Push and verify the paired control receipt on the existing Task 042 branch, then stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. The next safe action is an independent Web source audit; human RC003 runtime acceptance remains pending and user-owned.

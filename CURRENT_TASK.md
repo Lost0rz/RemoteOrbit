@@ -2,11 +2,12 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — RC003 Runtime Failure Corrective
 
-Status: `SOURCE_AUDIT_STOP / CORRECTIVE_REQUIRED`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
-Audited source corrective: `3d7b55cc557e52e994ff5c5a6b4c2217189f2751`
+Audited source corrective A: `3d7b55cc557e52e994ff5c5a6b4c2217189f2751`
+Corrective B implementation: `b4904f2faf26535fd39ba97d3a5dd30440de13b9`
 Evidence/design authorities:
 - `docs/incidents/2026-10-30-042-host-mic-open-rapid-repress.md`
 - `docs/incidents/2026-10-31-042-rc003-runtime-owner-race.md`
@@ -91,3 +92,13 @@ Return:
 - unresolved issues.
 
 If successful, update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together, push only the existing Task 042 branch, verify remote delivery, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not package/install.
+
+## Completion evidence for Corrective B callback ordering
+
+- RED was observed in `testReleasedHostActiveDrainSupersessionPreservesCandidateThroughRealMainQueueTerminalOrdering`: before the source change, ordinary old-A `streaming=false` was emitted and B candidate/prebuffer fell from 4 samples to 0 during the real main-queue callback sequence.
+- The bounded source change is only `oldSessionWasStreaming && !allowActiveDrain` around ordinary `notifyStreaming(false)` in `BLEBridge.supersedeReleasedHostMicOpenGraceIfNeeded`. Active-drain replacement now uses the existing single `onPhysicalTransportSuperseded` terminal boundary, then B pre-HID notification.
+- GREEN proved no ordinary old-A false callback, physical supersession count 1, B candidate 4 samples before/after A terminal/output retirement, normal A completion, stale grace/drain protection, zero MIC_CLOSE, B `.preHIDPhysical` retention and later B `voiceSession` adoption consuming the prebuffer.
+- Corrective A remains unchanged and green: no `main.swift` diff from `3d7b55cc...`; `VoicePipelineSimplificationTests` 34/34.
+- Focused tests: `VoicePipelineSimplificationTests` 34/34; `BLEBridgeTests` 51/51; `VoiceKeyFilterTests` 16/16; `HIDButtonDownPolicyTests` 5/5; `AudioPipeTests` 12/12. Full `swift test`: 610/610. arm64/x86_64 Release builds passed. ATVV self-tests 3/3 passed. `git diff --check` passed.
+- Changed paths are limited to `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`, `remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift`, and this paired control receipt. No package/install/runtime retest, driver/CoreAudio/TCC mutation, merge/tag/release, or Gate F.
+- The next safe action is independent Web source audit; do not package/install before that audit.
