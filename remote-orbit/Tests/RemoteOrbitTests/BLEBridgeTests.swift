@@ -277,6 +277,139 @@ final class BLEBridgeTests: XCTestCase {
         XCTAssertEqual(bridge.streamOwnershipForTesting, .preHIDPhysical)
     }
 
+    func testReleasedHostActiveDrainSupersessionPreservesCandidateThroughRealMainQueueTerminalOrdering() {
+        let bridge = BLEBridge()
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger { _, _ in }
+        )
+        var ordinaryStreamingEvents: [Bool] = []
+        var preHIDStreamingEvents: [Bool] = []
+        var physicalSupersessionCallbacks = 0
+        var outputDrainCompletion: (() -> Void)?
+        let oldSessionID: String
+        let oldGraceGeneration: UInt64
+        let candidateSamples: [Int16] = [111, 222, 333, 444]
+
+        _ = AudioPipe.shared.setRemoteActive(false)
+        AudioPipe.shared.endRemoteCandidate()
+        defer {
+            bridge.stop()
+            press.stop()
+            _ = AudioPipe.shared.setRemoteActive(false)
+            AudioPipe.shared.endRemoteCandidate()
+        }
+
+        press.hasLivePhysicalCandidate = { [weak bridge] in
+            bridge?.hasLivePreHIDPhysicalCandidate ?? false
+        }
+        press.onRemoteOutputDrain = { _, completion in
+            outputDrainCompletion = completion
+        }
+        press.onStateChanged = { [weak bridge] state in
+            if state == .opening {
+                bridge?.requestVoiceActivationForTesting()
+            }
+        }
+        bridge.onStreamingChanged = { [weak press] streaming, _ in
+            ordinaryStreamingEvents.append(streaming)
+            press?.setRemoteStreaming(streaming)
+        }
+        bridge.onPhysicalTransportSuperseded = { [weak press] in
+            physicalSupersessionCallbacks += 1
+            press?.handlePhysicalTransportSupersession()
+        }
+        bridge.onPreHIDPhysicalStreamChanged = { [weak press] streaming, _ in
+            preHIDStreamingEvents.append(streaming)
+            press?.setPreHIDPhysicalStreaming(streaming)
+        }
+
+        // Establish A as a real direct host-owned stream, then observe its
+        // physical release and released HOST_MIC_OPEN grace before draining.
+        bridge.requestVoiceActivationForTesting()
+        bridge.beginAudioStartForTesting()
+        let sessionA = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: sessionA,
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        bridge.releasePhysicalVoiceInputForTesting()
+        oldSessionID = try! XCTUnwrap(bridge.postReleaseGraceSessionIDForTesting)
+        oldGraceGeneration = bridge.postReleaseGraceGenerationForTesting
+        bridge.beginAudioStopDrainForTesting()
+
+        // B arrives through the real BLE control entry point. Its candidate
+        // is installed before any queued main callbacks execute.
+        bridge.receiveAudioStartForTesting(reason: 0x03, streamID: 0x61)
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .preHIDPhysical)
+        AudioPipe.shared.feedCandidate(samples: candidateSamples)
+        let candidateBeforeTerminalCallbacks =
+            AudioPipe.shared.pendingRemoteCandidateSamplesForTesting
+        XCTAssertEqual(candidateBeforeTerminalCallbacks, candidateSamples.count)
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        // RED on the pre-fix source: ordinary A streaming=false is queued
+        // first and its teardown clears B before supersession can preserve it.
+        XCTAssertTrue(
+            ordinaryStreamingEvents.filter { !$0 }.isEmpty,
+            "active-drain replacement must not enqueue ordinary old-A streaming=false"
+        )
+        XCTAssertEqual(physicalSupersessionCallbacks, 1)
+        XCTAssertEqual(preHIDStreamingEvents, [true])
+        XCTAssertEqual(
+            AudioPipe.shared.pendingRemoteCandidateSamplesForTesting,
+            candidateBeforeTerminalCallbacks,
+            "B candidate must survive A terminal callback ordering"
+        )
+
+        XCTAssertNotNil(outputDrainCompletion)
+        outputDrainCompletion?()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        XCTAssertNil(press.currentGestureIDForDiagnostics)
+
+        XCTAssertFalse(
+            bridge.expirePostReleaseGraceForTesting(
+                sessionID: oldSessionID,
+                generation: oldGraceGeneration
+            )
+        )
+        bridge.beginAudioStopDrainForTesting()
+        bridge.completeStaleAudioStopDrainForTesting()
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .preHIDPhysical)
+        XCTAssertEqual(
+            AudioPipe.shared.pendingRemoteCandidateSamplesForTesting,
+            candidateBeforeTerminalCallbacks
+        )
+        XCTAssertEqual(bridge.micCloseRequestCountForTesting, 0)
+
+        // The preserved B candidate remains adoptable through the normal
+        // direct-session opening path, which flushes the prebuffer into the
+        // active AudioPipe route.
+        let sessionB = UUID()
+        XCTAssertTrue(
+            press.keyDown(
+                sessionID: sessionB,
+                usesHardwareOption: false,
+                profile: .defaultProfile,
+                directSession: true
+            )
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .voiceSession)
+        XCTAssertEqual(
+            AudioPipe.shared.pendingRemoteCandidateSamplesForTesting,
+            0,
+            "B adoption must consume the preserved candidate prebuffer"
+        )
+        XCTAssertTrue(ordinaryStreamingEvents.contains(true))
+    }
+
     func testSameStreamAndNonPhysicalReasonDoNotSupersedePhysicalDrain() {
         let sameStream = BLEBridge.audioStartDisposition(
             drainPending: true,

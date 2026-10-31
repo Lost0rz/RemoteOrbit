@@ -841,7 +841,7 @@ final class BLEBridge: NSObject {
         transportState.finishVoiceSession()
         releasedHostMicOpenGrace = nil
         updateDiagnosticTransportState()
-        if oldSessionWasStreaming {
+        if oldSessionWasStreaming && !allowActiveDrain {
             notifyStreaming(false)
         }
         print(
