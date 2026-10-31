@@ -560,13 +560,16 @@ final class BLEBridge: NSObject {
         pendingAudioStopReason: UInt8?,
         incomingReason: UInt8? = nil,
         currentStreamOwnership: BLEStreamOwnership = .none,
-        currentStreamIsPhysical: Bool = false
+        currentStreamIsPhysical: Bool = false,
+        releasedHostMicOpenDrainSupersessionEligible: Bool = false
     ) -> BLEAudioStartDisposition {
         if drainPending,
            pendingAudioStopReason != nil,
            incomingReason == 0x03,
            incomingStreamID != currentStreamID,
-           (currentStreamOwnership == .preHIDPhysical || currentStreamIsPhysical) {
+           (currentStreamOwnership == .preHIDPhysical
+                || currentStreamIsPhysical
+                || releasedHostMicOpenDrainSupersessionEligible) {
             return .supersedePhysicalDrain
         }
         guard drainPending == false else {
@@ -798,12 +801,35 @@ final class BLEBridge: NSObject {
     /// MIC_OPEN owner. The old request is retired locally because a v1.0
     /// MIC_CLOSE carries the mutable current stream ID and could close the
     /// newly arrived physical stream.
-    private func supersedeReleasedHostMicOpenGraceIfNeeded(reason: UInt8) -> Bool {
+    private func releasedHostMicOpenDrainSupersessionIsEligible(
+        reason: UInt8,
+        incomingStreamID: UInt8
+    ) -> Bool {
+        guard audioStopDrainWorkItem != nil,
+              pendingAudioStopReason != nil,
+              reason == 0x03,
+              incomingStreamID != streamID,
+              streamOwnership == .voiceSession,
+              transportState.micOpenRequested,
+              let owner = releasedHostMicOpenGrace,
+              owner.physicalReleaseObserved,
+              postReleaseGrace.currentSessionID == owner.sessionID else {
+            return false
+        }
+        return true
+    }
+
+    private func supersedeReleasedHostMicOpenGraceIfNeeded(
+        reason: UInt8,
+        incomingStreamID: UInt8,
+        allowActiveDrain: Bool = false
+    ) -> Bool {
         guard reason == 0x03,
               let owner = releasedHostMicOpenGrace,
               owner.physicalReleaseObserved,
               postReleaseGrace.currentSessionID == owner.sessionID,
-              audioStopDrainWorkItem == nil,
+              (audioStopDrainWorkItem == nil || allowActiveDrain),
+              (audioStopDrainWorkItem == nil || incomingStreamID != streamID),
               transportState.micOpenRequested else {
             return false
         }
@@ -1766,6 +1792,11 @@ extension BLEBridge: CBPeripheralDelegate {
                 print("[BLE] caps error: \(error.localizedDescription)")
             }
         case .audioStart(let reason, let codec, let sid):
+            let releasedHostMicOpenDrainSupersessionEligible =
+                releasedHostMicOpenDrainSupersessionIsEligible(
+                    reason: reason,
+                    incomingStreamID: sid
+                )
             let disposition = Self.audioStartDisposition(
                 drainPending: audioStopDrainWorkItem != nil,
                 currentStreamID: streamID,
@@ -1773,23 +1804,37 @@ extension BLEBridge: CBPeripheralDelegate {
                 pendingAudioStopReason: pendingAudioStopReason,
                 incomingReason: reason,
                 currentStreamOwnership: streamOwnership,
-                currentStreamIsPhysical: streamSessionOrigin == .physicalHTT
+                currentStreamIsPhysical: streamSessionOrigin == .physicalHTT,
+                releasedHostMicOpenDrainSupersessionEligible:
+                    releasedHostMicOpenDrainSupersessionEligible
             )
             let supersedingPhysicalDrain: Bool
             switch disposition {
             case .accepted:
                 supersedingPhysicalDrain = false
-                if !supersedeReleasedHostMicOpenGraceIfNeeded(reason: reason) {
+                if !supersedeReleasedHostMicOpenGraceIfNeeded(
+                    reason: reason,
+                    incomingStreamID: sid
+                ) {
                     cancelPostReleaseGraceIfIncompatibleSession()
                 }
                 break
             case .supersedePhysicalDrain:
                 supersedingPhysicalDrain = true
+                let supersededReleasedHost =
+                    supersedeReleasedHostMicOpenGraceIfNeeded(
+                        reason: reason,
+                        incomingStreamID: sid,
+                        allowActiveDrain:
+                            releasedHostMicOpenDrainSupersessionEligible
+                    )
                 // This retires only A's BLE ingress barrier. AudioPipe's
                 // already-queued output remains untouched for the normal
                 // output-drain lifecycle.
                 _ = retireAudioStopDrainBarrier()
-                cancelPostReleaseGraceIfIncompatibleSession()
+                if !supersededReleasedHost {
+                    cancelPostReleaseGraceIfIncompatibleSession()
+                }
             case let .ignoredDuringDrain(currentStreamID, incomingStreamID, reason):
                 let reasonText = reason.map { String(format: "0x%02x", $0) } ?? "none"
                 print(

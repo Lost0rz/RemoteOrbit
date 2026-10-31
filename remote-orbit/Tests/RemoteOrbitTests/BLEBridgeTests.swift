@@ -247,6 +247,36 @@ final class BLEBridgeTests: XCTestCase {
         XCTAssertEqual(bridge.streamOwnershipForTesting, .none)
     }
 
+    func testReleasedHostMicOpenActiveDrainReason03DifferentStreamSupersedesImmediately() {
+        let bridge = BLEBridge()
+        defer { bridge.stop() }
+
+        bridge.requestVoiceActivationForTesting()
+        bridge.beginAudioStartForTesting()
+        bridge.releasePhysicalVoiceInputForTesting()
+        bridge.beginAudioStopDrainForTesting()
+        XCTAssertTrue(bridge.isVoiceSessionAdmissionBlocked)
+        XCTAssertTrue(bridge.postReleaseGraceWaitingForTesting)
+
+        bridge.receiveAudioStartForTesting(reason: 0x03, streamID: 0x61)
+
+        XCTAssertFalse(bridge.isVoiceSessionAdmissionBlocked)
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .preHIDPhysical)
+        XCTAssertTrue(bridge.hasLivePreHIDPhysicalCandidateForTesting)
+        XCTAssertFalse(bridge.postReleaseGraceWaitingForTesting)
+        XCTAssertFalse(bridge.voiceInputRequestedForTesting)
+        XCTAssertFalse(bridge.micOpenRequestedForTesting)
+        XCTAssertEqual(bridge.micCloseRequestCountForTesting, 0)
+        XCTAssertTrue(bridge.canReuseReadyTransportForTesting)
+
+        // A canceled old drain callback cannot retire the replacement B epoch.
+        bridge.beginAudioStopDrainForTesting()
+        bridge.completeStaleAudioStopDrainForTesting()
+        XCTAssertTrue(bridge.isVoiceSessionAdmissionBlocked)
+        XCTAssertTrue(bridge.hasLivePreHIDPhysicalCandidateForTesting)
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .preHIDPhysical)
+    }
+
     func testSameStreamAndNonPhysicalReasonDoNotSupersedePhysicalDrain() {
         let sameStream = BLEBridge.audioStartDisposition(
             drainPending: true,
@@ -254,7 +284,8 @@ final class BLEBridgeTests: XCTestCase {
             incomingStreamID: 0x4c,
             pendingAudioStopReason: 0x02,
             incomingReason: 0x03,
-            currentStreamOwnership: .preHIDPhysical
+            currentStreamOwnership: .voiceSession,
+            releasedHostMicOpenDrainSupersessionEligible: true
         )
         XCTAssertEqual(
             sameStream,
@@ -271,7 +302,8 @@ final class BLEBridgeTests: XCTestCase {
             incomingStreamID: 0x4d,
             pendingAudioStopReason: 0x02,
             incomingReason: 0x02,
-            currentStreamOwnership: .preHIDPhysical
+            currentStreamOwnership: .voiceSession,
+            releasedHostMicOpenDrainSupersessionEligible: true
         )
         XCTAssertEqual(
             nonPhysicalReason,
