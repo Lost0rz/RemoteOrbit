@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-10-31
-State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — SOURCE_AUDIT_PASS / HUMAN_RUNTIME_ACCEPTANCE_PENDING`
+State: `RO-VOICE-PIPELINE-SIMPLIFICATION-042 — READY_FOR_HUMAN_RUNTIME_ACCEPTANCE`
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
 
@@ -29,9 +29,9 @@ Source verification reported by the implementation context: focused `96/96`, ful
 
 ## Runtime state
 
-The previously installed `0.2.14 (43)` candidate predates the final corrective and previously FAILED human RC003 extreme rapid-repress acceptance. Its result must not be reused for `ef606a3f...`.
+The previously installed `0.2.14 (43)` candidate predates the final corrective and previously FAILED human RC003 extreme rapid-repress acceptance. Its result is not reused for `ef606a3f...`.
 
-A fresh package/install of the latest source candidate is now authorized. Runtime preparation must preserve source equivalence and must not reinstall/mutate the audio driver or reset TCC.
+Runtime-preparation receipt (FACT, 2026-10-31): local and remote control HEAD are `82b6cd3a65c9835b38a4cf8be5c6eaef8008e7fe`; the range from accepted source `ef606a3f712304cf43da2e9fb849a87a0bb02a1b` to that HEAD contains only `CURRENT_STATUS.md` and `CURRENT_TASK.md`. `./remote-orbit/package-app.sh` completed arm64 and x86_64 Release builds and produced `/Volumes/Jack-Dev/Projects/remoteorbit-voice-pipeline-simplification-042/remote-orbit/dist/RemoteOrbit.app`; the Universal2 executable SHA-256 is `2799d6a4b2b13a08f4304e00b75962c2dfaf95fd6d25e65894ae7e7ad30ee935`, with valid designated-requirement code signing. `./remote-orbit/install-app.sh` replaced only `/Applications/RemoteOrbit.app`; installed provenance matches the package by executable SHA, Bundle ID `com.lost0rz.RemoteOrbit`, version `0.2.14`, build `43`, architectures `x86_64 arm64`, and diagnostic source head `82b6cd3a65c9835b38a4cf8be5c6eaef8008e7fe`. The old app was quit before replacement; the fresh app is running at PID `31333` from `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`. Startup log `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log` records BLE ready, RemoteOrbit Mic 2ch IOProc start at 48000 Hz stereo/default input, HID permissions ready, RC003 waiting/connected monitored. The installed driver executable SHA-256 remained `d2c72d9e433e2f6ccdec50eb8298e3e36ddbbb0d0f72e13b728c17f6a48c5446` before and after; no driver mutation or TCC reset was performed.
 
 Human acceptance remains user-owned. Required retest focus:
 
@@ -46,4 +46,4 @@ If any failure occurs, preserve the fresh RemoteOrbit runtime and diagnostic log
 
 ## Next
 
-Build/package/install the exact current Task 042 branch candidate without product-source mutation, verify installed/running provenance, and stop at `READY_FOR_HUMAN_RUNTIME_ACCEPTANCE`. Do not merge, tag, release, reinstall the driver, reset TCC, or claim human acceptance.
+User performs the human RC003 hardware acceptance run against the fresh PID `31333` candidate. Preserve the fresh app and logs if any failure occurs. Do not merge, tag, release, reinstall the driver, reset TCC, or claim human acceptance.
