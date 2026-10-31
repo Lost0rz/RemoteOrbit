@@ -2,6 +2,16 @@ import XCTest
 @testable import RemoteOrbit
 
 final class LongTermObservabilityTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+    }
+
+    override func tearDown() {
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        super.tearDown()
+    }
+
     func testFixedTracePreservesFrontAndWrapsRecentWithoutAllocatingOnAppend() {
         var trace = FixedCapacityObservationTrace(frontCapacity: 2, recentCapacity: 3)
         for timestamp in UInt64(1)...6 {

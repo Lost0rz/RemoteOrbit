@@ -191,9 +191,18 @@ final class DiagnosticRuntimeHealthService: @unchecked Sendable {
         self.authority = authority
         self.registry = registry
         self.queue = queue
+        DiagnosticsRuntimeGate.shared.observe { [weak self] enabled in
+            guard let self else { return }
+            if enabled {
+                self.start()
+            } else {
+                self.stop()
+            }
+        }
     }
 
     func start() {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         guard timer == nil else {
             lock.unlock()
@@ -214,11 +223,21 @@ final class DiagnosticRuntimeHealthService: @unchecked Sendable {
     }
 
     func stopForTesting() {
+        stop()
+    }
+
+    func stop() {
         lock.lock()
         let timer = self.timer
         self.timer = nil
         lock.unlock()
         timer?.cancel()
+    }
+
+    var timerCountForTesting: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return timer == nil ? 0 : 1
     }
 
     func emitHeartbeat() {
@@ -239,6 +258,7 @@ final class DiagnosticRuntimeHealthService: @unchecked Sendable {
     }
 
     private func emit(cadence: String, extra: [String: DiagnosticJSONValue]) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         var state = registry.snapshot(extra: extra)
         state["diagnostic_dropped_event_count"] = .unsignedInteger(authority.droppedEventCount)
         state["diagnostic_write_failure_count"] = .unsignedInteger(authority.writeFailureCount)
@@ -292,7 +312,14 @@ final class VoiceStartWatchdog: @unchecked Sendable {
         self.registry = registry
         self.clock = clock
         self.automaticallySchedule = automaticallySchedule
-        if automaticallySchedule { startTimer() }
+        DiagnosticsRuntimeGate.shared.observe { [weak self] enabled in
+            guard let self else { return }
+            if enabled {
+                self.startTimerIfNeeded()
+            } else {
+                self.stopTimer()
+            }
+        }
     }
 
     func begin(
@@ -306,7 +333,7 @@ final class VoiceStartWatchdog: @unchecked Sendable {
             sessionID: sessionID,
             startedAt: timestampNanoseconds,
             lastStage: "PHYSICAL_DOWN",
-            state: registry.snapshot()
+            state: DiagnosticsRuntimeGate.shared.isEnabled ? registry.snapshot() : [:]
         )
         lock.unlock()
     }
@@ -329,7 +356,7 @@ final class VoiceStartWatchdog: @unchecked Sendable {
         active.armed = true
         self.active = active
         lock.unlock()
-        if automaticallySchedule { startTimer() }
+        if automaticallySchedule { startTimerIfNeeded() }
     }
 
     func update(
@@ -380,6 +407,7 @@ final class VoiceStartWatchdog: @unchecked Sendable {
     }
 
     func evaluate(at timestampNanoseconds: UInt64) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         let emission: (stageEvent: String, attemptID: String, sessionID: String, lastStage: String, missingStage: String, elapsedMS: Double, state: [String: DiagnosticJSONValue])?
         lock.lock()
         guard var active,
@@ -438,9 +466,10 @@ final class VoiceStartWatchdog: @unchecked Sendable {
         }
     }
 
-    private func startTimer() {
+    private func startTimerIfNeeded() {
+        guard automaticallySchedule, DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
-        guard timer == nil else {
+        guard timer == nil, active?.armed == true else {
             lock.unlock()
             return
         }
@@ -457,6 +486,20 @@ final class VoiceStartWatchdog: @unchecked Sendable {
         timer.resume()
     }
 
+    private func stopTimer() {
+        lock.lock()
+        let timer = self.timer
+        self.timer = nil
+        lock.unlock()
+        timer?.cancel()
+    }
+
+    var timerCountForTesting: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return timer == nil ? 0 : 1
+    }
+
     private func emit(
         stageEvent: String,
         attemptID: String,
@@ -466,6 +509,7 @@ final class VoiceStartWatchdog: @unchecked Sendable {
         elapsedMS: Double,
         state: [String: DiagnosticJSONValue]
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         guard let input = try? DiagnosticEventInput(
             eventType: "voice.start.watchdog",
             subsystem: "voice.start",
@@ -491,6 +535,7 @@ final class VoiceStartWatchdog: @unchecked Sendable {
         missingStage: String,
         state: [String: DiagnosticJSONValue]
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         guard let input = try? DiagnosticEventInput(
             eventType: "voice.failure.classified",
             subsystem: "voice.failure",
@@ -555,7 +600,8 @@ final class VoiceAttemptDiagnostics: @unchecked Sendable {
         timestampNanoseconds: UInt64? = nil,
         state: [String: DiagnosticJSONValue] = [:]
     ) -> UUID {
-        let timestamp = timestampNanoseconds ?? clock()
+        let diagnosticsEnabled = DiagnosticsRuntimeGate.shared.isEnabled
+        let timestamp = timestampNanoseconds ?? (diagnosticsEnabled ? clock() : 0)
         lock.lock()
         if let current {
             let id = current.id
@@ -569,7 +615,7 @@ final class VoiceAttemptDiagnostics: @unchecked Sendable {
             sessionID: nil,
             lastStage: "PHYSICAL_DOWN",
             lastStageAt: timestamp,
-            state: mergedState(extra: state)
+            state: diagnosticsEnabled ? mergedState(extra: state) : [:]
         )
         let snapshot = current!
         lock.unlock()
@@ -590,7 +636,7 @@ final class VoiceAttemptDiagnostics: @unchecked Sendable {
         }
         current.sessionID = sessionID
         current.lastStage = "GESTURE_BEGIN"
-        current.lastStageAt = clock()
+        current.lastStageAt = DiagnosticsRuntimeGate.shared.isEnabled ? clock() : 0
         self.current = current
         let snapshot = current
         lock.unlock()
@@ -622,22 +668,25 @@ final class VoiceAttemptDiagnostics: @unchecked Sendable {
         timestampNanoseconds: UInt64? = nil,
         state: [String: DiagnosticJSONValue] = [:]
     ) {
-        let timestamp = timestampNanoseconds ?? clock()
-        switch stage {
-        case "BLE_START_REQUEST", "REMOTE_ROUTE_BEGIN":
-            registry.setString("mic_open_state", "pending")
-        case "MIC_OPEN_TX":
-            registry.setString("mic_open_state", "requested")
-        case "AUDIO_START":
-            registry.setString("mic_open_state", "streaming")
-            registry.setBool("atvv_streaming", true)
-        case "AUDIO_STOP":
-            registry.setBool("atvv_streaming", false)
-            registry.setString("audio_drain_state", "draining")
-        case "DRAIN_FINISH", "AUDIO_PIPELINE_CLOSED":
-            registry.setString("audio_drain_state", "idle")
-        default:
-            break
+        let diagnosticsEnabled = DiagnosticsRuntimeGate.shared.isEnabled
+        let timestamp = timestampNanoseconds ?? (diagnosticsEnabled ? clock() : 0)
+        if diagnosticsEnabled {
+            switch stage {
+            case "BLE_START_REQUEST", "REMOTE_ROUTE_BEGIN":
+                registry.setString("mic_open_state", "pending")
+            case "MIC_OPEN_TX":
+                registry.setString("mic_open_state", "requested")
+            case "AUDIO_START":
+                registry.setString("mic_open_state", "streaming")
+                registry.setBool("atvv_streaming", true)
+            case "AUDIO_STOP":
+                registry.setBool("atvv_streaming", false)
+                registry.setString("audio_drain_state", "draining")
+            case "DRAIN_FINISH", "AUDIO_PIPELINE_CLOSED":
+                registry.setString("audio_drain_state", "idle")
+            default:
+                break
+            }
         }
         lock.lock()
         guard var current,
@@ -647,7 +696,7 @@ final class VoiceAttemptDiagnostics: @unchecked Sendable {
         }
         current.lastStage = stage
         current.lastStageAt = timestamp
-        current.state = mergedState(extra: state)
+        current.state = diagnosticsEnabled ? mergedState(extra: state) : [:]
         let snapshot = current
         self.current = current
         lock.unlock()
@@ -657,7 +706,7 @@ final class VoiceAttemptDiagnostics: @unchecked Sendable {
             stage: stage,
             state: snapshot.state
         )
-        if stage == "HOLD_CONFIRMED", let sessionID = snapshot.sessionID {
+        if diagnosticsEnabled, stage == "HOLD_CONFIRMED", let sessionID = snapshot.sessionID {
             registry.setString("gesture_state", "holding")
             watchdog.holdConfirmed(
                 attemptID: snapshot.id.uuidString,
@@ -667,9 +716,11 @@ final class VoiceAttemptDiagnostics: @unchecked Sendable {
             )
         } else if stage == "AUDIO_FIRST" {
             watchdog.audioFirstArrived(attemptID: snapshot.id.uuidString)
-        } else if stage == "PHYSICAL_UP" || stage == "AUDIO_PIPELINE_CLOSED" {
+        } else if diagnosticsEnabled,
+                  stage == "PHYSICAL_UP" || stage == "AUDIO_PIPELINE_CLOSED" {
             registry.setString("gesture_state", "idle")
         }
+        guard diagnosticsEnabled else { return }
         health.recordStateTransition(stage, attemptID: snapshot.id.uuidString)
         emitStage(snapshot: snapshot)
         if stage == "MIC_OPEN_WRITE_FAILED" {
@@ -707,6 +758,7 @@ final class VoiceAttemptDiagnostics: @unchecked Sendable {
     }
 
     private func emitStage(snapshot: Attempt) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         let sessionID = snapshot.sessionID?.uuidString ?? "unavailable"
         let elapsedMS = snapshot.lastStageAt >= snapshot.startedAt
             ? Double(snapshot.lastStageAt - snapshot.startedAt) / 1_000_000
@@ -738,6 +790,7 @@ final class VoiceAttemptDiagnostics: @unchecked Sendable {
         reason: String,
         state: [String: DiagnosticJSONValue]
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         guard let input = try? DiagnosticEventInput(
             eventType: "voice.failure.classified",
             subsystem: "voice.failure",

@@ -7141,7 +7141,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ) ?? "none"
         diagnosticLogger.startRun(fields: runStartFields)
         _ = restoreVoiceTriggerRuntime()
-        if ProcessInfo.processInfo.environment["REMOTE_ORBIT_DIAGNOSTICS"] == "1" {
+        if DiagnosticsRuntimeGate.shared.isEnabled {
             let sourceHead = Bundle.main.object(
                 forInfoDictionaryKey: "RemoteOrbitDiagnosticSourceHead"
             ) as? String ?? "UNSTAMPED"
@@ -8134,6 +8134,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         KeyInjector.releaseAll()
         ble.stop()
         AudioPipe.shared.stop()
+        DiagnosticRuntimeHealthService.shared.stop()
         voiceHIDMappingQueue.sync {
             _ = applyVoiceHIDMapping(false, currentMomentaryVoiceTriggerKey)
         }

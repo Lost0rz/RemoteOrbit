@@ -15,11 +15,14 @@ enum VoiceTimingLogger {
     private static var lastEndedStartedAt: TimeInterval = 0
 
     static var p1A5Enabled: Bool {
-        ProcessInfo.processInfo.environment["REMOTE_ORBIT_P1A5_FRONT_EDGE"] == "1"
+        DiagnosticsRuntimeGate.shared.isEnabled
+            && ProcessInfo.processInfo.environment["REMOTE_ORBIT_P1A5_FRONT_EDGE"] == "1"
     }
 
-    static let continuityEvidenceEnabled =
-        ProcessInfo.processInfo.environment["REMOTE_ORBIT_CONTINUITY_EVIDENCE"] == "1"
+    static var continuityEvidenceEnabled: Bool {
+        DiagnosticsRuntimeGate.shared.isEnabled
+            && ProcessInfo.processInfo.environment["REMOTE_ORBIT_CONTINUITY_EVIDENCE"] == "1"
+    }
 
     static var currentSessionID: UUID? {
         lock.lock()
@@ -28,7 +31,7 @@ enum VoiceTimingLogger {
     }
 
     static func currentContinuityContext() -> AudioContinuitySessionContext? {
-        guard continuityEvidenceEnabled else { return nil }
+        guard DiagnosticsRuntimeGate.shared.isEnabled, continuityEvidenceEnabled else { return nil }
         lock.lock()
         defer { lock.unlock() }
         guard let activeSessionID,
@@ -46,7 +49,7 @@ enum VoiceTimingLogger {
     /// gets a stable capture identity and can be bound later without losing
     /// pre-session BLE/decode observations.
     static func continuityCaptureContextForAudioStart() -> AudioContinuityCaptureContext? {
-        guard continuityEvidenceEnabled else { return nil }
+        guard DiagnosticsRuntimeGate.shared.isEnabled, continuityEvidenceEnabled else { return nil }
         let timestamp = P1A4MonotonicClock.nowNanoseconds()
         lock.lock()
         if let continuityCaptureID,
@@ -78,14 +81,8 @@ enum VoiceTimingLogger {
     }
 
     static func begin(sessionID: UUID) {
-        let timestamp = P1A4MonotonicClock.nowNanoseconds()
-        DiagnosticRuntimeHealthService.shared.start()
-        if let input = SystemAudioDeviceManager.defaultInputDevice {
-            DiagnosticRuntimeHealthRegistry.shared.setString(
-                "selected_input_identity",
-                input.stableIdentifier
-            )
-        }
+        let diagnosticsEnabled = DiagnosticsRuntimeGate.shared.isEnabled
+        let timestamp = diagnosticsEnabled ? P1A4MonotonicClock.nowNanoseconds() : 0
         let attemptID = VoiceAttemptDiagnostics.shared.ensureSession(sessionID)
         var captureToBind: AudioContinuityCaptureContext?
         lock.lock()
@@ -116,12 +113,20 @@ enum VoiceTimingLogger {
             }
         }
         activeSessionID = sessionID
-        startedAt = ProcessInfo.processInfo.systemUptime
+        startedAt = diagnosticsEnabled ? ProcessInfo.processInfo.systemUptime : 0
         timeline = [:]
         frontEdgeUnderrunStats = P1A5FrontEdgeUnderrunStats()
         lastEndedSessionID = nil
         lastEndedStartedAt = 0
         lock.unlock()
+        guard diagnosticsEnabled else { return }
+        DiagnosticRuntimeHealthService.shared.start()
+        if let input = SystemAudioDeviceManager.defaultInputDevice {
+            DiagnosticRuntimeHealthRegistry.shared.setString(
+                "selected_input_identity",
+                input.stableIdentifier
+            )
+        }
         LongTermObservabilityService.shared.begin(
             sessionID: sessionID,
             attemptID: attemptID.uuidString,
@@ -195,6 +200,7 @@ enum VoiceTimingLogger {
     /// The caller supplies the event timestamp so audio callbacks can be
     /// observed without changing their scheduling or producing log pressure.
     static func record(_ event: String, timestampNanoseconds: UInt64) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         if activeSessionID != nil {
             timeline[event] = timestampNanoseconds
@@ -203,6 +209,7 @@ enum VoiceTimingLogger {
     }
 
     static func recordIfAbsent(_ event: String, timestampNanoseconds: UInt64) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         if activeSessionID != nil, timeline[event] == nil {
             timeline[event] = timestampNanoseconds
@@ -211,6 +218,7 @@ enum VoiceTimingLogger {
     }
 
     static func hasEvent(_ event: String) -> Bool {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return false }
         lock.lock()
         defer { lock.unlock() }
         return timeline[event] != nil
@@ -220,6 +228,7 @@ enum VoiceTimingLogger {
         _ candidate: P1A5VoiceOnsetCandidate,
         detectedAtNanoseconds: UInt64
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         recordIfAbsent(
             "F6_first_voiced_pcm_decoded",
             timestampNanoseconds: candidate.timestampNanoseconds
@@ -244,6 +253,7 @@ enum VoiceTimingLogger {
         queuedFramesBefore: Int,
         queuedFramesAfter: Int
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         guard let onset = timeline["F6_first_voiced_pcm_decoded"],
               timestampNanoseconds >= onset else {
@@ -294,6 +304,7 @@ enum VoiceTimingLogger {
     }
 
     static func mark(_ event: String, sessionID: UUID? = nil) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         guard let activeSessionID,
               sessionID == nil || sessionID == activeSessionID else {
@@ -331,6 +342,7 @@ enum VoiceTimingLogger {
     /// the gesture and ended the normal voice timeline. Keep that close
     /// observable without reopening or extending the gesture state machine.
     static func markForSession(_ event: String, sessionID: UUID) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         if activeSessionID == sessionID {
             lock.unlock()
@@ -367,6 +379,7 @@ enum VoiceTimingLogger {
     }
 
     static func end(sessionID: UUID) {
+        let diagnosticsEnabled = DiagnosticsRuntimeGate.shared.isEnabled
         lock.lock()
         let continuityLines: [String]
         if activeSessionID == sessionID {
@@ -386,6 +399,10 @@ enum VoiceTimingLogger {
         continuityCaptureID = nil
         continuityCaptureAwaitingSession = false
         lock.unlock()
+        guard diagnosticsEnabled else {
+            VoiceAttemptDiagnostics.shared.end(sessionID: sessionID)
+            return
+        }
         let orderedEvents = [
             "T0_voice_trigger_down",
             "T1_first_ble_audio_packet",
@@ -448,6 +465,7 @@ enum VoiceTimingLogger {
         triggerSource: String,
         triggerKey: String = "unavailable"
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         LongTermObservabilityService.shared.observeControl(
             policy: policy,
             classification: classification,
@@ -466,6 +484,7 @@ enum VoiceTimingLogger {
         streamID: UInt64? = nil,
         timestampNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()
     ) -> UUID {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return UUID() }
         if let streamID {
             AudioPipe.shared.setDiagnosticStreamIdentity(streamID)
             DiagnosticRuntimeHealthRegistry.shared.setUnsigned("audio_stream_id", streamID)
@@ -505,6 +524,7 @@ enum VoiceTimingLogger {
         deficitSamples: Int,
         deficitMilliseconds: Double
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         LongTermObservabilityService.shared.observeTransportMetrics(
             notificationCount: UInt64(max(0, notificationCount)),
             notificationBytes: UInt64(max(0, notificationBytes)),
@@ -536,6 +556,7 @@ enum VoiceTimingLogger {
         gapNanoseconds: UInt64?,
         timestampNanoseconds: UInt64? = nil
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         LongTermObservabilityService.shared.observeNotification(
             bytes: UInt64(max(0, bytes)),
             gapNanoseconds: gapNanoseconds,
@@ -548,6 +569,7 @@ enum VoiceTimingLogger {
         sampleCount: Int,
         timestampNanoseconds: UInt64? = nil
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         LongTermObservabilityService.shared.observeDecode(
             frameCount: UInt64(max(0, frameCount)),
             sampleCount: UInt64(max(0, sampleCount)),
@@ -556,6 +578,7 @@ enum VoiceTimingLogger {
     }
 
     static func observeSupply(submittedFrames: Int) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         LongTermObservabilityService.shared.observeSupply(
             submittedFrames: UInt64(max(0, submittedFrames))
         )
@@ -566,6 +589,7 @@ enum VoiceTimingLogger {
         deliveredFrames: Int,
         marker: LongTermObservationSemanticMarker
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         LongTermObservabilityService.shared.observePlayout(
             expectedFrames: UInt64(max(0, expectedFrames)),
             deliveredFrames: UInt64(max(0, deliveredFrames)),
@@ -574,11 +598,13 @@ enum VoiceTimingLogger {
     }
 
     static func observeAudioPipeSnapshot(_ snapshot: AudioPipeDiagnosticsSnapshot) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         DiagnosticRuntimeHealthRegistry.shared.updateAudioPipe(snapshot)
         LongTermObservabilityService.shared.observeAudioPipe(snapshot)
     }
 
     static func observeLongTermAudioSnapshot(_ snapshot: LongTermAudioObservationSnapshot) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         LongTermObservabilityService.shared.observeLongTermAudioSnapshot(snapshot)
     }
 }

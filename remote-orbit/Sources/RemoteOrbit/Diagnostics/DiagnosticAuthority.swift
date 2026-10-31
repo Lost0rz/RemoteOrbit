@@ -137,6 +137,12 @@ enum DiagnosticStorage {
         .appendingPathComponent("diagnostic-events-v1.jsonl")
 }
 
+struct DiagnosticAuthorityWorkMetrics: Equatable, Sendable {
+    var admissionAttempts = 0
+    var enqueuedEvents = 0
+    var journalAppends = 0
+}
+
 final class DiagnosticAuthorityService: DiagnosticAuthority, @unchecked Sendable {
     static let shared: any DiagnosticAuthority = DiagnosticAuthorityService(
         journal: JSONLinesDiagnosticJournal(
@@ -155,6 +161,7 @@ final class DiagnosticAuthorityService: DiagnosticAuthority, @unchecked Sendable
     private var nextSequenceNumber: UInt64 = 1
     private var droppedCount: UInt64 = 0
     private var writeFailureCountValue: UInt64 = 0
+    private var workMetrics = DiagnosticAuthorityWorkMetrics()
 
     init(
         journal: any DiagnosticJournal,
@@ -184,12 +191,19 @@ final class DiagnosticAuthorityService: DiagnosticAuthority, @unchecked Sendable
     }
 
     func emit(_ input: DiagnosticEventInput) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
+        stateLock.lock()
+        workMetrics.admissionAttempts += 1
+        stateLock.unlock()
         guard pendingCapacity.wait(timeout: .now()) == .success else {
             incrementDroppedCount()
             return
         }
 
         let timestamp = clock.capture()
+        stateLock.lock()
+        workMetrics.enqueuedEvents += 1
+        stateLock.unlock()
         writerQueue.async { [weak self] in
             guard let self else { return }
             defer { self.pendingCapacity.signal() }
@@ -200,12 +214,21 @@ final class DiagnosticAuthorityService: DiagnosticAuthority, @unchecked Sendable
                 sequenceNumber: self.takeSequenceNumber()
             )
             do {
+                self.stateLock.lock()
+                self.workMetrics.journalAppends += 1
+                self.stateLock.unlock()
                 try self.journal.append(event)
             } catch {
                 self.incrementWriteFailureCount()
                 self.incrementDroppedCount()
             }
         }
+    }
+
+    var workMetricsForTesting: DiagnosticAuthorityWorkMetrics {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return workMetrics
     }
 
     func query(_ filter: DiagnosticQueryFilter) throws -> DiagnosticQueryPage {

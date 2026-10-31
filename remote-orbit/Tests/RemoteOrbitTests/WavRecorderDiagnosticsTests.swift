@@ -3,6 +3,16 @@ import XCTest
 @testable import RemoteOrbit
 
 final class WavRecorderDiagnosticsTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+    }
+
+    override func tearDown() {
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        super.tearDown()
+    }
+
     func testOptInRecorderEmitsLifecycleMetadataWithoutFilePathsOrAudioContent() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -119,6 +129,10 @@ final class WavRecorderDiagnosticsTests: XCTestCase {
         let previousLogging = AppStorage.loggingEnabled
         defer { AppStorage.loggingEnabled = previousLogging }
         AppStorage.loggingEnabled = false
+        DiagnosticsRuntimeGate.shared.configureForTesting(
+            loggingEnabled: false,
+            environmentOverrideEnabled: true
+        )
 
         XCTAssertThrowsError(
             try WavRecorder.createNext(

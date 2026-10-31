@@ -242,6 +242,15 @@ struct FixedCapacityObservationTraceSnapshot: Equatable, Sendable {
     let droppedObservationCount: UInt64
     let overwrittenObservationCount: UInt64
 
+    static let empty = FixedCapacityObservationTraceSnapshot(
+        front: [],
+        recent: [],
+        incident: [],
+        incidentAnchor: nil,
+        droppedObservationCount: 0,
+        overwrittenObservationCount: 0
+    )
+
     var all: [LongTermObservationPoint] { front + recent }
 
     /// Incident evidence is frozen independently of the recent ring. Use this
@@ -1168,6 +1177,19 @@ final class LongTermObservabilityService: @unchecked Sendable {
         self.runtimeIdentity = runtimeIdentity
         self.thresholds = thresholds
         self.incidentCoordinator = incidentCoordinator
+        DiagnosticsRuntimeGate.shared.observe { [weak self] enabled in
+            guard !enabled else { return }
+            self?.stopForDiagnosticsDisabled()
+        }
+    }
+
+    private func stopForDiagnosticsDisabled() {
+        lock.lock()
+        activeSession = nil
+        finalizedSession = nil
+        serviceObservationSequence = 0
+        incidentCoordinator.endCapture()
+        lock.unlock()
     }
 
     @discardableResult
@@ -1180,6 +1202,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         streamID: UInt64? = nil,
         timestampNanoseconds: UInt64
     ) -> UUID {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return UUID() }
         lock.lock()
         if activeSession == nil {
             incidentCoordinator.beginCaptureIfNeeded()
@@ -1206,6 +1229,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         attemptID: String? = nil,
         timestampNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         finalizedSession = nil
         serviceObservationSequence = 0
@@ -1231,6 +1255,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         triggerSource: String,
         triggerKey: String = "unavailable"
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         guard activeSession != nil else {
             lock.unlock()
@@ -1244,6 +1269,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
     }
 
     func mark(_ event: String, timestampNanoseconds: UInt64, sessionID: UUID? = nil) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         guard let currentSession = activeSession,
               sessionID == nil || currentSession.summary.sessionID == sessionID!.uuidString else {
@@ -1285,6 +1311,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         gapNanoseconds: UInt64?,
         timestampNanoseconds: UInt64? = nil
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         activeSession?.summary.recordNotification(bytes: bytes, gapNanoseconds: gapNanoseconds)
         if let timestampNanoseconds {
@@ -1340,6 +1367,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         deficitSamples: UInt64,
         deficitMilliseconds: Double
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         guard activeSession != nil else {
             lock.unlock()
@@ -1376,6 +1404,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         sampleCount: UInt64,
         timestampNanoseconds: UInt64? = nil
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         activeSession?.summary.recordDecode(frameCount: frameCount, sampleCount: sampleCount)
         if let timestampNanoseconds {
@@ -1401,6 +1430,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
     }
 
     func observeTracePoint(_ point: LongTermObservationPoint) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         let attributed = point.source == "unattributed" || point.sequence == 0
             ? attributedServicePoint(point)
@@ -1431,6 +1461,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
     func markMaterialAnomaly(
         trigger: LongTermIncidentTriggerKind = .manual
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         incidentCoordinator.trigger(
             producer: .service,
@@ -1442,6 +1473,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
     }
 
     func observeSupply(submittedFrames: UInt64) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         activeSession?.summary.recordSupply(submittedFrames: submittedFrames)
         lock.unlock()
@@ -1452,6 +1484,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         deliveredFrames: UInt64,
         marker: LongTermObservationSemanticMarker
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         activeSession?.summary.recordPlayout(
             expectedFrames: expectedFrames,
@@ -1462,6 +1495,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
     }
 
     func observeAudioPipe(_ snapshot: AudioPipeDiagnosticsSnapshot) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         guard activeSession != nil else {
             lock.unlock()
@@ -1494,6 +1528,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
     }
 
     func observeLongTermAudioSnapshot(_ snapshot: LongTermAudioObservationSnapshot) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         guard activeSession != nil else {
             lock.unlock()
@@ -1506,6 +1541,10 @@ final class LongTermObservabilityService: @unchecked Sendable {
 
     @discardableResult
     func end(sessionID: UUID) -> LongTermVoiceSessionSummary? {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else {
+            stopForDiagnosticsDisabled()
+            return nil
+        }
         lock.lock()
         guard var activeSession,
               activeSession.summary.sessionID == sessionID.uuidString else {
@@ -1604,6 +1643,7 @@ final class LongTermObservabilityService: @unchecked Sendable {
         sessionID: UUID,
         captureID: String
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         guard let input = try? DiagnosticEventInput(
             eventType: "voice.session.lifecycle_followup",
             subsystem: "voice.session",

@@ -3,6 +3,16 @@ import XCTest
 @testable import RemoteOrbit
 
 final class DiagnosticHardeningTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+    }
+
+    override func tearDown() {
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        super.tearDown()
+    }
+
     func testAttemptCorrelationCoversStagesAndResetsForNextAttempt() throws {
         let authority = HardeningCapturingAuthority()
         let registry = DiagnosticRuntimeHealthRegistry()
@@ -160,6 +170,10 @@ final class DiagnosticHardeningTests: XCTestCase {
         let previous = AppStorage.loggingEnabled
         defer { AppStorage.loggingEnabled = previous }
         AppStorage.loggingEnabled = false
+        DiagnosticsRuntimeGate.shared.configureForTesting(
+            loggingEnabled: false,
+            environmentOverrideEnabled: true
+        )
 
         service.emitHeartbeat()
 

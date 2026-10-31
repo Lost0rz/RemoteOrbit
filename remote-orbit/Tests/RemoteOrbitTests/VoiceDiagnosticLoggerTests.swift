@@ -4,6 +4,16 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceDiagnosticLoggerTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+    }
+
+    override func tearDown() {
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        super.tearDown()
+    }
+
     func testFlushMakesQueuedEventReadableAsOneDurableJSONLRecord() throws {
         let fileURL = temporaryLogURL()
         defer { try? FileManager.default.removeItem(at: fileURL) }
