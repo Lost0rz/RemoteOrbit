@@ -40,14 +40,14 @@ Authoritative workspace: `/Volumes/Jack-Dev/Projects/remoteorbit`
   `/Users/ox_miles/Library/LaunchAgents/actions.runner.Lost0rz-RemoteOrbit.remoteorbit-macmini.plist`;
   `launchctl` reports the service loaded and `Runner.Listener` is alive. No
   `Runner.Worker` is present while idle.
-- Final-head remote smoke run `41204522588` completed `success` from PR head
-  `8118894`; job `124546780458` was picked up by runner `remoteorbit-macmini` with the required
+- Implementation-head remote smoke run `41204522588` completed `success`; job
+  `124546780458` was picked up by runner `remoteorbit-macmini` with the required
   labels. The run passed checkout, environment/source checks, protocol self-tests,
-  all Swift tests, native Release build, and build-only packaging smoke.
+  all Swift tests, native Release build, and build-only packaging smoke. The
+  follow-up control-only run `41204786216` also completed `success`.
 - After the job, GitHub still reports the runner `online` and `busy=false`; the
   isolated `_work` directory measured about `420M` with no cleanup of unknown files.
-- Draft PR #29 is open and mergeable at head `8118894`; no merge or `main` mutation
-  was performed.
+- Draft PR #29 is open and mergeable; no merge or `main` mutation was performed.
 
 ## Active task
 

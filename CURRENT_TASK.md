@@ -66,10 +66,10 @@ build directories; it does not install the app or driver or mutate CoreAudio/TCC
 The runner is registered and online as `remoteorbit-macmini` (GitHub runner ID `21`)
 with labels `self-hosted`, `macOS`, `ARM64`, and `remoteorbit`. The official service
 is installed through `svc.sh` at the shared runner root, and `Runner.Listener` is
-alive while idle. Final-head remote smoke run `41204522588` completed successfully
-from PR head `8118894`; job `124546780458` was picked up by `remoteorbit-macmini`
-and all workflow steps passed. GitHub reports the runner online and idle again
-afterward.
+alive while idle. Implementation-head remote smoke run `41204522588` completed
+successfully; job `124546780458` was picked up by `remoteorbit-macmini` and all
+workflow steps passed. Follow-up control-only run `41204786216` also completed
+successfully. GitHub reports the runner online and idle again afterward.
 
 ## Authorized repository changes
 
