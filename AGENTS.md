@@ -244,3 +244,16 @@ process, driver, LaunchAgent, or TCC state without local evidence.
     drain/close path. Persistent and dual-receiver semantics are not production
     authorities for the microphone button unless the user explicitly changes this
     durable product contract in a future governed task.
+
+## Retirement and diagnostics discipline
+
+21. Retire obsolete voice modes by production authority, not by symbol name. Remove
+    obsolete user-visible semantics, live configuration, runtime entry points, and
+    tests that assert retired behavior; do not delete shared mechanisms solely because
+    they were historically named Persistent or Dual. Preserve any mechanism still
+    required to satisfy the durable LONG-only contract until an equivalent replacement
+    is proven by focused regression evidence.
+22. Treat correctness/safety mechanisms and diagnostics as separate concerns. A
+    diagnostics-off optimization must not disable bounded ownership, release/drain,
+    suppression, watchdog, or transport mechanisms that are required for correctness.
+    Audio recording remains a separately controlled opt-in diagnostic surface.

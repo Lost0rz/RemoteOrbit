@@ -1,47 +1,97 @@
 # RemoteOrbit Current Task
 
-## RO-IME-READINESS-PROMPT-SYNC-043 — post-merge human acceptance gate
+## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — audit and design
 
-Status: `TASK_043_MERGED / HUMAN_ACCEPTANCE_DEFERRED`
-TASK_CLASS: `HUMAN_ACCEPTANCE / CLOSEOUT`
+Status: `AUDIT_AND_DESIGN_ACTIVE`
+TASK_CLASS: `SOURCE_AUDIT / RETIREMENT_DESIGN`
 Repository: `Lost0rz/RemoteOrbit`
-Merged PR: `#30`
-Merged integration source: `722063ceab52ac4492faf2de426f21f2dd0833dd`
-Merge commit: `e8ef0d3b98be843408c7c1f3312c71c3eb3870f3`
-Machine audit: `PASS / FRESH_CONTEXT`
-Human runtime acceptance: `PENDING / USER-OWNED`
+Control base: `main@4b0131902a64a7cc92dcc3c9be001b185a8834ce`
+User authorization: explicit forward-development reauthorization after Task 043 merge; human runtime acceptance remains deferred.
 
-## Completed
+## Objective
 
-Task 043 source audit passed and PR #30 was merged after exact-head, live-main, mergeability and durable CI gates were all revalidated.
+Produce a repository-grounded retirement and diagnostics-gating plan that reduces normal-mode overhead and removes obsolete Persistent / Dual-Receiver production authority without regressing the current LONG-only voice path.
 
-The final PR merge tree passed on `remoteorbit-macmini`:
+## Authorized in this phase
 
-- source contract checks;
-- protocol self-tests;
-- full `swift test`: `651 / 0`;
-- native Release build;
-- Universal2 build-only packaging smoke.
+- read repository source, tests, workflows, docs, and configuration;
+- classify callers and ownership dependencies;
+- inspect current CI and test coverage;
+- update control/design documentation needed to freeze the implementation boundary;
+- produce one bounded execution handoff for local Codex.
 
-No product install, HAL/driver install or reload, TCC mutation, CoreAudio restart/default-device mutation, tag, or release was performed.
+## Not authorized yet
 
-## Current authority
+- product source mutation;
+- deleting/renaming production source or tests;
+- changing runtime behavior;
+- installing/replacing `/Applications/RemoteOrbit.app`;
+- installing/reloading `RemoteOrbitAudio.driver`;
+- CoreAudio/TCC/default-device mutation;
+- release/tag;
+- merge of a Task 045 implementation PR.
 
-No additional Task 043 product mutation is authorized in this phase.
+## Audit questions
 
-The next Task 043 acceptance action is user-owned manual validation of the merged behavior, including at minimum:
+### A. Diagnostics gating
 
-- repeated SHORT taps remain invisible/no-op;
-- `SHORT x 1/2/3/4 -> final LONG` enters voice exactly once;
-- normal LONG and release/drain behavior remains correct;
-- rapid LONG/release/LONG remains usable;
-- Doubao receives remote voice without obvious start/middle/end loss;
-- no recurrence of the receiver-readiness CPU/memory storm.
+Determine which work still occurs when ordinary logging and audio recording are disabled. At minimum inspect:
 
-If the user reports PASS, reconcile the installed/tested runtime identity and close Task 043. If the user reports a failure, open a fresh incident from that exact merged/runtime identity and return to evidence-first diagnosis.
+- `Log.swift` / ordinary text logging;
+- `VoiceDiagnosticLogger.swift` startup and hot-path event work;
+- `DiagnosticAuthority.swift` journal writes / queueing / serialization;
+- runtime-health and heartbeat scheduling;
+- long-term observability persistence / probes;
+- WAV/RAW recording gates;
+- any safety watchdogs that must remain independent of diagnostics.
 
-## Frozen boundary
+Classify every relevant path as `GATE`, `KEEP-ALWAYS`, `KEEP-IN-MEMORY`, or `REMOVE`.
 
-Do not install or release automatically and do not claim human PASS.
+Desired design target: with ordinary diagnostics OFF and recording OFF, persistent diagnostic disk I/O, diagnostic JSON serialization, diagnostic writer enqueue, and diagnostic-only recurring timers should be zero or explicitly justified. Cheap bounded in-memory correctness/accounting state may remain when materially useful.
 
-Task 045 diagnostics-gating and Persistent/Dual-Receiver retirement remains blocked until Task 043 human acceptance/closeout, unless the user explicitly changes that authority in a later request.
+### B. Persistent / Dual retirement
+
+Inventory production and test authority for obsolete Persistent and Dual-Receiver semantics. At minimum inspect:
+
+- Settings UI and labels;
+- AppStorage keys, defaults, and migration;
+- `main.swift` Persistent session state/events/callers;
+- AppController Dual Receiver state/callers;
+- `DualReceiverMappedTriggerState.swift`;
+- `DualReceiverVoiceGestureRecognizer.swift`;
+- `DualReceiverVoiceMode.swift`;
+- tests that still assert Persistent/Dual as supported behavior.
+
+For each item classify `DELETE`, `MIGRATION-ONLY`, `KEEP/RENAME`, or `HISTORICAL-DOC`.
+
+Do not delete mechanisms required by current LONG-only correctness merely because their historical name is Persistent/Dual.
+
+## Required regression boundary for the later implementation
+
+The implementation plan must retain machine coverage for:
+
+- repeated SHORT no-op;
+- SHORT x 1/2/3/4 -> LONG;
+- normal LONG/release/drain;
+- LONG -> release -> LONG / rapid repress;
+- late mapped Option DOWN/UP/flags suppression;
+- synthetic fallback where mapping is unavailable;
+- pre-HID physical candidate and BLE ready reuse;
+- transport loss / reconnect paths already covered by current voice tests;
+- diagnostics OFF produces no persistent diagnostic work claimed by the new contract;
+- diagnostics ON remains functional;
+- recording OFF produces no WAV/RAW files;
+- full Swift tests, Release build, and Universal2 packaging smoke on `remoteorbit-macmini`.
+
+## Completion gate for this phase
+
+Stop at `READY_FOR_IMPLEMENTATION_HANDOFF` only after the audit provides:
+
+1. exact source/file inventory;
+2. caller/dependency classification;
+3. explicit keep/delete/gate decisions;
+4. bounded implementation waves;
+5. test/CI acceptance matrix;
+6. no unresolved item whose classification could delete a current correctness mechanism.
+
+Do not implement Task 045 product changes in this audit phase.
