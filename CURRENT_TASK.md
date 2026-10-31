@@ -2,7 +2,7 @@
 
 ## RO-VOICE-PIPELINE-SIMPLIFICATION-042 — Final RC003 Runtime Acceptance
 
-Status: `SOURCE_AUDIT_PASS / HUMAN_RUNTIME_ACCEPTANCE_PENDING`
+Status: `READY_FOR_HUMAN_RUNTIME_ACCEPTANCE`
 
 Repository: `Lost0rz/RemoteOrbit`
 Active branch: `codex/voice-pipeline-simplification-042`
@@ -57,6 +57,16 @@ Implementation-context verification reported: focused Task 042 suites green, ful
 8. Do not reset TCC.
 9. Update only the control receipt as necessary to `READY_FOR_HUMAN_RUNTIME_ACCEPTANCE`, push and verify remote delivery.
 10. STOP for the user to perform hardware acceptance.
+
+## Observed runtime preparation receipt
+
+- Reconciled start control HEAD: `a7e4a3c336938b84b6e8e555625916b0ba01ac91`; product-source equivalence against audited source `b4904f2faf26535fd39ba97d3a5dd30440de13b9` is clean, with only `CURRENT_STATUS.md` and `CURRENT_TASK.md` in the range.
+- Build/package: `./remote-orbit/package-app.sh` completed and produced `/Volumes/Jack-Dev/Projects/remoteorbit-voice-pipeline-simplification-042/remote-orbit/dist/RemoteOrbit.app`; the script reported no driver build and produced an App-only candidate.
+- Install: `./remote-orbit/install-app.sh` completed to `/Applications/RemoteOrbit.app`; package and installed executable SHA-256 both equal `9bf5faa5706a26699b614714573300c4944cfb8dd6770454aea8d1c4e52bc535`.
+- App identity: Bundle ID `com.lost0rz.RemoteOrbit`, version `0.2.14`, build `43`, architectures `x86_64 arm64`, source-head provenance `a7e4a3c336938b84b6e8e555625916b0ba01ac91`; code-sign verification passed for package and installed app.
+- Running identity: PID `95613`; executable `/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit`.
+- Fresh startup evidence: `/Users/ox_miles/Library/Logs/RemoteOrbit/RemoteOrbit.log` records BLE ready, RemoteOrbit Mic IOProc start/default-input restore, AX/input/accessibility readiness, HID suppressor readiness, and RC003 connected/monitored. `/Users/ox_miles/Library/Logs/RemoteOrbit/voice-diagnostic-current.jsonl` records PID `95613` `RUN_START` and `HID_VERIFY result=MATCH`.
+- Driver freeze: before/after installed driver file-set SHA-256 `6ace3ac1edbf27a8257d32ca5a50d741bd8f69188a43789a95e7d465c894a93d`; executable SHA-256 `d2c72d9e433e2f6ccdec50eb8298e3e36ddbbb0d0f72e13b728c17f6a48c5446`. No driver/CoreAudio/TCC mutation was performed.
 
 ## Human RC003 acceptance focus
 
