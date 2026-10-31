@@ -2,16 +2,20 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave A diagnostics gating
 
-Status: `READY_FOR_IMPLEMENTATION_HANDOFF`
+Status: `IMPLEMENTATION_IN_PROGRESS`
 TASK_CLASS: `BOUNDED PRODUCT IMPLEMENTATION`
 Repository: `Lost0rz/RemoteOrbit`
 Audited base: `main@650a2c011bb640379842ab866d696302c4adc52e`
+Control parent before execution: `fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
+Implementation branch: `codex/task045a-diagnostics-gating`
+Workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045a-diagnostics-gating`
+Execution start HEAD: `fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
 Design authority: `docs/design/2026-10-31-045-diagnostics-gating-and-legacy-retirement.md`
 Human runtime acceptance: `Task 043 still DEFERRED / USER-OWNED`
 
 ## Authorized next action
 
-A fresh local execution context may create one branch/worktree from current `main` and implement **Wave A diagnostics gating only**.
+This execution context was created from current live `main` and may implement **Wave A diagnostics gating only**.
 
 The implementation must preserve all current voice semantics and correctness owners while making ordinary diagnostics disabled mode near-zero overhead.
 
@@ -102,7 +106,9 @@ Then run the durable machine gate on `remoteorbit-macmini`:
 
 ## Delivery shape
 
-Use one fresh branch/worktree and one Draft PR for Wave A. Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` atomically when the execution branch is established and again for the final handoff state as required by governance.
+Use this one fresh branch/worktree and one Draft PR for Wave A. `CURRENT_STATUS.md` and
+`CURRENT_TASK.md` were updated atomically when this execution branch was established;
+update them atomically again for the final handoff state as required by governance.
 
 Stop after push/PR + machine verification at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge.
 
