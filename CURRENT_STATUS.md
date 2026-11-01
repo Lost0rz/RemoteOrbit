@@ -1,73 +1,40 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — HUMAN_RUNTIME_ACCEPTANCE_PASS / CLOSED`
+State: `RO-PROJECT-CLOSEOUT-046 — REMOTE_PR_HYGIENE / ACTIVE`
 Repository: `Lost0rz/RemoteOrbit`
-Human runtime/UI acceptance: `PASS / USER-CONFIRMED`
 
-## Task 045 progress
+## Accepted runtime baseline
 
-- Task 045A: `DIAGNOSTICS_GATING / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045B Domain 2: `LEGACY_VOICE_PERSISTED_PREFERENCE_AUTHORITY / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045B Domain 4: `DUAL_RECEIVER_RUNTIME_STATE_MACHINE / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045B Domain 5: `LEGACY_GENERIC_SHORT_CLASSIFIER_RUNTIME / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045B Domain 6: `LOCAL_MICROPHONE_CAPTURE / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045D Domain 1: `REMOTE_ONLY_PCM_ATTRIBUTION / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045D Domain 2: `P1A5_FRONT_EDGE_EXPERIMENT_DIAGNOSTICS / MERGED / MAIN_CI_PASS / CLOSED`
-- Final whole-repository machine audit: `PASS_WITH_FOLLOWUPS`
+- Task 045: `CLOSED`
 - Human runtime acceptance: `PASS / USER-CONFIRMED`
-- Task 045 overall: `CLOSED`
+- Accepted baseline before closeout: `main@f671f50e175fb1c57a85e161dc2a1772c6d9d6e3`
+- Task 045 closeout CI: run `41284965994`, `SUCCESS`
 
-## Accepted final voice/runtime contract
+The accepted LONG-only RC003 voice/runtime contract from Task 045 remains unchanged. Project closeout must not modify product runtime behavior.
 
-The accepted production model is now the direct LONG-only RC003 remote-voice lifecycle:
+## Project closeout 046
 
-- SHORT below the 300 ms boundary is a user-visible no-op;
-- LONG crossing the boundary promotes into direct remote voice;
-- release preserves queued PCM through bounded output drain before final trigger/session release;
-- rapid LONG/release/LONG uses bounded ownership handoff without an intermediate stuck trigger or incorrect physical-input restoration;
-- Persistent and Dual Receiver product/runtime semantics are retired;
-- generic non-direct SHORT/LONG classifier states are retired;
-- RemoteOrbit-owned local/external microphone AVCapture fallback and microphone TCC ownership are retired;
-- local/mixed PCM attribution and P1-A5 experiment diagnostics are retired.
+Owner-authorized goal:
 
-Historical `ShortTap` / `AudioOnly` suppression names and `P1A4MonotonicClock` remain current implementation details because live callers still use them for accepted LONG-only correctness/timing.
+1. classify and close stale remote PRs;
+2. inventory and retire stale local worktrees;
+3. establish one clear canonical repository baseline;
+4. leave remote/local repository state easy to understand before future product work.
 
-## Machine evidence
+### Phase A — remote PR hygiene
 
-The machine gate before human acceptance was complete and green:
+Fresh remote inventory before mutation found exactly three open Draft PRs:
 
-- product merge CI after Wave D Domain 2: run `41282571433`, job `124777309274`, `SUCCESS`, including 504/504 Swift tests, Release and Universal2 packaging;
-- Domain 2 closeout CI: run `41282783523`, job `124777921972`, `SUCCESS`;
-- final machine-audit / human-acceptance entry commit `675a88bf87611d4788b9b5c72d11d2c9203cba01` CI: run `41284015670`, job `124781533923`, `SUCCESS`, including Source contracts, Protocol self-tests, Full Swift tests, Native Release and Universal2 packaging.
+- PR #25 `Release RemoteOrbit v0.2.15` — historical/diverged soak/release candidate; current accepted main has advanced through Task 045 and this PR must not be merged as-is;
+- PR #26 `fix: deterministic mapping entry and observable recordings` — historical/diverged Settings corrective; current accepted main has advanced through Task 045 and this PR must not be merged as-is;
+- PR #28 `ui: unify RemoteOrbit app, settings, and menu bar iconography` — independent branding/icon work, not yet classified as stale because it contains separate unmerged UI intent and still lacks its own accepted lifecycle decision.
 
-The final repository audit found no additional product-code retirement Domain required before human acceptance.
-
-## Human acceptance result
-
-The owner completed real runtime testing of the exact accepted candidate and reported no problems. The human gate is therefore recorded as:
-
-`HUMAN_RUNTIME_ACCEPTANCE = PASS`
-
-This closes Task 045. No further Task 045 product-code cleanup is authorized or required by the accepted plan.
-
-## Remaining non-blocking release-readiness follow-ups
-
-These are outside the completed Task 045 runtime acceptance and do not reopen it:
-
-1. `README.md` and `SETUP_NOTES.md` still contain stale baseline/version text and portions of the older first-PCM/classifier narrative. Reconcile before a final release/tag.
-2. Draft PR #25 is a historical/diverged v0.2.15 soak/release candidate and must not be merged into current `main` without a separate reconciliation.
-3. Draft PR #26 is a historical/diverged Settings corrective and must not be merged into current `main` without a separate reconciliation.
-4. Draft PR #28 is a separate branding/icon task and requires its own lifecycle decision.
-5. One test-only unnecessary-`try` compiler warning remains in `LocalMicrophoneCaptureRetirementContractTests.swift`; no runtime impact was found.
-6. CI packaging does not build the HAL driver; release packaging/driver policy remains a separate release-readiness concern.
+Current Phase A authority permits closing PRs proven `HISTORICAL` / `SUPERSEDED`. It does not authorize merging any stale PR or deleting remote branches.
 
 ## Current boundary
 
-Task 045 is closed.
-
-No additional Wave D product-cleanup Domain is authorized.
-
-No tag/release is authorized by this closeout. Documentation reconciliation, stale-PR hygiene, branding work, driver/release packaging, tag, or release must be handled as separate follow-up work with fresh authority.
+- Product source/runtime mutation: `NOT AUTHORIZED`
+- Tag/release: `NOT AUTHORIZED`
+- Remote branch deletion: `NOT YET AUTHORIZED`
+- Local worktree deletion: deferred until Phase A remote-PR closeout is recorded, then proceed under the same Project Closeout task with fresh local inventory.

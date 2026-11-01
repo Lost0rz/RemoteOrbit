@@ -1,74 +1,61 @@
 # RemoteOrbit Current Task
 
-## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Final Closeout
+## RO-PROJECT-CLOSEOUT-046 — Repository Closeout & Baseline
 
-Status: `CLOSED`
-TASK_CLASS: `COMPLETED GOVERNED CLEANUP / HUMAN-ACCEPTED RUNTIME`
+Status: `REMOTE_PR_HYGIENE / ACTIVE`
+TASK_CLASS: `REPOSITORY / WORKSPACE LIFECYCLE CLOSEOUT`
 Repository: `Lost0rz/RemoteOrbit`
-Human runtime/UI acceptance: `PASS / USER-CONFIRMED`
 
-## Final result
+## Objective
 
-Task 045 has completed its full governed lifecycle:
+Close the completed RemoteOrbit development cycle into one clear baseline without changing accepted product behavior.
 
-`Web audit/freeze → bounded local implementation → independent Web exact-head audit → merge/main CI → whole-repository machine audit → human runtime acceptance`
+Owner-authorized outcome:
 
-All authorized retirement Domains are merged, post-merge CI is green, the final whole-repository machine audit found no additional product-code cleanup blocker, and the owner has completed real runtime testing without reporting a failure.
+1. close stale remote PRs after evidence-based classification;
+2. clean stale local worktrees after inventory and merged/superseded checks;
+3. leave one clear canonical baseline;
+4. preserve unique/unmerged work unless its lifecycle is explicitly decided.
 
-`HUMAN_RUNTIME_ACCEPTANCE = PASS`
+## Phase A — remote PR hygiene
 
-Task 045 is therefore closed.
+Inventory all currently open PRs and classify each as one of:
 
-## Accepted production contract
+- `MERGED/EQUIVALENT` — intent already present in current main;
+- `SUPERSEDED/HISTORICAL` — old work must not be merged into current main;
+- `ACTIVE/RETAIN` — still contains intentional unmerged work that should remain available;
+- `UNKNOWN` — insufficient evidence; do not mutate.
 
-The accepted voice behavior remains:
+Authorized Phase A side effects:
 
-- SHORT before 300 ms: absolute user-visible no-op;
-- LONG at/after 300 ms: direct RC003 remote-voice lifecycle;
-- LONG release: queued PCM drains before final trigger/session release;
-- rapid LONG/release/LONG: bounded direct handoff without stuck trigger or incorrect input restoration;
-- no Persistent product/runtime semantics;
-- no Dual Receiver / Receiver-B runtime authority;
-- no generic non-direct SHORT/LONG classifier;
-- no RemoteOrbit-owned local/external microphone capture fallback;
-- no local/mixed PCM attribution model;
-- no P1-A5 front-edge experiment diagnostics.
+- close PRs classified `SUPERSEDED/HISTORICAL`;
+- optionally leave a concise closeout comment recording why they were closed;
+- keep `ACTIVE/RETAIN` and `UNKNOWN` PRs open;
+- update CURRENT_STATUS + CURRENT_TASK atomically after the remote inventory/closure result.
 
-Current LONG-only correctness mechanisms such as tombstone/suppression/handoff, hardware Option ownership, synthetic fallback, pre-HID ownership, BLE/ATVV, AudioPipe reserve/drain, input lease restoration, current diagnostics and compatibility projection remain part of the accepted runtime.
+Not authorized in Phase A:
 
-## Evidence basis
+- merge any stale PR;
+- delete remote branches;
+- rewrite history;
+- product source/runtime changes;
+- tag/release.
 
-Machine evidence before human acceptance:
+### Starting inventory
 
-- Wave D Domain 2 product merge CI: run `41282571433`, job `124777309274`, `SUCCESS`;
-- Domain 2 control closeout CI: run `41282783523`, job `124777921972`, `SUCCESS`;
-- final machine-audit / human-acceptance entry commit `675a88bf87611d4788b9b5c72d11d2c9203cba01` CI: run `41284015670`, job `124781533923`, `SUCCESS` through Source contracts, Protocol self-tests, Full Swift tests, Native Release and Universal2 packaging.
+Fresh remote evidence found exactly three open Draft PRs:
 
-The owner then completed runtime testing of the accepted candidate and reported no problems.
+- #25 `Release RemoteOrbit v0.2.15` — historical/diverged release/soak candidate;
+- #26 `fix: deterministic mapping entry and observable recordings` — historical/diverged Settings corrective;
+- #28 `ui: unify RemoteOrbit app, settings, and menu bar iconography` — separate branding/icon work requiring an independent lifecycle decision.
 
-## Follow-up work — not part of Task 045
+PR #25 and #26 are authorized for closure once their live identities remain unchanged at mutation time. PR #28 must receive an explicit lifecycle classification from current evidence before any close/merge action.
 
-The following items remain separate follow-ups and do not reopen Task 045:
+## Next phases
 
-- reconcile stale `README.md` / `SETUP_NOTES.md` version and historical-flow wording before release/tag;
-- decide lifecycle for historical/diverged PR #25 and PR #26;
-- decide lifecycle for independent branding/icon PR #28;
-- optionally remove the test-only unnecessary-`try` warning;
-- separately define driver/release packaging policy if preparing a distributable release;
-- tag/release only under new explicit authorization.
+After Phase A is recorded complete:
 
-## Boundary after closeout
+- Phase B: local worktree / checkout inventory and retirement;
+- Phase C: canonical baseline reconciliation, stale docs/branches classification, and final repository closeout receipt.
 
-There is no active Task 045 implementation authorization.
-
-Do not create a new Wave D Domain merely for naming cleanup or compatibility aliases.
-
-Any new runtime problem observed after this closeout must be treated as a fresh incident:
-
-1. preserve candidate/runtime identity;
-2. capture the exact action sequence and timestamps;
-3. collect existing diagnostics/log evidence;
-4. perform fresh Web audit;
-5. authorize only the smallest evidence-backed corrective.
-
-No tag/release, stale-PR cleanup, driver/CoreAudio/TCC mutation, or new product work is authorized by this file beyond recording Task 045 as closed.
+Each phase must preserve unique work and distinguish worktree retirement from branch/history retirement.
