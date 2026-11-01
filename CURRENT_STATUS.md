@@ -1,18 +1,21 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_2_IMPLEMENTATION_IN_PROGRESS`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_2_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Task 043: `MERGED / HUMAN_ACCEPTANCE_DEFERRED / USER-OWNED`
 Task 045 overall: `ACTIVE`
 Task 045A: `DIAGNOSTICS_GATING / MERGED / MAIN_CI_PASS / CLOSED`
 Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / MERGED / MAIN_CI_PASS / CLOSED`
-Task 045B Domain 2: `LEGACY_VOICE_PERSISTED_PREFERENCE_AUTHORITY / IMPLEMENTATION_IN_PROGRESS`
+Task 045B Domain 2: `LEGACY_VOICE_PERSISTED_PREFERENCE_AUTHORITY / IMPLEMENTATION_COMPLETE / DRAFT_PR_OPEN / DURABLE_CI_PASS / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Active branch: `codex/task045b-domain2-legacy-voice-persisted-preferences`
 Authoritative workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain2-legacy-voice-persisted-preferences`
 Implementation base: `origin/main@3e73382a39b4585e90ecf01558933eba1a828b96`
 Start HEAD: `3e73382a39b4585e90ecf01558933eba1a828b96`
+Implementation HEAD: `527923776a9ba9c93e1624b2847f7781da6e57bc`
+Remote branch HEAD at implementation handoff: `527923776a9ba9c93e1624b2847f7781da6e57bc` (equal)
+Draft PR: `#33` (`https://github.com/Lost0rz/RemoteOrbit/pull/33`)
 
 ## Domain 1 independent Web audit and closeout
 
@@ -78,6 +81,17 @@ Design authority: `docs/design/2026-11-01-045b-domain-2-legacy-voice-persisted-p
 
 ## Next gate
 
-Local implements only Domain 2 from fresh live `main`, opens one Draft PR, runs focused + full durable verification, updates both control files atomically, and stops at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+Domain 2 implementation is complete on the exact implementation head above. The next gate is independent Web exact-head audit; no merge or Domain 3 mutation is authorized.
+
+## Domain 2 execution
+
+- AppStorage no longer exposes, migrates, reads, or writes the Persistent-session or Receiver-B preference authorities.
+- Production startup restore no longer reads those UserDefaults values; historical Persistent/Dual values remain runtime-only injected seams.
+- Generic/momentary compatibility still seeds `VoiceInputProfile`; stale historical bytes remain untouched and inert.
+- Focused Domain 2, retained runtime, and LONG-only suites passed (`122` tests, `0` failures).
+- Full `swift test` passed (`660` tests, `0` failures); `swift build -c release` and `git diff --check` passed.
+- Durable CI run `41261225792` attempt `2`, job `124715151029`, runner `remoteorbit-macmini`, passed source contracts, protocol self-tests, full Swift tests, Native Release build, and Universal2 build-only packaging smoke.
+- No Persistent/Dual runtime ownership was removed and no old preference bytes were actively deleted.
+- The merged Domain 1 worktree was retired after clean/merged verification; its branch/history was retained.
 
 No Domain 3 mutation, merge, install, release, driver/CoreAudio/TCC mutation is authorized locally.

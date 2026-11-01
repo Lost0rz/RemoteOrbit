@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave B / Domain 2 Legacy Voice Persisted Preference Authority
 
-Status: `IMPLEMENTATION_IN_PROGRESS`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `BOUNDED LEGACY RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
 Design authority: `docs/design/2026-11-01-045b-domain-2-legacy-voice-persisted-preference-authority.md`
@@ -133,6 +133,10 @@ Start from fresh live `main` after reconciliation. Use one fresh worktree/branch
 
 Active workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain2-legacy-voice-persisted-preferences`
 Start HEAD: `3e73382a39b4585e90ecf01558933eba1a828b96`
+Implementation HEAD: `527923776a9ba9c93e1624b2847f7781da6e57bc`
+Remote branch HEAD at implementation handoff: `527923776a9ba9c93e1624b2847f7781da6e57bc` (equal)
+Draft PR: `#33` (`https://github.com/Lost0rz/RemoteOrbit/pull/33`), open and Draft.
+Durable CI: run `41261225792` attempt `2`, job `124715151029`, `success` on `remoteorbit-macmini`; Universal2 build-only packaging smoke passed.
 
 The merged Domain 1 worktree may be retired only after confirming clean state and merged ancestry. Preserve its branch/history unless separately authorized otherwise.
 
