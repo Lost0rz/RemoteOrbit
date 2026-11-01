@@ -2,7 +2,7 @@
 
 ## RO-PROJECT-CLOSEOUT-046 — Repository Closeout & Baseline
 
-Status: `REMOTE_HYGIENE_COMPLETE / LOCAL_WORKTREE_INVENTORY_READY`
+Status: `LOCAL_WORKTREE_INVENTORY / ACTIVE`
 TASK_CLASS: `REPOSITORY / WORKSPACE LIFECYCLE CLOSEOUT`
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -37,13 +37,13 @@ Remote branches:
 - `KEEP_UNIQUE_HISTORY`: `0`
 - `UNKNOWN_STOP`: `0`
 - owner executed the exact audited deletion set;
-- post-delete fetch/prune shows only `origin/main` plus symbolic `origin/HEAD -> origin/main`.
+- post-delete remote verification shows only `main`.
 
 Remote branch retirement is complete. No branch with unique required work was deleted.
 
 ## Phase B — local worktree inventory and retirement
 
-Next authorized action is read-only inventory first.
+Inventory is now active. The first pass is read-only/non-destructive.
 
 Inventory at minimum:
 
@@ -54,7 +54,8 @@ Inventory at minimum:
 - exact HEAD;
 - clean/dirty/untracked state;
 - relationship to current remote `main`;
-- whether unique commits or unique files exist.
+- whether unique commits or unique files exist;
+- stale or missing worktree registrations.
 
 Classify each workspace:
 
@@ -64,7 +65,7 @@ Classify each workspace:
 - `RETAIN_UNIQUE_WORK`
 - `UNKNOWN_STOP`
 
-Authorized Phase B mutation:
+Authorized Phase B mutation after review:
 
 - remove registered/local worktrees only after evidence proves `SAFE_TO_RETIRE_*` and the worktree is clean;
 - prune stale worktree registration only after the underlying target is proven absent/stale;

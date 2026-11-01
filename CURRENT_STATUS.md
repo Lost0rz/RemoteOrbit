@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-PROJECT-CLOSEOUT-046 — REMOTE_HYGIENE_COMPLETE / READY_FOR_LOCAL_WORKTREE_INVENTORY`
+State: `RO-PROJECT-CLOSEOUT-046 — LOCAL_WORKTREE_INVENTORY / ACTIVE`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Accepted runtime baseline
@@ -30,21 +30,22 @@ Remote branch retirement:
 - `KEEP_UNIQUE_HISTORY`: 0;
 - `UNKNOWN_STOP`: 0;
 - owner executed the audited remote deletion from the canonical local repository;
-- post-delete fetch/prune shows only `origin/main` (plus the local symbolic `origin/HEAD -> origin/main`).
+- post-delete remote verification shows only `main`.
 
-Remote repository hygiene is therefore complete. No product source was changed by the branch-retirement operation.
+Remote repository hygiene is complete. No product source was changed by the branch-retirement operation.
 
-## Next phase
+## Phase B — local worktree inventory
 
-Phase B is `LOCAL_WORKTREE_INVENTORY`.
+Active.
 
 Required sequence:
 
 1. inventory all registered worktrees and likely unregistered project checkouts;
-2. record branch, HEAD, clean/dirty state, and whether each HEAD is merged/equivalent/superseded/unique;
-3. preserve any dirty or unique work;
-4. remove only worktrees proven safe to retire;
-5. keep local branch/history lifecycle decisions separate from worktree deletion.
+2. record branch, HEAD, clean/dirty state, and relationship to current remote `main`;
+3. detect unique commits, unique files, untracked files, and stale registrations;
+4. preserve any dirty or unique work;
+5. classify every workspace as `CANONICAL_KEEP`, `SAFE_TO_RETIRE_MERGED`, `SAFE_TO_RETIRE_SUPERSEDED`, `RETAIN_UNIQUE_WORK`, or `UNKNOWN_STOP`;
+6. perform no deletion until the inventory is reviewed.
 
 ## Current boundary
 
@@ -52,4 +53,5 @@ Required sequence:
 - Tag/release: `NOT AUTHORIZED`
 - Remote PR cleanup: `COMPLETE`
 - Remote branch cleanup: `COMPLETE`
+- Local worktree inventory: `ACTIVE / READ-ONLY FIRST`
 - Local worktree deletion: authorized only after the Phase B inventory proves the target safe.
