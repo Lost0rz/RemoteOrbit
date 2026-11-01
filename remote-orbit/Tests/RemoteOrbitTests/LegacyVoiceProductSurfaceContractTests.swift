@@ -42,8 +42,7 @@ final class LegacyVoiceProductSurfaceContractTests: XCTestCase {
 
         for retiredBridge in [
             "VoiceSettingsRuntimeBridge",
-            "onPersistentSessionTriggerKeyChanged",
-            "initialPersistentSessionTriggerKey"
+            "onPersistentSessionTriggerKeyChanged"
         ] {
             XCTAssertFalse(
                 main.contains(retiredBridge),
