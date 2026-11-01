@@ -1,96 +1,181 @@
 # RemoteOrbit Current Task
 
-## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave B / Domain 6 Local Microphone Capture Retirement
+## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave D / Domain 1 Remote-Only PCM Attribution Retirement
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
-TASK_CLASS: `BOUNDED LEGACY RETIREMENT`
+Status: `READY_FOR_IMPLEMENTATION_HANDOFF`
+TASK_CLASS: `BOUNDED FINAL RESIDUE RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
-Design authority: `docs/design/2026-11-01-045b-domain-6-local-microphone-capture-retirement.md`
+Design authority: `docs/design/2026-11-01-045d-domain-1-remote-only-pcm-attribution-retirement.md`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
 
-## Implementation handoff evidence
+## Completed prerequisite
 
-Domain 6 implementation is complete on branch `codex/task045b-domain6-local-microphone-capture-retirement`:
+Domain 6 is accepted and closed:
 
-- pre-mutation gate: fresh live `main@c6976aa5e4db799747e7f86ba9c8278cbe051241` matched authority; control-only CI run `41272632076` / job `124748359282` final `SUCCESS` on `remoteorbit-macmini`;
-- implementation HEAD: `84bd468ad9059b0313f07e905f169b1d41cd53e2` (single commit, direct child of `c6976aa`);
-- Draft PR #37 created, not merged, not made Ready;
-- exact-head durable PR CI run `41275976852` / job `124758115909` `SUCCESS` on `remoteorbit-macmini` through source contracts, protocol self-tests, full Swift tests, Native Release and Universal2 build-only packaging smoke;
-- local verification: focused suites green, full `swift test` 509/509, `swift build -c release`, `git diff --check` clean, local Universal2 packaging `x86_64 arm64` with no `NSMicrophoneUsageDescription`;
-- Domain 5 worktree retired after clean + merged-ancestry confirmation; branch/history preserved.
-
-Final PR head, remote equality and post-push CI must be re-resolved from GitHub at independent audit time; this control commit does not encode its own SHA.
+- PR #37 independent exact-head audit: PASS (`FRESH_CONTEXT`);
+- final reviewed PR head: `85f521371dd2ff6dd5cc4e5c7cb45acf89c3e61a`;
+- exact-head PR CI `41276388399` / job `124759311071` passed on `remoteorbit-macmini` including Full Swift 509/509, Native Release and Universal2 packaging;
+- merged as `640256238941856c3eaa82a54cb6518d59792015` using exact expected head;
+- post-merge main CI `41276777315` / job `124760439385` passed every durable stage including Universal2 packaging.
 
 ## Domain execution rule
 
-Legacy retirement remains serial:
+Wave D remains serial:
 
 `Web audit/freeze → local cleanup → Web exact-head audit → merge/closeout → next domain`
 
-Domain 6 was audited and designed by Web; local execution performed freshness/identity reconciliation, implementation and verification only. The frozen boundary below records what was executed; it is not re-opened for local redesign.
+This Domain 1 has already been audited and designed by Web. Local execution performs freshness/identity reconciliation, implementation and verification only. Do not redo the domain audit or expand the boundary. If live repository facts materially conflict with this authority, stop with `AUTHORITY_RECONCILIATION_REQUIRED`.
 
-## Domain 6 purpose
+Before product mutation, fetch live `main`, read `AGENTS.md`, `CURRENT_STATUS.md`, this file and the design authority, and require the durable CI attached to the live Wave D Domain 1 authority/control commit to be successful.
 
-Retire RemoteOrbit's obsolete local/external microphone AVCapture pipeline and microphone-TCC requirement while preserving the current user-facing system input selector and the remote-only LONG voice path.
+## Purpose
 
-The user-selected system input is a persistent preference, not a local-capture source. A remote LONG temporarily leases the system default input to `RemoteOrbit Mic 2ch`; the saved preference is restored only after the final remote PCM output drain, with the lease transferred across an immediate direct rapid-repress successor.
+Retire the dead local/mixed-source PCM attribution model left behind after local microphone capture was removed, while keeping the AudioPipe ring and every remote realtime behavior observably equivalent.
 
-## Executed mutation summary
+## Authorized mutation
+
+### `remote-orbit/Sources/RemoteOrbit/AudioPipeRealtime.swift`
+
+Where current callers prove the ring is remote-only:
+
+- retire `AudioPipePCMSource.local` and, if no retained need remains, the `AudioPipePCMSource` discriminator itself;
+- remove the independent `remoteQueuedFrames` atomic counter and its source-conditioned publication/consumption/reset bookkeeping;
+- simplify write/read result construction so remote queue depth values remain exactly equal to the corresponding total queue depth values in the remote-only product;
+- keep result fields with remote-oriented names if they are still consumed by diagnostics/tests; this domain does not authorize a broad diagnostics schema rename;
+- preserve ring capacity, FIFO ordering, exact-full/exact-empty semantics, wraparound, bounded indices, reader/reset gate protocol, zero-fill behavior and realtime callback constraints.
+
+The preferred implementation is the smallest removal of redundant source attribution. Do not redesign the ring algorithm.
 
 ### `remote-orbit/Sources/RemoteOrbit/AudioPipe.swift`
 
-Retired: `AVFoundation`/`CoreMedia` imports; `AVCaptureAudioDataOutputSampleBufferDelegate` conformance; `AVCaptureSession`, capture queue and local permission/request state; `setLocalMicrophoneCaptureEnabled(...)`; permission request logic; start/stop/configuration helpers; sample-buffer `captureOutput(...)` local PCM path; `scheduledMacBuffers` and directly-owned local diagnostics branches; the AudioPipe-side loopback name filter used only for capture discovery; the restore-at-`setRemoteActive(false)` branch gated on the retired local-capture flag; the unused `outputChannels` constant.
+Update current remote-only call sites only as needed by the ring API simplification.
 
-Preserved: remote producer, prebuffer/candidate, fixed-capacity ring, playout reserve, IOProc/render path, output drain, realtime diagnostics, remote timing behavior, startup/driver-reload `applyPreferredInputSelection()`, and temporary `selectRemoteOrbitInputForVoice()` at route activation.
+Preserve:
 
-### Temporary system-input lease (executed)
+- candidate/prebuffer behavior;
+- playout reserve;
+- remote activation/reset order;
+- output drain;
+- queue/overflow diagnostics values;
+- IOProc/render behavior;
+- diagnostic snapshots and external field meanings.
 
-`VoicePressCoordinator` owns the lease via injected `onRemoteInputLeaseRelease` wired to `SystemAudioDeviceManager.applyPreferredInputSelection()`:
+Any current diagnostic field representing remote queue depth or pending remote frames must report the same value it reports today for production remote-only traffic.
 
-1. promoted remote LONG selects `RemoteOrbit Mic 2ch` (unchanged route activation) without overwriting the saved preference;
-2. transport stop / `setRemoteActive(false)` does NOT restore;
-3. at post-drain direct-session completion the lease transfers to an immediate direct successor (registered rapid repress, pending hardware repress, or live replacement physical candidate epoch);
-4. otherwise the persisted preferred input is restored exactly once (bounded; saved RemoteOrbit preference idempotent);
-5. a lease retained for a successor that dies without promoting is released at that successor's end boundary (candidate cancel/failure, pending-repress release before activation, pre-HID epoch end, coordinator stop).
+### `remote-orbit/Sources/RemoteOrbit/AudioDataPlaneDiagnostics.swift`
 
-No restoration was placed inside `AudioPipe.setRemoteActive(false)`.
-
-### `AudioPipeRealtime.swift` / audio diagnostics
-
-Removed only the compile-local, behavior-equivalent local-microphone render state that became permanently false after capture deletion (`localMicrophoneActive`, `.localMicrophone` render state/marker). `FixedCapacityPCMFrameRing`, remote queue attribution and `AudioPipePCMSource.local` remain untouched, frozen for Wave D.
-
-### Packaging / docs
-
-`NSMicrophoneUsageDescription` removed from `remote-orbit/Packaging/Info.plist`. README/SETUP current operational wording updated for no-microphone-TCC and the temporary input lease; historical records untouched.
+`AudioRemoteQueueAttribution` may be deleted/simplified only where direct source audit proves it has no production caller after Domain 6. Do not use this as authority to rewrite unrelated delivery, render, BLE, continuity or incident accounting.
 
 ### Tests
 
-Added `RemoteVoiceInputLeaseTests` (5 deterministic injected-seam tests) and `LocalMicrophoneCaptureRetirementContractTests` (3 source/plist contracts). Removed obsolete `testLocalMicrophoneRenderIsExcludedFromRemoteDiagnostics`. No test mutates host default input, driver, CoreAudio or TCC state.
+Remove/rewrite only tests whose sole purpose is the retired local/mixed-source model, including local-source writes or assertions that remote depth differs from total depth.
 
-## Explicit KEEP boundary (unchanged authority)
+Retain or strengthen deterministic coverage for:
 
-Menu-bar `输入设备`/`输出设备` functionality; persisted preferred system input/output settings and device filtering; `RemoteOrbit Mic 2ch` temporary voice selection; Gate-A LONG-only candidate and `holdActivationThreshold == 0.30`; SHORT `<300 ms` absolute no-op and LONG `>=300 ms` direct voice contract; `.opening/.streaming/.draining` direct lifecycle; direct rapid LONG/release/LONG ownership and pending repress; short-discard tombstone, mapped-edge suppression and suppression handoff; hardware Option ownership/held-UP acknowledgement and synthetic fallback; pre-HID candidate; BLE READY/reuse, ATVV, codec, gain, sample rate; AudioPipe remote candidate/prebuffer/ring/playout reserve/IOProc/render/output drain/post-release grace; receiver readiness; Task 045A diagnostics gating and independent debug recording; primary profile/mapping authority.
+- FIFO and partial operations;
+- exact full/empty distinction;
+- wraparound;
+- overflow rejection without overwrite;
+- reset;
+- SPSC stress/order;
+- remote diagnostics counters;
+- reserve wait/tail bypass;
+- output drain;
+- realtime callback no-lock/no-dispatch/no-dynamic-buffer contract;
+- current remote queue/overflow diagnostic values.
 
-## Verification results
+If a mixed-source test also contains a current generic ring assertion, rehome that assertion before deleting the case.
 
-Focused suites green: `AudioPipeTests`, `AudioPipeRealtimeTests`, `AudioDataPlaneMeasurementBoundaryTests`, `AudioDeviceManagerTests`, `VoicePipelineSimplificationTests`, `VoicePressCoordinatorTests`, `PrimaryVoiceRuntimeTests`, `VoiceKeyFilterTests`, `RemoteVoiceInputLeaseTests`, `LocalMicrophoneCaptureRetirementContractTests`, plus BLE/diagnostics/readiness suites (`BLEBridgeTests`, `DiagnosticsRuntimeGateTests`, `VoiceReceiverReadinessTests`, `AudioDataPlaneDiagnosticsTests`, `AudioPipePlayoutReserveTests`, `DiagnosticHardeningTests`).
+## Explicit KEEP boundary
 
-Full `swift test`: 509/509. `swift build -c release`: pass. `git diff --check`: clean. Durable CI run `41275976852` / job `124758115909` on `remoteorbit-macmini`: `SUCCESS` including Universal2 build-only packaging smoke. Local packaging smoke: `x86_64 arm64`, packaged plist without microphone permission.
+Do not change:
 
-Scope-mutation flags: LONG-only semantics — unchanged; BLE/ATVV — unchanged; remote AudioPipe realtime — unchanged (compile-local dead-state deletion only, behavior-equivalent); primary mapping — unchanged; live install/driver/CoreAudio/TCC/default-device — none.
+- `AudioPipe.pcmRingCapacityFrames`;
+- ring read/write/reset synchronization protocol except removal of the redundant remote-source counter;
+- playout reserve thresholds/state machine;
+- remote gain, sample rate or resampling;
+- candidate/prebuffer ownership;
+- output-drain and post-release behavior;
+- temporary system-input lease from Domain 6;
+- Gate-A 300 ms LONG-only semantics;
+- rapid repress, tombstone/suppression/handoff, hardware/synthetic ownership;
+- BLE/ATVV/readiness;
+- diagnostics runtime gate or independent recording;
+- primary profile/mapping authority;
+- external durable diagnostic schema/field names unless a compile-only adaptation is unavoidable.
 
-## Workspace / delivery (state)
+Historical names are not retirement proof. In particular, current `beginShortTapDiscard`, `isShortTapDiscardSession`, and `transferShortTapDiscardToAudioOnlySuppression` ownership remain outside this domain because they are live LONG-only correctness mechanisms.
 
-Branch `codex/task045b-domain6-local-microphone-capture-retirement`; worktree clean and remote-synced; Draft PR #37 open. This control handoff commit updates `CURRENT_STATUS.md` and `CURRENT_TASK.md` atomically.
+## Explicit non-goals
 
-## Next gate
+Do not:
 
-Independent Web exact-head audit of Draft PR #37. Only after that audit PASS may the PR be made Ready and merged, followed by post-merge main CI and the next domain freeze — each as its own authorized transition.
+- start another Wave D residue domain;
+- broadly refactor AudioPipe/diagnostics architecture;
+- rename live tombstone/suppression primitives for cosmetics;
+- change diagnostics gating or timer policy;
+- change 300 ms behavior;
+- change BLE/ATVV, codec, gain, sample rate or prebuffer;
+- change input-device lease behavior;
+- install/replace the app;
+- mutate live driver/CoreAudio/TCC/default audio devices;
+- tag/release;
+- merge the implementation PR locally.
+
+## Verification required
+
+Focused evidence must prove at minimum:
+
+1. no production PCM source discriminator/local source remains if the enum is retired;
+2. no redundant remote queue atomic counter remains;
+3. production remote queue depth/pending-remote values equal total queued frames without semantic change;
+4. FIFO/full-empty/wraparound/reset/stress behavior remains green;
+5. realtime render callback remains free of ordinary locks, dispatch and dynamic sample buffers;
+6. remote overflow/drop accounting remains equivalent;
+7. reserve, render, tail and output-drain behavior remains green;
+8. Domain 6 input-lease tests remain green;
+9. LONG-only, rapid repress, tombstone/suppression, BLE/readiness, diagnostics-gate and recording regressions remain green;
+10. no live `ShortTap`/`AudioOnly` correctness primitive was removed merely by name.
+
+At minimum run focused suites covering:
+
+- `AudioPipeRealtimeTests`
+- `AudioPipeTests`
+- `AudioDataPlaneMeasurementBoundaryTests`
+- `AudioDataPlaneDiagnosticsTests`
+- `AudioPipePlayoutReserveTests`
+- `RemoteVoiceInputLeaseTests`
+- `VoicePipelineSimplificationTests`
+- `VoicePressCoordinatorTests`
+- `VoiceKeyFilterTests`
+- relevant BLE / diagnostics / readiness tests
+
+Then run:
+
+- full `swift test`;
+- `swift build -c release`;
+- `git diff --check`;
+- durable `.github/workflows/remoteorbit-ci.yml` on `remoteorbit-macmini`;
+- Universal2 build-only packaging smoke.
+
+## Workspace / delivery
+
+Start from fresh live `main` after reconciliation. Use one fresh worktree/branch, suggested:
+
+`codex/task045d-domain1-remote-only-pcm-attribution-retirement`
+
+The merged Domain 6 worktree may be retired only after confirming clean state and merged ancestry. Preserve its branch/history unless separately authorized.
+
+Create one Draft PR. Do not merge locally.
+
+After implementation/test/CI evidence is available, atomically update `CURRENT_STATUS.md` and `CURRENT_TASK.md` in one final handoff commit. Do not encode that control commit's own future SHA; resolve final PR head and post-push CI from GitHub at independent audit time.
 
 ## Stop
 
-Local execution stops at:
+After implementation, verification, push, Draft PR, durable CI and atomic control handoff, stop at:
 
 `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
-Do not start Wave D, install the app, mutate live driver/CoreAudio/TCC/default devices, tag/release or merge locally.
+Do not start another Wave D domain, install the app, mutate driver/CoreAudio/TCC/default devices, tag/release or merge locally.
+
+Return actual governance route/capability, topology/subagents, fresh start main, authority/control CI pre-mutation result, branch/worktree, implementation/final heads, remote equality, Draft PR, changed/deleted paths, retired attribution surface, retained diagnostic field semantics, focused/full/build/diff/CI/package results, Domain 6 worktree disposition, scope-mutation flags, unresolved uncertainty, `HUMAN_UI_ACCEPTANCE`, merge state and final actual state.
