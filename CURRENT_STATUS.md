@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_5_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_6_AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
 Repository: `Lost0rz/RemoteOrbit`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
 
@@ -12,21 +12,23 @@ Human runtime/UI acceptance: `PENDING / USER-OWNED`
 - Task 045B Domain 2: `LEGACY_VOICE_PERSISTED_PREFERENCE_AUTHORITY / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 4: `DUAL_RECEIVER_RUNTIME_STATE_MACHINE / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045B Domain 5: `LEGACY_GENERIC_SHORT_CLASSIFIER_RUNTIME / IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+- Task 045B Domain 5: `LEGACY_GENERIC_SHORT_CLASSIFIER_RUNTIME / MERGED / MAIN_CI_PASS / CLOSED`
+- Task 045B Domain 6: `LOCAL_MICROPHONE_CAPTURE / AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
 
-## Domain 4 independent Web audit and closeout
+## Domain 5 independent Web audit and closeout
 
 Audit independence: `FRESH_CONTEXT`.
 
-- Final reviewed PR #35 head: `aaa4ff238b826da55e80f0ff9d8708c80f10f4b7`.
-- Corrective implementation HEAD: `8741de39cc85122bc50e0a581a37e7c8501885d7`; corrective product-code delta was NONE.
-- Exact-head PR CI run `41267602388`, job `124733560093`, passed on `remoteorbit-macmini` through source contracts, protocol self-tests, full Swift, native Release, and Universal2 build-only packaging.
-- The primary runtime coverage blocker was closed by `PrimaryVoiceRuntimeTests.swift` plus the retained `VoiceKeyFilterTests.testSuppressedOwnershipBlocksTriggerReconfiguration` assertion.
-- PR #35 was merged using exact expected head as merge commit `fa49bb4fe38fd87a7ed36ab7bccfcfe2259434c6`.
-- Post-merge main CI run `41268164507`, job `124735221877`, completed successfully through every durable stage including Universal2 packaging.
-- No app install, driver/CoreAudio/TCC mutation, tag/release, or machine-owned RC003/Doubao acceptance was performed.
+- Final reviewed PR #36 head: `cbc5f981f6f72e5041739774b38f94cf1f695fea`.
+- Immutable implementation HEAD: `e4c285ecbe2ad9a3a79e4dd2f01607857fdc4c37`.
+- Exact-head PR CI run `41271384083`, job `124744691635`, passed on `remoteorbit-macmini` through source contracts, protocol self-tests, full Swift 502/502, Native Release and Universal2 `x86_64 arm64` packaging.
+- Independent source audit confirmed the obsolete non-direct SHORT/LONG classifier, `.pending/.holding`, legacy tail/repress/short-local-mic caller plumbing and obsolete tests were retired while current Gate-A LONG-only, direct rapid repress, tombstone/suppression/handoff, transport-loss and output-drain ownership remained intact.
+- `AudioPipe.swift` was unchanged in Domain 5.
+- PR #36 was converted from Draft to Ready only after audit PASS and merged with exact expected head as `07c6f294e436a987d526a085d7386c7f15b830b1`.
+- Post-merge main CI run `41271866992`, job `124746108991`, passed every durable stage including Full Swift 502/502, Native Release and Universal2 packaging.
+- No app install, driver/CoreAudio/TCC/default-device mutation, tag/release or machine-owned RC003/Doubao acceptance was performed.
 
-Canonical audit basis for Domain 5: `main@fa49bb4fe38fd87a7ed36ab7bccfcfe2259434c6`.
+Canonical audit basis for Domain 6: `main@07c6f294e436a987d526a085d7386c7f15b830b1`.
 
 ## Legacy retirement execution model
 
@@ -34,71 +36,62 @@ Retirement remains serial by bounded domain:
 
 `Web audit/freeze → local cleanup → Web exact-head audit → merge/closeout → next domain`
 
-Local execution performs only freshness/identity reconciliation for a frozen domain. It does not re-audit or redesign the domain unless current repository facts materially conflict with authority.
+Local execution performs freshness/identity reconciliation for the frozen domain. It does not re-audit or redesign the domain unless live repository facts materially conflict with authority; then it stops with `AUTHORITY_RECONCILIATION_REQUIRED`.
 
-## Domain 5 audit — Legacy Generic Short Classifier Runtime
+## Domain 6 audit — Local Microphone Capture & Temporary Input Lease
 
-Design authority: `docs/design/2026-11-01-045b-domain-5-legacy-generic-short-classifier-retirement.md`.
+Design authority: `docs/design/2026-11-01-045b-domain-6-local-microphone-capture-retirement.md`.
 
-### Frozen audit basis before implementation
+### Verified current facts
 
-- Production `AppController.beginVoicePress(...)` ignores its legacy `shortBinding` argument and always calls the coordinator with `directSession: true` plus `longOnlyAdmission: true`; both HID and filter-fallback microphone entrypoints use that same Gate-A path.
-- `handleVoiceShortTap(...)`, `AppController.bypassesShortClassification(for:)`, and `VoicePressCoordinator.usesLocalMicrophone(forShortBinding:)` have no production caller.
-- Coordinator states `.pending` and `.holding`, the short-action callback/local-microphone fields, the old hold timer, release-bounce fence, and legacy tail/repress activation branches exist only for the non-direct classifier path.
-- Current direct LONG-only ownership is separate: long-only candidate/timer, direct session, direct rapid-repress handoff, hardware/synthetic trigger ownership, transport admission, direct output drain, tombstone/suppression handoff, BLE/pre-HID/AudioPipe remote path.
-- `VoicePressCoordinator.tailDrainDelay` still has a live non-legacy caller in the mapped-edge suppression quiet-period path; historical naming is not retirement authority.
-- `AudioPipe` still contains a separate local/external microphone AVCapture subsystem. Domain 5 will remove its dead coordinator callers only; the AudioPipe implementation itself is frozen for a separate Domain 6 audit.
-- `DisabledShortClassifierTests.swift` exclusively tests the obsolete pending/holding classifier and is a Domain 5 retirement candidate.
-- `VoicePressCoordinatorTests.swift` is mixed: current direct LONG-only assertions must remain; legacy pending/holding/tail classifier cases may be removed only after current claims are shown covered by retained direct suites.
+- Domain 5 removed every production caller that enabled AudioPipe local/external microphone capture.
+- `AudioPipe.swift` still owns an obsolete AVCapture pipeline: AVFoundation/CoreMedia imports, `AVCaptureSession`, permission/request state, `setLocalMicrophoneCaptureEnabled(...)`, start/stop helpers, sample-buffer delegate conversion and local PCM scheduling.
+- Current product behavior is explicitly remote-only for the microphone button: SHORT is no-op; LONG consumes Xiaomi ATVV audio through `RemoteOrbit Mic 2ch`.
+- The menu-bar `输入设备` selector remains a current product feature. It lists RemoteOrbit plus physical microphones, sets macOS default input, and persists the user's stable input identifier through `SystemAudioDeviceManager`. This preference is not legacy local-capture ownership and must remain.
+- On remote activation, `AudioPipe.setRemoteActive(true)` temporarily selects `RemoteOrbit Mic 2ch` without overwriting the persisted user input preference.
+- Current deactivation restores the persisted input only when obsolete `localMicrophoneCaptureRequested` is true. With Domain 5 callers gone, a user-selected physical input can therefore be permanently overridden after the first remote LONG until manually reselected/restarted.
+- Remote route deactivation occurs before queued PCM output drain. Restoring a physical input inside `setRemoteActive(false)` would therefore be too early and could cut across the tail/drain lifetime.
+- Direct rapid repress can transfer A→B ownership across the previous output drain. The temporary RemoteOrbit input must stay leased across that handoff rather than restoring/reacquiring a physical input between sessions.
+- `NSMicrophoneUsageDescription` remains in packaged Info.plist solely because of the obsolete AVCapture path. Control Center has no current microphone-TCC permission surface.
+- Low-level ring source attribution still contains `.local`/mixed-source bookkeeping. Removing that realtime data-plane abstraction is not required to retire physical microphone capture and is frozen for the final Wave D cleanup unless a compile-only change is strictly necessary.
 
-### Domain 5 classification
+### Domain 6 classification
 
 `RETIRE NOW`:
 
-- the non-direct branch of `VoicePressCoordinator.keyDown(...)` and legacy-only parameters/API surface;
-- `.pending` / `.holding` coordinator states and their old classification lifecycle;
-- hold timer / legacy long promotion / legacy long-input / legacy tail-work-item lifecycle;
-- short callback, local-mic short-request state, pending-short preparation state, release-bounce-only state, and legacy-only `PendingRepress` payload/activation branches;
-- AppController dead `shortBinding` voice-entry plumbing, `handleVoiceShortTap(...)`, `bypassesShortClassification(for:)`, and other classifier-only helpers;
-- HUD/readiness projection branches that exist solely for `.pending` / `.holding`;
-- `DisabledShortClassifierTests.swift` and legacy-only cases in mixed coordinator tests, with any still-current assertion rehomed before deletion.
+- AudioPipe physical/external AVCapture ownership, permission request lifecycle and sample-buffer delegate path;
+- local-capture state/counters and local-only scheduling branches directly owned by that path;
+- `NSMicrophoneUsageDescription` and current install/setup instructions that tell users RemoteOrbit requires microphone TCC;
+- obsolete local-microphone diagnostic state/tests directly tied to the removed capture path;
+- stale comments describing AudioPipe as a local+remote microphone mixer.
 
-`KEEP`:
+`KEEP / RECONCILE`:
 
-- Gate-A LONG-only candidate and 300 ms threshold;
-- direct session `.opening` / `.streaming` / `.draining` lifecycle;
-- direct rapid LONG/release/LONG and pending direct repress ownership;
-- short-discard tombstone, late mapped-edge suppression and suppression handoff;
-- hardware Option ownership, held-UP acknowledgement, synthetic fallback;
-- pre-HID physical candidate, BLE/ATVV, AudioPipe remote path, output drain/tail/grace;
-- `VoicePressCoordinator.tailDrainDelay` while the current suppression quiet-period caller remains;
-- current primary mapping/profile authority and Domain 4 `PrimaryVoiceRuntimeTests`;
-- Task 045A diagnostics gate and independent recording;
-- `VoiceKeyFilter` short-discard/suppression primitives and `VoiceOptionTrigger` operations that still have current callers.
+- menu-bar system input/output device selection;
+- persisted preferred system input authority in `SystemAudioDeviceManager`;
+- temporary selection of `RemoteOrbit Mic 2ch` for a promoted remote LONG;
+- restore of the persisted input only after the final remote output drain, when no immediately pending direct successor owns the same temporary lease;
+- rapid-repress transfer of the temporary RemoteOrbit input lease without physical-input flicker;
+- all remote AudioPipe transport/ring/reserve/IOProc, BLE/ATVV, codec, gain/sample-rate, candidate/prebuffer, diagnostics gating and recording behavior;
+- Gate-A 300 ms LONG-only and all suppression/tombstone/hardware/synthetic correctness mechanisms.
 
-`FROZEN FOR DOMAIN 6`:
+`FROZEN FOR WAVE D`:
 
-- `AudioPipe` local/external microphone AVCapture implementation, permission flow, local capture state, delegate path and its dedicated tests/comments. Domain 5 may remove now-dead callers from `main.swift` but must not mutate the AudioPipe local-microphone implementation itself.
-
-`FROZEN FOR LATER / WAVE D`:
-
-- cosmetic rename of live short/audio-only-named suppression primitives;
-- broad diagnostics/history cleanup;
+- broader simplification of `AudioPipePCMSource.local`, mixed-source ring attribution and generic remote-queue bookkeeping if those symbols can remain behavior-neutral after capture retirement;
+- cosmetic naming/history cleanup;
 - final resource/regression audit and hardware acceptance.
 
-## Domain 5 implementation handoff identity
+## Domain 6 selected ownership model
 
-- Fresh start main: `683eb48d3e0edc4595fa6f61982c176c8675ddbb`.
-- Immutable implementation HEAD: `e4c285ecbe2ad9a3a79e4dd2f01607857fdc4c37`.
-- Branch/worktree: `codex/task045b-domain5-legacy-generic-short-classifier-retirement` / `remoteorbit-task045b-domain5-legacy-generic-short-classifier-retirement`.
-- Draft PR: `#36`, base `main@683eb48d3e0edc4595fa6f61982c176c8675ddbb`.
-- The live PR head is resolved from GitHub at audit time; this handoff records the immutable implementation HEAD and does not predeclare its own future SHA.
-- Implementation-head durable CI: run `41271178228`, job `124744101031`, `RemoteOrbit CI`, runner `remoteorbit-macmini`, passed full Swift tests, Native Release build and Universal2 build-only packaging smoke.
-- Local verification: focused retained voice/runtime/BLE/readiness/filter suites passed; full `swift test` passed 502/502; `git diff --check` passed; `swift build -c release` passed.
-- Changed paths: `remote-orbit/Sources/RemoteOrbit/main.swift`, `remote-orbit/Sources/RemoteOrbit/VoiceReceiverReadiness.swift`, and directly affected retained voice/runtime tests under `remote-orbit/Tests/RemoteOrbitTests/`; deleted `remote-orbit/Tests/RemoteOrbitTests/DisabledShortClassifierTests.swift`.
-- `AudioPipe.swift` is unchanged; no app install, driver/CoreAudio/TCC mutation, default-device mutation, tag/release, or merge was performed.
-- `CURRENT_STATUS.md` and `CURRENT_TASK.md` are updated in one atomic handoff commit, which is a direct child of the implementation HEAD. Its SHA and the post-push CI identity must be resolved from the live branch/PR after publication.
+The persisted system input remains a user preference owned by `SystemAudioDeviceManager`. Remote voice temporarily leases the system default input to `RemoteOrbit Mic 2ch`.
+
+- Lease acquire: current remote LONG route activation.
+- Lease release: after actual AudioPipe output drain completes, not when transport merely stops.
+- Successor transfer: if a direct pending rapid-repress/candidate will immediately own the next remote session, do not restore the physical preference between A and B; the lease transfers to B.
+- Final release: once the final remote session reaches post-drain completion with no direct successor, restore the persisted preferred input. If the saved preference is RemoteOrbit itself, restoration is naturally idempotent.
+
+Do not implement preference restoration inside `AudioPipe.setRemoteActive(false)`.
 
 ## Next gate
 
-Await independent Web exact-head source/CI/identity audit of the live PR head after the control handoff. No merge, Domain 6 mutation, app install, driver/CoreAudio/TCC mutation, tag/release, or machine-owned hardware acceptance is authorized.
+Domain 6 is fully audited/designed/frozen and ready for one bounded local implementation from fresh live `main` after the control-only CI for this authority commit is green. No Wave D/next-domain mutation, merge, app install, driver/CoreAudio/TCC/default-device runtime mutation, tag/release or machine-owned hardware acceptance is authorized.
