@@ -240,6 +240,62 @@ final class WavRecorderDiagnosticsTests: XCTestCase {
         bridge.stop()
     }
 
+    func testDiagnosticsOffRecordingLifecycleWritesFilesButSuppressesMetadata() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let previousRecording = AppStorage.recordingEnabled
+        let previousLogging = AppStorage.loggingEnabled
+        defer {
+            AppStorage.recordingEnabled = previousRecording
+            AppStorage.loggingEnabled = previousLogging
+        }
+
+        AppStorage.loggingEnabled = false
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+
+        let authority = try XCTUnwrap(
+            DiagnosticAuthorityService.shared as? DiagnosticAuthorityService
+        )
+        let bridge = BLEBridge()
+        bridge.recordingDirectoryOverrideForTesting = directory
+
+        AppStorage.recordingEnabled = false
+        bridge.beginAudioStartForTesting()
+        bridge.closeRecordingForTesting()
+        XCTAssertTrue(
+            try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            ).isEmpty
+        )
+
+        let metricsBeforeRecording = authority.workMetricsForTesting
+        AppStorage.recordingEnabled = true
+        bridge.beginAudioStartForTesting()
+        bridge.appendRecordingDataForTesting(
+            rawData: Data([0x01, 0x02, 0x03]),
+            samples: [1, -1, 42, -300]
+        )
+        bridge.closeRecordingForTesting()
+
+        let files = try recordingFiles(in: directory)
+        XCTAssertEqual(files.wav.count, 1)
+        XCTAssertEqual(files.raw.count, 1)
+        let wav = try Data(contentsOf: files.wav[0])
+        XCTAssertEqual(try Data(contentsOf: files.raw[0]), Data([0x01, 0x02, 0x03]))
+        XCTAssertEqual(String(data: wav[0..<4], encoding: .ascii), "RIFF")
+        XCTAssertEqual(String(data: wav[8..<12], encoding: .ascii), "WAVE")
+        XCTAssertEqual(String(data: wav[12..<16], encoding: .ascii), "fmt ")
+        XCTAssertEqual(String(data: wav[36..<40], encoding: .ascii), "data")
+        XCTAssertEqual(readUInt32LE(wav, offset: 40), UInt32(4 * 2))
+        XCTAssertEqual(readUInt32LE(wav, offset: 4), UInt32(wav.count - 8))
+        XCTAssertEqual(wav.count, 44 + 4 * 2)
+
+        XCTAssertEqual(authority.workMetricsForTesting, metricsBeforeRecording)
+        bridge.stop()
+    }
+
     func testBridgeReportsRecorderCreationFailureInsteadOfSilentNil() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
