@@ -2,11 +2,22 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave B / Domain 4 Dual Receiver Runtime State Machine
 
-Status: `READY_FOR_IMPLEMENTATION_HANDOFF`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `BOUNDED LEGACY RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
 Design authority: `docs/design/2026-11-01-045b-domain-4-dual-receiver-runtime-retirement.md`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
+
+## Implementation handoff identity
+
+- Fresh start main: `dcbd5ab03a306a8abd6e45036b53e108003d3698`.
+- Immutable implementation HEAD: `07a1cb569b4c4e3525aa18ef3c624a001d038bc5`.
+- Branch/worktree: `codex/task045b-domain4-dual-receiver-runtime-retirement` / `remoteorbit-task045b-domain4-dual-receiver-runtime-retirement`.
+- Draft PR: `#35`; live PR head must be resolved from GitHub at audit time.
+- Implementation-head CI: `41265919091` / job `124728576017` / `remoteorbit-macmini` / PASS, including Universal2 build-only packaging smoke.
+- Local: focused boundary tests PASS, full `swift test` PASS (523/523), Release build PASS, `git diff --check` PASS.
+- `CURRENT_STATUS.md` and `CURRENT_TASK.md` are updated in this one atomic handoff commit, which is a direct child of the implementation HEAD. Do not encode that commit's own future SHA in this text; resolve the final control/PR head and its CI directly from the live branch/PR.
+- Final state: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
 ## Completed prerequisite
 
@@ -180,6 +191,8 @@ Start from fresh live `main` after reconciliation. Use one fresh worktree/branch
 The merged Domain 3 worktree may be retired only after confirming clean state and merged ancestry. Preserve its branch/history unless separately authorized.
 
 Create one Draft PR. Do not merge locally.
+
+The implementation is pushed in Draft PR #35. The post-handoff control commit must be pushed without merging; its live-head CI is a required independent-audit input.
 
 ## Stop
 
