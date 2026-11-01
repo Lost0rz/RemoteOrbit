@@ -996,23 +996,10 @@ final class VoiceOptionTrigger {
 
     @discardableResult
     func sendTap(sessionID: UUID, duration: TimeInterval = 0.06) -> Bool {
-        sendTap(
-            sessionID: sessionID,
-            key: momentaryVoiceTriggerKey,
-            duration: duration,
-            purpose: "momentary_tap"
-        )
-    }
-
-    @discardableResult
-    func sendTap(
-        sessionID: UUID,
-        key: VoiceTriggerKey,
-        duration: TimeInterval = 0.06,
-        purpose: String = "momentary_tap"
-    ) -> Bool {
         guard activeSessionID == sessionID else { return false }
         guard !isOptionDown else { return false }
+        let key = momentaryVoiceTriggerKey
+        let purpose = "momentary_tap"
         isOptionDown = true
         activeTriggerKey = key
         activePurpose = purpose

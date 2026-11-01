@@ -17,28 +17,18 @@ struct HIDButtonDownPolicy {
     let shouldDebounce: Bool
     let shouldRepeat: Bool
 
-    /// Resolve the existing single-edge policy together with the one
-    /// multi-edge exception owned by the active dual-receiver microphone
-    /// recognizer. Legacy microphone and generic button rules stay unchanged.
+    /// Resolve the existing single-edge policy. Legacy microphone and generic
+    /// button rules stay unchanged.
     static func resolve(
         button: RemoteButton,
         shouldRepeat: Bool,
         usesAdvancedGestures: Bool,
-        dualReceiverVoiceMode: DualReceiverVoiceMode,
         hasLivePhysicalCandidate: Bool = false
     ) -> HIDButtonDownPolicy {
         let advanced = button != .microphone && usesAdvancedGestures
-        let activeDualReceiverMicrophone: Bool
-        if button == .microphone, case .active = dualReceiverVoiceMode {
-            activeDualReceiverMicrophone = true
-        } else {
-            activeDualReceiverMicrophone = false
-        }
-
         return HIDButtonDownPolicy(
             shouldDebounce: !shouldRepeat
                 && !advanced
-                && !activeDualReceiverMicrophone
                 && !(button == .microphone && hasLivePhysicalCandidate),
             shouldRepeat: shouldRepeat
         )

@@ -44,7 +44,7 @@ final class LegacyVoicePersistedPreferenceAuthorityContractTests: XCTestCase {
         }
 
         XCTAssertFalse(main.contains("initialPersistentSessionTriggerKey"))
-        XCTAssertTrue(main.contains("initialSecondaryMomentaryVoiceTriggerKey"))
+        XCTAssertFalse(main.contains("initialSecondaryMomentaryVoiceTriggerKey"))
         XCTAssertTrue(main.contains("VoiceInputProfileStore.persistedProfile"))
         XCTAssertTrue(main.contains("AppStorage.momentaryVoiceTriggerKey"))
     }
