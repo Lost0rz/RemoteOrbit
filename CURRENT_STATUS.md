@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAVE_D_DOMAIN_2_AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAVE_D_DOMAIN_2_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
 
@@ -15,7 +15,7 @@ Human runtime/UI acceptance: `PENDING / USER-OWNED`
 - Task 045B Domain 5: `LEGACY_GENERIC_SHORT_CLASSIFIER_RUNTIME / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 6: `LOCAL_MICROPHONE_CAPTURE / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045D Domain 1: `REMOTE_ONLY_PCM_ATTRIBUTION / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045D Domain 2: `P1A5_FRONT_EDGE_EXPERIMENT_DIAGNOSTICS / AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+- Task 045D Domain 2: `P1A5_FRONT_EDGE_EXPERIMENT_DIAGNOSTICS / IMPLEMENTATION_COMPLETE / PR_CI_PASS / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 ## Wave D Domain 1 closeout
 
@@ -34,6 +34,34 @@ Final residue/resource/regression work remains serial by bounded domain:
 `Web audit/freeze → local cleanup → Web exact-head audit → merge/closeout → next domain`
 
 Historical naming is not retirement proof. Current correctness and diagnostic authority remain KEEP until direct ownership/caller evidence proves otherwise.
+
+## Wave D Domain 2 execution — P1-A5 Front-Edge Experiment Diagnostics
+
+Implementation branch/worktree: `codex/task045d-domain2-p1a5-front-edge-experiment-retirement` from fresh live `main@64c068cbbbfa24f4998bf974e9be527e0311e81e` (control CI run `41280826266`, job `124772229811`, final SUCCESS before mutation).
+
+Implementation HEAD / Draft PR #39 head: `0fda6a43aa37dd160988f1fdb4dc7d9737bc3f72`.
+
+Retired surface:
+
+- `P1A5FrontEdgeDiagnostics.swift` and `P1A5FrontEdgeDiagnosticsTests.swift` — deleted;
+- `VoiceTimingLogger`: `p1A5Enabled`, `frontEdgeUnderrunStats`, `recordVoiceOnset`, `recordFrontEdgeUnderrun`, F0–F9 marker/report lifecycle and the final `[P1-A5] FRONT_EDGE_TIMELINE` report — deleted; `hasEvent` deleted with its only callers (P1-A5 F6 gates);
+- BLEBridge: detector state/reset/analyze and F1/F2/F3 marker branches — deleted;
+- AudioPipe: P1-A5-only F4/F5/F7/F8/F9 marker branches and the front-edge observation consumer — deleted;
+- `AudioPipeRealtimeObservation.Kind.frontEdgeUnderrun` and its duplicate active-underrun enqueue — deleted;
+- `REMOTE_ORBIT_P1A5_FRONT_EDGE` — removed from the launch instrumentation label and the diagnostic export receipt.
+
+Retained unchanged: `DiagnosticsRuntimeGate`, generic T0–T10 timeline, `P1A4MonotonicClock` (untouched), `REMOTE_ORBIT_CONTINUITY_EVIDENCE`/continuity ledger, `LongTermObservabilityService`/incident coordinator/fixed traces, current `queueStarvation` + render-starvation + main-queue-lag evidence, realtime counters/mailbox/reserve/render/drain, candidate/prebuffer, Domain 6 input lease, LONG-only/tombstone/suppression, BLE/ATVV/readiness, recording and primary mapping.
+
+Verification evidence:
+
+- focused suites (AudioPipeRealtime, AudioPipe, AudioDataPlaneDiagnostics, AudioDataPlaneMeasurementBoundary, AudioPipePlayoutReserve, LongTermObservability, DiagnosticsRuntimeGate, DiagnosticHardening, BLEBridge, VoicePipelineSimplification, VoicePressCoordinator, VoiceKeyFilter, VoiceReceiverReadiness, RemoteVoiceInputLease, WavRecorderDiagnostics): 286/286 green;
+- full `swift test`: 504/504 green;
+- `swift build -c release`: PASS;
+- `git diff --check`: clean;
+- local Universal2 build-only packaging smoke: PASS (`x86_64 arm64`);
+- durable RemoteOrbit CI on `remoteorbit-macmini` at exact PR head: run `41281602473`, job `124774470884`, SUCCESS.
+
+Wave D Domain 1 worktree retired after clean + merged-ancestry confirmation; branch `codex/task045d-domain1-remote-only-pcm-attribution-retirement` and history preserved. No app install, driver/CoreAudio/TCC/default-device mutation, tag/release, or machine-owned hardware acceptance was performed. PR #39 remains Draft and unmerged.
 
 ## Wave D Domain 2 audit — P1-A5 Front-Edge Experiment Diagnostics
 
@@ -79,6 +107,6 @@ Classification:
 
 ## Next gate
 
-Wave D Domain 2 is audited and frozen for one bounded local implementation from fresh live `main`, after the durable CI attached to this control-only authority transition is final SUCCESS.
+Wave D Domain 2 implementation is complete with durable CI PASS at the exact Draft PR #39 head. Next: independent Web exact-head audit of PR #39 (`FRESH_CONTEXT`), then merge/closeout under that audit's authority.
 
 No Wave D Domain 3, app install, driver/CoreAudio/TCC/default-device mutation, tag/release or machine-owned hardware acceptance is authorized.

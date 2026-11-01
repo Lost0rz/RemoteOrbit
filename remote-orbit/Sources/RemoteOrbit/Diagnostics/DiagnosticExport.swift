@@ -422,7 +422,6 @@ final class DiagnosticExporter: @unchecked Sendable {
                 "flags": [
                     "REMOTE_ORBIT_DIAGNOSTICS",
                     "REMOTE_ORBIT_CONTINUITY_EVIDENCE",
-                    "REMOTE_ORBIT_P1A5_FRONT_EDGE",
                     "REMOTE_ORBIT_P1A4_RECEIVER_FINALIZATION",
                 ].map { name in
                     ["name": name, "enabled": ProcessInfo.processInfo.environment[name] == "1"]

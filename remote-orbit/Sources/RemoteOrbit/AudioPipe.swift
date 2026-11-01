@@ -551,18 +551,6 @@ final class AudioPipe: NSObject {
         if writeResult.acceptedFrames > 0 {
             let submissionTimestamp = P1A4MonotonicClock.nowNanoseconds()
             lastRemoteSubmittedMonotonicNanoseconds = submissionTimestamp
-            if VoiceTimingLogger.p1A5Enabled {
-                VoiceTimingLogger.recordIfAbsent(
-                    "F4_first_pcm_submitted",
-                    timestampNanoseconds: submissionTimestamp
-                )
-                if VoiceTimingLogger.hasEvent("F6_first_voiced_pcm_decoded") {
-                    VoiceTimingLogger.recordIfAbsent(
-                        "F7_first_voiced_pcm_submitted",
-                        timestampNanoseconds: submissionTimestamp
-                    )
-                }
-            }
             if remoteDiagnosticsActive {
                 appendLongTermObservationLocked(
                     LongTermObservationPoint(
@@ -779,37 +767,10 @@ final class AudioPipe: NSObject {
                         timestampNanoseconds: observation.timestampNanoseconds
                     )
                 }
-            case .frontEdgeUnderrun:
-                VoiceTimingLogger.recordFrontEdgeUnderrun(
-                    timestampNanoseconds: observation.timestampNanoseconds,
-                    durationMilliseconds: Double(observation.requestedFrames)
-                        / Self.outputSampleRate * 1_000,
-                    queuedFramesBefore: observation.queueDepthBeforeFrames,
-                    queuedFramesAfter: observation.queueDepthAfterFrames
-                )
             }
         }
 
         let markers = realtimeDiagnostics.markers()
-        if let firstRendered = markers.firstRemoteRenderedMonotonicNanoseconds {
-            VoiceTimingLogger.recordIfAbsent(
-                "F5_first_pcm_rendered",
-                timestampNanoseconds: firstRendered
-            )
-            if VoiceTimingLogger.hasEvent("F6_first_voiced_pcm_decoded") {
-                VoiceTimingLogger.recordIfAbsent(
-                    "F8_first_voiced_pcm_rendered",
-                    timestampNanoseconds: firstRendered
-                )
-            }
-        }
-        if VoiceTimingLogger.p1A5Enabled,
-           let stable = markers.playoutStableMonotonicNanoseconds {
-            VoiceTimingLogger.recordIfAbsent(
-                "F9_playout_stable",
-                timestampNanoseconds: stable
-            )
-        }
         if markers.droppedObservationCount > 0 {
             markLongTermMaterialAnomalyLocked(trigger: .traceDrop)
         }

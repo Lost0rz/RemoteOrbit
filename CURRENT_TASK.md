@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave D / Domain 2 P1-A5 Front-Edge Experiment Diagnostics Retirement
 
-Status: `READY_FOR_IMPLEMENTATION_HANDOFF`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `BOUNDED FINAL RESIDUE RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
 Design authority: `docs/design/2026-11-01-045d-domain-2-p1a5-front-edge-experiment-retirement.md`
@@ -217,5 +217,19 @@ After implementation, verification, push, Draft PR, durable final-head CI, Unive
 `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Do not start another Wave D domain, install the app, mutate driver/CoreAudio/TCC/default devices, tag/release or merge locally.
+
+## Execution receipt (2026-11-01)
+
+- Fresh start: live `main@64c068cbbbfa24f4998bf974e9be527e0311e81e`; pre-mutation control CI run `41280826266`, job `124772229811`, final SUCCESS.
+- Branch/worktree: `codex/task045d-domain2-p1a5-front-edge-experiment-retirement`.
+- Implementation HEAD = Draft PR #39 head: `0fda6a43aa37dd160988f1fdb4dc7d9737bc3f72`.
+- Deleted: `P1A5FrontEdgeDiagnostics.swift`, `P1A5FrontEdgeDiagnosticsTests.swift`. Modified: `VoiceOptionTrigger.swift`, `BLEBridge.swift`, `AudioPipe.swift`, `AudioPipeRealtime.swift`, `main.swift`, `Diagnostics/DiagnosticExport.swift`, `AudioPipeRealtimeTests.swift` (+2/−339 plus deletions).
+- Retired: `p1A5Enabled`, `frontEdgeUnderrunStats`, `recordVoiceOnset`, `recordFrontEdgeUnderrun`, F0–F9 marker/report lifecycle, `[P1-A5] FRONT_EDGE_TIMELINE`, BLEBridge detector state/reset/analyze + F1/F2/F3 branches, AudioPipe F4/F5/F7/F8/F9 branches + front-edge consumer, `Kind.frontEdgeUnderrun` + duplicate enqueue, `REMOTE_ORBIT_P1A5_FRONT_EDGE` controls, orphaned `hasEvent`.
+- Retained unchanged: `DiagnosticsRuntimeGate`, T0–T10 generic timing, `P1A4MonotonicClock`, continuity evidence, `LongTermObservabilityService`, current `queueStarvation`/render-starvation/main-queue-lag evidence, realtime counters/mailbox/reserve/render/drain, LONG-only/suppression/tombstone, BLE/ATVV/readiness, Domain 6 input lease, recording.
+- Focused suites 286/286; full `swift test` 504/504; Release PASS; `git diff --check` clean; local Universal2 packaging smoke PASS (`x86_64 arm64`); durable CI run `41281602473`, job `124774470884`, on `remoteorbit-macmini`, SUCCESS.
+- Wave D Domain 1 worktree retired (clean + merged ancestry verified); its branch/history preserved.
+- No merge, no app install, no driver/CoreAudio/TCC/default-device mutation, no tag/release. HUMAN_UI_ACCEPTANCE remains `PENDING / USER-OWNED`.
+
+Next action: independent Web exact-head audit of Draft PR #39 (`FRESH_CONTEXT`).
 
 Return actual governance route/capability, topology/subagents, fresh start main, authority/control CI pre-mutation result, branch/worktree, implementation/final heads, remote equality, Draft PR, changed/deleted paths, retired P1-A5 surface, retained generic timing/continuity/LongTermObservability evidence, realtime duplicate-observation disposition, focused/full/build/diff/CI/package results, Wave D Domain 1 worktree disposition, scope-mutation flags, unresolved uncertainty, `HUMAN_UI_ACCEPTANCE`, merge state and final actual state.

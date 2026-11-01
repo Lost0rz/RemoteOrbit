@@ -238,7 +238,7 @@ final class AudioPipeRealtimeTests: XCTestCase {
         diagnostics.drainObservations { observations.append($0) }
         XCTAssertEqual(
             observations.map(\.kind),
-            [.render, .queueStarvation, .frontEdgeUnderrun]
+            [.render, .queueStarvation]
         )
         XCTAssertNotNil(diagnostics.markers().firstRemoteRenderedMonotonicNanoseconds)
     }
