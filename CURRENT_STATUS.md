@@ -1,12 +1,15 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_1_AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_1_IMPLEMENTATION_IN_PROGRESS`
 Repository: `Lost0rz/RemoteOrbit`
 Task 043: `MERGED / HUMAN_ACCEPTANCE_DEFERRED / USER-OWNED`
 Task 045 overall: `ACTIVE`
 Task 045A: `DIAGNOSTICS_GATING / MERGED / MAIN_CI_PASS / CLOSED`
-Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / IMPLEMENTATION_IN_PROGRESS`
+Active branch: `codex/task045b-domain1-legacy-voice-product-surface`
+Authoritative workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain1-legacy-voice-product-surface`
+Implementation base: `origin/main@03d130ab9129932e3b1dc9fabf818f87f56c8fd4`
 
 ## Task 045A closeout
 
@@ -71,4 +74,6 @@ Design authority: `docs/design/2026-11-01-045b-domain-1-legacy-voice-product-sur
 
 ## Next gate
 
-Local implements only Domain 1 from a fresh branch/worktree based on live `main`, runs focused + full durable verification, opens one Draft PR, and stops at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. No merge and no Domain 2 mutation are authorized locally.
+Implement only Domain 1 in the active worktree, run focused + full durable verification,
+open one Draft PR, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. No merge and no
+Domain 2 mutation are authorized locally.

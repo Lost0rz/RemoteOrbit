@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave B / Domain 1 Legacy Voice Product Surface
 
-Status: `READY_FOR_IMPLEMENTATION_HANDOFF`
+Status: `IMPLEMENTATION_IN_PROGRESS`
 TASK_CLASS: `BOUNDED LEGACY RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
 Design authority: `docs/design/2026-11-01-045b-domain-1-legacy-voice-product-surface.md`
@@ -103,9 +103,12 @@ Then run:
 
 ## Workspace / delivery
 
-Start from fresh live `main` after reconciliation. Use one fresh worktree/branch for Domain 1, suggested branch:
+The active worktree/branch was created from fresh live `main` after reconciliation:
 
 `codex/task045b-domain1-legacy-voice-product-surface`
+
+Workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain1-legacy-voice-product-surface`
+Start HEAD: `03d130ab9129932e3b1dc9fabf818f87f56c8fd4`
 
 The already-merged Task 045A worktree may be retired only after confirming it is clean and fully merged; do not delete unknown/unmerged work.
 
