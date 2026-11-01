@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_4_AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_4_CORRECTIVE_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
 
@@ -11,7 +11,7 @@ Human runtime/UI acceptance: `PENDING / USER-OWNED`
 - Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 2: `LEGACY_VOICE_PERSISTED_PREFERENCE_AUTHORITY / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045B Domain 4: `DUAL_RECEIVER_RUNTIME_STATE_MACHINE / AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+- Task 045B Domain 4: `DUAL_RECEIVER_RUNTIME_STATE_MACHINE / CORRECTIVE_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 ## Domain 3 independent Web audit and closeout
 
@@ -35,19 +35,53 @@ Retirement remains serial by bounded domain:
 
 Local execution performs only freshness/identity reconciliation for a frozen domain. It does not re-audit or redesign the domain unless current repository facts materially conflict with authority.
 
-## Domain 4 audit — Dual Receiver Runtime State Machine
+## Domain 4 corrective handoff — primary runtime test coverage
 
 Design authority: `docs/design/2026-11-01-045b-domain-4-dual-receiver-runtime-retirement.md`.
 
-### Verified production facts
+Implementation identity and delivery:
 
-- Production RC003 microphone input is Gate-A direct LONG-only; production `HIDButtonDownPolicy.resolve(...)` is invoked with `dualReceiverVoiceMode: .legacy`.
-- `handleDualReceiverMicrophoneEdge(isDown:at:)` exists only as a definition in current `main.swift`; there is no production caller.
-- `applySecondaryVoiceTriggerKey(...)` no longer has a product caller after Domains 1–2, and `configureDualReceiverVoiceMode(...)` is only part of that retired Receiver-B runtime seam.
-- The standalone Dual sources remain present: `DualReceiverVoiceMode.swift`, `DualReceiverVoiceGestureRecognizer.swift`, and `DualReceiverMappedTriggerState.swift`.
-- AppController still contains the dead A/B runtime island: recognizer/mode/mapped state, Receiver-B runtime value, secondary mapping arm/primary restore, reconfiguration ownership, prewarm and active-gesture state.
-- VoicePressCoordinator still contains Dual-only classified gate/hold state and branches, while current Gate-A LONG-only ownership is represented separately.
-- Current LONG-only suppression/tombstone/repress/drain mechanisms remain live and are not Dual-owned.
+- Fresh start main: `dcbd5ab03a306a8abd6e45036b53e108003d3698`.
+- Implementation HEAD (immutable): `07a1cb569b4c4e3525aa18ef3c624a001d038bc5`.
+- Branch/worktree: `codex/task045b-domain4-dual-receiver-runtime-retirement` / `remoteorbit-task045b-domain4-dual-receiver-runtime-retirement`.
+- Draft PR: `#35`, base `main@dcbd5ab03a306a8abd6e45036b53e108003d3698`.
+- The live PR head is resolved from GitHub at audit time; this control handoff records the immutable implementation parent and does not predeclare its own future SHA.
+- Implementation-head durable CI: run `41265919091`, job `124728576017`, `RemoteOrbit CI`, runner `remoteorbit-macmini`, passed Full Swift tests, Native Release build and Universal2 build-only packaging smoke.
+- Local verification: focused changed-boundary tests passed; `swift test` passed 523/523; `swift build -c release` passed; `git diff --check` passed.
+- The atomic control handoff commit is the direct child of the implementation HEAD. Its SHA and the post-push CI identity must be resolved from the live branch/PR after publication.
+
+Corrective implementation identity and delivery:
+
+- Previous production-retirement implementation HEAD remains immutable: `07a1cb569b4c4e3525aa18ef3c624a001d038bc5`.
+- Corrective test implementation HEAD (immutable): `8741de39cc85122bc50e0a581a37e7c8501885d7`.
+- Corrective changed path: `remote-orbit/Tests/RemoteOrbitTests/PrimaryVoiceRuntimeTests.swift` only; no production source, Dual source, or existing retained test was restored or changed.
+- Corrective exact-head durable CI: run `41267350942`, job `124732821405`, `RemoteOrbit CI`, runner `remoteorbit-macmini`, passed Full Swift tests, Native Release build and Universal2 build-only packaging smoke.
+- Corrective local verification: `PrimaryVoiceRuntimeTests` 13/13, `VoiceKeyFilterTests` 18/18, `VoicePressCoordinatorTests` 41/41, full `swift test` 536/536, `swift build -c release`, and `git diff --check` passed.
+- Rehomed primary assertions cover startup restore alignment; connected apply commit; absent/existing mapping rollback; rollback lock; in-progress press rejection; disconnected apply; synthetic, active voice-hold and hardware/suppression ownership rejection; same-key no-op; all six primary keys; and bounded raw old/new reconfiguration suppression.
+- The historical active-filter gate assertion was not duplicated: `VoiceKeyFilterTests.testSuppressedOwnershipBlocksTriggerReconfiguration` is the retained equivalent and passed. The unrelated historical modifier-release-set assertion was outside the primary runtime corrective boundary.
+- The final control handoff commit is the direct child of corrective test HEAD. Do not encode its own future SHA here; resolve the live PR head and its post-push CI directly from GitHub after publication.
+
+Retired implementation surface:
+
+- Deleted `DualReceiverVoiceMode.swift`, `DualReceiverVoiceGestureRecognizer.swift`, and `DualReceiverMappedTriggerState.swift`.
+- Removed AppController Dual/Receiver-B state, A↔B mapping transaction, generation/reconfiguration/prewarm/gesture orchestration, Dual-specific HID-removal cleanup and diagnostics.
+- Removed Dual-only classified gate/hold and `PendingRepress` seams from `VoicePressCoordinator`.
+- Removed the Dual-mode dependency and active-Dual exception from `HIDButtonDownPolicy`.
+- Deleted the four dedicated Dual Receiver suites and `VoiceTriggerRuntimeTests.swift`; removed Dual-only coordinator and HID-policy cases while rehoming retained selected-profile trigger-key assertions.
+
+Explicitly preserved:
+
+- `VoiceInputProfile` / `VoiceInputProfileStore`, profile ID persistence, `.voiceKeyDefault` Codable compatibility and mapping schema.
+- Primary `RemoteVoiceKeyMapping`, hidutil mapping/readback implementation, Gate-A direct LONG and the 300 ms contract.
+- Repeated SHORT-prefix→LONG, rapid repress, SHORT tombstone, late mapped-edge suppression, suppression handoff, hardware Option ownership/held-UP acknowledgement, synthetic fallback, pre-HID candidate, output drain/tail/grace.
+- BLE/ATVV/AudioPipe, EventSuppressor/generic HardwareOptionGate, receiver readiness, Task 045A diagnostics gating and independent recording.
+- Generic non-Dual legacy short/local-microphone classifier seams remain frozen for a later domain.
+
+### Verified implementation result
+
+- Production microphone remains Gate-A direct LONG-only; `HIDButtonDownPolicy` now has no Dual-mode type or active-Dual exception.
+- The deleted Dual symbols have no production or retained test callers; only historical preference string fixtures remain where required to prove inert compatibility bytes.
+- Current LONG-only suppression/tombstone/repress/drain mechanisms remain live and passed the retained regression suites.
 
 ### Domain 4 classification
 
@@ -81,4 +115,4 @@ Design authority: `docs/design/2026-11-01-045b-domain-4-dual-receiver-runtime-re
 
 ## Next gate
 
-Domain 4 is fully audited/frozen and ready for one bounded local implementation from fresh live `main`. No Domain 5 mutation, merge, app install, driver/CoreAudio/TCC mutation, tag/release or machine-owned hardware acceptance is authorized.
+Await independent Web exact-head source/CI/identity audit of the live PR head after the corrective control handoff. No merge, Domain 5 mutation, app install, driver/CoreAudio/TCC mutation, tag/release or machine-owned hardware acceptance is authorized.
