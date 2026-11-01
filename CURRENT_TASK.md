@@ -19,6 +19,20 @@ Human runtime/UI acceptance: `PENDING / USER-OWNED`
 - `CURRENT_STATUS.md` and `CURRENT_TASK.md` are updated in this one atomic handoff commit, which is a direct child of the implementation HEAD. Do not encode that commit's own future SHA in this text; resolve the final control/PR head and its CI directly from the live branch/PR.
 - Final state: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
+## Corrective handoff identity — primary runtime test rehome
+
+- Corrective purpose: restore retained current primary voice-trigger runtime regression coverage that was deleted with the historical mixed `VoiceTriggerRuntimeTests.swift` suite.
+- Previous production-retirement implementation HEAD: `07a1cb569b4c4e3525aa18ef3c624a001d038bc5`.
+- Corrective test implementation HEAD (immutable): `8741de39cc85122bc50e0a581a37e7c8501885d7`.
+- Corrective changed path: `remote-orbit/Tests/RemoteOrbitTests/PrimaryVoiceRuntimeTests.swift` only.
+- Corrective exact-head CI: `41267350942` / job `124732821405` / `remoteorbit-macmini` / PASS, including Universal2 build-only packaging smoke.
+- Corrective local evidence: `PrimaryVoiceRuntimeTests` 13/13, `VoiceKeyFilterTests` 18/18, `VoicePressCoordinatorTests` 41/41, full `swift test` 536/536, Release build PASS, `git diff --check` PASS.
+- Rehomed tests explicitly cover startup restore alignment; connected apply commit and both rollback branches; rollback lock; reconfiguration-in-progress press rejection; disconnected apply; synthetic/voice-hold/hardware ownership rejection; same-key no-op; all six primary keys; and bounded old/new reconfiguration suppression.
+- Item equivalent retained without duplication: `VoiceKeyFilterTests.testSuppressedOwnershipBlocksTriggerReconfiguration` covers active filter ownership rejection. The historical modifier-release-set assertion was unrelated to primary runtime and is outside this corrective.
+- This corrective changes tests only. It does not restore Dual Receiver production code or dedicated Dual tests, and it does not mutate LONG-only/product semantics.
+- The final control handoff commit is the direct child of corrective test HEAD; its own future SHA is intentionally not named here. Resolve the live PR head and post-push CI directly from GitHub.
+- Final state: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+
 ## Completed prerequisite
 
 Domain 3 is accepted and closed:

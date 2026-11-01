@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_4_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_4_CORRECTIVE_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
 
@@ -11,7 +11,7 @@ Human runtime/UI acceptance: `PENDING / USER-OWNED`
 - Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 2: `LEGACY_VOICE_PERSISTED_PREFERENCE_AUTHORITY / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045B Domain 4: `DUAL_RECEIVER_RUNTIME_STATE_MACHINE / IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+- Task 045B Domain 4: `DUAL_RECEIVER_RUNTIME_STATE_MACHINE / CORRECTIVE_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 ## Domain 3 independent Web audit and closeout
 
@@ -35,7 +35,7 @@ Retirement remains serial by bounded domain:
 
 Local execution performs only freshness/identity reconciliation for a frozen domain. It does not re-audit or redesign the domain unless current repository facts materially conflict with authority.
 
-## Domain 4 implementation handoff — Dual Receiver Runtime State Machine
+## Domain 4 corrective handoff — primary runtime test coverage
 
 Design authority: `docs/design/2026-11-01-045b-domain-4-dual-receiver-runtime-retirement.md`.
 
@@ -49,6 +49,17 @@ Implementation identity and delivery:
 - Implementation-head durable CI: run `41265919091`, job `124728576017`, `RemoteOrbit CI`, runner `remoteorbit-macmini`, passed Full Swift tests, Native Release build and Universal2 build-only packaging smoke.
 - Local verification: focused changed-boundary tests passed; `swift test` passed 523/523; `swift build -c release` passed; `git diff --check` passed.
 - The atomic control handoff commit is the direct child of the implementation HEAD. Its SHA and the post-push CI identity must be resolved from the live branch/PR after publication.
+
+Corrective implementation identity and delivery:
+
+- Previous production-retirement implementation HEAD remains immutable: `07a1cb569b4c4e3525aa18ef3c624a001d038bc5`.
+- Corrective test implementation HEAD (immutable): `8741de39cc85122bc50e0a581a37e7c8501885d7`.
+- Corrective changed path: `remote-orbit/Tests/RemoteOrbitTests/PrimaryVoiceRuntimeTests.swift` only; no production source, Dual source, or existing retained test was restored or changed.
+- Corrective exact-head durable CI: run `41267350942`, job `124732821405`, `RemoteOrbit CI`, runner `remoteorbit-macmini`, passed Full Swift tests, Native Release build and Universal2 build-only packaging smoke.
+- Corrective local verification: `PrimaryVoiceRuntimeTests` 13/13, `VoiceKeyFilterTests` 18/18, `VoicePressCoordinatorTests` 41/41, full `swift test` 536/536, `swift build -c release`, and `git diff --check` passed.
+- Rehomed primary assertions cover startup restore alignment; connected apply commit; absent/existing mapping rollback; rollback lock; in-progress press rejection; disconnected apply; synthetic, active voice-hold and hardware/suppression ownership rejection; same-key no-op; all six primary keys; and bounded raw old/new reconfiguration suppression.
+- The historical active-filter gate assertion was not duplicated: `VoiceKeyFilterTests.testSuppressedOwnershipBlocksTriggerReconfiguration` is the retained equivalent and passed. The unrelated historical modifier-release-set assertion was outside the primary runtime corrective boundary.
+- The final control handoff commit is the direct child of corrective test HEAD. Do not encode its own future SHA here; resolve the live PR head and its post-push CI directly from GitHub after publication.
 
 Retired implementation surface:
 
@@ -104,4 +115,4 @@ Explicitly preserved:
 
 ## Next gate
 
-Await independent Web exact-head source/CI/identity audit of the live PR head. No merge, Domain 5 mutation, app install, driver/CoreAudio/TCC mutation, tag/release or machine-owned hardware acceptance is authorized.
+Await independent Web exact-head source/CI/identity audit of the live PR head after the corrective control handoff. No merge, Domain 5 mutation, app install, driver/CoreAudio/TCC mutation, tag/release or machine-owned hardware acceptance is authorized.
