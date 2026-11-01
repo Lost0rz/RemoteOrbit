@@ -170,8 +170,9 @@ enum SystemAudioDeviceManager {
     }
 
     /// Makes the bridge endpoint the app-facing input for one remote-mic
-    /// gesture. Do not overwrite the user's preferred input setting: a short
-    /// external-mic action may need that choice restored after the gesture.
+    /// gesture. Do not overwrite the user's preferred input setting: the
+    /// direct voice lifecycle restores that choice after the final remote
+    /// output drain.
     @discardableResult
     static func selectRemoteOrbitInputForVoice() -> Bool {
         guard let remoteOrbit = inputDevices().first(where: { $0.isRemoteOrbit }) else {

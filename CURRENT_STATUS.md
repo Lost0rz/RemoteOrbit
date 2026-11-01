@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_6_AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_6_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
 
@@ -13,7 +13,7 @@ Human runtime/UI acceptance: `PENDING / USER-OWNED`
 - Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 4: `DUAL_RECEIVER_RUNTIME_STATE_MACHINE / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 5: `LEGACY_GENERIC_SHORT_CLASSIFIER_RUNTIME / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045B Domain 6: `LOCAL_MICROPHONE_CAPTURE / AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+- Task 045B Domain 6: `LOCAL_MICROPHONE_CAPTURE / IMPLEMENTATION_COMPLETE / DRAFT_PR_OPEN / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 ## Domain 5 independent Web audit and closeout
 
@@ -38,60 +38,49 @@ Retirement remains serial by bounded domain:
 
 Local execution performs freshness/identity reconciliation for the frozen domain. It does not re-audit or redesign the domain unless live repository facts materially conflict with authority; then it stops with `AUTHORITY_RECONCILIATION_REQUIRED`.
 
-## Domain 6 audit — Local Microphone Capture & Temporary Input Lease
+## Domain 6 implementation — Local Microphone Capture & Temporary Input Lease
 
 Design authority: `docs/design/2026-11-01-045b-domain-6-local-microphone-capture-retirement.md`.
+Pre-mutation gate: fresh `main@c6976aa5e4db799747e7f86ba9c8278cbe051241` matched authority; control-only CI run `41272632076`, job `124748359282`, final `SUCCESS` on `remoteorbit-macmini` including the build-only packaging smoke step.
 
-### Verified current facts
+### Implementation facts
 
-- Domain 5 removed every production caller that enabled AudioPipe local/external microphone capture.
-- `AudioPipe.swift` still owns an obsolete AVCapture pipeline: AVFoundation/CoreMedia imports, `AVCaptureSession`, permission/request state, `setLocalMicrophoneCaptureEnabled(...)`, start/stop helpers, sample-buffer delegate conversion and local PCM scheduling.
-- Current product behavior is explicitly remote-only for the microphone button: SHORT is no-op; LONG consumes Xiaomi ATVV audio through `RemoteOrbit Mic 2ch`.
-- The menu-bar `输入设备` selector remains a current product feature. It lists RemoteOrbit plus physical microphones, sets macOS default input, and persists the user's stable input identifier through `SystemAudioDeviceManager`. This preference is not legacy local-capture ownership and must remain.
-- On remote activation, `AudioPipe.setRemoteActive(true)` temporarily selects `RemoteOrbit Mic 2ch` without overwriting the persisted user input preference.
-- Current deactivation restores the persisted input only when obsolete `localMicrophoneCaptureRequested` is true. With Domain 5 callers gone, a user-selected physical input can therefore be permanently overridden after the first remote LONG until manually reselected/restarted.
-- Remote route deactivation occurs before queued PCM output drain. Restoring a physical input inside `setRemoteActive(false)` would therefore be too early and could cut across the tail/drain lifetime.
-- Direct rapid repress can transfer A→B ownership across the previous output drain. The temporary RemoteOrbit input must stay leased across that handoff rather than restoring/reacquiring a physical input between sessions.
-- `NSMicrophoneUsageDescription` remains in packaged Info.plist solely because of the obsolete AVCapture path. Control Center has no current microphone-TCC permission surface.
-- Low-level ring source attribution still contains `.local`/mixed-source bookkeeping. Removing that realtime data-plane abstraction is not required to retire physical microphone capture and is frozen for the final Wave D cleanup unless a compile-only change is strictly necessary.
+- Implementation HEAD: `84bd468ad9059b0313f07e905f169b1d41cd53e2` (single implementation commit, direct child of `c6976aa`).
+- Branch: `codex/task045b-domain6-local-microphone-capture-retirement`; worktree clean and in sync with remote.
+- Draft PR #37 (`Retire local microphone capture and add temporary RemoteOrbit input lease (Task 045B Domain 6)`), not merged, not made Ready.
+- Exact-head durable PR CI run `41275976852`, job `124758115909`, `SUCCESS` on `remoteorbit-macmini` through source contracts, protocol self-tests, full Swift tests, Native Release and Universal2 build-only packaging smoke. Final PR head and post-push evidence are to be re-resolved from GitHub at independent audit time.
+- Local verification before push: focused suites green (AudioPipe/AudioPipeRealtime/AudioDataPlaneMeasurementBoundary/AudioDeviceManager/VoicePipelineSimplification/VoicePressCoordinator/PrimaryVoiceRuntime/VoiceKeyFilter plus BLE/diagnostics/readiness suites), full `swift test` 509/509, `swift build -c release`, `git diff --check` clean, local Universal2 build-only packaging produced `x86_64 arm64` with no `NSMicrophoneUsageDescription` in the packaged Info.plist.
 
-### Domain 6 classification
+### Retired surface
 
-`RETIRE NOW`:
+- `AudioPipe` physical/external AVCapture ownership: capture session/queue, `AVCaptureAudioDataOutputSampleBufferDelegate`, microphone permission request lifecycle, `setLocalMicrophoneCaptureEnabled(...)`, start/stop/configuration helpers, sample-buffer → local PCM scheduling, directly-owned local counters/diagnostics branches, and the AudioPipe-side loopback name filter used only for capture discovery.
+- `AVFoundation` / `CoreMedia` imports; restore-at-`setRemoteActive(false)` branch gated on the retired local-capture flag; `scheduledMacBuffers`; the permanently-false realtime local-microphone render state (`.localMicrophone` render state, `localMicrophoneActive`, marker 3) removed as a compile-local, behavior-equivalent deletion.
+- `NSMicrophoneUsageDescription` from packaged Info.plist; obsolete microphone-TCC wording in current README/SETUP instructions.
 
-- AudioPipe physical/external AVCapture ownership, permission request lifecycle and sample-buffer delegate path;
-- local-capture state/counters and local-only scheduling branches directly owned by that path;
-- `NSMicrophoneUsageDescription` and current install/setup instructions that tell users RemoteOrbit requires microphone TCC;
-- obsolete local-microphone diagnostic state/tests directly tied to the removed capture path;
-- stale comments describing AudioPipe as a local+remote microphone mixer.
+### Retained surface
 
-`KEEP / RECONCILE`:
+- Menu-bar `输入设备`/`输出设备` selection, physical input enumeration, persisted preferred input, startup/driver-reload preferred-input restore, temporary `selectRemoteOrbitInputForVoice()`.
+- All remote AudioPipe transport: candidate/prebuffer, fixed-capacity ring, playout reserve, IOProc/render, output drain/grace; Gate-A LONG-only, rapid repress, tombstone/suppression, hardware/synthetic trigger, pre-HID, BLE/ATVV, codec/gain/sample rate, receiver readiness, diagnostics gating, debug recording, primary profile/mapping.
+- `AudioPipePCMSource.local` and mixed-source ring attribution intentionally frozen for the final Wave D audit; `DiagnosticExport`'s historical-log keyword filter mentioning `avcapture` is read-side evidence triage, not capture ownership, and stays.
+- Tests use injected/pure seams; no test mutated host default input, driver, CoreAudio or TCC state (host default input remained `RemoteOrbit Mic 2ch` before and after the run).
 
-- menu-bar system input/output device selection;
-- persisted preferred system input authority in `SystemAudioDeviceManager`;
-- temporary selection of `RemoteOrbit Mic 2ch` for a promoted remote LONG;
-- restore of the persisted input only after the final remote output drain, when no immediately pending direct successor owns the same temporary lease;
-- rapid-repress transfer of the temporary RemoteOrbit input lease without physical-input flicker;
-- all remote AudioPipe transport/ring/reserve/IOProc, BLE/ATVV, codec, gain/sample-rate, candidate/prebuffer, diagnostics gating and recording behavior;
-- Gate-A 300 ms LONG-only and all suppression/tombstone/hardware/synthetic correctness mechanisms.
+### Temporary system-input lease
 
-`FROZEN FOR WAVE D`:
+`VoicePressCoordinator` owns the lease through a new injected `onRemoteInputLeaseRelease` seam wired to `SystemAudioDeviceManager.applyPreferredInputSelection()`:
 
-- broader simplification of `AudioPipePCMSource.local`, mixed-source ring attribution and generic remote-queue bookkeeping if those symbols can remain behavior-neutral after capture retirement;
-- cosmetic naming/history cleanup;
-- final resource/regression audit and hardware acceptance.
+- promoted remote LONG acquires/retains the lease (route activation still temporarily selects `RemoteOrbit Mic 2ch` without overwriting the saved preference);
+- transport stop / `setRemoteActive(false)` does not restore;
+- at post-drain direct-session completion the lease transfers to an immediate direct successor (registered rapid repress, pending hardware repress, or a live replacement physical candidate epoch);
+- otherwise the persisted preferred input is restored exactly once (repeated drain completions are bounded no-ops; a saved RemoteOrbit preference restores idempotently);
+- a lease retained for a successor that dies without promoting is released at that successor's end boundary (candidate cancel/failure, pending-repress release before activation, pre-HID epoch end, coordinator stop).
 
-## Domain 6 selected ownership model
+New deterministic coverage: `RemoteVoiceInputLeaseTests` (5 tests) and `LocalMicrophoneCaptureRetirementContractTests` (3 tests); obsolete `testLocalMicrophoneRenderIsExcludedFromRemoteDiagnostics` removed.
 
-The persisted system input remains a user preference owned by `SystemAudioDeviceManager`. Remote voice temporarily leases the system default input to `RemoteOrbit Mic 2ch`.
+### Workspace disposition
 
-- Lease acquire: current remote LONG route activation.
-- Lease release: after actual AudioPipe output drain completes, not when transport merely stops.
-- Successor transfer: if a direct pending rapid-repress/candidate will immediately own the next remote session, do not restore the physical preference between A and B; the lease transfers to B.
-- Final release: once the final remote session reaches post-drain completion with no direct successor, restore the persisted preferred input. If the saved preference is RemoteOrbit itself, restoration is naturally idempotent.
-
-Do not implement preference restoration inside `AudioPipe.setRemoteActive(false)`.
+- Domain 5 worktree removed after clean + merged-ancestry confirmation; branch `codex/task045b-domain5-legacy-generic-short-classifier-retirement` and history preserved.
+- No Wave D / next-domain mutation, merge, app install, driver/CoreAudio/TCC/default-device mutation, tag/release, or machine-owned hardware acceptance was performed.
 
 ## Next gate
 
-Domain 6 is fully audited/designed/frozen and ready for one bounded local implementation from fresh live `main` after the control-only CI for this authority commit is green. No Wave D/next-domain mutation, merge, app install, driver/CoreAudio/TCC/default-device runtime mutation, tag/release or machine-owned hardware acceptance is authorized.
+Independent Web exact-head audit of PR #37, then merge/closeout. No Wave D or next-domain work is authorized before that audit.

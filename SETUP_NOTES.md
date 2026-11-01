@@ -57,8 +57,9 @@ Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建�
 
 音频驱动补装会将替换前的驱动备份到 `~/Library/Application Support/RemoteOrbit/Backups/`。
 
-首次打开 App 时，仍需要用户按照 macOS 的隐私提示授予蓝牙、麦克风、辅助功能和
-输入监控权限。安装器不能绕过这些系统授权。
+首次打开 App 时，仍需要用户按照 macOS 的隐私提示授予蓝牙、辅助功能和
+输入监控权限。RemoteOrbit 只接收遥控器的蓝牙 ATVV 音频，不打开本机或外接麦克风，
+也不再请求 macOS 麦克风权限。安装器不能绕过这些系统授权。
 
 ## 最终工作方式
 
@@ -70,7 +71,10 @@ Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建�
 - **输出设备**：扬声器、显示器音频、耳机等真实输出设备。
 
 输入设备按当前系统默认设备显示勾选；选择物理麦克风后会写入 macOS 默认输入，并在 RemoteOrbit
-重启或驱动重载后恢复该选择。重新选择 `RemoteOrbit Mic 2ch（遥控器/自动）`，即可恢复豆包使用
+重启或驱动重载后恢复该选择。长按遥控器语音键时，RemoteOrbit 只临时把系统输入切到
+`RemoteOrbit Mic 2ch`（不覆盖已保存的偏好输入），并在最后一轮远程语音的 output drain 完成后
+自动恢复保存的输入设备；快速连按两次语音键时该临时输入会直接延续到第二次会话，不会来回切换。
+重新选择 `RemoteOrbit Mic 2ch（遥控器/自动）`，即可恢复豆包使用
 遥控器长按语音链路。输出设备选择立即切换系统默认输出；BlackHole、RemoteOrbit
 等虚拟回环设备不会显示在输出列表中。菜单每次打开都会重新扫描设备，插拔外接设备后可点击
 “刷新设备列表”。
@@ -96,8 +100,10 @@ Line Tools，也不需要单独下载 BlackHole。DMG 已经包含预先构建�
 2. 如果 transport 已经准备好，则直接发送 `micOpen`；否则继续完成连接/握手后再发送 `micOpen`。
 3. RemoteOrbit 将遥控器 ATVV 解码音频路由到 `RemoteOrbit Mic 2ch`，不回退到本机麦克风。
 4. 只有收到第一帧实际远程 PCM（`AUDIO_FIRST`）以后，才释放设备级物理/系统映射的左 Option-down，使目标语音输入开始消费已经就绪的遥控器音频。
-5. 松开物理语音键后，RemoteOrbit 停止新的远程输入，但不会立即释放最终 Option-up。
-6. 已经进入输出队列的远程 PCM 必须完成 output drain；排空完成后才释放对应的 hardware Option-up，并结束本次语音 route。
+5. 松开物理语音键后，RemoteOrbit 停止新的远程输入，但不会立即释放最终 Option-up，也不会
+   在此时恢复物理默认输入。
+6. 已经进入输出队列的远程 PCM 必须完成 output drain；排空完成后才释放对应的 hardware Option-up，并结束本次语音 route。若没有紧接的下一次语音会话，RemoteOrbit 同时恢复用户
+   保存的默认输入设备。
 7. 如果正常 hardware Option-up 边沿缺失，只允许 existing synthetic helper 作为 emergency balancing up；synthetic Option 不作为正常语音 owner。
 
 遥控器远程音频增益仍为约 20 倍，并使用软限幅。
@@ -132,7 +138,7 @@ sudo ./remote-orbit-audio-driver/install-driver.sh
 open /Applications/RemoteOrbit.app
 ```
 
-首次启动时，按 macOS 提示授予蓝牙、麦克风、辅助功能和输入监控权限。豆包也建议在驱动安装、默认输入设备变化或 App 更新后重新启动一次。
+首次启动时，按 macOS 提示授予蓝牙、辅助功能和输入监控权限；遥控器语音不需要 macOS 麦克风权限。豆包也建议在驱动安装、默认输入设备变化或 App 更新后重新启动一次。
 
 ## 必须确认的设置
 
@@ -353,7 +359,8 @@ ChatGPT 默认：左键打开侧边栏，右键用 ⌘J 开关终端底部面板
 - 辅助功能：开启 RemoteOrbit；
 - 输入监控：开启 RemoteOrbit；
 - 蓝牙：允许 RemoteOrbit 连接遥控器；
-- 麦克风：如果 macOS 显示该权限请求，允许 RemoteOrbit；当前语音键只使用遥控器麦克风，不会回退到本机麦克风。
+- 麦克风：不需要。RemoteOrbit 只接收遥控器的蓝牙 ATVV 音频，不打开本机或外接麦克风，
+  也不会请求 macOS 麦克风权限。
 
 如果刚更新过 App，退出旧的 RemoteOrbit 进程后重新打开；如果刚更新过驱动，先在设置中
 重新检测并等待 CoreAudio 重载，设备仍未出现时再重启整台 Mac。

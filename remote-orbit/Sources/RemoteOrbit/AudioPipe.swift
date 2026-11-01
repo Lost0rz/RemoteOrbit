@@ -1,17 +1,14 @@
-// AudioPipe sends decoded ATVV PCM into RemoteOrbit Mic 2ch. Doubao sees one
-// stable USB microphone: the Mac/external microphone is opened only when the
-// configured short voice input needs it, while the remote microphone takes
-// over exclusively during a classified long press.
+// AudioPipe sends decoded ATVV PCM into RemoteOrbit Mic 2ch. The remote
+// controller is the only microphone source; RemoteOrbit itself never opens
+// the Mac/external microphone.
 //
 // ATVV Int16 PCM → CoreAudio IOProc → RemoteOrbit Mic 2ch
 
-import AVFoundation
 import AudioToolbox
 import CoreAudio
-import CoreMedia
 import Foundation
 
-final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
+final class AudioPipe: NSObject {
     static let shared = AudioPipe()
 
     // RemoteOrbit owns a fresh audio namespace. The installer moves old
@@ -19,7 +16,6 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     // attaches to an inherited legacy endpoint.
     private static let targetDeviceNames = ["RemoteOrbit Mic 2ch"]
     private static let outputSampleRate: Double = 48_000
-    private static let outputChannels: AVAudioChannelCount = 2
     /// Structural transport capacity only. The ring starts empty; this is
     /// not a startup reserve or a jitter/playout threshold.
     static let pcmRingCapacityFrames = 96_000
@@ -27,21 +23,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     /// +26 dB and use a soft limiter so a nearby speaker does not hard-clip.
     private static let remoteGain: Float = 20.0
 
-    private let captureSession = AVCaptureSession()
-    private let captureQueue = DispatchQueue(
-        label: "com.lost0rz.RemoteOrbit.capture",
-        qos: .userInteractive
-    )
-
     private let stateLock = NSLock()
     private var remoteActive = false
     private var remoteCandidateActive = false
-    /// This is a demand signal, not a permanent app capability. A disabled
-    /// short slot must not even open AVCapture, and a remote long press stops
-    /// the running session before accepting ATVV samples.
-    private var localMicrophoneCaptureRequested = false
-    private var localMicrophonePermissionRequestInFlight = false
-    private var pendingLocalMicrophoneReady: (() -> Void)?
     // ATVV starts sending PCM before VoicePressCoordinator crosses the hold
     // guard. Keep only a short pre-roll so the first syllable is not lost.
     private var pendingRemotePrebuffer: [Int16] = []
@@ -62,7 +46,6 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         qos: .userInteractive
     )
     private var outputDrainMonitorStarted = false
-    private var scheduledMacBuffers = 0
     private var scheduledRemoteBuffers = 0
     private var scheduledPeak: Float = 0
     private var lastIdleMeterAt: TimeInterval = 0
@@ -415,8 +398,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         }
         schedule(
             monoSamples: floatSamples,
-            sampleRate: inputSampleRate,
-            expectedRemoteMode: true
+            sampleRate: inputSampleRate
         )
     }
 
@@ -471,19 +453,16 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             // own audio session. Re-assert the bridge as the app-facing input
             // at the exact remote-voice transition, before the synthetic
             // Option-down opens the speech UI. This does not change the
-            // user's saved preferred input and is restored for short input.
+            // user's saved preferred input; the direct voice lifecycle
+            // restores that preference only after the final output drain.
             _ = SystemAudioDeviceManager.selectRemoteOrbitInputForVoice()
             DiagnosticRuntimeHealthRegistry.shared.recordSelectedInputIdentity(
                 SystemAudioDeviceManager.defaultInputDevice?.stableIdentifier
             )
-            // The remote-only path must not leave the physical microphone
-            // open. `captureOutput` also rejects late callbacks, but stopping
-            // the session is required to release the device privacy claim.
-            stopLocalMicCapture()
         }
         print(active
             ? "[AUDIO] 输入切换 → 遥控器麦克风"
-            : "[AUDIO] 输入切换 → 等待下一次外部语音输入")
+            : "[AUDIO] 输入切换 → 等待下一次遥控器语音输入")
 
         if active, !prebuffer.isEmpty {
             print("[AUDIO] 远程语音预缓冲已补入: \(prebuffer.count) samples")
@@ -493,45 +472,11 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             }
             schedule(
                 monoSamples: floatSamples,
-                sampleRate: 16_000,
-                expectedRemoteMode: true
+                sampleRate: 16_000
             )
         }
 
-        if !active, isLocalMicrophoneCaptureRequested {
-            // Return to the input selected for the short external-mic action
-            // once a remote hold has ended.
-            SystemAudioDeviceManager.applyPreferredInputSelection()
-        }
         return prebuffer.count
-    }
-
-    /// Enable or disable the physical/external microphone path used by the
-    /// short voice action. This deliberately does not follow `remoteActive`:
-    /// a configured short action may keep the local capture session ready
-    /// between taps, but a long press always stops it through setRemoteActive.
-    func setLocalMicrophoneCaptureEnabled(
-        _ enabled: Bool,
-        onReady: (() -> Void)? = nil
-    ) {
-        stateLock.lock()
-        localMicrophoneCaptureRequested = enabled
-        realtimeDiagnostics.setLocalMicrophoneActive(enabled)
-        if !enabled {
-            localMicrophonePermissionRequestInFlight = false
-            pendingLocalMicrophoneReady = nil
-        }
-        stateLock.unlock()
-
-        if enabled {
-            // The short action uses the user's selected physical source. If a
-            // previous long hold temporarily forced RemoteOrbit Mic 2ch,
-            // restore that preference before opening AVCapture.
-            SystemAudioDeviceManager.applyPreferredInputSelection()
-            requestLocalMicAccess(onReady: onReady)
-        } else {
-            stopLocalMicCapture()
-        }
     }
 
     /// Release the HAL callback before the process exits. BlackHole-derived
@@ -556,268 +501,18 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         outputDeviceReady = false
         outputRing.reset()
         realtimeDiagnostics.setRemoteActive(false)
-        realtimeDiagnostics.setLocalMicrophoneActive(false)
         realtimeDiagnostics.setDrainWaiterRequested(false)
         remoteOutputDrainWaiter = nil
-        localMicrophoneCaptureRequested = false
-        localMicrophonePermissionRequestInFlight = false
-        pendingLocalMicrophoneReady = nil
         stateLock.unlock()
         DiagnosticRuntimeHealthRegistry.shared.markOutputDevice(ready: false, identity: nil)
-        stopLocalMicCapture()
         endRemoteCandidate()
-    }
-
-    // MARK: - local physical microphone capture
-
-    private func requestLocalMicAccess(onReady: (() -> Void)? = nil) {
-        guard isLocalMicrophoneCaptureRequested, !isRemoteActive else {
-            notifyLocalMicrophoneReady(onReady)
-            return
-        }
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
-            startLocalMicCapture(onReady: onReady)
-        case .notDetermined:
-            stateLock.lock()
-            guard localMicrophoneCaptureRequested else {
-                stateLock.unlock()
-                notifyLocalMicrophoneReady(onReady)
-                return
-            }
-            if localMicrophonePermissionRequestInFlight {
-                pendingLocalMicrophoneReady = onReady
-                stateLock.unlock()
-                return
-            }
-            localMicrophonePermissionRequestInFlight = true
-            pendingLocalMicrophoneReady = onReady
-            stateLock.unlock()
-            print("[AUDIO] 请求本机麦克风权限…")
-            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-                guard let self else { return }
-                self.stateLock.lock()
-                self.localMicrophonePermissionRequestInFlight = false
-                let shouldStart = granted && self.localMicrophoneCaptureRequested
-                let ready = self.pendingLocalMicrophoneReady
-                self.pendingLocalMicrophoneReady = nil
-                self.stateLock.unlock()
-                guard shouldStart else {
-                    if !granted {
-                        print("[AUDIO] ⚠️ 本机麦克风权限被拒绝")
-                    }
-                    self.notifyLocalMicrophoneReady(ready)
-                    return
-                }
-                self.startLocalMicCapture(onReady: ready)
-            }
-        default:
-            print("[AUDIO] ⚠️ 没有本机麦克风权限；遥控器麦克风仍可使用")
-            notifyLocalMicrophoneReady(onReady)
-        }
-    }
-
-    private func startLocalMicCapture(onReady: (() -> Void)? = nil) {
-        guard isLocalMicrophoneCaptureRequested, !isRemoteActive else {
-            notifyLocalMicrophoneReady(onReady)
-            return
-        }
-        captureQueue.async { [weak self] in
-            self?.configureAndStartLocalMicCaptureOnQueue(onReady: onReady)
-        }
-    }
-
-    /// AVCaptureSession start/stop/configuration all run on captureQueue. This
-    /// prevents a long-press transition from racing a pending session start.
-    private func configureAndStartLocalMicCaptureOnQueue(onReady: (() -> Void)? = nil) {
-        guard isLocalMicrophoneCaptureRequested, !isRemoteActive else {
-            notifyLocalMicrophoneReady(onReady)
-            return
-        }
-        if captureSession.isRunning {
-            notifyLocalMicrophoneReady(onReady)
-            return
-        }
-
-        if !captureSession.inputs.isEmpty {
-            captureSession.startRunning()
-            print("[AUDIO] 本机麦克风采集已恢复, running=\(captureSession.isRunning)")
-            notifyLocalMicrophoneReady(onReady)
-            return
-        }
-
-        var deviceTypes: [AVCaptureDevice.DeviceType] = [.builtInMicrophone]
-        if #available(macOS 14.0, *) {
-            deviceTypes.append(.external)
-        } else {
-            deviceTypes.append(.externalUnknown)
-        }
-        let discovery = AVCaptureDevice.DiscoverySession(
-            deviceTypes: deviceTypes,
-            mediaType: .audio,
-            position: .unspecified
-        )
-        // On current macOS versions this discovery type returns CoreAudio
-        // inputs beyond a single built-in microphone. Include external audio
-        // devices explicitly as well, then prefer the system default when it
-        // is physical. The fallback still avoids feeding any bridge/loopback
-        // device back into RemoteOrbit Mic.
-        let devices = discovery.devices
-        func isLoopback(_ candidate: AVCaptureDevice) -> Bool {
-            Self.isLoopbackDeviceName(candidate.localizedName)
-        }
-        let defaultDevice = AVCaptureDevice.default(for: .audio)
-        let device = defaultDevice.flatMap { isLoopback($0) ? nil : $0 }
-            ?? devices.first { !isLoopback($0) }
-        guard let device else {
-            let names = devices.map(\.localizedName).joined(separator: ", ")
-            print("[AUDIO] ⚠️ 找不到可用物理麦克风；发现: \(names)")
-            notifyLocalMicrophoneReady(onReady)
-            return
-        }
-
-        do {
-            let input = try AVCaptureDeviceInput(device: device)
-            let output = AVCaptureAudioDataOutput()
-            output.audioSettings = [
-                AVFormatIDKey: kAudioFormatLinearPCM,
-                AVLinearPCMBitDepthKey: 32,
-                AVLinearPCMIsFloatKey: true,
-                AVLinearPCMIsNonInterleaved: false,
-                AVNumberOfChannelsKey: 1,
-            ]
-            output.setSampleBufferDelegate(self, queue: captureQueue)
-
-            captureSession.beginConfiguration()
-            guard captureSession.canAddInput(input), captureSession.canAddOutput(output) else {
-                captureSession.commitConfiguration()
-                print("[AUDIO] ⚠️ 无法建立本机麦克风采集会话")
-                notifyLocalMicrophoneReady(onReady)
-                return
-            }
-            captureSession.addInput(input)
-            captureSession.addOutput(output)
-            captureSession.commitConfiguration()
-
-            guard isLocalMicrophoneCaptureRequested, !isRemoteActive else {
-                removeLocalMicCaptureConfigurationOnQueue()
-                notifyLocalMicrophoneReady(onReady)
-                return
-            }
-            captureSession.startRunning()
-            print(
-                "[AUDIO] 本机麦克风采集已启动: " +
-                "\(device.localizedName), running=\(captureSession.isRunning)"
-            )
-            notifyLocalMicrophoneReady(onReady)
-        } catch {
-            print("[AUDIO] ⚠️ 本机麦克风采集失败: \(error.localizedDescription)")
-            notifyLocalMicrophoneReady(onReady)
-        }
-    }
-
-    private func notifyLocalMicrophoneReady(_ completion: (() -> Void)?) {
-        guard let completion else { return }
-        DispatchQueue.main.async(execute: completion)
-    }
-
-    private func stopLocalMicCapture() {
-        captureQueue.async { [weak self] in
-            guard let self else { return }
-            guard self.captureSession.isRunning
-                || !self.captureSession.inputs.isEmpty
-                || !self.captureSession.outputs.isEmpty else { return }
-            if self.captureSession.isRunning {
-                self.captureSession.stopRunning()
-            }
-            self.removeLocalMicCaptureConfigurationOnQueue()
-            print("[AUDIO] 本机麦克风采集已停止")
-        }
-    }
-
-    private func removeLocalMicCaptureConfigurationOnQueue() {
-        guard !captureSession.inputs.isEmpty || !captureSession.outputs.isEmpty else { return }
-        captureSession.beginConfiguration()
-        for input in captureSession.inputs {
-            captureSession.removeInput(input)
-        }
-        for output in captureSession.outputs {
-            captureSession.removeOutput(output)
-        }
-        captureSession.commitConfiguration()
-    }
-
-    private var isLocalMicrophoneCaptureRequested: Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return localMicrophoneCaptureRequested
-    }
-
-    func captureOutput(
-        _ output: AVCaptureOutput,
-        didOutput sampleBuffer: CMSampleBuffer,
-        from connection: AVCaptureConnection
-    ) {
-        guard isLocalMicrophoneCaptureRequested,
-              !isRemoteActive,
-              let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(
-                formatDescription
-              ),
-              streamDescription.pointee.mFormatID == kAudioFormatLinearPCM,
-              streamDescription.pointee.mBitsPerChannel == 32,
-              streamDescription.pointee.mFormatFlags & kAudioFormatFlagIsFloat != 0,
-              let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer)
-        else { return }
-
-        let byteCount = CMBlockBufferGetDataLength(blockBuffer)
-        guard byteCount >= MemoryLayout<Float>.size else { return }
-        var data = Data(count: byteCount)
-        let copyStatus = data.withUnsafeMutableBytes { bytes in
-            CMBlockBufferCopyDataBytes(
-                blockBuffer,
-                atOffset: 0,
-                dataLength: byteCount,
-                destination: bytes.baseAddress!
-            )
-        }
-        guard copyStatus == kCMBlockBufferNoErr else { return }
-
-        let channels = max(1, Int(streamDescription.pointee.mChannelsPerFrame))
-        let floats: [Float] = data.withUnsafeBytes { rawBuffer in
-            let values = rawBuffer.bindMemory(to: Float.self)
-            if channels == 1 {
-                return Array(values)
-            }
-            let frameCount = values.count / channels
-            return (0..<frameCount).map { frame in
-                var sum: Float = 0
-                for channel in 0..<channels {
-                    sum += values[frame * channels + channel]
-                }
-                return sum / Float(channels)
-            }
-        }
-
-        schedule(
-            monoSamples: floats,
-            sampleRate: streamDescription.pointee.mSampleRate,
-            expectedRemoteMode: false
-        )
     }
 
     // MARK: - playback
 
-    private var isRemoteActive: Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return remoteActive
-    }
-
     private func schedule(
         monoSamples: [Float],
-        sampleRate: Double,
-        expectedRemoteMode: Bool
+        sampleRate: Double
     ) {
         guard !monoSamples.isEmpty, sampleRate > 0 else { return }
         let resampled = Self.resample(
@@ -828,79 +523,75 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         guard !resampled.isEmpty else { return }
 
         stateLock.lock()
-        guard remoteActive == expectedRemoteMode else {
+        guard remoteActive else {
             stateLock.unlock()
             return
         }
         let remoteQueueBeforeSubmission = outputRing.queuedRemoteFrames
         let writeResult = outputRing.write(
             resampled,
-            source: expectedRemoteMode ? .remote : .local
+            source: .remote
         )
-        if expectedRemoteMode {
-            scheduledRemoteBuffers += 1
-            if writeResult.acceptedFrames > 0, remoteDiagnosticsActive {
-                diagnosticsCumulative.recordSubmittedRemoteFrames(
-                    writeResult.acceptedFrames
-                )
-                diagnosticsWindow.recordSubmittedRemoteFrames(
-                    writeResult.acceptedFrames
+        scheduledRemoteBuffers += 1
+        if writeResult.acceptedFrames > 0, remoteDiagnosticsActive {
+            diagnosticsCumulative.recordSubmittedRemoteFrames(
+                writeResult.acceptedFrames
+            )
+            diagnosticsWindow.recordSubmittedRemoteFrames(
+                writeResult.acceptedFrames
+            )
+        }
+        if writeResult.droppedFrames > 0, remoteDiagnosticsActive {
+            diagnosticsCumulative.recordOverflow(writeResult.droppedFrames)
+            diagnosticsWindow.recordOverflow(writeResult.droppedFrames)
+            if VoiceTimingLogger.continuityEvidenceEnabled {
+                continuityRenderLedger?.recordOverflow(
+                    timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds(),
+                    frames: writeResult.droppedFrames
                 )
             }
-            if writeResult.droppedFrames > 0, remoteDiagnosticsActive {
-                diagnosticsCumulative.recordOverflow(writeResult.droppedFrames)
-                diagnosticsWindow.recordOverflow(writeResult.droppedFrames)
-                if VoiceTimingLogger.continuityEvidenceEnabled {
-                    continuityRenderLedger?.recordOverflow(
-                        timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds(),
-                        frames: writeResult.droppedFrames
-                    )
-                }
-            }
-            if writeResult.acceptedFrames > 0 {
-                let submissionTimestamp = P1A4MonotonicClock.nowNanoseconds()
-                lastRemoteSubmittedMonotonicNanoseconds = submissionTimestamp
-                if VoiceTimingLogger.p1A5Enabled {
+        }
+        if writeResult.acceptedFrames > 0 {
+            let submissionTimestamp = P1A4MonotonicClock.nowNanoseconds()
+            lastRemoteSubmittedMonotonicNanoseconds = submissionTimestamp
+            if VoiceTimingLogger.p1A5Enabled {
+                VoiceTimingLogger.recordIfAbsent(
+                    "F4_first_pcm_submitted",
+                    timestampNanoseconds: submissionTimestamp
+                )
+                if VoiceTimingLogger.hasEvent("F6_first_voiced_pcm_decoded") {
                     VoiceTimingLogger.recordIfAbsent(
-                        "F4_first_pcm_submitted",
+                        "F7_first_voiced_pcm_submitted",
                         timestampNanoseconds: submissionTimestamp
                     )
-                    if VoiceTimingLogger.hasEvent("F6_first_voiced_pcm_decoded") {
-                        VoiceTimingLogger.recordIfAbsent(
-                            "F7_first_voiced_pcm_submitted",
-                            timestampNanoseconds: submissionTimestamp
-                        )
-                    }
-                }
-                if remoteDiagnosticsActive {
-                    appendLongTermObservationLocked(
-                        LongTermObservationPoint(
-                            timestampNanoseconds: submissionTimestamp,
-                            kind: .pcmSubmitted,
-                            requestedFrames: UInt64(writeResult.acceptedFrames),
-                            filledFrames: UInt64(writeResult.acceptedFrames),
-                            unfilledFrames: 0,
-                            queueDepthFrames: UInt64(
-                                max(0, writeResult.remoteQueueDepthAfterFrames)
-                            ),
-                            byteOrSampleCount: UInt64(writeResult.acceptedFrames),
-                            marker: .active,
-                            queueDepthBeforeFrames: UInt64(
-                                max(0, remoteQueueBeforeSubmission)
-                            )
-                        )
-                    )
-                    if VoiceTimingLogger.continuityEvidenceEnabled {
-                        continuityRenderLedger?.recordSubmitted(
-                            timestampNanoseconds: submissionTimestamp,
-                            frames: writeResult.acceptedFrames,
-                            queueDepthFrames: writeResult.remoteQueueDepthAfterFrames
-                        )
-                    }
                 }
             }
-        } else {
-            scheduledMacBuffers += 1
+            if remoteDiagnosticsActive {
+                appendLongTermObservationLocked(
+                    LongTermObservationPoint(
+                        timestampNanoseconds: submissionTimestamp,
+                        kind: .pcmSubmitted,
+                        requestedFrames: UInt64(writeResult.acceptedFrames),
+                        filledFrames: UInt64(writeResult.acceptedFrames),
+                        unfilledFrames: 0,
+                        queueDepthFrames: UInt64(
+                            max(0, writeResult.remoteQueueDepthAfterFrames)
+                        ),
+                        byteOrSampleCount: UInt64(writeResult.acceptedFrames),
+                        marker: .active,
+                        queueDepthBeforeFrames: UInt64(
+                            max(0, remoteQueueBeforeSubmission)
+                        )
+                    )
+                )
+                if VoiceTimingLogger.continuityEvidenceEnabled {
+                    continuityRenderLedger?.recordSubmitted(
+                        timestampNanoseconds: submissionTimestamp,
+                        frames: writeResult.acceptedFrames,
+                        queueDepthFrames: writeResult.remoteQueueDepthAfterFrames
+                    )
+                }
+            }
         }
         scheduledPeak = max(
             scheduledPeak,
@@ -977,7 +668,6 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         guard frameCount > 0 else { return }
 
         let remoteActive = realtimeDiagnostics.currentRemoteActive()
-        let localMicrophoneActive = realtimeDiagnostics.currentLocalMicrophoneActive()
         let remoteWasActive = realtimeDiagnostics.currentRemoteWasActive()
         let diagnosticsActive = realtimeDiagnostics.beginRenderDiagnosticsIfActive()
         let renderTimestamp = P1A4MonotonicClock.nowNanoseconds()
@@ -1004,7 +694,6 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             pendingRemoteFrames: readResult.remoteQueueDepthBeforeFrames,
             remoteActive: remoteActive,
             remoteWasActive: remoteWasActive,
-            localMicrophoneActive: localMicrophoneActive,
             reserveWaiting: reserveDecision == .wait
         )
         realtimeDiagnostics.recordMeter(
@@ -1177,18 +866,6 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 activeUnderrunCallbacks: 0,
                 tailRenderedFrames: observation.filledFrames,
                 tailEmptyCallbacks: observation.filledFrames == 0 ? 1 : 0,
-                idleRenderCallbacks: 0
-            )
-        case 3:
-            return AudioPipeRenderAccounting(
-                state: .localMicrophone,
-                accounted: false,
-                activeRequestedFrames: 0,
-                activeFilledFrames: 0,
-                activeUnderrunFrames: 0,
-                activeUnderrunCallbacks: 0,
-                tailRenderedFrames: 0,
-                tailEmptyCallbacks: 0,
                 idleRenderCallbacks: 0
             )
         default:
@@ -1397,22 +1074,6 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         return nil
     }
 
-    private static func isLoopbackDeviceName(_ name: String) -> Bool {
-        let normalized = name.lowercased()
-        // AVCaptureDevice.DiscoverySession(.builtInMicrophone) can expose
-        // HAL loopbacks as capture candidates. In a namespace cutover the
-        // old MiRemoteV/VoiceRemote devices may still be registered beside
-        // RemoteOrbit, so name-checking only the new driver is insufficient:
-        // the stale endpoint can become the default and produce a silent
-        // short-press capture path.
-        return normalized.contains("remoteorbit")
-            || normalized.contains("blackhole")
-            || normalized.contains("miremote")
-            || normalized.contains("mi remote")
-            || normalized.contains("voiceremote")
-            || normalized.contains("voice remote")
-    }
-
     // MARK: - diagnostics
 
     private func startDiagnosticsTimer() {
@@ -1424,12 +1085,9 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             let mode: String
             if self.remoteActive {
                 mode = "remote"
-            } else if self.localMicrophoneCaptureRequested {
-                mode = "mac"
             } else {
                 mode = "idle"
             }
-            let macBuffers = self.scheduledMacBuffers
             let remoteBuffers = self.scheduledRemoteBuffers
             let peak = self.scheduledPeak
             let queuedFrames = self.outputRing.queuedFrames
@@ -1442,16 +1100,14 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             if mode == "idle", shouldPrint {
                 self.lastIdleMeterAt = now
             }
-            self.scheduledMacBuffers = 0
             self.scheduledRemoteBuffers = 0
             self.scheduledPeak = 0
             self.stateLock.unlock()
             let meter = self.realtimeDiagnostics.takeMeterSnapshot(reset: true)
             guard shouldPrint else { return }
             print(String(
-                format: "[AUDIO-METER] mode=%@ macBuffers=%d remoteBuffers=%d scheduledPeak=%.4f renders=%d renderedFrames=%d renderedPeak=%.4f queuedFrames=%d",
+                format: "[AUDIO-METER] mode=%@ remoteBuffers=%d scheduledPeak=%.4f renders=%d renderedFrames=%d renderedPeak=%.4f queuedFrames=%d",
                 mode,
-                macBuffers,
                 remoteBuffers,
                 peak,
                 meter.renderCallbackCount,

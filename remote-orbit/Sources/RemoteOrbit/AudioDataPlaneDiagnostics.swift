@@ -97,7 +97,6 @@ enum AudioPipeRenderState: Equatable {
     case activeRemote
     case tailDrain
     case idle
-    case localMicrophone
 }
 
 struct AudioPipeRenderAccounting: Equatable {
@@ -117,7 +116,6 @@ struct AudioPipeRenderAccounting: Equatable {
         pendingRemoteFrames: Int,
         remoteActive: Bool,
         remoteWasActive: Bool,
-        localMicrophoneActive: Bool = false,
         reserveWaiting: Bool = false
     ) -> AudioPipeRenderAccounting {
         let requested = max(0, requestedFrames)
@@ -130,8 +128,6 @@ struct AudioPipeRenderAccounting: Equatable {
             .activeRemote
         } else if pending > 0 {
             .tailDrain
-        } else if localMicrophoneActive {
-            .localMicrophone
         } else if remoteWasActive {
             .tailDrain
         } else {
@@ -1012,8 +1008,6 @@ struct AudioPipeDiagnosticsCounters {
             tailEmptyCallbackCount += accounting.tailEmptyCallbacks
         case .idle:
             idleRenderCallbackCount += accounting.idleRenderCallbacks
-        case .localMicrophone:
-            break
         }
     }
 

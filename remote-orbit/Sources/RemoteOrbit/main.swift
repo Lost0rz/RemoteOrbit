@@ -434,6 +434,12 @@ final class VoicePressCoordinator {
     var onLongOnlyCandidatePromoted: ((UUID, String?) -> Void)?
     /// Complete a long gesture only after queued remote PCM has rendered.
     var onRemoteOutputDrain: ((UUID, @escaping () -> Void) -> Void)?
+    /// Release the temporary RemoteOrbit system-input lease after the final
+    /// remote voice session has fully drained and no immediate direct
+    /// successor owns the next session. Transport deactivation must not fire
+    /// this: the queued remote PCM tail still owns the input until the
+    /// actual output drain completes.
+    var onRemoteInputLeaseRelease: (() -> Void)?
     /// Returns true while BLE cleanup owns the admission boundary for a new
     /// voice session. A physical press is retained until the bridge reports
     /// that boundary clear; it must not start a stream that AUDIO_START will
@@ -496,6 +502,11 @@ final class VoicePressCoordinator {
     private var pendingDirectHardwareRepressACompleted = false
     private var pendingDirectHardwareRepressDownCaptured = false
     private var usesHardwareOptionPath = false
+    /// Remote voice temporarily leases the system default input to RemoteOrbit
+    /// Mic 2ch. The lease survives transport stop and transfers across a
+    /// rapid direct repress; only a post-drain completion with no immediate
+    /// direct successor restores the persisted preferred input.
+    private var remoteInputLeaseHeld = false
     private let syntheticOptionTrigger: VoiceOptionTrigger
     private let diagnosticLogger: VoiceDiagnosticLogger?
     private var gesturePhysicalDownUptime: TimeInterval?
@@ -514,6 +525,10 @@ final class VoicePressCoordinator {
 
     var hasRemoteAudio: Bool {
         remoteAudioAvailable
+    }
+
+    var remoteInputLeaseHeldForTesting: Bool {
+        remoteInputLeaseHeld
     }
 
     var pendingRepressSessionID: UUID? {
@@ -970,6 +985,7 @@ final class VoicePressCoordinator {
     }
 
     private func finishFailedLongOnlyCandidate(_ candidate: LongOnlyCandidate) {
+        defer { releaseRemoteInputLeaseIfUnowned() }
         if candidate.triggerStrategy == .syntheticHandoff {
             _ = onHardwareOptionGateShortHandoffReleased?(candidate.sessionID)
                 ?? false
@@ -999,6 +1015,7 @@ final class VoicePressCoordinator {
 
     private func cancelLongOnlyCandidate(reason: String) -> Bool {
         guard let candidate = longOnlyCandidate else { return false }
+        defer { releaseRemoteInputLeaseIfUnowned() }
         longOnlyCandidateTimer?.cancel()
         longOnlyCandidateTimer = nil
         longOnlyCandidate = nil
@@ -1343,6 +1360,7 @@ final class VoicePressCoordinator {
             AudioPipe.shared.endRemoteCandidate()
         }
         _ = setRemoteRouted(false)
+        settleRemoteInputLeaseAtDirectCompletion()
         if mode != .idle { setMode(.idle) }
         VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
         VoiceTimingLogger.end(sessionID: sessionID)
@@ -1354,6 +1372,39 @@ final class VoicePressCoordinator {
         pendingDirectHardwareRepressOldSessionID = nil
         pendingDirectHardwareRepressACompleted = false
         pendingDirectHardwareRepressDownCaptured = false
+    }
+
+    /// A promoted remote LONG temporarily leases the system input to
+    /// RemoteOrbit Mic 2ch. At post-drain direct-session completion, keep the
+    /// lease only when an immediate direct successor — a registered rapid
+    /// repress or a live replacement physical candidate epoch — will own the
+    /// next session; otherwise restore the persisted preferred input. This
+    /// is deliberately not part of `AudioPipe.setRemoteActive(false)`, which
+    /// runs before the queued remote PCM tail has drained.
+    private func settleRemoteInputLeaseAtDirectCompletion() {
+        guard remoteInputLeaseHeld else { return }
+        let hasImmediateDirectSuccessor =
+            (deferredRepressWaitReason == .directOutputDrain && pendingRepress != nil)
+            || pendingDirectHardwareRepressAwaitingOldUp
+            || preHIDPhysicalStreaming
+            || livePhysicalCandidateForAdmission
+        guard !hasImmediateDirectSuccessor else { return }
+        remoteInputLeaseHeld = false
+        onRemoteInputLeaseRelease?()
+    }
+
+    /// Release a lease that was retained for a successor once that successor
+    /// dies without promoting into a direct session.
+    private func releaseRemoteInputLeaseIfUnowned() {
+        guard remoteInputLeaseHeld,
+              !directSession,
+              pendingRepress == nil,
+              !deferredRepressAwaitingActivation,
+              !pendingDirectHardwareRepressAwaitingOldUp,
+              !preHIDPhysicalStreaming,
+              !livePhysicalCandidateForAdmission else { return }
+        remoteInputLeaseHeld = false
+        onRemoteInputLeaseRelease?()
     }
 
     private func tryActivatePendingDirectHardwareRepress() {
@@ -1431,6 +1482,7 @@ final class VoicePressCoordinator {
                 )
             }
             clearPendingDirectHardwareRepressState()
+            releaseRemoteInputLeaseIfUnowned()
             print("[PRESS] pending direct re-press released before activation")
             return false
         }
@@ -1515,6 +1567,9 @@ final class VoicePressCoordinator {
             return
         }
         preHIDPhysicalStreaming = streaming
+        if !streaming {
+            releaseRemoteInputLeaseIfUnowned()
+        }
         diagnosticLogger?.log(
             category: "voice",
             event: streaming ? "PHYSICAL_HTT_CANDIDATE_START" : "PHYSICAL_HTT_CANDIDATE_STOP",
@@ -1634,6 +1689,7 @@ final class VoicePressCoordinator {
         deferredRepressWaitReason = nil
         clearPendingDirectHardwareRepressState()
         _ = syntheticOptionTrigger.reset()
+        releaseRemoteInputLeaseIfUnowned()
     }
 
     /// A removed HID device cannot deliver the matching physical UP. Retire
@@ -1725,6 +1781,7 @@ final class VoicePressCoordinator {
 
     private func activatePendingRepressIfHeld() {
         guard let pendingRepress else { return }
+        defer { releaseRemoteInputLeaseIfUnowned() }
         let longOnlyCandidate = self.longOnlyCandidate
         if let longOnlyCandidate,
            (longOnlyCandidate.sessionID != pendingRepress.sessionID
@@ -1793,6 +1850,9 @@ final class VoicePressCoordinator {
     private func setRemoteRouted(_ active: Bool) -> Int {
         guard remoteRouted != active else { return 0 }
         remoteRouted = active
+        if active {
+            remoteInputLeaseHeld = true
+        }
         return AudioPipe.shared.setRemoteActive(active)
     }
 
@@ -4482,6 +4542,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         voicePress.onRemoteOutputDrain = { _, completion in
             AudioPipe.shared.waitForOutputDrain(completion: completion)
+        }
+        voicePress.onRemoteInputLeaseRelease = {
+            SystemAudioDeviceManager.applyPreferredInputSelection()
         }
         voicePress.onHardwareOptionGatePhysicalUp = { [weak self] gestureID in
             self?.filter.armHardwareOptionRelease(gestureID: gestureID)
