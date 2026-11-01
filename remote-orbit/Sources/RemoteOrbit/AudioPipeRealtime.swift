@@ -401,7 +401,6 @@ struct AudioPipeRealtimeObservation {
     enum Kind: Int32, Equatable {
         case render = 1
         case queueStarvation = 2
-        case frontEdgeUnderrun = 3
     }
 
     let kind: Kind
@@ -658,22 +657,6 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
             enqueue(
                 AudioPipeRealtimeObservation(
                     kind: .queueStarvation,
-                    timestampNanoseconds: timestampNanoseconds,
-                    requestedFrames: requestedFrames,
-                    filledFrames: readResult.filledFrames,
-                    unfilledFrames: readResult.unfilledFrames,
-                    queueDepthBeforeFrames: readResult.remoteQueueDepthBeforeFrames,
-                    queueDepthAfterFrames: readResult.remoteQueueDepthAfterFrames,
-                    byteOrSampleCount: accounting.activeUnderrunFrames,
-                    marker: marker
-                )
-            )
-        }
-
-        if accounting.activeUnderrunFrames > 0 {
-            enqueue(
-                AudioPipeRealtimeObservation(
-                    kind: .frontEdgeUnderrun,
                     timestampNanoseconds: timestampNanoseconds,
                     requestedFrames: requestedFrames,
                     filledFrames: readResult.filledFrames,

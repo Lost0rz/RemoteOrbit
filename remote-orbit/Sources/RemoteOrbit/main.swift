@@ -4363,11 +4363,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ) as? String ?? "UNSTAMPED"
             let receiverFinalizationInstrumentation =
                 ProcessInfo.processInfo.environment["REMOTE_ORBIT_P1A4_RECEIVER_FINALIZATION"] == "1"
-            let frontEdgeInstrumentation =
-                ProcessInfo.processInfo.environment["REMOTE_ORBIT_P1A5_FRONT_EDGE"] == "1"
-            let instrumentation = frontEdgeInstrumentation
-                ? "p1-a5-front-edge"
-                : receiverFinalizationInstrumentation
+            let instrumentation = receiverFinalizationInstrumentation
                 ? "p1-a4-receiver-finalization"
                 : "p0"
             print(

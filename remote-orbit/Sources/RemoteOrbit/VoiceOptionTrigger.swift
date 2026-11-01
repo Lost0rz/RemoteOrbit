@@ -7,17 +7,11 @@ enum VoiceTimingLogger {
     private static var activeSessionID: UUID?
     private static var startedAt: TimeInterval = 0
     private static var timeline: [String: UInt64] = [:]
-    private static var frontEdgeUnderrunStats = P1A5FrontEdgeUnderrunStats()
     private static var continuityLedger = AudioContinuityBucketLedger()
     private static var continuityCaptureID: UUID?
     private static var continuityCaptureAwaitingSession = false
     private static var lastEndedSessionID: UUID?
     private static var lastEndedStartedAt: TimeInterval = 0
-
-    static var p1A5Enabled: Bool {
-        DiagnosticsRuntimeGate.shared.isEnabled
-            && ProcessInfo.processInfo.environment["REMOTE_ORBIT_P1A5_FRONT_EDGE"] == "1"
-    }
 
     static var continuityEvidenceEnabled: Bool {
         DiagnosticsRuntimeGate.shared.isEnabled
@@ -115,7 +109,6 @@ enum VoiceTimingLogger {
         activeSessionID = sessionID
         startedAt = diagnosticsEnabled ? ProcessInfo.processInfo.systemUptime : 0
         timeline = [:]
-        frontEdgeUnderrunStats = P1A5FrontEdgeUnderrunStats()
         lastEndedSessionID = nil
         lastEndedStartedAt = 0
         lock.unlock()
@@ -142,7 +135,6 @@ enum VoiceTimingLogger {
             )
         }
         record("T0_voice_trigger_down", timestampNanoseconds: timestamp)
-        recordIfAbsent("F0_trigger_down", timestampNanoseconds: timestamp)
         mark("VOICE_DOWN", sessionID: sessionID)
     }
 
@@ -215,69 +207,6 @@ enum VoiceTimingLogger {
             timeline[event] = timestampNanoseconds
         }
         lock.unlock()
-    }
-
-    static func hasEvent(_ event: String) -> Bool {
-        guard DiagnosticsRuntimeGate.shared.isEnabled else { return false }
-        lock.lock()
-        defer { lock.unlock() }
-        return timeline[event] != nil
-    }
-
-    static func recordVoiceOnset(
-        _ candidate: P1A5VoiceOnsetCandidate,
-        detectedAtNanoseconds: UInt64
-    ) {
-        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
-        recordIfAbsent(
-            "F6_first_voiced_pcm_decoded",
-            timestampNanoseconds: candidate.timestampNanoseconds
-        )
-        lock.lock()
-        let sessionID = activeSessionID?.uuidString ?? "NA"
-        lock.unlock()
-        print(
-            "[P1-A5] audio.voice_onset_candidate "
-                + "session_id=\(sessionID) "
-                + "monotonic_ns=\(candidate.timestampNanoseconds) "
-                + "detection_monotonic_ns=\(detectedAtNanoseconds) "
-                + "frame_index=\(candidate.frameIndex) "
-                + String(format: "rms=%.1f peak=%d threshold=%.1f ", candidate.rms, candidate.peak, candidate.threshold)
-                + "consecutive_voiced_frames=\(candidate.consecutiveVoicedFrames)"
-        )
-    }
-
-    static func recordFrontEdgeUnderrun(
-        timestampNanoseconds: UInt64,
-        durationMilliseconds: Double,
-        queuedFramesBefore: Int,
-        queuedFramesAfter: Int
-    ) {
-        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
-        lock.lock()
-        guard let onset = timeline["F6_first_voiced_pcm_decoded"],
-              timestampNanoseconds >= onset else {
-            lock.unlock()
-            return
-        }
-        let distanceMilliseconds = Double(timestampNanoseconds - onset) / 1_000_000
-        guard distanceMilliseconds <= 1_000 else {
-            lock.unlock()
-            return
-        }
-        frontEdgeUnderrunStats.record(
-            distanceMilliseconds: distanceMilliseconds,
-            durationMilliseconds: durationMilliseconds
-        )
-        let sessionID = activeSessionID?.uuidString ?? "NA"
-        lock.unlock()
-        print(
-            "[P1-A5] audio.front_edge_underrun "
-                + "session_id=\(sessionID) "
-                + "monotonic_ns=\(timestampNanoseconds) "
-                + String(format: "duration_ms=%.3f distance_from_voice_onset_ms=%.3f ", durationMilliseconds, distanceMilliseconds)
-                + "queued_frames_before=\(queuedFramesBefore) queued_frames_after=\(queuedFramesAfter)"
-        )
     }
 
     static func timelineEventName(for event: String) -> String? {
@@ -393,7 +322,6 @@ enum VoiceTimingLogger {
             continuityLines = []
         }
         let snapshot = timeline
-        let underrunSnapshot = frontEdgeUnderrunStats
         timeline = [:]
         continuityLedger.reset(sessionStartNanoseconds: nil)
         continuityCaptureID = nil
@@ -432,31 +360,6 @@ enum VoiceTimingLogger {
         }
         _ = LongTermObservabilityService.shared.end(sessionID: sessionID)
         VoiceAttemptDiagnostics.shared.end(sessionID: sessionID)
-        guard p1A5Enabled else { return }
-
-        let frontEdgeEvents = [
-            "F0_trigger_down",
-            "F1_audio_pipeline_start_requested",
-            "F2_first_ble_packet_received",
-            "F3_first_pcm_decoded",
-            "F4_first_pcm_submitted",
-            "F5_first_pcm_rendered",
-            "F6_first_voiced_pcm_decoded",
-            "F7_first_voiced_pcm_submitted",
-            "F8_first_voiced_pcm_rendered",
-            "F9_playout_stable"
-        ]
-        let frontEdgeValues = frontEdgeEvents.map { event in
-            "\(event)=\(snapshot[event].map(String.init) ?? "NA")"
-        }.joined(separator: " ")
-        let bucketNames = ["0_100", "100_250", "250_500", "500_1000"]
-        let bucketValues = zip(bucketNames, underrunSnapshot.buckets).map { name, bucket in
-            String(format: "UNDERRUN_%@_MS=%.3f UNDERRUN_%@_COUNT=%d", name, bucket.durationMilliseconds, name, bucket.count)
-        }.joined(separator: " ")
-        print(
-            "[P1-A5] FRONT_EDGE_TIMELINE session_id=\(sessionID.uuidString) "
-                + frontEdgeValues + " " + bucketValues
-        )
     }
 
     static func observeControlPolicy(

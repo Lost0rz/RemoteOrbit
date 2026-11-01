@@ -317,7 +317,6 @@ final class BLEBridge: NSObject {
     private var streamDecodeRejectCount = 0
     private var streamZeroSampleDecodeCount = 0
     private var hasRecordedFirstP1A4AudioPacket = false
-    private var p1A5VoiceOnsetDetector = P1A5VoiceOnsetDetector()
     private var wavRecorder: WavRecorder?
     // These seams keep the recording lifecycle testable without a live
     // peripheral. They do not participate in the production transport path.
@@ -1886,13 +1885,6 @@ extension BLEBridge: CBPeripheralDelegate {
             streamDecodeRejectCount = 0
             streamZeroSampleDecodeCount = 0
             hasRecordedFirstP1A4AudioPacket = false
-            p1A5VoiceOnsetDetector.reset()
-            if VoiceTimingLogger.p1A5Enabled {
-                VoiceTimingLogger.recordIfAbsent(
-                    "F1_audio_pipeline_start_requested",
-                    timestampNanoseconds: P1A4MonotonicClock.nowNanoseconds()
-                )
-            }
             let continuityContext = VoiceTimingLogger.continuityCaptureContextForAudioStart()
             AudioPipe.shared.beginRemoteAudioDiagnostics(
                 continuityContext: continuityContext
@@ -2032,12 +2024,6 @@ extension BLEBridge: CBPeripheralDelegate {
                 timestampNanoseconds: packetTimestamp
             )
             hasRecordedFirstP1A4AudioPacket = true
-            if VoiceTimingLogger.p1A5Enabled {
-                VoiceTimingLogger.recordIfAbsent(
-                    "F2_first_ble_packet_received",
-                    timestampNanoseconds: packetTimestamp
-                )
-            }
         }
         VoiceTimingLogger.record(
             "T2_last_ble_audio_packet_received",
@@ -2101,22 +2087,6 @@ extension BLEBridge: CBPeripheralDelegate {
                 frameCount: 1,
                 sampleCount: frame.samples.count
             )
-        }
-        if VoiceTimingLogger.p1A5Enabled {
-            VoiceTimingLogger.recordIfAbsent(
-                "F3_first_pcm_decoded",
-                timestampNanoseconds: decodedTimestamp
-            )
-            if let candidate = p1A5VoiceOnsetDetector.analyze(
-                samples: frame.samples,
-                frameIndex: streamFrameCount,
-                timestampNanoseconds: decodedTimestamp
-            ) {
-                VoiceTimingLogger.recordVoiceOnset(
-                    candidate,
-                    detectedAtNanoseconds: decodedTimestamp
-                )
-            }
         }
         if let lastAudioAt {
             maxAudioFrameGap = max(maxAudioFrameGap, now.timeIntervalSince(lastAudioAt))
