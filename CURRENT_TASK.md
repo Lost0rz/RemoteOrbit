@@ -2,55 +2,63 @@
 
 ## RO-DOMAIN-DOC-AUDIT-047 — Domain Map & Documentation Authority Refresh
 
-Status: `ACTIVE / DOCUMENTATION_AUTHORITY_REFRESH`
+Status: `CLOSED / DOCUMENTATION_AUTHORITY_REFRESHED`
 TASK_CLASS: `REPOSITORY DOCUMENTATION / DOMAIN NAVIGATION AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
-Control parent: `c614b683e3fe58c423f89be3503dbe0c78aa02e9`
+Start control parent: `c614b683e3fe58c423f89be3503dbe0c78aa02e9`
+Documentation implementation commit: `435bbf37eabe83bf5cf34ff13730507cb8a207df`
 
-## Objective
+## Objective result
 
-Rebuild RemoteOrbit's semantic navigation from the current `main` baseline, then reconcile durable and historical documentation so repository docs accurately describe the current product contract, architecture, ownership, and supported workflows after Task 046 closeout.
+PASS. RemoteOrbit's active documentation tree now reflects current product/source authority and no longer presents completed task plans, superseded Persistent/dual-receiver designs, or frozen diagnostic architecture as current guidance.
 
-## Authorized scope
+## Completed scope
 
-1. Audit the full repository tree and current source/test structure needed to establish Domain/capability ownership and runtime/test routes.
-2. Find the current Domain Map or equivalent navigation projection and refresh/rebuild it from verified evidence.
-3. Audit README, setup documents, design/plan/history documents, ADR-like notes, diagnostic documents, and documentation indexes for:
-   - stale current-state claims;
-   - superseded Persistent/dual-receiver or other retired business/product semantics;
-   - references to retired branches/worktrees/PRs/tasks as if they were current authority;
-   - duplicated or conflicting architecture/ownership statements;
-   - broken or obsolete navigation/links;
-   - historical material that should be clearly retained as history instead of active guidance.
-4. Update authoritative documents where current guidance is still needed.
-5. Delete documentation that is obsolete, misleading, redundant, or superseded and has no remaining historical/evidence value.
-6. Update control files at completion with the resulting documentation authority and remaining uncertainties.
+1. Audited the repository/document structure and current source/test routes used for semantic navigation.
+2. Created `docs/DOMAIN_MAP.md` covering the current project Domains:
+   - voice interaction/lifecycle;
+   - BLE/ATVV transport;
+   - audio data plane/device routing;
+   - HID/mapping/App integrations;
+   - settings/persistence/product surface;
+   - diagnostics/observability;
+   - packaging/install/distribution;
+   - governance/CI/evidence lifecycle.
+3. Rebuilt `README.md` around the current LONG-only remote-voice product contract and current source metadata (`0.2.15` / Build `44`).
+4. Rebuilt `SETUP_NOTES.md` as a current install/validation/troubleshooting guide and removed old commit/task progress history.
+5. Added `docs/README.md`, `docs/diagnostics/README.md`, and `docs/incidents/README.md` to make current-vs-historical authority explicit.
+6. Reconciled the three diagnostic ADRs into durable accepted decisions rather than task/audit diaries.
+7. Removed 39 obsolete active-document files:
+   - 14 former `docs/design/*` files;
+   - 23 former `docs/superpowers/*` files;
+   - one frozen Persistent-long diagnostic architecture file;
+   - one Task 038 diagnostic closeout file.
+8. Retained incident reports and historical release notes as evidence/history, with explicit rules preventing them from overriding current authority.
 
-## Non-goals / prohibited side effects
+## Preserved boundaries
 
 - No Swift/product behavior change.
-- No test behavior change except documentation references to tests.
-- No app/driver packaging, install, runtime, CoreAudio, TCC, LaunchAgent, or default-device mutation.
-- No release/tag operation.
-- No branch/worktree/PR lifecycle cleanup or creation unless task authority is explicitly reconciled first.
-- Do not rewrite historical evidence solely to make old conclusions look current; preserve useful history with explicit historical labeling when warranted.
+- No test behavior change.
+- No app/driver packaging implementation change.
+- No install, CoreAudio, TCC, default-device, release, tag, PR, branch, or worktree lifecycle mutation.
+- No historical incident/release record was rewritten to pretend old behavior was current behavior.
 
-## Evidence and decision rules
+## Verification
 
-- Current source and current tests verify navigation claims; search/index results are leads only.
-- `AGENTS.md` remains durable normative authority; `CURRENT_STATUS.md` and this file remain the only mutable control-plane authorities.
-- A Domain Map is a derived navigation projection, not business/product authority.
-- Documents that encode an accepted durable product contract may be updated only to align with current accepted authority, not to invent new behavior.
-- When deletion vs retention is ambiguous, retain only if the document has unique historical/evidence value and clearly mark it non-authoritative/historical.
+Remote publication of documentation implementation commit: PASS.
 
-## Completion gate
+RemoteOrbit CI run `#76` / id `41291482216`: PASS.
 
-Task 047 can close only when all are true:
+- source contract checks: PASS
+- protocol self-tests: PASS
+- full Swift tests: PASS
+- native Release build: PASS
+- build-only packaging smoke: PASS
 
-- current repository/document inventory has been audited;
-- Domain Map/navigation projection reflects current Domain/capability → source/runtime/test routes;
-- stale active guidance has been updated or removed;
-- superseded business/design documents are deleted or explicitly demoted to historical reference;
-- README/setup/index links are coherent after cleanup;
-- final documentation mutations are remotely delivered and verified on `main`;
-- `CURRENT_STATUS.md` and `CURRENT_TASK.md` are reconciled in one final control transition commit.
+Remote branch inventory at closeout: exactly one branch, `main`.
+
+## Closeout
+
+Task 047 is closed. The Domain Map is a derived navigation projection, not a fourth authority. Future product or repository mutation requires a newly authorized task/control transition.
+
+DOCUMENT_ALIGNMENT: `UPDATED`

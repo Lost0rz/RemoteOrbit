@@ -1,31 +1,62 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DOMAIN-DOC-AUDIT-047 — ACTIVE / DOCUMENTATION_AUTHORITY_REFRESH`
+State: `RO-DOMAIN-DOC-AUDIT-047 — CLOSED / DOCUMENTATION_AUTHORITY_REFRESHED`
 Repository: `Lost0rz/RemoteOrbit`
 Remote authority: `main`
-Control parent: `c614b683e3fe58c423f89be3503dbe0c78aa02e9`
+Closeout parent: `435bbf37eabe83bf5cf34ff13730507cb8a207df`
 
 ## Accepted baseline
 
-- Task 046 repository closeout: `CLOSED / CLEAN_BASELINE_ESTABLISHED`.
-- Canonical repository topology remains one remote branch (`main`) and the owner-verified single local canonical worktree baseline from Task 046.
-- Accepted product/runtime behavior is unchanged by this task unless explicitly stated otherwise; this task does not authorize product source or runtime mutation.
+- Task 046 repository/worktree closeout remains the accepted clean repository baseline.
+- Task 047 documentation/domain audit is complete.
+- Remote branch inventory was re-verified at closeout: GitHub exposes exactly one branch, `main`.
+- Product/runtime source behavior was not changed by Task 047.
+- Current source version metadata is `0.2.15` / Build `44` from `remote-orbit/Packaging/Info.plist`; installed-runtime and published-release identity remain separate evidence classes.
 
-## Active work
+## Current documentation authority
 
-Task 047 audits and refreshes the repository's semantic navigation and durable documentation after repository/worktree closeout.
+- `README.md` — current product/repository landing page.
+- `SETUP_NOTES.md` — current install, validation, and troubleshooting guide.
+- `docs/DOMAIN_MAP.md` — derived Domain/capability navigation projection from current source/tests.
+- `docs/README.md` — documentation lifecycle/index.
+- `docs/diagnostics/ADR-0001..0003` — retained durable diagnostic design decisions.
+- `docs/incidents/` — retained historical incident evidence, explicitly non-authoritative for current behavior.
+- Root `RELEASE_NOTES_v*.md` — historical version-specific release records; old semantics do not override current product authority.
 
-Authorized repository mutations are documentation/control-plane only:
-- refresh the Domain Map/navigation projection from current source/test evidence;
-- audit durable and historical documentation for stale claims, superseded business/voice designs, broken ownership statements, and invalid navigation;
-- update or delete documentation whose authority is obsolete or misleading;
-- reconcile README/setup/document indexes and links as required by those documentation changes.
+## Documentation cleanup result
 
-## Safety boundary
+Removed from the active documentation tree because they were completed task artifacts, superseded business/design authorities, or duplicated historical planning surfaces:
 
-- Product source/runtime behavior changes: `NOT AUTHORIZED`
-- Driver/CoreAudio/TCC/default-device changes: `NOT AUTHORIZED`
-- Packaging/install/release/tag changes: `NOT AUTHORIZED`
-- Branch/worktree/PR lifecycle mutation: `NOT AUTHORIZED` unless separately reconciled
-- Local runtime/worktree facts beyond the Task 046 owner-verified baseline: `NOT RE-VERIFIED IN THIS REMOTE SESSION`
+- 14 files under former `docs/design/`;
+- 23 files under former `docs/superpowers/`;
+- `docs/incident-diagnostics/PERSISTENT_LONG_DIAGNOSTIC_ARCHITECTURE.md`;
+- `docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`.
+
+Total removed active-document files: **39**. Historical recovery remains available through Git history.
+
+Retired Persistent, dual-receiver/Receiver-B, local-microphone voice-button, and generic SHORT business semantics remain non-production authorities. Current source contract tests continue to protect those retirement boundaries.
+
+## Verification
+
+Documentation implementation commit: `435bbf37eabe83bf5cf34ff13730507cb8a207df`.
+
+RemoteOrbit CI run `#76` / run id `41291482216`: `SUCCESS`.
+
+- Source contract checks: PASS
+- Protocol self-tests: PASS
+- Full Swift tests, including documentation contract tests: PASS
+- Native Release build: PASS
+- Build-only packaging smoke: PASS
+
+Remote docs tree was re-read after publication and contains only the intended current/historical documentation classes.
+
+## Remaining boundary
+
+This was a remote repository/documentation task. Local installed app, running process, HAL driver, TCC, default-device state, and local canonical worktree cleanliness were not independently re-verified in this remote session beyond the already accepted Task 046 owner-verified baseline.
+
+## Next state
+
+No product implementation task is authorized by this closeout. Any new source/runtime/packaging/installation or repository-lifecycle mutation requires a new governed `CURRENT_TASK.md` transition first.
+
+DOCUMENT_ALIGNMENT: `UPDATED`
