@@ -1,43 +1,31 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-PROJECT-CLOSEOUT-046 — CLOSED / CLEAN_BASELINE_ESTABLISHED`
+State: `RO-DOMAIN-DOC-AUDIT-047 — ACTIVE / DOCUMENTATION_AUTHORITY_REFRESH`
 Repository: `Lost0rz/RemoteOrbit`
+Remote authority: `main`
+Control parent: `c614b683e3fe58c423f89be3503dbe0c78aa02e9`
 
-## Accepted runtime baseline
+## Accepted baseline
 
-- Task 045: `CLOSED`
-- Human runtime acceptance: `PASS / USER-CONFIRMED`
-- Product source/runtime behavior was not changed by Project Closeout 046.
+- Task 046 repository closeout: `CLOSED / CLEAN_BASELINE_ESTABLISHED`.
+- Canonical repository topology remains one remote branch (`main`) and the owner-verified single local canonical worktree baseline from Task 046.
+- Accepted product/runtime behavior is unchanged by this task unless explicitly stated otherwise; this task does not authorize product source or runtime mutation.
 
-## Repository closeout result
+## Active work
 
-Phase A — remote hygiene: `COMPLETE`
-- Open PR count: `0`.
-- Remote branches: `main` only before final closeout bookkeeping.
+Task 047 audits and refreshes the repository's semantic navigation and durable documentation after repository/worktree closeout.
 
-Phase B — local worktree cleanup: `COMPLETE`
-- stale registrations pruned: `7`;
-- historical worktrees removed: `8`;
-- remaining registered worktree: `/Volumes/Jack-Dev/Projects/RemoteOrbit` only.
+Authorized repository mutations are documentation/control-plane only:
+- refresh the Domain Map/navigation projection from current source/test evidence;
+- audit durable and historical documentation for stale claims, superseded business/voice designs, broken ownership statements, and invalid navigation;
+- update or delete documentation whose authority is obsolete or misleading;
+- reconcile README/setup/document indexes and links as required by those documentation changes.
 
-Phase C — local baseline normalization: `COMPLETE / OWNER-VERIFIED`
-- canonical origin normalized to `https://github.com/Lost0rz/RemoteOrbit.git`;
-- local `main` fast-forwarded to then-current `origin/main`;
-- 16 merged local branches deleted with ancestry checks;
-- 4 superseded local branches deleted after exact-SHA checks;
-- remaining local branch: `main` only;
-- remaining worktree: canonical checkout only;
-- remote-tracking display showed only `origin/HEAD -> origin/main` and `origin/main`.
+## Safety boundary
 
-The final script emitted `STOP: unexpected remote-tracking branches remain` only in its last counting assertion; the immediately preceding displayed remote-tracking list contained only the expected symbolic HEAD and `origin/main`, so this was a verification-condition defect rather than a cleanup failure.
-
-## Final state
-
-`RO-PROJECT-CLOSEOUT-046` is closed with a clean single-baseline repository topology.
-
-- Product source/runtime mutation: `NONE`
-- Tag/release: `NOT AUTHORIZED`
-- Driver/CoreAudio/TCC/default-device changes: `NONE`
-
-Any future work starts from current `main` under a new task authorization.
+- Product source/runtime behavior changes: `NOT AUTHORIZED`
+- Driver/CoreAudio/TCC/default-device changes: `NOT AUTHORIZED`
+- Packaging/install/release/tag changes: `NOT AUTHORIZED`
+- Branch/worktree/PR lifecycle mutation: `NOT AUTHORIZED` unless separately reconciled
+- Local runtime/worktree facts beyond the Task 046 owner-verified baseline: `NOT RE-VERIFIED IN THIS REMOTE SESSION`
