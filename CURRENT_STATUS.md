@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-PROJECT-CLOSEOUT-046 — LOCAL_WORKTREE_INVENTORY_COMPLETE / EXACT_RETIREMENT_SET_AUTHORIZED`
+State: `RO-PROJECT-CLOSEOUT-046 — WORKTREE_CLEANUP_COMPLETE / LOCAL_BRANCH_RETIREMENT_AUTHORIZED`
 Repository: `Lost0rz/RemoteOrbit`
 
 ## Accepted runtime baseline
@@ -16,72 +16,61 @@ Repository: `Lost0rz/RemoteOrbit`
 Completed.
 
 - Open PR count: `0`.
-- All 25 non-`main` remote branches were individually audited and retired.
-- Fresh remote branch state: only `main` remains.
+- All 25 non-`main` remote branches retired after branch-by-branch audit.
+- Remote branch state: `main` only.
 
-## Phase B — local worktree inventory
+## Phase B — local worktree cleanup
 
-Inventory source: owner-run report `RemoteOrbit-local-inventory-20261101-160904.txt`.
+Completed and owner-verified.
 
-Inventory result:
+- stale/missing worktree registrations pruned: `7`;
+- existing historical worktrees removed after exact HEAD + clean checks: `8`;
+- canonical worktree preserved: `/Volumes/Jack-Dev/Projects/remoteorbit`;
+- final registered worktree count: `1`;
+- local branches were intentionally preserved during worktree cleanup.
 
-- registered worktrees: `16`;
-- canonical keep: `1` — `/Volumes/Jack-Dev/Projects/remoteorbit`;
-- stale/missing registered worktree paths: `7` — safe to prune registration only;
-- existing historical worktrees: `8` — all clean and lifecycle-classified safe to retire;
-- dirty worktrees: `0`;
-- unregistered/extra RemoteOrbit checkouts discovered in scanned roots: `0`;
-- `RETAIN_UNIQUE_WORK`: `0`;
-- `UNKNOWN_STOP`: `0`.
+## Phase C — local branch retirement and canonical baseline
 
-### Exact existing worktree retirement set
+Authorized exact local branch lifecycle:
 
-`SAFE_TO_RETIRE_SUPERSEDED`:
+`SAFE_DELETE_MERGED` — delete with ancestry re-check:
 
-- `/private/tmp/remoteorbit-task043-runtime-ed96d228` — detached historical Task 043 failing/corrective runtime evidence; current accepted Task 043/045 baseline supersedes it.
-- `/Volumes/Jack-Dev/Projects/remoteorbit-brand-icon-unification-044` — historical Task 044 branch; product intent already absorbed by later `main`.
-- `/Volumes/Jack-Dev/Projects/remoteorbit-ime-readiness-stability-043` — historical diverged Task 043 branch; audited semantics were integrated through the later fresh Task043 integration path.
-- `/Volumes/Jack-Dev/Projects/remoteorbit-runtime-soak-006` — historical detached Task 043 readiness/runtime candidate; superseded by later integrated and human-accepted baseline.
+- `codex/ci-self-hosted-runner-migration-20261031`
+- `codex/diagnostic-hardening-041`
+- `codex/ime-readiness-prompt-sync-043`
+- `codex/observability-039`
+- `codex/runtime-reliability-038-b-continuity-evidence`
+- `codex/shortcut-recorder-exclusive-capture-v1`
+- `codex/task045a-diagnostics-gating`
+- `codex/task045b-domain1-legacy-voice-product-surface`
+- `codex/task045b-domain2-legacy-voice-persisted-preferences`
+- `codex/task045b-domain3-persistent-voice-runtime-retirement`
+- `codex/task045b-domain4-dual-receiver-runtime-retirement`
+- `codex/task045b-domain5-legacy-generic-short-classifier-retirement`
+- `codex/task045b-domain6-local-microphone-capture-retirement`
+- `codex/task045d-domain1-remote-only-pcm-attribution-retirement`
+- `codex/task045d-domain2-p1a5-front-edge-experiment-retirement`
+- `codex/voice-pipeline-simplification-042`
 
-`SAFE_TO_RETIRE_MERGED`:
+`SAFE_DELETE_SUPERSEDED` — delete only after exact SHA re-check:
 
-- `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain3-persistent-voice-runtime-retirement`
-- `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain4-dual-receiver-runtime-retirement`
-- `/Volumes/Jack-Dev/Projects/remoteorbit-task045d-domain2-p1a5-front-edge-experiment-retirement`
-- `/Volumes/Jack-Dev/Projects/remoteorbit-voice-pipeline-simplification-042`
+- `codex/brand-icon-unification-044` @ `f245068219e2dfbacce62e1b385a30a79f015728`
+- `codex/ime-readiness-stability-043` @ `4493657ae266072b95b159e539fa2e7fb6aa2a35`
+- `codex/mapping-config-simplify-040` @ `c5f6c2f84c56b4e40780960bcd4173a1a4724731`
+- `codex/release-v0.2.15` @ `f049e6eb7f0e5625b807fba1860d04c048b638ca`
 
-### Stale registration prune set
+After local branch retirement:
 
-The following registered paths no longer exist and may be removed only through `git worktree prune`:
+1. normalize `origin` to `https://github.com/Lost0rz/RemoteOrbit.git`;
+2. fetch/prune;
+3. fast-forward local `main` to current `origin/main` only with `--ff-only`;
+4. verify canonical worktree clean;
+5. verify local branch list contains only `main`;
+6. verify remote tracking contains only `origin/main` plus symbolic `origin/HEAD -> origin/main`.
 
-- `/private/tmp/remoteorbit-diagnostic-hardening-041`
-- `/private/tmp/remoteorbit-longterm-observability-039`
-- `/private/tmp/remoteorbit-mapping-config-simplify-040`
-- `/private/tmp/remoteorbit-release-v0.2.15-local-soak`
-- `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence`
-- `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1`
-- `/private/tmp/remoteorbit-voice-pipeline-simplification-042`
+## Current boundary
 
-## Canonical checkout state
-
-At inventory time the canonical checkout was clean on local `main@675a88bf87611d4788b9b5c72d11d2c9203cba01`, five commits behind then-current `origin/main`; its HEAD was contained in `origin/main` and no local changes existed. Canonical fast-forward and origin-URL normalization are deferred until after worktree retirement.
-
-## Current authorization
-
-Authorized now:
-
-1. prune only the seven missing registered worktree entries;
-2. remove only the eight exact existing worktree paths listed above, and only if each remains clean and at the audited exact HEAD;
-3. preserve all local branches during this step;
-4. preserve the canonical checkout.
-
-Not authorized yet:
-
-- local branch deletion;
-- product source/runtime changes;
-- tag/release;
-- driver/CoreAudio/TCC/default-device changes.
-
-## Next
-
-Owner executes the exact bounded local worktree cleanup. Then re-inventory registered worktrees and local branches. Phase C will normalize the canonical checkout/main baseline and classify/delete stale local branches separately.
+- Product source/runtime mutation: `NOT AUTHORIZED`
+- Tag/release: `NOT AUTHORIZED`
+- Driver/CoreAudio/TCC/default-device changes: `NOT AUTHORIZED`
+- Local branch retirement and canonical normalization: `AUTHORIZED` under the exact checks above.

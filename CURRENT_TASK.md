@@ -2,7 +2,7 @@
 
 ## RO-PROJECT-CLOSEOUT-046 — Repository Closeout & Baseline
 
-Status: `LOCAL_WORKTREE_INVENTORY_COMPLETE / EXACT_RETIREMENT_SET_AUTHORIZED`
+Status: `WORKTREE_CLEANUP_COMPLETE / LOCAL_BRANCH_RETIREMENT_AUTHORIZED`
 TASK_CLASS: `REPOSITORY / WORKSPACE LIFECYCLE CLOSEOUT`
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -10,84 +10,89 @@ Repository: `Lost0rz/RemoteOrbit`
 
 Close the completed RemoteOrbit development cycle into one clear baseline without changing accepted product behavior.
 
-## Phase A — remote hygiene
+## Completed
 
-Completed.
+### Phase A — remote hygiene
 
 - Open PR count: `0`.
-- All non-`main` remote branches retired after branch-by-branch audit.
-- Remote branch state: `main` only.
+- Remote branches: `main` only.
 
-## Phase B — local worktree inventory result
+### Phase B — local worktree cleanup
 
-Owner-run inventory found `16` registered worktrees:
+Owner execution verified:
 
-- `CANONICAL_KEEP`: `1`
-- `SAFE_TO_RETIRE_SUPERSEDED`: `4` existing clean worktrees
-- `SAFE_TO_RETIRE_MERGED`: `4` existing clean worktrees
-- stale/missing registrations eligible for `git worktree prune`: `7`
-- `RETAIN_UNIQUE_WORK`: `0`
-- `UNKNOWN_STOP`: `0`
-- dirty worktrees: `0`
-- unregistered/extra RemoteOrbit checkouts found in scanned roots: `0`
+- pruned `7` stale/missing worktree registrations;
+- removed `8` exact audited historical worktrees after exact HEAD + clean checks;
+- final registered worktree count: `1`;
+- remaining canonical worktree: `/Volumes/Jack-Dev/Projects/remoteorbit`;
+- local branches intentionally preserved.
 
-## Exact authorized worktree retirement set
+## Phase C — exact local branch retirement
 
-`SAFE_TO_RETIRE_SUPERSEDED`:
+### SAFE_DELETE_MERGED
 
-1. `/private/tmp/remoteorbit-task043-runtime-ed96d228` @ `ed96d2285b7a3a24aecb30c09aebc38ccc4c4b16`
-2. `/Volumes/Jack-Dev/Projects/remoteorbit-brand-icon-unification-044` @ `f245068219e2dfbacce62e1b385a30a79f015728`
-3. `/Volumes/Jack-Dev/Projects/remoteorbit-ime-readiness-stability-043` @ `4493657ae266072b95b159e539fa2e7fb6aa2a35`
-4. `/Volumes/Jack-Dev/Projects/remoteorbit-runtime-soak-006` @ `a881121f0d649eda7d1954312fa9575ff59f4839`
+Before deleting each branch below, verify its current tip is still an ancestor of current `origin/main`; delete with normal `git branch -d` only:
 
-`SAFE_TO_RETIRE_MERGED`:
+1. `codex/ci-self-hosted-runner-migration-20261031`
+2. `codex/diagnostic-hardening-041`
+3. `codex/ime-readiness-prompt-sync-043`
+4. `codex/observability-039`
+5. `codex/runtime-reliability-038-b-continuity-evidence`
+6. `codex/shortcut-recorder-exclusive-capture-v1`
+7. `codex/task045a-diagnostics-gating`
+8. `codex/task045b-domain1-legacy-voice-product-surface`
+9. `codex/task045b-domain2-legacy-voice-persisted-preferences`
+10. `codex/task045b-domain3-persistent-voice-runtime-retirement`
+11. `codex/task045b-domain4-dual-receiver-runtime-retirement`
+12. `codex/task045b-domain5-legacy-generic-short-classifier-retirement`
+13. `codex/task045b-domain6-local-microphone-capture-retirement`
+14. `codex/task045d-domain1-remote-only-pcm-attribution-retirement`
+15. `codex/task045d-domain2-p1a5-front-edge-experiment-retirement`
+16. `codex/voice-pipeline-simplification-042`
 
-5. `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain3-persistent-voice-runtime-retirement` @ `ccc32f605da81fb9874f831677cd969d30058a22`
-6. `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain4-dual-receiver-runtime-retirement` @ `aaa4ff238b826da55e80f0ff9d8708c80f10f4b7`
-7. `/Volumes/Jack-Dev/Projects/remoteorbit-task045d-domain2-p1a5-front-edge-experiment-retirement` @ `676a021fdcd6dc578d77d049a27f53215b6fa2ca`
-8. `/Volumes/Jack-Dev/Projects/remoteorbit-voice-pipeline-simplification-042` @ `1eb0fa32847f9213701953835b3f8191844fa114`
+### SAFE_DELETE_SUPERSEDED
 
-## Stale registration prune set
+These four local branches were previously audited as superseded historical lines whose required product intent was integrated or replaced by the accepted baseline. Re-check exact tip SHA before force-deleting only these branch refs:
 
-These seven registered paths are absent and may be removed by `git worktree prune`:
+1. `codex/brand-icon-unification-044` = `f245068219e2dfbacce62e1b385a30a79f015728`
+2. `codex/ime-readiness-stability-043` = `4493657ae266072b95b159e539fa2e7fb6aa2a35`
+3. `codex/mapping-config-simplify-040` = `c5f6c2f84c56b4e40780960bcd4173a1a4724731`
+4. `codex/release-v0.2.15` = `f049e6eb7f0e5625b807fba1860d04c048b638ca`
 
-- `/private/tmp/remoteorbit-diagnostic-hardening-041`
-- `/private/tmp/remoteorbit-longterm-observability-039`
-- `/private/tmp/remoteorbit-mapping-config-simplify-040`
-- `/private/tmp/remoteorbit-release-v0.2.15-local-soak`
-- `/private/tmp/remoteorbit-runtime-reliability-038-b-continuity-evidence`
-- `/private/tmp/remoteorbit-shortcut-recorder-exclusive-capture-v1`
-- `/private/tmp/remoteorbit-voice-pipeline-simplification-042`
+No other branch deletion is authorized.
 
-## Execution contract
+## Canonical normalization after branch retirement
 
-For each of the eight existing worktrees, the cleanup command must re-check immediately before removal:
+After branch deletion succeeds:
 
-1. path is still a registered worktree;
-2. worktree is clean (`git status --porcelain` empty);
-3. exact HEAD equals the audited SHA above.
+1. `git remote set-url origin https://github.com/Lost0rz/RemoteOrbit.git`;
+2. `git fetch origin --prune`;
+3. verify canonical checkout is clean and on `main`;
+4. `git merge --ff-only origin/main`;
+5. verify local `HEAD == origin/main`;
+6. verify exactly one local branch remains: `main`;
+7. verify exactly one registered worktree remains;
+8. verify only `origin/main` remains as a real remote-tracking branch.
 
-If any check fails, stop before removing that worktree. Do not use `--force`.
+## Stop conditions
 
-After exact removals:
+Stop without deleting the affected branch if:
 
-- run `git worktree prune --verbose`;
-- verify only the canonical worktree remains registered;
-- do not delete local branches yet;
-- do not reset, stash, clean, or mutate unique work;
-- do not fast-forward/normalize canonical `main` until this worktree-retirement step is verified complete.
+- a merged-class branch is no longer an ancestor of current `origin/main`;
+- a superseded-class branch tip no longer matches its frozen SHA;
+- canonical checkout is dirty;
+- canonical branch is not `main`;
+- `--ff-only` cannot advance local main;
+- any unexpected local branch/worktree appears.
 
-## Next phase
-
-After owner returns the cleanup output, perform a fresh local branch inventory. Then Phase C may:
-
-- fast-forward canonical `main` to current `origin/main`;
-- normalize origin URL to `https://github.com/Lost0rz/RemoteOrbit.git`;
-- classify/delete stale local branches separately;
-- produce the final clean-baseline receipt.
+Do not reset, stash, clean, rebase, cherry-pick, or delete any unclassified work.
 
 ## Non-goals
 
 - no product behavior changes;
 - no tag/release;
 - no driver/CoreAudio/TCC/default-device changes.
+
+## Next
+
+Owner executes the exact Phase C command and returns the final branch/worktree/remote state. Web then performs final closeout audit and decides whether Task 046 can be marked `CLOSED / CLEAN_BASELINE_ESTABLISHED`.
