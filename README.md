@@ -1,256 +1,95 @@
 # RemoteOrbit
 
-把小米蓝牙语音遥控器 2 Pro 变成 macOS 上的 Voice Coding 麦克风：
+RemoteOrbit 把 Xiaomi Bluetooth Voice Remote 2 Pro 的蓝牙 ATVV 语音链路接入 macOS，并通过 `RemoteOrbit Mic 2ch` 向豆包等输入法提供远程麦克风音频，同时提供遥控器按键映射、App Profile、诊断与安装能力。
 
-- 短按语音键：忽略，不调用本机或外接麦克风。
-- 长按语音键：调用遥控器的 ATVV 蓝牙麦克风。
-- 向豆包输入法暴露可识别的 `RemoteOrbit Mic 2ch` 输入设备。
+## 当前源码基线
 
-## 当前版本：0.2.12（RemoteOrbit 正式基线，Build 41）
+- `main` 源码版本元数据：`0.2.15` / Build `44`。
+- 版本元数据来自 `remote-orbit/Packaging/Info.plist`；已发布版本以 GitHub Releases 为准，不在本文件复制“最新 Release”状态。
+- 当前产品合同、工程规则和任务状态分别由 `AGENTS.md`、`CURRENT_STATUS.md`、`CURRENT_TASK.md` 管理。
+- 项目结构与源码/测试入口见 [`docs/DOMAIN_MAP.md`](docs/DOMAIN_MAP.md)。
 
-这是独立维护的开发基线，后续功能和发布节奏均由本项目单独维护。
+## 语音键合同
 
-当前 `main` 包含按 App 的按键模板、可重复触发策略、
-FloatTabs/Codex/Ghostty/Obsidian 等应用适配，以及按键注入、语音焦点和音频切换逻辑。
-当前基线以代码和 `SETUP_NOTES.md` 为准。
+RC003 麦克风键只有一种用户可见语音模式：
 
-本机实际安装过的配置、豆包设置、Redmi Air/其他型号兼容性边界和常见排障步骤，见
-[SETUP_NOTES.md](SETUP_NOTES.md)。
+- **SHORT**：在约 300 ms 的已接受 hold boundary 前释放，为纯 no-op；不触发输入法、不打开本地麦克风、不切换 Persistent session，也不显示语音/readiness HUD。
+- **LONG**：跨过约 300 ms boundary 后进入直接远程语音生命周期；RemoteOrbit 使用遥控器 ATVV 音频并向 `RemoteOrbit Mic 2ch` 供给 PCM，松开后按当前 drain/close 机制完成收尾。
+- Persistent、双 Receiver、Receiver B、本地麦克风短按等旧业务语义均不是当前产品合同。
 
-项目已在 Xiaomi Bluetooth Voice Remote 2 Pro、Apple Silicon Mac 和豆包输入法上完成
-连续长按、短按忽略和遥控器音频链路验证。发布 DMG 会把 App 和独立音频驱动一起带上，普通用户
-不需要准备开发环境；维护者也可以用仓库中的脚本重新生成 DMG。
+源码中若仍存在历史命名，只能按其当前调用关系和测试判断用途；不能因为符号名包含 Persistent/Dual 等字样就推断旧业务仍有效。
 
-### 当前功能
+## 主要能力
 
-- 修复 ATVV `AUDIO_SYNC` 在 `AUDIO_START` 前后到达时的解码状态问题。
-- 增加协议自测，覆盖连续音频流和同步状态隔离。
-- 增加菜单栏状态、登录时自动启动、日志与调试录音控制。
-- 日志和调试录音默认关闭，可查看占用、打开目录或清空。
-- 改进长按语音键的 Option 按键行为和遥控器音频诊断。
-- 自定义组合快捷键改为完整发送修饰键按下、目标键按下/松开和修饰键释放，兼容更多全局快捷键监听器。
-- 改进兼容模式下遥控器原生 Home/方向键的事件压制，并修复首次打开快捷键录制窗口无内容的问题。
-- 对带 Command 的自定义快捷键增加 System Events 路径，兼容 `KeyboardShortcuts`/Carbon 全局热键。
-- 增加语音焦点事务保护，避免 FloatTabs/Codex 在第一次输入时因焦点回调过期而丢字。
-- 增加“刷新当前页面”语义预设：FloatTabs 走直连命令，其他浏览器走 `Command-R`。
-- 兼容 HID 监控模式下的遥控器电源原生事件，避免页面刷新映射同时触发 macOS 关机提示。
-- 增加菜单栏“音频设备”子菜单：可分别切换系统默认输入和输出设备；输入设备选择会保留，输出设备立即生效。
-- 新安装自动提供 Codex 与 FloatTabs 的系统默认模板，并锁定当前确认过的物理按键布局；已有自定义模板只在保持旧内置快照时迁移。
-- 增加蓝牙 ATVV 语音链路的断连重连、退避和重新握手，HID 重连不会再让遥控器麦克风永久离线。
-- 丰富 Obsidian 标准模板：增加编辑器/分栏焦点、向右分屏、堆叠标签、大纲和书签等语义动作。
-- Obsidian 动作选择器按“焦点与布局、标签与窗口、笔记与编辑、搜索与命令、视图与属性、设置”分类展示；命令通过 Obsidian 命令面板执行，不依赖用户重新录制快捷键。
-- 更新 Obsidian 默认模板：上下键按阅读方向滚屏，左右键切换左右分栏焦点，返回键删除，主页键快速切换文件，菜单键打开命令面板，TV 键新建笔记，音量键切换标签。
+- Xiaomi RC003 BLE / ATVV 连接、握手、音频帧解析与重连。
+- RemoteOrbit 虚拟音频输出链路、实时 playout、drain 与默认输入设备协调。
+- 遥控器 HID 按键、单击/双击/长按识别、事件压制与快捷键注入。
+- Codex、FloatTabs、Ghostty、Obsidian 等 App Profile / 语义命令适配。
+- Control Center、映射设置、登录启动、安装/组件状态。
+- 单一 machine-readable diagnostic authority、只读 CLI、长期语音可观测与显式导出。
 
-## RemoteOrbit Control Center
+## 安装
 
-菜单栏中的“打开控制中心…”现在是本项目自己的统一设置入口，包含：
+普通使用优先安装项目发布的 DMG：
 
-- **概览**：查看按钮数量、应用 Profile 数量和当前滚动速度。
-- **按键映射**：先选“默认 · 所有 App”或某个 App，再编辑具体按钮；“系统控制”中可把“检查当前快捷映射”绑定到单击、双击或长按。
-- **应用配置**：为不同 App 建立独立 Profile，并明确选择 Active Profile。
-- **诊断与日志**：集中打开或清理日志、调试录音，并查看本机配置摘要。
-- **关于**：展示独立产品名、Bundle ID、版本和音频设备信息。
+1. 将 `RemoteOrbit.app` 拖到 `/Applications`。
+2. 启动 App，并按 macOS 提示授予蓝牙、辅助功能和输入监控权限。
+3. 在设置中检查 `RemoteOrbitAudio.driver`；缺失时使用应用提供的音频组件安装入口。
+4. 在系统声音或“音频 MIDI 设置”中确认 `RemoteOrbit Mic 2ch` 可见。
 
-映射规则固定为“默认映射 → App Profile → 单按钮始终使用默认”。这套名称和界面只属于
-RemoteOrbit，不复用原项目的设置入口或配置界面。
+遥控器语音来自 BLE ATVV；当前产品路径不使用本机/外接麦克风作为麦克风键语音输入，因此 RemoteOrbit 不以本地麦克风采集作为当前语音合同的一部分。
 
-### 音频设备切换
-
-点击菜单栏图标后，一级菜单直接提供“输入设备”和“输出设备”，可以分别选择系统默认输入和输出：
-
-- 输入设备会列出 `RemoteOrbit Mic 2ch（遥控器/自动）`、内置麦克风和当前可用的外接麦克风。
-- 输出设备会列出扬声器、显示器音频和耳机等真实输出设备，并自动隐藏 BlackHole、RemoteOrbit
-  等虚拟回环设备，避免误选。
-- 默认输入仍是 RemoteOrbit；当前语音键采用仅长按遥控器麦克风的工作方式，短按是纯无操作，
-  不会打开本机或外接麦克风。
-- 如果改选物理麦克风，macOS 会直接把它作为系统默认输入并记住该选择；长按遥控器语音键时，
-  RemoteOrbit 只会临时把系统输入切到 `RemoteOrbit Mic 2ch`，并在最后一轮语音完全播放结束后
-  自动恢复你保存的输入设备（快速连按两次语音键期间不会来回切换）。
-- 输出设备切换只修改 macOS 系统默认输出，不会重启 App；菜单每次打开时会刷新设备列表。
-
-## DMG 安装（推荐）
-
-发布 DMG 顶层只包含可直接拖拽的 `RemoteOrbit.app` 和 `Applications` 快捷入口；App 内含预先构建好的
-`RemoteOrbitAudio.driver`。最终用户不需要安装 Xcode、Homebrew、
-Xcode Command Line Tools，也不需要再次联网下载 BlackHole 或其他构建依赖。
-
-推荐安装流程：
-
-1. 将 DMG 顶层的 `RemoteOrbit.app` 拖到旁边的 `Applications` 快捷入口。
-2. 从 `/Applications/RemoteOrbit.app` 启动，按 macOS 提示授予蓝牙、辅助功能和输入监控权限；
-   遥控器语音走蓝牙 ATVV 音频，不再请求 macOS 麦克风权限。
-3. 打开“设置与诊断”。如果虚拟音频组件未检测到，点击“重新安装音频组件”并在管理员对话框中授权。
-4. 应用会自动重新加载 CoreAudio，通常不需要重启 Mac；在“声音”或“音频 MIDI 设置”中确认
-   `RemoteOrbit Mic 2ch` 已出现并作为输入设备。
-
-音频驱动补装会把被替换的旧 `MiRemoteVoice.driver` 和旧 `BlackHole2ch.driver`
-备份到 `~/Library/Application Support/RemoteOrbit/Backups/`，以免旧输入设备继续抢占系统默认输入。
-系统自带的 `ParrotAudioPlugin.driver` 和其他未列出的音频驱动不会被处理。
+完整安装、权限、设备验证和排障步骤见 [`SETUP_NOTES.md`](SETUP_NOTES.md)。
 
 ## 从源码构建
 
-只有维护者从源码生成 DMG 时需要准备：
-
-1. macOS 13 或更高版本；当前主要在 Apple Silicon Mac 上验证。
-2. 已安装 Xcode Command Line Tools，并能运行 `xcodebuild`。驱动脚本会固定下载
-   BlackHole 0.7.1 源码，构建独立的 `RemoteOrbitAudio.driver`，不会依赖或修改原 BlackHole。
-3. 生成 DMG 时会下载 BlackHole 0.7.1 源码并构建独立驱动；这些步骤发生在发布机上，
-   不会出现在最终用户的首次安装过程中。
-
-> AI Agent 可以执行检查、构建和安装命令，但不能代替用户输入管理员密码，也不能绕过
-> macOS 的隐私授权界面。
-
-## 从源码安装（开发者备用流程）
-
-### 有动手能力的用户
+维护者需要 macOS 13+、Xcode Command Line Tools，以及构建音频驱动所需的标准工具。
 
 ```bash
 git clone https://github.com/Lost0rz/RemoteOrbit.git
 cd RemoteOrbit
 
-# 协议回归自测：应输出三行 PASS
 ./remote-orbit/run-self-tests.sh
-
-# 从 BlackHole 0.7.1 源码生成 RemoteOrbitAudio HAL 驱动
 ./remote-orbit-audio-driver/build-driver.sh
 sudo ./remote-orbit-audio-driver/install-driver.sh
-
-# 构建并安装菜单栏 App
 ./remote-orbit/package-app.sh
 ./remote-orbit/install-app.sh
-
-# 启动
-./LaunchRemoteOrbit.command
+open /Applications/RemoteOrbit.app
 ```
 
-驱动安装会备份已有的 `RemoteOrbitAudio.driver`，然后重启 `coreaudiod`，让 CoreAudio
-重新加载实际标记为 USB 的音频设备。只有设备在重载后仍未出现时，才需要把重启 macOS
-作为最后的恢复步骤。
+驱动安装、CoreAudio 重载和系统权限均属于有副作用操作；自动化 Agent 不应绕过管理员授权或 macOS 隐私控制。
 
-### 让 AI Agent 协助安装
+## 测试与 CI
 
-可以把下面这段任务直接交给能够操作终端的 Agent：
+- Swift Package 与回归测试位于 `remote-orbit/Tests/RemoteOrbitTests/`。
+- 例行 CI 入口为 `.github/workflows/remoteorbit-ci.yml`。
+- 软件 CI 不替代真实 RC003 / 豆包的人机验收，也不应安装 App、替换 HAL driver、重启 CoreAudio 或修改 TCC/默认音频设备。
 
-```text
-请在我的 Mac 上从个人仓库安装 RemoteOrbit：
-1. 检查 macOS、Xcode Command Line Tools，以及
-   /Library/Audio/Plug-Ins/HAL/BlackHole2ch.driver。
-2. 克隆 https://github.com/Lost0rz/RemoteOrbit.git。
-3. 运行 remote-orbit/run-self-tests.sh，必须全部 PASS。
-4. 运行 remote-orbit-audio-driver/build-driver.sh。
-5. 在我确认后，用管理员权限运行 install-driver.sh。
-6. 运行 remote-orbit/package-app.sh 和 install-app.sh。
-7. 启动 RemoteOrbit.app，逐项告诉我需要手动授予的 macOS 权限。
-不要绕过 Gatekeeper，不要替我修改系统安全策略。
-```
+## 日志与诊断
 
-安装成功的基本判据：
+普通日志和录音均由用户显式控制。诊断架构的持久决策见：
 
-- 自测输出三行 `PASS`。
-- 驱动构建输出 `Built: .../RemoteOrbitAudio.driver`。
-- App 构建输出 `Built: .../RemoteOrbit.app`。
-- “音频 MIDI 设置”或音频输入设备中出现 `RemoteOrbit Mic 2ch`。
-- 菜单栏出现 RemoteOrbit 状态图标。
+- [`docs/diagnostics/ADR-0001-single-diagnostic-authority.md`](docs/diagnostics/ADR-0001-single-diagnostic-authority.md)
+- [`docs/diagnostics/ADR-0002-read-only-diagnostic-cli.md`](docs/diagnostics/ADR-0002-read-only-diagnostic-cli.md)
+- [`docs/diagnostics/ADR-0003-long-term-observability.md`](docs/diagnostics/ADR-0003-long-term-observability.md)
 
-## 启动与退出
-
-DMG 安装的应用位于：
-
-```text
-/Applications/RemoteOrbit.app
-```
-
-双击应用或运行 `LaunchRemoteOrbit.command` 即可启动。源码安装脚本也默认使用
-`/Applications/RemoteOrbit.app`。它是菜单栏应用，不显示 Dock 图标；
-点击菜单栏的麦克风图标可查看状态或退出。菜单中的“登录时自动启动”可以控制登录后
-自动启动，不需要管理员权限。
-
-## 日志与调试录音
-
-默认不写日志，也不保存录音。菜单中可以分别开启，并提供占用大小、刷新、打开文件夹
-和清空功能。
-
-- 日志：`~/Library/Logs/RemoteOrbit/RemoteOrbit.log`
-- 录音：`~/Library/Application Support/RemoteOrbit/Recordings/`
-
-日志最大为 5 MB，到达上限后自动截断。调试录音会同时保存 16 kHz WAV 和原始 ATVV
-数据，仅在用户手动开启后生效。
-
-## 长期语音诊断（只读导出）
-
-普通语音会保留一条低开销的 L1 machine-readable session summary；只有集中阈值
-判定为异常时，才会把固定容量的 L2 front-edge/recent trace 以及独立的 incident
-window 冻结到诊断事件中。service trace 的容量是 front 64/recent 256，AudioPipe
-trace 是 front 64/recent 512；每个 producer 还有 128 条 pre-incident 与 128 条
-follow-up 有界 ring。无锁 first-writer-wins coordinator 在最早的 gesture 或 transport
-capture 边界为一次 logical capture 建立 generation；因此 AUDIO_START/AudioPipe 先于 HID
-时也能先记录 incident，后续 HID 只绑定 session ID，不会重置 identity、anchor 或 producer
-同步状态。一次 capture 结束后 generation 才释放，下一次独立 capture 才会清空并建立新的
-generation。该 coordinator 为一次 material incident 分配共同 identity/anchor，合并时不会静默偏向某一个 producer。incident window 在
-首次物质异常后不会被后续正常写入覆盖；正常 recent ring overwrite 只是 retention
-metadata，真实 drop/out-of-order 和 delivery deficit 才是异常。普通 >20ms callback
-gap 只进入统计，默认 >100ms 才触发 gap 异常；main-queue material threshold 与
-classifier 均为严格 >50ms。默认 JSONL 诊断日志按 2 MiB、5 个 segment 轮转，查询支持
-session、process、event 和 wall-clock window。异常标记只决定是否保留证据，不建立
-root cause。
-
-自然使用后可手动导出一个 bounded archive（不上传、不修改设置）：
-
-```text
-RemoteOrbit diagnostics export --output ~/Desktop --host-role TEST_HOST \
-  --since-unix-ms <start> --until-unix-ms <end>
-```
-
-在 MacBook Air 上，`TEST_HOST` 表示 Air。导出从真实的
-`~/Library/Logs/RemoteOrbit` 读取，仅包含 `RemoteOrbit.log` 和 allowlisted JSON/JSONL
-diagnostic logs，不包含 settings、backups 或 recordings。session events 会沿 authority
-cursor 分页读取，并在 manifest 中记录 count、limit 和是否确有事件超出 10,000-event
-safety limit；不会静默停在单页。导出还包含 runtime identity、保留的 journal segments、可用的
-receiver unified-log window 或 `receiver/evidence-unavailable.json`，以及 `SHA256SUMS`。
-空 receiver 输出或不含有用 timing 字段时必须保持 unavailable。详见
-`docs/diagnostics/ADR-0003-long-term-observability.md`。
-
-## 当前限制
-
-- App 和驱动目前使用本地 ad-hoc 签名，DMG 尚未提供 Developer ID 签名和 Apple 公证。
-- 驱动构建脚本会固定获取 BlackHole 0.7.1 源码并生成独立的 `RemoteOrbitAudio.driver`；遥控器型号兼容性仍以已验证设备为准。
-- 当前明确验证的硬件是 Xiaomi Bluetooth Voice Remote 2 Pro；其他型号和固件不保证兼容。
-- macOS 隐私权限必须由用户本人手动授予。
-
-## 生成发布 DMG
-
-在发布机上执行：
+只读 CLI 示例：
 
 ```bash
-./package-dmg.sh
+/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit diagnostics status
+/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit diagnostics verify
 ```
 
-该命令会下载固定版本的 BlackHole 源码、构建独立驱动、打包 App，并生成
-`dist/RemoteOrbit-0.2.12.dmg`。如果已经有本地构建好的驱动，可以使用：
+诊断关闭不能关闭语音正确性所需要的 ownership、release/drain、suppression、watchdog 或 transport 机制。
 
-```bash
-./package-dmg.sh --reuse-driver
-```
+## 文档权威
 
-后续计划包括：
+[`docs/README.md`](docs/README.md) 定义当前文档分类。简要规则：
 
-- 完善 GPL v3 对应源码和许可证分发。
-- 提供 App、驱动和登录启动项的统一卸载方法。
-- 提供 Developer ID 签名、Hardened Runtime 和 Apple 公证的正式安装包。
-- 增加 GitHub Actions、更多自动测试和干净 Mac 安装验证。
-
-当前 `0.2.12` 是 RemoteOrbit 的正式独立产品基线；安装包使用本地 ad-hoc 签名，仍需用户按
-macOS 提示授予蓝牙、辅助功能和输入监控权限；遥控器语音不需要 macOS 麦克风权限。Developer ID
-签名和 Apple 公证仍是后续发布工作，不影响本机测试和安装。
-
-## 目录
-
-- `remote-orbit/`：Swift 菜单栏应用、BLE/ATVV 解码和音频路由。
-- `remote-orbit-audio-driver/`：生成 `RemoteOrbit Mic 2ch` HAL 驱动的构建及安装脚本。
-- `installer/`：DMG 安装器和首次安装配置逻辑。
-- `package-dmg.sh`：在发布机上生成包含 App 与驱动的 DMG。
-
-## 许可证
-
-应用源码遵循 [MIT License](LICENSE)。当前驱动基于 BlackHole 0.7.1，遵循 GNU GPL v3。
-第三方项目、许可证和归属信息见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+- `README.md`：当前产品/仓库入口。
+- `SETUP_NOTES.md`：当前安装与排障入口。
+- `docs/DOMAIN_MAP.md`：从源码和测试派生的导航地图，不拥有业务合同。
+- `docs/diagnostics/ADR-*.md`：仍有效的长期诊断设计决策。
+- `docs/incidents/`：历史事故证据，不是当前产品或设计权威。
+- 根目录 `RELEASE_NOTES_v*.md`：对应版本的历史发布记录；旧版本中的业务语义不得被当成当前合同。
+- 已完成的任务计划、corrective/audit 设计和已退役业务方案由 Git 历史保存，不继续留在当前文档树充当现行指导。

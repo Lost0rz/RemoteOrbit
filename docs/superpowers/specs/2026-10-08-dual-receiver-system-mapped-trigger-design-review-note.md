@@ -1,1 +1,0 @@
-Supersedes the prior virtual-HID-provider review direction from `RO-REAL-HID-TRIGGER-BACKEND-020`. The product already has a historically accepted system-mapped hardware modifier path; the new design reuses that path and only adds controlled A/B mapping ownership across the double-hold gesture. See `docs/superpowers/specs/2026-10-08-dual-receiver-system-mapped-trigger-design.md`.

@@ -1,65 +1,49 @@
-# ADR-0002: Read-only Diagnostic CLI adapter
+# ADR-0002: Read-only Diagnostic CLI Adapter
 
-**Status:** Proposed implementation for independent audit
+**Status:** Accepted / implemented
 
 ## Decision
 
-RemoteOrbit has one machine-readable diagnostic backend: `DiagnosticAuthority`.
-The v1 schema, canonical clock provenance, journal append order, journal reader,
-filters, pagination, and snapshot encoding remain owned by that Authority.
+RemoteOrbit exposes diagnostic CLI commands as a read-only adapter over `DiagnosticAuthority`. The CLI is not a second diagnostic backend and does not own a separate parser/schema/storage model.
 
-The CLI is a consumer adapter, not a second diagnostic implementation. It is exposed
-through the existing RemoteOrbit executable as a `diagnostics` subcommand and exits
-before duplicate-instance handling, AppKit startup, HID/BLE/audio initialization, or
-normal application runtime.
+The implementation route is `remote-orbit/Sources/RemoteOrbit/Diagnostics/DiagnosticCLI.swift` and its focused tests are `DiagnosticCLITests.swift`.
 
-The canonical v1 journal location is defined once by `DiagnosticStorage` and is used
-by both the Authority service and CLI storage metadata.
+## Supported boundary
 
-## Commands
+Representative commands:
 
 ```text
 RemoteOrbit diagnostics status
 RemoteOrbit diagnostics query [filters]
 RemoteOrbit diagnostics snapshot [filters]
 RemoteOrbit diagnostics verify
+RemoteOrbit diagnostics export [options]
 RemoteOrbit diagnostics help
 ```
 
-`query` and `snapshot` both call the existing Authority `snapshot` API. The CLI
-does not parse JSONL records itself. `verify` calls the existing query path, which
-parses the complete journal and therefore fails closed on unsupported schema versions,
-malformed records, invalid filters/cursors, or storage errors.
+Query/snapshot/verify/export must reuse the authority-owned storage/query contracts. CLI execution exits before normal menu-bar application startup and must not initialize normal HID/BLE/audio runtime merely to read diagnostics.
 
-The CLI supports only filters already defined by `DiagnosticQueryFilter`: event type,
-subsystem, category, severity, process instance, session, incident, correlation,
-cursor, and limit.
+## Read-only rule
 
-## Read-only boundary
+The diagnostic CLI must not gain commands that silently perform product/runtime mutation, including:
 
-There are intentionally no CLI commands for restart, reset, repair, installation,
-process termination, settings changes, permission changes, driver/CoreAudio changes,
-or log deletion/truncation/rotation. Adding a control command would require a separate
-architecture/task decision and must not be smuggled into this diagnostic surface.
+- restart/repair/reset;
+- installation or driver replacement;
+- CoreAudio restart;
+- TCC/permission mutation;
+- default audio-device changes;
+- product setting changes;
+- log/journal deletion or truncation as part of a read operation.
 
-Legacy `RemoteOrbit.log` and `voice-diagnostic-current.jsonl` remain historical
-compatibility/evidence sources. They are not merged into the Authority v1 stream by
-the CLI and are not competing schema authorities.
+A future control command requires a separately governed architecture/task decision. It must not be added as an incidental extension of the read-only diagnostic surface.
 
-## Invocation
+## Compatibility
 
-From a SwiftPM checkout:
+Legacy `RemoteOrbit.log` or other historical evidence files may be included only through explicitly bounded/exported compatibility paths. They do not become schema peers of `DiagnosticAuthority`.
 
-```bash
-swift run RemoteOrbit diagnostics status
-swift run RemoteOrbit diagnostics verify
-swift run RemoteOrbit diagnostics query --incident <incident-id> --limit 100
-```
+## Verification routes
 
-From an installed app bundle, invoke its executable directly:
+- `DiagnosticCLITests.swift`
+- `DiagnosticExportTests.swift`
 
-```bash
-/Applications/RemoteOrbit.app/Contents/MacOS/RemoteOrbit diagnostics status
-```
-
-CLI execution is deliberately separate from launching the menu-bar application.
+Historical proposal/audit wording is preserved in Git history; the current source and tests establish that this ADR is implemented rather than merely proposed.

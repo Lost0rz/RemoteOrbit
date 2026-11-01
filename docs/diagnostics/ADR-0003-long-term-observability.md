@@ -1,159 +1,85 @@
-# ADR-0003: Long-term voice observability
+# ADR-0003: Long-term Voice Observability
 
-Status: second corrective candidate for next independent audit
+**Status:** Accepted / current
 
-Date: 2026-10-29
+Date: 2026-10-29  
+Current policy reconciled: 2026-11-01
 
 ## Decision
 
-RemoteOrbit uses one DiagnosticAuthority for durable evidence. When the effective
-diagnostics gate is enabled, each ordinary voice session emits one compact,
-machine-readable `voice.session.summary` event. A bounded high-resolution trace is
-retained in memory and is serialized only when centralized anomaly thresholds classify
-the session as worth preserving.
+RemoteOrbit uses `DiagnosticAuthority` for durable machine-readable evidence. Long-term voice observability is intentionally bounded and gated so that diagnostic work does not become a hidden always-on performance cost or a production state-machine owner.
 
-The two evidence levels are:
+When the effective diagnostics gate is enabled, the system can preserve two evidence levels:
 
-- L1 summary: emitted whenever the effective diagnostics gate is enabled. It carries
-  `session_id`, `capture_id`, lifecycle timestamps,
-  control policy/classification, ATVV transport identity, notification/decode/supply/
-  playout counters, active-versus-tail deficits, runtime provenance, observation
-  schema version, receiver evidence status, and diagnostic drop/write counters.
-- L2 incident trace: anomaly only. The service keeps a fixed front-edge capacity of 64
-  observations and a rolling recent capacity of 256; each AudioPipe producer trace
-  keeps 64 front-edge and 512 rolling recent observations. Each producer also owns a
-  bounded 128-observation pre-incident ring and a bounded 128-observation follow-up
-  ring. A lock-free first-writer-wins coordinator establishes one capture generation at
-  the earliest gesture or transport boundary, before either producer can publish
-  pre-HID evidence. A later HID session binding is not a reset boundary; the generation
-  is released only after the capture snapshot is detached, and the next independent
-  capture starts clean. Within that generation, the coordinator assigns one incident
-  identity, trigger, and monotonic anchor across both producers. The triggering producer freezes
-  its pre-ring and appends to its follow-up ring; the other producer synchronizes to
-  the same anchor on its next observation, so merging never silently prefers one
-  producer's incident evidence over the other's. Intentional recent-ring overwrite is
-  retention metadata only; an actual out-of-order/drop condition is anomalous. Trace
-  observations are numeric records with a typed kind, monotonic timestamp, frame
-  accounting, queue depth, and active/tail marker. Trace chunks contain at most 128
-  observations and are emitted off the BLE/CoreAudio callback path.
+- **L1** — one compact `voice.session.summary` for a session, carrying stable correlation fields such as `session_id` and `capture_id`, lifecycle/timing/counter summaries and diagnostic drop/write state.
+- **L2** — bounded high-resolution incident evidence retained/emitted only when the centralized anomaly policy classifies a session as worth preserving.
 
-The default journal policy is 2 MiB per JSONL segment and 5 retained segments. The
-authority remains asynchronous and best-effort; queue drops and journal write failures
-are counted separately. Centralized anomaly flags include material notification/decode
-gaps, active or tail deficits, explicit delivery deficit, queue starvation, lifecycle
-order inconsistency, main-queue lag, actual trace drop, and authority write failure.
-A normal callback gap over 20 ms contributes to aggregate timing statistics but is not
-anomalous by default; the default material callback-gap gate is over 100 ms. Delivery
-deficit requires both the configured sample-count and duration thresholds. Main-queue
-lag retains bounded timestamped occurrences in addition to the aggregate histogram and
-percentiles. Querying scans one bounded segment at a time and supports process,
-session, incident, correlation, event, subsystem, severity, and wall-clock window
-filters.
+L2 rings/chunks are fixed-capacity and producer work must remain bounded. Diagnostic queue/journal failure is evidence loss, not permission to block BLE/CoreAudio/gesture production paths.
 
-## Task 045A runtime policy supersession
+## Runtime gate — Task 045A
 
-Task 045A supersedes the earlier L1 always-on policy. The effective diagnostics gate
-is `AppStorage.loggingEnabled || REMOTE_ORBIT_DIAGNOSTICS == "1"`, sampled into a
-process-local runtime state. When the gate is disabled, structured diagnostic
-producers, timers, probes, bounded trace lifecycle, and persistent diagnostic journal
-work are stopped or skipped; ordinary recording remains independently controlled by
-`AppStorage.recordingEnabled`. The environment override is an explicit diagnostic
-operator control, not a replacement for user-owned acceptance or independent audit.
+Task 045A changed the effective runtime policy to:
 
-The prior phrase “L1 summary: always on” is retained only as historical ADR context;
-the L1 always-on policy is superseded by Task 045A.
+```text
+AppStorage.loggingEnabled || REMOTE_ORBIT_DIAGNOSTICS == "1"
+```
 
-## Receiver evidence boundary
+The result is sampled into process-local `DiagnosticsRuntimeGate` state. When disabled, structured diagnostic producers, timers/probes, bounded trace lifecycle and persistent diagnostic-journal work are stopped or skipped where the current implementation permits. Recording remains independently controlled.
 
-RemoteOrbit records its own trigger, transport, first-PCM, output, and drain
-boundaries. The explicit export command may request a bounded structured unified-log
-window using the receiver timing subsystem/category predicate. If that evidence is
-unavailable, the archive contains `receiver/evidence-unavailable.json`; no value is
-fabricated and no dictated text is intentionally harvested.
+The **L1 always-on policy is superseded**. The environment override is an explicit operator diagnostic control; it is not a product acceptance mechanism.
+
+Diagnostics-off must not disable correctness mechanisms such as ownership, release/drain, suppression, watchdog or transport behavior.
+
+## Retention
+
+The durable journal policy uses bounded rotation: **2 MiB** per JSONL segment and **5 segments** retained. Query/export must remain bounded and must expose truncation/availability honestly rather than silently returning a partial result as complete evidence.
 
 ## Export
 
-The supported manual workflow is:
+The supported manual read-only workflow is:
 
 ```text
 RemoteOrbit diagnostics export --output <directory> --host-role TEST_HOST \
   --since-unix-ms <start> --until-unix-ms <end>
 ```
 
-For MacBook Air natural-use acceptance, `TEST_HOST` means “MacBook Air”; the source
-head, app/build identity, and capture window in `manifest.json` are the authority for
-cross-host comparison. The resulting archive is named
-`RemoteOrbit-diagnostics-<timestamp>.tar.gz` and may include:
+An export may include the bounded authority event set, retained journal segments, allowlisted diagnostic logs, runtime provenance and receiver-side timing evidence when available. If receiver evidence cannot be obtained, the archive records that explicitly as `evidence-unavailable.json` rather than fabricating a receiver observation.
 
-```text
-manifest.json
-runtime/runtime-context.json
-sessions/diagnostic-events.json
-journal/<bounded-retained-segment>.jsonl
-logs/<allowlisted-json-or-jsonl-file>
-receiver/unified-log-window.jsonl
-receiver/evidence-unavailable.json
-SHA256SUMS
-```
+Export does not install, repair, reset, change settings, upload data automatically, alter TCC/default devices, or change the running voice state machine.
 
-The receiver file is mutually exclusive: an available bounded window containing useful
-receiver timing records, or an explicit unavailable record. Empty output, output with
-no useful timing evidence, and command failure remain unavailable. The export follows
-authority query cursors in bounded pages rather than silently stopping at one page; it
-has a centralized 10,000-event safety limit and records count/limit/truncation in the
-manifest. Truncation is true only when the bounded query proves that events remain
-beyond the exported limit. Logs are sourced from the production `AppStorage.logsDirectory` and are
-limited to `RemoteOrbit.log` plus approved JSON/JSONL diagnostic files in that same
-directory. Settings, backups, and recordings are excluded. The export does not upload,
-reset, install, modify settings, or create a settings backup.
+## Evidence boundary
 
-## Air acceptance workflow
+The observability system can establish local recorded facts such as:
 
-1. Keep the Mac mini as the construction host. Later, install the exact candidate
-   source/build on the MacBook Air only under an explicitly authorized acceptance
-   task; do not compare runtime PIDs or local process identities between hosts.
-2. Launch RemoteOrbit through the normal Finder/Login Item path and use the voice
-   control naturally for the agreed acceptance window. Do not enable the old opt-in
-   continuity environment variable as a substitute for L1 evidence.
-3. Record the exact app version/build/source head and the wall-clock start/end of the
-   natural-use window.
-4. Run the export command above on the Air with `--host-role TEST_HOST` and that
-   window. Inspect `manifest.json`, `SHA256SUMS`, the L1 session events, and any L2
-   chunks before manual upload or sharing.
-5. Keep the Air installation, final visual acceptance, and any release decision
-   user-owned. This ADR does not authorize installation, merge, tag, or release.
+- gesture/transport/audio lifecycle ordering;
+- bounded notification/decode/supply/playout counters;
+- active-versus-tail accounting;
+- bounded queue/starvation/main-queue-lag observations;
+- runtime/source provenance;
+- diagnostic drops/write failures;
+- whether optional receiver evidence was available for the requested window.
 
-## What the probes establish
+It does **not** establish receiver transcript text, unobserved InputMethodKit state, BLE radio/firmware causality, or a product root cause. An anomaly classifier only decides which evidence deserves retention; anomaly evidence **does not establish root cause**.
 
-They establish recorded local observations: event ordering and monotonic timestamps,
-the RemoteOrbit-owned lifecycle boundaries, bounded notification/decode/supply/
-playout counters, active-versus-tail accounting, real BLE-arrival/decode-complete/
-PCM-submit/render observations, bounded timestamped main-queue lag occurrences,
-runtime identity, and whether receiver evidence was available at export time. An
-incomplete final JSONL record is repaired without discarding valid history; interior
-corruption and unsupported schema versions fail closed. Lifecycle events that arrive
-after end remain queryable as bounded `voice.session.lifecycle_followup` events
-correlated to the finalized capture.
+## Retired semantics boundary
 
-They do not establish receiver text, an InputMethodKit state that RemoteOrbit cannot
-observe, BLE radio causality, firmware behavior, or a product root cause. This evidence does not establish root cause. Anomaly flags
-only decide whether to preserve L2 evidence; an anomaly classifier does not claim root
-cause. Receiver-side questions remain UNKNOWN until independent evidence exists.
+Long-term observability follows the current LONG-only remote-voice product contract. Historical Persistent-session, dual-receiver, Receiver B, local-microphone voice-button and generic SHORT business semantics are not revived by old diagnostic field names or old incident/release evidence.
 
-## Follow-up questions requiring upstream evidence
+## Implementation routes
 
-- A/B: with the same candidate build and natural-use utterance, does changing only the
-  receiver launch/voice-input condition change the local timing signature?
-- HCI: do the captured HID down/up reports, report ordering, and connection lifecycle
-  match the RemoteOrbit session and Option ownership boundaries?
-- PacketLogger: do ATT notification intervals, retransmissions, or link events align
-  with the local BLE callback-gap observations?
+- `Diagnostics/LongTermObservability.swift`
+- `Diagnostics/DiagnosticAuthority.swift`
+- `Diagnostics/DiagnosticExport.swift`
+- `DiagnosticsRuntimeGate.swift`
+- `AudioDataPlaneDiagnostics.swift`
+- related bounded producer hooks in the current BLE/audio/voice runtime.
 
-Those questions require independent Air-side A/B, HCI, or PacketLogger evidence. This
-observability candidate does not infer their answers.
+## Verification routes
 
-## Frozen product boundaries
+- `LongTermObservabilityTests.swift`
+- `LongTermObservabilityDocumentationTests.swift`
+- `DiagnosticsRuntimeGateTests.swift`
+- `DiagnosticExportTests.swift`
+- `AudioDataPlaneDiagnosticsTests.swift`
 
-This change does not alter ATVV commands, ADPCM decoding, AudioPipe buffering or gain,
-sample rate, HID mapping, short/long gesture semantics, Option/Control ownership,
-persistent-session behavior, driver audio semantics, or receiver behavior.
+Historical task-specific corrective/design documents are retained in Git history rather than duplicated as active planning authority.
