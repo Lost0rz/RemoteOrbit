@@ -2,60 +2,54 @@
 
 ## RO-RELEASE-048 — Publish RemoteOrbit v0.2.15
 
-Status: `ACTIVE / RELEASE_AUTHORIZED`
+Status: `CLOSED / RELEASE_PUBLISHED`
 TASK_CLASS: `RELEASE / DISTRIBUTION`
 Repository: `Lost0rz/RemoteOrbit`
-Control parent: `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`
+Start control parent: `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`
 Exact release target: `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`
 Version: `0.2.15`
 Build: `44`
 Tag: `v0.2.15`
+Release id: `430474517`
 
-## Objective
+## Objective result
 
-Publish the current accepted RemoteOrbit baseline as GitHub Release `v0.2.15`, using the exact pre-release-control baseline as the tag target and attaching a newly built DMG produced by the repository's existing packaging path.
+PASS. The accepted RemoteOrbit baseline was published as final GitHub Release `v0.2.15`, with the tag fixed to the exact pre-release-control baseline and with a newly built DMG plus checksum asset.
 
-## Authorized scope
+## Completed scope
 
-1. Prepare durable release notes for v0.2.15.
-2. Re-run release-gate verification against the exact target baseline.
-3. Build the RemoteOrbitAudio driver, Universal 2 app, and DMG using existing repository scripts.
-4. Verify packaged version/build, architecture, signing verification and SHA-256 checksum.
-5. Create lightweight tag `v0.2.15` targeting exactly `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`.
-6. Publish GitHub Release `RemoteOrbit v0.2.15` and attach `RemoteOrbit-0.2.15.dmg` and its checksum file.
-7. Verify the published release/tag/assets through GitHub evidence.
-8. Remove any one-shot release workflow introduced solely to perform this authenticated publication.
-9. Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together at closeout.
+1. Added durable `RELEASE_NOTES_v0.2.15.md` describing the accepted baseline and changes since v0.2.14.
+2. Authorized and used a bounded one-shot GitHub Actions release workflow on the repository-scoped RemoteOrbit Mac runner.
+3. Checked out and verified the exact release baseline independently from the release-control head.
+4. Re-ran protocol self-tests and the full Swift test suite against that exact baseline.
+5. Built the pinned RemoteOrbitAudio driver, Universal 2 RemoteOrbit app and release DMG through existing repository packaging scripts.
+6. Verified version `0.2.15`, Build `44`, embedded source head, Universal 2 architecture and code signature.
+7. Generated a SHA-256 checksum for the DMG.
+8. Created final GitHub Release `RemoteOrbit v0.2.15` and tag `v0.2.15`.
+9. Uploaded:
+   - `RemoteOrbit-0.2.15.dmg`
+   - `RemoteOrbit-0.2.15.dmg.sha256`
+10. Re-read the published Release and tag from GitHub and verified the tag resolves exactly to `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`.
+11. Removed the one-shot release workflow from live `main` at closeout; it is not a durable release authority.
 
-## Release content boundary
+## Published evidence
 
-The release should summarize the accepted changes since v0.2.14, especially:
-- simplification to the single LONG-only remote voice contract and retirement of Persistent/Dual Receiver/Receiver-B/local-mic voice-button semantics;
-- voice pipeline stability, rapid repress/release ownership and receiver-readiness corrections;
-- audio data-plane/pll/outbound drain and RemoteOrbitAudio routing hardening;
-- long-term diagnostics, bounded observability, read-only export and diagnostics gating;
-- settings/product-surface simplification, icon/branding refresh and current documentation/domain authority;
-- repository CI/governance baseline.
+- Release workflow run: `41292366775` — SUCCESS
+- GitHub Release id: `430474517`
+- DMG SHA-256: `18fdb5c2eed873e195f86d635e927b11707ef201fc723c0cd03cb675ffd57676`
+- Release state: final, non-draft, non-prerelease
+- Tag target: exact authorized baseline
 
-Do not claim unobserved user-runtime acceptance or root cause beyond accepted evidence.
+## Preserved boundaries
 
-## Non-goals
+- No Swift/product behavior change.
+- No version bump beyond existing `0.2.15` / Build `44`.
+- No tag movement away from the authorized baseline.
+- No user-machine installation, driver replacement, CoreAudio restart, TCC change or default-device mutation.
+- CI/release automation is not treated as a substitute for user-owned real-hardware/runtime acceptance.
 
-- No product source change.
-- No new feature.
-- No app installation or host runtime mutation.
-- No release version change beyond v0.2.15 / Build 44.
-- No release of a different commit if `main` advances.
+## Closeout
 
-## Completion gate
+Task 048 is closed. `RELEASE_NOTES_v0.2.15.md` remains as release history; the temporary release workflow is removed. Any further product, runtime, packaging, install, release or repository-lifecycle mutation requires a new governed task/control transition.
 
-Task 048 closes only when:
-- release-gate tests/build/package checks PASS;
-- tag `v0.2.15` resolves to the exact authorized baseline;
-- GitHub Release `v0.2.15` is published and non-draft/non-prerelease;
-- DMG and checksum assets are present;
-- release publication is re-read from GitHub;
-- one-shot release automation, if used, is removed from live `main`;
-- control files are reconciled in one final commit.
-
-DOCUMENT_ALIGNMENT: `UNCHANGED`
+DOCUMENT_ALIGNMENT: `UPDATED`
