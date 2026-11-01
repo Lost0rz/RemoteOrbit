@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave A diagnostics-gating corrective
 
-Status: `CORRECTIVE_REQUIRED`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `BOUNDED PRODUCT CORRECTIVE`
 Repository: `Lost0rz/RemoteOrbit`
 Design authority: `docs/design/2026-10-31-045-diagnostics-gating-and-legacy-retirement.md`
@@ -74,6 +74,19 @@ Then run the existing durable machine gate on `remoteorbit-macmini` for the corr
 
 ## Delivery / stop
 
-Push the corrected existing branch and keep PR #31 OPEN/DRAFT. Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge.
+Corrective implementation commit: `cb427c49fc594df6ceddbc202d3c589ae637653a`, pushed to the existing branch `codex/task045a-diagnostics-gating` and PR #31. The final atomic control update is the direct handoff child of that implementation commit; its exact published HEAD is recorded by the executor's final receipt after remote verification.
+
+Actual verification receipt:
+
+- focused observer lifecycle: `6/6`;
+- focused recording lifecycle/metadata suppression: `8/8`;
+- existing diagnostics gate tests: `5/5`;
+- current LONG-only regression suite: `51/51`;
+- local full `swift test`: `658/658`;
+- local Release build: passed;
+- durable CI `41257070849` attempt `2`, job `124702797074`, runner `remoteorbit-macmini`: all stages passed;
+- Universal2 packaging smoke: `x86_64 arm64`.
+
+Keep PR #31 `OPEN / DRAFT`. Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge.
 
 Return actual changed paths, corrected head/remote identity, focused/full test results, CI run identity, and any unresolved blocker/uncertainty.

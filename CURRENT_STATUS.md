@@ -1,11 +1,11 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAVE_A_AUDIT_STOP / CORRECTIVE_REQUIRED`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Task 043: `MERGED / HUMAN_ACCEPTANCE_DEFERRED / USER-OWNED`
 Task 045 overall: `ACTIVE`
-Task 045A: `DIAGNOSTICS_GATING / CORRECTIVE_REQUIRED`
+Task 045A: `DIAGNOSTICS_GATING / CORRECTIVE_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 ## Independent Web audit
 
@@ -19,7 +19,7 @@ Audit target observed at review time:
 
 Audit independence: `FRESH_CONTEXT` (not a separate agent and not human acceptance).
 
-## Verdict
+## Independent Web audit verdict (historical)
 
 `STOP — REQUIRED CORRECTIVE BEFORE MERGE`
 
@@ -49,6 +49,39 @@ Authorized product mutation is limited to:
 
 Still frozen: Persistent/Dual retirement, microphone SHORT product/config removal, LONG-only semantics, BLE/ATVV, HID mapping correctness, AudioPipe transport/buffer/IOProc, receiver-readiness architecture, app installation, driver/CoreAudio/TCC mutation, tag/release, and merge.
 
+## Corrective execution
+
+Fresh reconciliation started from the audited control head `fceda599da15d48d743e4efb162e396704d45f03` on the existing branch/worktree. The bounded corrective implementation was committed as `cb427c49fc594df6ceddbc202d3c589ae637653a` and pushed to the existing PR branch.
+
+Changed product/test paths:
+
+- `remote-orbit/Sources/RemoteOrbit/Diagnostics/FrontmostApplicationDiagnosticsObserver.swift`
+- `remote-orbit/Sources/RemoteOrbit/main.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/FrontmostApplicationDiagnosticsTests.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/WavRecorderDiagnosticsTests.swift`
+
+The observer now has one gate-owned lifecycle coordinator: OFF→ON creates and starts one observer, ON→OFF stops and releases it, and repeated same-state requests are idempotent. Startup selected-input lookup and P1A4 run-start calibration/fields now execute only when diagnostics are enabled. The recording regression uses the real BLEBridge/WavRecorder lifecycle: diagnostics OFF + recording OFF creates no files; diagnostics OFF + recording ON writes and finalizes valid WAV/RAW files while shared diagnostic authority work metrics remain unchanged.
+
+Local verification:
+
+- frontmost lifecycle focused suite: `6/6`;
+- recording diagnostics suite: `8/8`;
+- existing diagnostics gate suite: `5/5`;
+- LONG-only/current gesture regression suite: `51/51`;
+- full `swift test`: `658/658`;
+- `swift build -c release`: passed.
+
+Durable machine verification for the corrected product head:
+
+- CI run `41257070849`, attempt `2`, job `124702797074`;
+- runner `remoteorbit-macmini`, macOS `26.6.2`, arm64, Apple Swift `6.4.2`;
+- source contract checks, protocol self-tests, full Swift `658/658`, native Release build, and build-only packaging smoke all passed;
+- Universal2 packaging reported executable architectures `x86_64 arm64`.
+
+The first attempt of this same run exited with XCTest signal 5 after all reported test cases passed; the failed job was rerun without code changes and the retry passed all stages. This remains a machine-runner flake, not a product assertion failure.
+
+Forbidden mutation receipt: Persistent production state `NO`; Dual Receiver `NO`; app/driver/CoreAudio/TCC installation or mutation `NO`; tag/release `NO`; merge `NO`.
+
 ## Next gate
 
-Local execution performs only the bounded corrective and machine verification, then returns the same PR to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Web performs a fresh audit of the corrected head before any merge decision.
+The same PR #31 remains `OPEN / DRAFT` on the existing branch. Web must perform a fresh independent audit of the corrected exact head before any merge decision. Current stop state is `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
