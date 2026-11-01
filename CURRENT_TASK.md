@@ -1,22 +1,23 @@
 # RemoteOrbit Current Task
 
-## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave D / Domain 1 Remote-Only PCM Attribution Retirement
+## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave D / Domain 2 P1-A5 Front-Edge Experiment Diagnostics Retirement
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `READY_FOR_IMPLEMENTATION_HANDOFF`
 TASK_CLASS: `BOUNDED FINAL RESIDUE RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
-Design authority: `docs/design/2026-11-01-045d-domain-1-remote-only-pcm-attribution-retirement.md`
+Design authority: `docs/design/2026-11-01-045d-domain-2-p1a5-front-edge-experiment-retirement.md`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
 
 ## Completed prerequisite
 
-Domain 6 is accepted and closed:
+Wave D Domain 1 `REMOTE_ONLY_PCM_ATTRIBUTION` is accepted and closed:
 
-- PR #37 independent exact-head audit: PASS (`FRESH_CONTEXT`);
-- final reviewed PR head: `85f521371dd2ff6dd5cc4e5c7cb45acf89c3e61a`;
-- exact-head PR CI `41276388399` / job `124759311071` passed on `remoteorbit-macmini` including Full Swift 509/509, Native Release and Universal2 packaging;
-- merged as `640256238941856c3eaa82a54cb6518d59792015` using exact expected head;
-- post-merge main CI `41276777315` / job `124760439385` passed every durable stage including Universal2 packaging.
+- PR #38 independent exact-head audit: PASS (`FRESH_CONTEXT`);
+- final reviewed PR head: `2fdb917e8c4d53e138315b8541e7b70202205d8e`;
+- immutable implementation head: `23328cc68a3044413b66f4218cf27a925e35e588`;
+- exact-head PR CI passed including Full Swift 507/507, Native Release and Universal2 packaging;
+- merged with exact expected head as `3c1fa40e7304cbbef042a39010807743172ef3aa`;
+- post-merge main CI run `41280239681`, job `124770517508`, passed source contracts, protocol self-tests, Full Swift, Native Release and Universal2 packaging.
 
 ## Domain execution rule
 
@@ -24,131 +25,170 @@ Wave D remains serial:
 
 `Web audit/freeze → local cleanup → Web exact-head audit → merge/closeout → next domain`
 
-This Domain 1 has already been audited and designed by Web. Local execution performs freshness/identity reconciliation, implementation and verification only. Do not redo the domain audit or expand the boundary. If live repository facts materially conflict with this authority, stop with `AUTHORITY_RECONCILIATION_REQUIRED`.
+This Domain 2 has already been audited and designed by Web. Local execution performs freshness/identity reconciliation, bounded implementation and verification only. Do not redo the audit, redesign the diagnostic architecture or widen the domain.
 
-Before product mutation, fetch live `main`, read `AGENTS.md`, `CURRENT_STATUS.md`, this file and the design authority, and require the durable CI attached to the live Wave D Domain 1 authority/control commit to be successful.
+Before product mutation:
+
+1. fresh-fetch live `main`;
+2. read `AGENTS.md`, `CURRENT_STATUS.md`, this file and the design authority;
+3. require the durable CI attached to the live Domain 2 control/authority commit to be final SUCCESS;
+4. stop with `AUTHORITY_RECONCILIATION_REQUIRED` if live source materially conflicts with this authority.
 
 ## Purpose
 
-Retire the dead local/mixed-source PCM attribution model left behind after local microphone capture was removed, while keeping the AudioPipe ring and every remote realtime behavior observably equivalent.
+Retire the obsolete P1-A5 front-edge experiment diagnostics and their duplicate realtime observation work, while preserving current gated diagnostics, long-term observability, continuity evidence and all voice/audio correctness behavior.
+
+## Verified ownership basis
+
+- `P1A5FrontEdgeDiagnostics.swift` defines a fixed experiment-only voice-onset detector and four front-edge underrun buckets.
+- P1-A5 runtime is opt-in behind `DiagnosticsRuntimeGate.shared.isEnabled && REMOTE_ORBIT_P1A5_FRONT_EDGE == "1"`.
+- `VoiceTimingLogger.end(...)` completes generic T0–T10 timing, continuity reporting, `LongTermObservabilityService.end(...)` and `VoiceAttemptDiagnostics.end(...)` before the P1-A5-only F0–F9/front-edge report.
+- BLEBridge's `p1A5VoiceOnsetDetector` exists only to feed that experiment report.
+- AudioPipe's P1-A5 markers exist only to feed that experiment report.
+- AudioPipeRealtime emits both current `queueStarvation` and P1-A5 `frontEdgeUnderrun` observations for the same active underrun. Current long-term anomaly handling remains on `queueStarvation`.
 
 ## Authorized mutation
 
-### `remote-orbit/Sources/RemoteOrbit/AudioPipeRealtime.swift`
+### `remote-orbit/Sources/RemoteOrbit/P1A5FrontEdgeDiagnostics.swift`
 
-Where current callers prove the ring is remote-only:
+Delete the experiment-only source if all current callers are removed.
 
-- retire `AudioPipePCMSource.local` and, if no retained need remains, the `AudioPipePCMSource` discriminator itself;
-- remove the independent `remoteQueuedFrames` atomic counter and its source-conditioned publication/consumption/reset bookkeeping;
-- simplify write/read result construction so remote queue depth values remain exactly equal to the corresponding total queue depth values in the remote-only product;
-- keep result fields with remote-oriented names if they are still consumed by diagnostics/tests; this domain does not authorize a broad diagnostics schema rename;
-- preserve ring capacity, FIFO ordering, exact-full/exact-empty semantics, wraparound, bounded indices, reader/reset gate protocol, zero-fill behavior and realtime callback constraints.
+### `remote-orbit/Sources/RemoteOrbit/VoiceOptionTrigger.swift`
 
-The preferred implementation is the smallest removal of redundant source attribution. Do not redesign the ring algorithm.
+Within `VoiceTimingLogger`, retire only P1-A5-specific ownership:
+
+- `p1A5Enabled`;
+- `frontEdgeUnderrunStats` storage/reset/snapshot;
+- P1-A5 F0–F9-only marker/report state;
+- `recordVoiceOnset(...)`;
+- `recordFrontEdgeUnderrun(...)`;
+- final `[P1-A5] FRONT_EDGE_TIMELINE` report.
+
+Preserve generic T0–T10 timeline/correlation, continuity ledger, transport metrics, `LongTermObservabilityService` calls, `VoiceAttemptDiagnostics` and diagnostic gating.
+
+Do not rename or delete `P1A4MonotonicClock` in this domain.
+
+### `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`
+
+Remove only P1-A5-specific detector state/reset/analyze/marker calls. Preserve:
+
+- normal ATVV decode and PCM delivery;
+- current transport/notification/decode metrics;
+- long-term observability calls;
+- recording lifecycle;
+- BLE READY/reuse and all drain/supersession behavior.
 
 ### `remote-orbit/Sources/RemoteOrbit/AudioPipe.swift`
 
-Update current remote-only call sites only as needed by the ring API simplification.
+Remove only P1-A5-specific F-series marker publication and front-edge experiment consumption.
 
-Preserve:
+Preserve current:
 
-- candidate/prebuffer behavior;
-- playout reserve;
-- remote activation/reset order;
-- output drain;
-- queue/overflow diagnostics values;
-- IOProc/render behavior;
-- diagnostic snapshots and external field meanings.
+- realtime counters;
+- long-term observation traces;
+- render-starvation anomaly handling;
+- queue/depth/drop diagnostics;
+- reserve/render/output-drain behavior;
+- candidate/prebuffer;
+- Domain 6 input lease semantics.
 
-Any current diagnostic field representing remote queue depth or pending remote frames must report the same value it reports today for production remote-only traffic.
+### `remote-orbit/Sources/RemoteOrbit/AudioPipeRealtime.swift`
 
-### `remote-orbit/Sources/RemoteOrbit/AudioDataPlaneDiagnostics.swift`
+Retire `AudioPipeRealtimeObservation.Kind.frontEdgeUnderrun` and its duplicate active-underrun enqueue if direct caller audit remains as frozen.
 
-`AudioRemoteQueueAttribution` may be deleted/simplified only where direct source audit proves it has no production caller after Domain 6. Do not use this as authority to rewrite unrelated delivery, render, BLE, continuity or incident accounting.
+Keep `queueStarvation`. Do not alter how active underrun/tail/idle counters are calculated and do not redesign the observation mailbox.
 
 ### Tests
 
-Remove/rewrite only tests whose sole purpose is the retired local/mixed-source model, including local-source writes or assertions that remote depth differs from total depth.
+Delete `P1A5FrontEdgeDiagnosticsTests.swift` if the experiment source is removed.
 
-Retain or strengthen deterministic coverage for:
+Adjust/rehome only directly affected tests. Do not delete current generic assertions merely because test names contain historical terminology.
 
-- FIFO and partial operations;
-- exact full/empty distinction;
-- wraparound;
-- overflow rejection without overwrite;
-- reset;
-- SPSC stress/order;
-- remote diagnostics counters;
-- reserve wait/tail bypass;
-- output drain;
-- realtime callback no-lock/no-dispatch/no-dynamic-buffer contract;
-- current remote queue/overflow diagnostic values.
+If another retained test directly depends on an F0–F9 P1-A5 marker, determine whether the assertion is truly experiment-only. If it protects current generic timing/continuity/long-term semantics, rehome the generic assertion instead of deleting it.
 
-If a mixed-source test also contains a current generic ring assertion, rehome that assertion before deleting the case.
+### Current documentation/control references
+
+Remove/update only executable/current documentation references that instruct users or developers to enable `REMOTE_ORBIT_P1A5_FRONT_EDGE`. Historical incident/design evidence is not cleanup scope.
 
 ## Explicit KEEP boundary
 
 Do not change:
 
-- `AudioPipe.pcmRingCapacityFrames`;
-- ring read/write/reset synchronization protocol except removal of the redundant remote-source counter;
-- playout reserve thresholds/state machine;
-- remote gain, sample rate or resampling;
-- candidate/prebuffer ownership;
-- output-drain and post-release behavior;
-- temporary system-input lease from Domain 6;
+- `DiagnosticsRuntimeGate` behavior or effective gate;
+- recording control;
+- `P1A4MonotonicClock` implementation/API;
+- generic T0–T10 voice lifecycle timing;
+- `REMOTE_ORBIT_CONTINUITY_EVIDENCE` or continuity ledger semantics;
+- `LongTermObservabilityService`, its incident coordinator, fixed traces, summaries or anomaly thresholds;
+- current `queueStarvation` / render-starvation evidence;
+- MainQueue responsiveness probe;
+- AudioPipe ring/capacity/realtime synchronization;
+- playout reserve;
+- output drain/tail/grace;
+- candidate/prebuffer;
 - Gate-A 300 ms LONG-only semantics;
-- rapid repress, tombstone/suppression/handoff, hardware/synthetic ownership;
-- BLE/ATVV/readiness;
-- diagnostics runtime gate or independent recording;
-- primary profile/mapping authority;
-- external durable diagnostic schema/field names unless a compile-only adaptation is unavoidable.
+- SHORT tombstone, mapped-edge suppression/handoff, rapid repress, hardware/held-UP ownership;
+- synthetic fallback or pre-HID physical candidate;
+- BLE/ATVV protocol, codec, gain or sample rate;
+- receiver readiness;
+- Domain 6 temporary input lease;
+- primary profile/mapping/persistence compatibility authority.
 
-Historical names are not retirement proof. In particular, current `beginShortTapDiscard`, `isShortTapDiscardSession`, and `transferShortTapDiscardToAudioOnlySuppression` ownership remain outside this domain because they are live LONG-only correctness mechanisms.
+Historical `ShortTap` / `AudioOnly` names remain current correctness mechanisms and are not authorized for cosmetic cleanup here.
 
 ## Explicit non-goals
 
 Do not:
 
-- start another Wave D residue domain;
-- broadly refactor AudioPipe/diagnostics architecture;
-- rename live tombstone/suppression primitives for cosmetics;
-- change diagnostics gating or timer policy;
-- change 300 ms behavior;
-- change BLE/ATVV, codec, gain, sample rate or prebuffer;
-- change input-device lease behavior;
+- start Wave D Domain 3;
+- turn this into a broad diagnostics rewrite;
+- remove generic diagnostics because P1-A5 is retired;
+- retire or rename P1-A4 timing infrastructure;
+- retire continuity evidence;
+- modify long-term incident semantics;
+- change voice/audio product behavior;
 - install/replace the app;
 - mutate live driver/CoreAudio/TCC/default audio devices;
 - tag/release;
-- merge the implementation PR locally.
+- merge locally.
 
 ## Verification required
 
 Focused evidence must prove at minimum:
 
-1. no production PCM source discriminator/local source remains if the enum is retired;
-2. no redundant remote queue atomic counter remains;
-3. production remote queue depth/pending-remote values equal total queued frames without semantic change;
-4. FIFO/full-empty/wraparound/reset/stress behavior remains green;
-5. realtime render callback remains free of ordinary locks, dispatch and dynamic sample buffers;
-6. remote overflow/drop accounting remains equivalent;
-7. reserve, render, tail and output-drain behavior remains green;
-8. Domain 6 input-lease tests remain green;
-9. LONG-only, rapid repress, tombstone/suppression, BLE/readiness, diagnostics-gate and recording regressions remain green;
-10. no live `ShortTap`/`AudioOnly` correctness primitive was removed merely by name.
+1. no production `P1A5FrontEdge*` source/type remains;
+2. no `REMOTE_ORBIT_P1A5_FRONT_EDGE` production control remains;
+3. BLEBridge performs no P1-A5 detector/reset/analyze work;
+4. AudioPipe performs no P1-A5 F-series/front-edge experiment work;
+5. realtime no longer emits duplicate `frontEdgeUnderrun` while current `queueStarvation` remains;
+6. generic T0–T10 lifecycle timing remains;
+7. continuity evidence remains;
+8. LongTermObservability transport/render/starvation/anomaly tests remain green;
+9. diagnostics OFF still performs no structured diagnostic work as required by 045A;
+10. recording independence remains;
+11. AudioPipe realtime/reserve/output-drain regressions remain green;
+12. LONG-only/rapid-repress/tombstone/suppression/transport-loss regressions remain green;
+13. BLE/ATVV/readiness regressions remain green;
+14. Domain 6 input lease remains green;
+15. no live hardware/default-device mutation occurs during tests.
 
 At minimum run focused suites covering:
 
 - `AudioPipeRealtimeTests`
 - `AudioPipeTests`
-- `AudioDataPlaneMeasurementBoundaryTests`
 - `AudioDataPlaneDiagnosticsTests`
+- `AudioDataPlaneMeasurementBoundaryTests`
 - `AudioPipePlayoutReserveTests`
-- `RemoteVoiceInputLeaseTests`
+- `LongTermObservabilityTests`
+- `DiagnosticsRuntimeGateTests`
+- `DiagnosticHardeningTests`
+- `BLEBridgeTests`
 - `VoicePipelineSimplificationTests`
 - `VoicePressCoordinatorTests`
 - `VoiceKeyFilterTests`
-- relevant BLE / diagnostics / readiness tests
+- `VoiceReceiverReadinessTests`
+- `RemoteVoiceInputLeaseTests`
+- `WavRecorderDiagnosticsTests`
 
 Then run:
 
@@ -162,34 +202,20 @@ Then run:
 
 Start from fresh live `main` after reconciliation. Use one fresh worktree/branch, suggested:
 
-`codex/task045d-domain1-remote-only-pcm-attribution-retirement`
+`codex/task045d-domain2-p1a5-front-edge-experiment-retirement`
 
-The merged Domain 6 worktree may be retired only after confirming clean state and merged ancestry. Preserve its branch/history unless separately authorized.
+The merged Wave D Domain 1 worktree may be retired only after confirming clean state and merged ancestry. Preserve its branch/history unless separately authorized.
 
 Create one Draft PR. Do not merge locally.
 
-After implementation/test/CI evidence is available, atomically update `CURRENT_STATUS.md` and `CURRENT_TASK.md` in one final handoff commit. Do not encode that control commit's own future SHA; resolve final PR head and post-push CI from GitHub at independent audit time.
+After implementation/test/CI evidence is available, atomically update `CURRENT_STATUS.md` and `CURRENT_TASK.md` in one handoff commit. Do not encode that control commit's own future SHA; resolve final PR head and final-head CI at independent Web audit time.
 
 ## Stop
 
-After implementation, verification, push, Draft PR, durable CI and atomic control handoff, stop at:
+After implementation, verification, push, Draft PR, durable final-head CI, Universal2 and atomic control handoff, stop at:
 
 `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Do not start another Wave D domain, install the app, mutate driver/CoreAudio/TCC/default devices, tag/release or merge locally.
 
-## Execution receipt (2026-11-01)
-
-- Fresh start: live `main@8648c3f9c3f0f12e57e54767bfd04d8b05fff3ec`; pre-mutation control CI run `41277112083`, job `124761430249`, final SUCCESS.
-- Branch/worktree: `codex/task045d-domain1-remote-only-pcm-attribution-retirement`.
-- Implementation HEAD = Draft PR #38 head: `23328cc68a3044413b66f4218cf27a925e35e588`.
-- Changed: `AudioPipeRealtime.swift`, `AudioPipe.swift`, `AudioDataPlaneDiagnostics.swift`, `AudioPipeRealtimeTests.swift`, `AudioDataPlaneMeasurementBoundaryTests.swift` (+89/−219).
-- Retired: `AudioPipePCMSource` (incl. `.local`), `remoteQueuedFrames` counter and source-conditioned bookkeeping, `AudioRemoteQueueAttribution`, mixed/local attribution tests. Remote-named result/diagnostic fields retained and equal to total queue depth.
-- Unchanged: ring algorithm/capacity, reserve/render/drain, LONG-only and suppression/tombstone semantics, BLE/ATVV, Domain 6 input lease, diagnostics gate/recording.
-- Focused suites 248/248; full `swift test` 507/507; Release PASS; `git diff --check` clean; local Universal2 packaging smoke PASS (`x86_64 arm64`); durable CI run `41279444041`, job `124768161983`, on `remoteorbit-macmini`, SUCCESS.
-- Domain 6 worktree retired (clean + merged ancestry verified); its branch/history preserved.
-- No merge, no app install, no driver/CoreAudio/TCC/default-device mutation, no tag/release. HUMAN_UI_ACCEPTANCE remains `PENDING / USER-OWNED`.
-
-Next action: independent Web exact-head audit of Draft PR #38 (`FRESH_CONTEXT`).
-
-Return actual governance route/capability, topology/subagents, fresh start main, authority/control CI pre-mutation result, branch/worktree, implementation/final heads, remote equality, Draft PR, changed/deleted paths, retired attribution surface, retained diagnostic field semantics, focused/full/build/diff/CI/package results, Domain 6 worktree disposition, scope-mutation flags, unresolved uncertainty, `HUMAN_UI_ACCEPTANCE`, merge state and final actual state.
+Return actual governance route/capability, topology/subagents, fresh start main, authority/control CI pre-mutation result, branch/worktree, implementation/final heads, remote equality, Draft PR, changed/deleted paths, retired P1-A5 surface, retained generic timing/continuity/LongTermObservability evidence, realtime duplicate-observation disposition, focused/full/build/diff/CI/package results, Wave D Domain 1 worktree disposition, scope-mutation flags, unresolved uncertainty, `HUMAN_UI_ACCEPTANCE`, merge state and final actual state.
