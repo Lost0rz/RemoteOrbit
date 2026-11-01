@@ -1,32 +1,22 @@
 # RemoteOrbit Current Task
 
-## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave B / Domain 3 Persistent Voice Runtime State Machine
+## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave B / Domain 4 Dual Receiver Runtime State Machine
 
-Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `READY_FOR_IMPLEMENTATION_HANDOFF`
 TASK_CLASS: `BOUNDED LEGACY RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
-Design authority: `docs/design/2026-11-01-045b-domain-3-persistent-voice-runtime-retirement.md`
+Design authority: `docs/design/2026-11-01-045b-domain-4-dual-receiver-runtime-retirement.md`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
-
-## Execution transition
-
-- Fresh live basis: `origin/main@54075fbe09c4f76bcb1287e675120fede7de3bc0`, verified from `https://github.com/Lost0rz/remoteorbit.git` immediately before workspace creation.
-- Active branch: `codex/task045b-domain3-persistent-voice-runtime-retirement`.
-- Active workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain3-persistent-voice-runtime-retirement`.
-- Domain 2 worktree retirement was authorized only after clean-state and merged-ancestry verification; its branch/history remain preserved.
-- Immutable Domain 3 implementation HEAD is `7cb5822a449340bc10c187a81aeb006958a5b151` from fresh live main. Focused contracts/LONG-only regressions, full local Swift `623/623`, native Release build, and `git diff --check` pass.
-- Known preceding control/PR identity is `6fe81f7e88f841cc69a243da13d35fdaa0771b0e`; the pre-reconciliation live reviewed PR `#34` head was `ebb9e9e4a237a66711ba2bab7e5e905c8d1d6c53`, with exact-head durable CI run `41263188493` / job `124720464902` passed on `remoteorbit-macmini`, including Universal2 build-only packaging smoke.
-- Independent Web CODE_DIFF audit and independent Web CI audit were `PASS` for that reviewed head (`FRESH_CONTEXT`).
-- The reconciliation transition is control-only and its commit is a descendant of the preceding control/PR identity, not a direct child of `main`. Resolve the literal PR head and exact-head CI for this new control-only head live from GitHub after push; this task record does not name its own future SHA.
-- Final actual state after the pushed reconciliation head receives durable CI remains `WAITING_FOR_INDEPENDENT_WEB_AUDIT`, pending independent Web identity verification.
 
 ## Completed prerequisite
 
-Domain 2 is accepted and closed:
+Domain 3 is accepted and closed:
 
-- PR #33 exact-head independent Web audit: PASS (`FRESH_CONTEXT`);
-- merged as `e96f69b7e848a999757e423edd0cc72efd459a7c` from exact expected head `54dc4790b8196256cd7846efd19f00159cfb15ad`;
-- post-merge CI `41262000791` / job `124716992559` succeeded on `remoteorbit-macmini` through all durable stages including Universal2 packaging.
+- PR #34 independent exact-head audit: PASS (`FRESH_CONTEXT`) after control-plane identity reconciliation;
+- final reconciled PR head: `ccc32f605da81fb9874f831677cd969d30058a22`;
+- exact-head durable PR CI `41263839832` / job `124722386420` passed on `remoteorbit-macmini`;
+- merged as `e8118342f43154a6b2a93cd70b679f4ef52f366b` using exact expected head;
+- post-merge main CI `41264568492` / job `124724579093` passed every durable stage including Universal2 packaging.
 
 ## Domain execution rule
 
@@ -34,63 +24,98 @@ Legacy retirement remains serial:
 
 `Web audit/freeze → local cleanup → Web exact-head audit → merge/closeout → next domain`
 
-Do not redesign Domain 3 locally. Perform freshness/identity reconciliation only. A material conflict with this authority returns `AUTHORITY_RECONCILIATION_REQUIRED`.
+Domain 4 has already been audited and designed by Web. Local execution performs freshness/identity reconciliation, implementation and verification only. Do not redo the domain audit or choose a different retirement boundary. If live facts materially conflict with this authority, stop with `AUTHORITY_RECONCILIATION_REQUIRED`.
 
-## Domain 3 purpose
+## Domain 4 purpose
 
-Remove the obsolete Persistent IME voice-session runtime state machine and its audio-only segment semantics while preserving the current LONG-only product path, all shared trigger-ownership/suppression/drain correctness, and the entire Dual Receiver runtime for a later dedicated domain.
+Remove the obsolete Dual Receiver A/B voice runtime, Receiver-B runtime state, secondary-mapping transaction and Dual-only coordinator seams. Preserve the current single-profile primary mapping authority, Gate-A LONG-only product behavior and all shared correctness mechanisms.
 
 ## Authorized mutation
 
+### Standalone Dual sources
+
+Delete:
+
+- `remote-orbit/Sources/RemoteOrbit/DualReceiverVoiceMode.swift`
+- `remote-orbit/Sources/RemoteOrbit/DualReceiverVoiceGestureRecognizer.swift`
+- `remote-orbit/Sources/RemoteOrbit/DualReceiverMappedTriggerState.swift`
+
 ### `remote-orbit/Sources/RemoteOrbit/main.swift`
 
-Retire Persistent-only runtime state and behavior from `VoicePressCoordinator` and `AppController`, including where applicable:
+Retire Dual-only AppController/runtime ownership where present:
 
-- `VoiceSessionMode` and Persistent configured/owner state;
-- `PendingPersistentToggle` and deferred Persistent open/close retry;
-- `persistentHoldActivationThreshold` / `isPersistentSessionLongPress`;
-- Persistent toggle flags/arguments/branches in legacy `keyDown`, `PendingRepress`, `startAcceptedVoicePress`, and `keyUp`;
-- Persistent-only trigger callbacks and diagnostics;
-- the audio-only Persistent segment distinction (`RemoteSegmentTriggerPolicy.audioOnly`) and its Persistent-only state fields/branches;
-- `currentPersistentSessionTriggerKey`, `initialPersistentSessionTriggerKey`, startup configuration of that key, and `applyPersistentSessionTriggerKey`;
-- stale comments that describe SHORT/Persistent behavior as current production semantics.
+- `dualReceiverVoiceGestureRecognizer` / `dualReceiverVoiceMode`;
+- `currentSecondaryMomentaryVoiceTriggerKey` / `initialSecondaryMomentaryVoiceTriggerKey` runtime-only Receiver-B seam;
+- `currentDualReceiverShortBinding`;
+- `dualReceiverMappedTriggerState` and generation/phase state;
+- Dual reconfiguration/mapping gates;
+- Dual prewarm, physical-down and active-gesture state;
+- `configureDualReceiverVoiceMode(...)`;
+- `applySecondaryVoiceTriggerKey(...)`;
+- `handleDualReceiverMicrophoneEdge(...)` and its event-dispatch/orchestration;
+- secondary B mapping arm and primary A mapping restore;
+- Dual-specific HID-removal/BLE-loss cleanup and diagnostics;
+- directly adjacent helpers whose only caller is that Dual transaction.
 
-`RemoteSegmentTriggerPolicy` may be removed entirely if, after deleting `.audioOnly`, its only remaining purpose would be a one-value wrapper around ordinary momentary behavior. Retained Dual/legacy momentary logging may be simplified to fixed momentary semantics without changing ownership/timing behavior.
+Retain the selected-profile primary mapping/readback authority. Do not remove `RemoteVoiceKeyMapping` merely because the Dual transaction also used it.
 
-### `VoiceKeyFilter` boundary inside `main.swift`
+### VoicePressCoordinator boundary in `main.swift`
 
-Persistent-only semantic helpers may be removed when exact call-site inspection proves they have no retained caller, including:
+Retire only Dual-specific classified ownership proven to have no retained non-Dual caller, including where applicable:
 
-- `emitPersistentShortTap`;
-- `emitDeferredPersistentShortTap`;
-- Persistent-only audio-only suppression entry helpers.
+- `classifiedDualReceiverHold`;
+- `classifiedDualReceiverTriggerKey`;
+- `prearmedDualReceiverHardwareGateSessionID`;
+- `beginClassifiedHardwareGate(...)`;
+- `beginClassifiedHardwareHold(...)`;
+- `cancelClassifiedHardwareGate(...)`;
+- Dual-only classified trigger/output-drain branches;
+- Dual-only `PendingRepress` fields if no retained caller remains.
 
-Do **not** remove the underlying generic suppression/tombstone machinery merely because historical names mention short tap or audio-only. In particular preserve any lower-level owner transition still used by the LONG-only handoff.
+Do not broadly remove `VoicePressCoordinator.State`, generic pending/holding/drain behavior, or generic legacy classifier/local-microphone seams in this domain.
+
+### `remote-orbit/Sources/RemoteOrbit/KeyMapping/HIDMonitor.swift`
+
+After removing `DualReceiverVoiceMode`, simplify `HIDButtonDownPolicy.resolve(...)` to remove the Dual-mode parameter and active-Dual microphone exception while preserving:
+
+- generic repeat behavior;
+- advanced-gesture behavior for non-microphone buttons;
+- microphone no-debounce behavior when a live physical candidate exists.
+
+Update all retained callers/tests accordingly. This is a compile/authority cleanup, not permission to redesign input policy.
 
 ### Tests
 
-Persistent-only product/runtime suites may be removed or rewritten:
+Dedicated Dual suites may be deleted after checking for still-live generic claims:
 
-- `VoicePersistentSessionTests.swift`;
-- `VoicePersistentShortTapTests.swift`;
-- Persistent-only cases in `VoiceTriggerRuntimeTests.swift`, `VoiceOptionTriggerTests.swift`, diagnostic tests, or other directly affected suites.
+- `DualReceiverVoiceGestureRecognizerTests.swift`
+- `DualReceiverVoiceModeTests.swift`
+- `DualReceiverVoiceSettingsTests.swift`
+- `DualReceiverVoiceTransactionTests.swift`
 
-Before deleting a Persistent suite, rehome any generic trigger-ownership/suppression assertion that remains relevant and is not already covered by retained LONG-only/Dual tests.
+Remove Dual-only cases/harness fields from directly affected suites such as:
 
-Existing `VoicePressCoordinatorTests` already own important current contracts such as bounded SHORT discard, late mapped-edge suppression, SHORT-tombstone handoff, repeated SHORT-prefix→LONG, rapid repress and direct drain. Do not weaken or delete those tests.
+- `VoiceTriggerRuntimeTests.swift`;
+- `HIDButtonDownPolicyTests.swift`;
+- any other test whose only contract is Receiver-B / A↔B transaction behavior.
+
+If a deleted Dual test contains a generic assertion still relevant to the current product and not already strongly covered, rehome that assertion to an appropriate retained suite. Do not retain dead Dual tests solely to preserve test count.
 
 ### Control files
 
-At implementation handoff, update `CURRENT_STATUS.md` and `CURRENT_TASK.md` atomically in one commit after implementation/test/CI evidence is available.
+After implementation/test/CI evidence is available, atomically update `CURRENT_STATUS.md` and `CURRENT_TASK.md` in one final handoff commit.
 
 ## Explicit KEEP boundary
 
-Do not delete, redesign, or weaken:
+Do not delete, redesign or weaken:
 
-- `VoiceInputProfile` / `VoiceInputProfileStore` and current selected-profile authority;
+- `VoiceInputProfile` / `VoiceInputProfileStore` and profile ID persistence;
+- `.voiceKeyDefault` Codable compatibility and mapping schema;
+- primary `RemoteVoiceKeyMapping`, hidutil apply and mapping readback verification;
 - Gate-A private LONG candidate and direct session lifecycle;
-- SHORT `<300 ms` no-op and LONG `>=300 ms` direct voice contract;
-- `holdActivationThreshold == 0.30`;
+- SHORT `<300 ms` absolute user-visible no-op;
+- LONG `>=300 ms` direct remote voice lifecycle;
+- `holdActivationThreshold == 0.30` where retained/current;
 - repeated SHORT-prefix→LONG recovery;
 - rapid LONG/release/LONG and pending direct repress ownership;
 - short-discard tombstone ownership;
@@ -98,40 +123,44 @@ Do not delete, redesign, or weaken:
 - LONG-only suppression handoff;
 - hardware Option deferral/replay/held-UP acknowledgement;
 - synthetic fallback;
-- output drain, tail/grace, pre-HID physical candidate, BLE READY/reuse and AudioPipe ownership;
-- `VoicePressCoordinator.State` / generic pending/holding/drain machinery while still required by Dual or retained seams;
-- `DualReceiverVoiceGestureRecognizer`, `DualReceiverVoiceMode`, `DualReceiverMappedTriggerState`, `currentSecondaryMomentaryVoiceTriggerKey`, A/B mapping/reconfiguration and their safety tests;
-- non-Persistent short-action/local-microphone seams unless removal is an unavoidable compile-only consequence of deleting Persistent state and does not alter retained behavior;
-- lower-level `HardwareOptionGate` suppression-transfer machinery used by current LONG-only behavior, even if a historical method name contains `AudioOnly`;
-- Task 045A diagnostics gate and independent recording control.
+- pre-HID physical candidate;
+- output drain, tail/grace;
+- BLE READY/reuse, ATVV, codec, gain/sample-rate and AudioPipe transport/buffer/IOProc;
+- EventSuppressor and generic HardwareOptionGate ownership;
+- receiver readiness architecture;
+- Task 045A diagnostics gate and independent recording control;
+- generic non-Dual legacy short-action/local-microphone classifier seams, except compile-only removal of a field/call proven exclusively Dual-owned.
+
+Historical helper names do not classify ownership. In particular do not remove a lower-level short/audio-only-named suppression primitive if current LONG-only code still calls it.
 
 ## Explicit non-goals
 
 Do not:
 
-- retire Dual Receiver in Domain 3;
-- redesign the current direct voice path;
-- change 300 ms classification threshold;
-- change BLE/ATVV, codec, sample rate, gain, AudioPipe transport/buffer/IOProc;
-- change HID mapping/readback correctness or receiver-readiness architecture;
-- broadly rename/refactor shared suppression primitives for cosmetics;
-- install/replace the app, mutate driver/CoreAudio/TCC, tag or release;
-- start Domain 4.
-
-If deleting a Persistent symbol requires semantic removal/redesign of a retained Dual or LONG-only mechanism, stop with `AUTHORITY_RECONCILIATION_REQUIRED` rather than expanding scope.
+- start Domain 5;
+- clean every remaining legacy classifier/local-mic seam;
+- cosmetically rename shared suppression/tombstone primitives;
+- change the current 300 ms voice contract;
+- alter primary mapping semantics or readback correctness;
+- change BLE/ATVV, AudioPipe, codec, sample rate or gain;
+- install/replace the app;
+- mutate driver/CoreAudio/TCC/default audio devices;
+- tag/release;
+- merge the Domain 4 PR locally.
 
 ## Verification required
 
 Focused evidence must prove at minimum:
 
-1. Persistent runtime/session symbols and Persistent open/close state transitions are absent from production runtime.
-2. Persistent audio-only segment behavior and Persistent-specific trigger callbacks are absent.
-3. AppController no longer stores/configures/reconfigures a Persistent trigger runtime key.
-4. No product code can enter a Persistent session through the retained legacy classifier seams.
-5. Shared short-discard/tombstone/suppression behavior used by LONG-only remains present and covered.
-6. LONG-only current regression remains green, including bounded SHORT discard, repeated SHORT prefixes, late mapped-edge suppression, rapid repress, normal LONG/release/drain, synthetic fallback and pre-HID behavior.
-7. Dual Receiver suites remain green and its source files/state machine are unchanged except directly adjacent compile adaptation with no semantic change.
-8. Profile/persistence authority from Domains 1–2 and diagnostics gating from 045A remain green.
+1. all three standalone `DualReceiver*.swift` production sources are absent;
+2. AppController contains no Dual mode/recognizer/mapped-state/Receiver-B runtime or A↔B mapping transaction;
+3. VoicePressCoordinator contains no Dual-only classified gate/hold ownership;
+4. `HIDButtonDownPolicy` no longer depends on Dual mode and retained generic/live-candidate policy tests pass;
+5. selected-profile primary mapping and mapping readback tests remain green;
+6. current LONG-only regression remains green, including bounded SHORT discard, repeated SHORT prefix→LONG, late mapped-edge suppression, rapid repress, synthetic fallback, transport loss and normal release/output drain;
+7. Task 045A diagnostics gating and recording independence remain green;
+8. BLE/AudioPipe/receiver-readiness relevant regression remains green;
+9. no product code or test harness references deleted Dual symbols except historical docs/string fixtures intentionally preserved.
 
 Then run:
 
@@ -139,26 +168,25 @@ Then run:
 - full `swift test`;
 - `swift build -c release`;
 - `git diff --check`;
-- durable `.github/workflows/remoteorbit-ci.yml` on `remoteorbit-macmini`, including Universal2 build-only packaging smoke.
+- durable `.github/workflows/remoteorbit-ci.yml` on `remoteorbit-macmini`;
+- Universal2 build-only packaging smoke.
 
 ## Workspace / delivery
 
 Start from fresh live `main` after reconciliation. Use one fresh worktree/branch, suggested:
 
-`codex/task045b-domain3-persistent-voice-runtime-retirement`
+`codex/task045b-domain4-dual-receiver-runtime-retirement`
 
-The merged Domain 2 worktree may be retired only after confirming clean state and merged ancestry. Preserve its branch/history unless separately authorized.
+The merged Domain 3 worktree may be retired only after confirming clean state and merged ancestry. Preserve its branch/history unless separately authorized.
 
 Create one Draft PR. Do not merge locally.
 
-Domain 3 Draft PR: `#34` (`https://github.com/Lost0rz/RemoteOrbit/pull/34`). The live PR head is a GitHub-host identity resolved at audit time, not a hard-coded task lock. Implementation identity remains `7cb5822a449340bc10c187a81aeb006958a5b151`; the preceding control/PR identity and its durable evidence are recorded above.
-
 ## Stop
 
-After implementation, verification, push, Draft PR, durable CI, and atomic control handoff, stop at:
+After implementation, verification, push, Draft PR, durable CI and atomic control handoff, stop at:
 
 `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
-Do not start Domain 4. Do not install the app or mutate driver/CoreAudio/TCC.
+Do not start Domain 5. Do not install the app or mutate driver/CoreAudio/TCC.
 
-Return actual governance route, start main, branch/worktree, implementation and final control heads, remote equality, Draft PR, changed paths, retired Persistent runtime surface, retained shared/Dual mechanisms, deleted/rehomed tests, focused/full/build/diff/CI/package results, predecessor-worktree disposition, explicit scope-mutation flags, unresolved uncertainty, `HUMAN_UI_ACCEPTANCE`, and final actual state.
+Return actual governance route, start main, branch/worktree, implementation/final heads, remote equality, Draft PR, changed/deleted paths, retired Dual surface, preserved primary/LONG-only mechanisms, deleted/rehomed tests, focused/full/build/diff/CI/package results, predecessor-worktree disposition, scope-mutation flags, unresolved uncertainty, `HUMAN_UI_ACCEPTANCE`, and final actual state.
