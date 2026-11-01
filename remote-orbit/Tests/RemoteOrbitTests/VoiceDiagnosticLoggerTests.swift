@@ -198,37 +198,6 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
         )
     }
 
-    func testPersistentCloseDiagnosticUsesFrozenOpenOwnerAfterReconfiguration() throws {
-        let fileURL = temporaryLogURL()
-        defer { try? FileManager.default.removeItem(at: fileURL) }
-        let logger = makeLogger(fileURL: fileURL)
-        logger.startRun()
-        let trigger = VoiceOptionTrigger(
-            keyedEventSink: { _, _ in },
-            diagnosticLogger: logger
-        )
-        let press = VoicePressCoordinator(
-            optionTrigger: trigger,
-            diagnosticLogger: logger
-        )
-
-        XCTAssertTrue(press.configurePersistentSessionTriggerKey(.rightOption))
-        shortPersistentToggle(press)
-        XCTAssertEqual(press.persistentSessionTriggerOwnerKeyForTesting, .rightOption)
-        XCTAssertTrue(press.configurePersistentSessionTriggerKey(.leftOption))
-        shortPersistentToggle(press)
-
-        logger.flush()
-        let changes = try records(at: fileURL).filter {
-            $0["event"] as? String == "PERSISTENT_STATE_CHANGE"
-        }
-        XCTAssertEqual(changes.count, 2)
-        XCTAssertEqual(changes[0]["to"] as? String, "persistent_open")
-        XCTAssertEqual(changes[0]["owner_key"] as? String, "right_option")
-        XCTAssertEqual(changes[1]["closing_key"] as? String, "right_option")
-        XCTAssertEqual(changes[1]["to"] as? String, "idle")
-    }
-
     func testMappedTriggerMismatchIsLoggedWithObservedAndConfiguredKeys() throws {
         let fileURL = temporaryLogURL()
         defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -270,15 +239,6 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
 
         XCTAssertFalse(source.contains("LONG uses hardware-held left Option"))
         XCTAssertFalse(source.contains("LONG uses synthetic left Option"))
-    }
-
-    private func shortPersistentToggle(_ press: VoicePressCoordinator) {
-        XCTAssertTrue(press.keyDown(
-            sessionID: UUID(),
-            togglesPersistentVoiceSession: true
-        ))
-        XCTAssertTrue(press.keyUp())
-        RunLoop.current.run(until: Date().addingTimeInterval(0.10))
     }
 
     private func makeLogger(fileURL: URL) -> VoiceDiagnosticLogger {

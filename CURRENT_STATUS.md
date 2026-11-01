@@ -1,17 +1,32 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_3_AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Task 043: `MERGED / HUMAN_ACCEPTANCE_DEFERRED / USER-OWNED`
 Task 045 overall: `ACTIVE`
 Task 045A: `DIAGNOSTICS_GATING / MERGED / MAIN_CI_PASS / CLOSED`
 Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / MERGED / MAIN_CI_PASS / CLOSED`
 Task 045B Domain 2: `LEGACY_VOICE_PERSISTED_PREFERENCE_AUTHORITY / MERGED / MAIN_CI_PASS / CLOSED`
-Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / IMPLEMENTATION_COMPLETE / DRAFT_PR_OPEN / PR_HOST_GATE_RECHECK_REQUIRED / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
-Canonical implementation basis before Domain 3 control transition: `main@e96f69b7e848a999757e423edd0cc72efd459a7c`.
+Canonical implementation basis before Domain 3 execution: `main@54075fbe09c4f76bcb1287e675120fede7de3bc0`.
 Human runtime/UI acceptance: `PENDING / USER-OWNED`.
+
+## Domain 3 execution transition
+
+- Freshness reconciliation verified canonical remote `https://github.com/Lost0rz/remoteorbit.git` and fetched `origin/main` at `54075fbe09c4f76bcb1287e675120fede7de3bc0`.
+- Active branch: `codex/task045b-domain3-persistent-voice-runtime-retirement`.
+- Authoritative workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain3-persistent-voice-runtime-retirement`.
+- The Domain 2 worktree was clean, its implementation head was an ancestor of `origin/main`, and its merged PR was verified before worktree retirement. Domain 2 branch/history remain preserved.
+- Immutable Domain 3 implementation HEAD: `7cb5822a449340bc10c187a81aeb006958a5b151`.
+- Local focused contracts and LONG-only regression suites pass; full local Swift suite is `623/623`, native Release build and `git diff --check` pass.
+- Known preceding control/PR identity: `6fe81f7e88f841cc69a243da13d35fdaa0771b0e`; its successor `ebb9e9e4a237a66711ba2bab7e5e905c8d1d6c53` changed only `CURRENT_STATUS.md` and `CURRENT_TASK.md`.
+- The pre-reconciliation live reviewed PR `#34` head was `ebb9e9e4a237a66711ba2bab7e5e905c8d1d6c53`, targeting `main@54075fbe09c4f76bcb1287e675120fede7de3bc0`.
+- Exact-head durable RemoteOrbit CI for that reviewed head was run `41263188493`, job `124720464902`, passed on `remoteorbit-macmini`; source contracts, protocol self-tests, full Swift tests, native Release build, and Universal2 build-only packaging smoke all passed.
+- Independent Web CODE_DIFF audit and independent Web CI audit were `PASS` for that reviewed head (`FRESH_CONTEXT`).
+- The reconciliation commit created by this transition is a control-only descendant of the preceding control/PR identity, not a direct child of `main`. PR head and required CI for the new literal host identity must be resolved live from GitHub after push; this record intentionally does not hard-code its own future SHA.
+- No production-code/test delta, merge, app install, driver/CoreAudio/TCC mutation, tag, release, or Domain 4 work was performed or authorized.
 
 ## Domain 2 independent Web audit and closeout
 
@@ -79,4 +94,4 @@ Design authority: `docs/design/2026-11-01-045b-domain-3-persistent-voice-runtime
 
 ## Next gate
 
-Domain 3 is frozen and ready for one bounded local implementation. No Domain 4 mutation, merge, app install, driver/CoreAudio/TCC mutation, tag, release, or machine-owned RC003/Doubao acceptance is authorized.
+`WAITING_FOR_INDEPENDENT_WEB_AUDIT`: after the reconciliation commit is pushed, resolve the live PR `#34` head and its exact-head durable CI from GitHub, then perform independent Web identity verification. No merge, Domain 4 mutation, app install, driver/CoreAudio/TCC mutation, tag, release, or machine-owned RC003/Doubao acceptance is authorized.

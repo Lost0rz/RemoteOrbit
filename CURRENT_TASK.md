@@ -2,11 +2,23 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave B / Domain 3 Persistent Voice Runtime State Machine
 
-Status: `READY_FOR_IMPLEMENTATION_HANDOFF`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `BOUNDED LEGACY RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
 Design authority: `docs/design/2026-11-01-045b-domain-3-persistent-voice-runtime-retirement.md`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
+
+## Execution transition
+
+- Fresh live basis: `origin/main@54075fbe09c4f76bcb1287e675120fede7de3bc0`, verified from `https://github.com/Lost0rz/remoteorbit.git` immediately before workspace creation.
+- Active branch: `codex/task045b-domain3-persistent-voice-runtime-retirement`.
+- Active workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain3-persistent-voice-runtime-retirement`.
+- Domain 2 worktree retirement was authorized only after clean-state and merged-ancestry verification; its branch/history remain preserved.
+- Immutable Domain 3 implementation HEAD is `7cb5822a449340bc10c187a81aeb006958a5b151` from fresh live main. Focused contracts/LONG-only regressions, full local Swift `623/623`, native Release build, and `git diff --check` pass.
+- Known preceding control/PR identity is `6fe81f7e88f841cc69a243da13d35fdaa0771b0e`; the pre-reconciliation live reviewed PR `#34` head was `ebb9e9e4a237a66711ba2bab7e5e905c8d1d6c53`, with exact-head durable CI run `41263188493` / job `124720464902` passed on `remoteorbit-macmini`, including Universal2 build-only packaging smoke.
+- Independent Web CODE_DIFF audit and independent Web CI audit were `PASS` for that reviewed head (`FRESH_CONTEXT`).
+- The reconciliation transition is control-only and its commit is a descendant of the preceding control/PR identity, not a direct child of `main`. Resolve the literal PR head and exact-head CI for this new control-only head live from GitHub after push; this task record does not name its own future SHA.
+- Final actual state after the pushed reconciliation head receives durable CI remains `WAITING_FOR_INDEPENDENT_WEB_AUDIT`, pending independent Web identity verification.
 
 ## Completed prerequisite
 
@@ -138,6 +150,8 @@ Start from fresh live `main` after reconciliation. Use one fresh worktree/branch
 The merged Domain 2 worktree may be retired only after confirming clean state and merged ancestry. Preserve its branch/history unless separately authorized.
 
 Create one Draft PR. Do not merge locally.
+
+Domain 3 Draft PR: `#34` (`https://github.com/Lost0rz/RemoteOrbit/pull/34`). The live PR head is a GitHub-host identity resolved at audit time, not a hard-coded task lock. Implementation identity remains `7cb5822a449340bc10c187a81aeb006958a5b151`; the preceding control/PR identity and its durable evidence are recorded above.
 
 ## Stop
 
