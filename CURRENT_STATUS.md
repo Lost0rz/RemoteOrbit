@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_5_AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_5_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
 
@@ -12,7 +12,7 @@ Human runtime/UI acceptance: `PENDING / USER-OWNED`
 - Task 045B Domain 2: `LEGACY_VOICE_PERSISTED_PREFERENCE_AUTHORITY / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 4: `DUAL_RECEIVER_RUNTIME_STATE_MACHINE / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045B Domain 5: `LEGACY_GENERIC_SHORT_CLASSIFIER_RUNTIME / AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+- Task 045B Domain 5: `LEGACY_GENERIC_SHORT_CLASSIFIER_RUNTIME / IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 ## Domain 4 independent Web audit and closeout
 
@@ -40,7 +40,7 @@ Local execution performs only freshness/identity reconciliation for a frozen dom
 
 Design authority: `docs/design/2026-11-01-045b-domain-5-legacy-generic-short-classifier-retirement.md`.
 
-### Verified production facts
+### Frozen audit basis before implementation
 
 - Production `AppController.beginVoicePress(...)` ignores its legacy `shortBinding` argument and always calls the coordinator with `directSession: true` plus `longOnlyAdmission: true`; both HID and filter-fallback microphone entrypoints use that same Gate-A path.
 - `handleVoiceShortTap(...)`, `AppController.bypassesShortClassification(for:)`, and `VoicePressCoordinator.usesLocalMicrophone(forShortBinding:)` have no production caller.
@@ -86,6 +86,19 @@ Design authority: `docs/design/2026-11-01-045b-domain-5-legacy-generic-short-cla
 - broad diagnostics/history cleanup;
 - final resource/regression audit and hardware acceptance.
 
+## Domain 5 implementation handoff identity
+
+- Fresh start main: `683eb48d3e0edc4595fa6f61982c176c8675ddbb`.
+- Immutable implementation HEAD: `e4c285ecbe2ad9a3a79e4dd2f01607857fdc4c37`.
+- Branch/worktree: `codex/task045b-domain5-legacy-generic-short-classifier-retirement` / `remoteorbit-task045b-domain5-legacy-generic-short-classifier-retirement`.
+- Draft PR: `#36`, base `main@683eb48d3e0edc4595fa6f61982c176c8675ddbb`.
+- The live PR head is resolved from GitHub at audit time; this handoff records the immutable implementation HEAD and does not predeclare its own future SHA.
+- Implementation-head durable CI: run `41271178228`, job `124744101031`, `RemoteOrbit CI`, runner `remoteorbit-macmini`, passed full Swift tests, Native Release build and Universal2 build-only packaging smoke.
+- Local verification: focused retained voice/runtime/BLE/readiness/filter suites passed; full `swift test` passed 502/502; `git diff --check` passed; `swift build -c release` passed.
+- Changed paths: `remote-orbit/Sources/RemoteOrbit/main.swift`, `remote-orbit/Sources/RemoteOrbit/VoiceReceiverReadiness.swift`, and directly affected retained voice/runtime tests under `remote-orbit/Tests/RemoteOrbitTests/`; deleted `remote-orbit/Tests/RemoteOrbitTests/DisabledShortClassifierTests.swift`.
+- `AudioPipe.swift` is unchanged; no app install, driver/CoreAudio/TCC mutation, default-device mutation, tag/release, or merge was performed.
+- `CURRENT_STATUS.md` and `CURRENT_TASK.md` are updated in one atomic handoff commit, which is a direct child of the implementation HEAD. Its SHA and the post-push CI identity must be resolved from the live branch/PR after publication.
+
 ## Next gate
 
-Domain 5 is fully audited/frozen and ready for one bounded local implementation from fresh live `main`. No Domain 6 mutation, merge, app install, driver/CoreAudio/TCC mutation, tag/release, or machine-owned hardware acceptance is authorized.
+Await independent Web exact-head source/CI/identity audit of the live PR head after the control handoff. No merge, Domain 6 mutation, app install, driver/CoreAudio/TCC mutation, tag/release, or machine-owned hardware acceptance is authorized.

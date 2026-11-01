@@ -2,11 +2,23 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave B / Domain 5 Legacy Generic Short Classifier Runtime
 
-Status: `READY_FOR_IMPLEMENTATION_HANDOFF`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `BOUNDED LEGACY RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
 Design authority: `docs/design/2026-11-01-045b-domain-5-legacy-generic-short-classifier-retirement.md`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
+
+## Implementation handoff identity
+
+- Fresh start main: `683eb48d3e0edc4595fa6f61982c176c8675ddbb`.
+- Immutable implementation HEAD: `e4c285ecbe2ad9a3a79e4dd2f01607857fdc4c37`.
+- Branch/worktree: `codex/task045b-domain5-legacy-generic-short-classifier-retirement` / `remoteorbit-task045b-domain5-legacy-generic-short-classifier-retirement`.
+- Draft PR: `#36`; live PR head must be resolved from GitHub at audit time.
+- Implementation-head durable CI: `41271178228` / job `124744101031` / `remoteorbit-macmini` / PASS, including Universal2 build-only packaging smoke.
+- Local: focused retained voice/runtime/BLE/readiness/filter suites PASS, full `swift test` PASS (502/502), Release build PASS, and `git diff --check` PASS.
+- The implementation changed only the Domain 5 coordinator/AppController/readiness surface and directly affected tests; `AudioPipe.swift` is unchanged. The obsolete `DisabledShortClassifierTests.swift` was deleted.
+- This control handoff is one atomic commit directly after the implementation HEAD. Do not encode its own future SHA here; resolve the live PR head and post-push CI directly from GitHub.
+- Final state: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
 ## Completed prerequisite
 
