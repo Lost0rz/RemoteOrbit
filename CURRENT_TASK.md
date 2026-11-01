@@ -2,7 +2,7 @@
 
 ## RO-PROJECT-CLOSEOUT-046 — Repository Closeout & Baseline
 
-Status: `LOCAL_WORKTREE_INVENTORY / READY`
+Status: `REMOTE_HYGIENE_COMPLETE / LOCAL_WORKTREE_INVENTORY_READY`
 TASK_CLASS: `REPOSITORY / WORKSPACE LIFECYCLE CLOSEOUT`
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -13,19 +13,33 @@ Close the completed RemoteOrbit development cycle into one clear baseline withou
 Owner-authorized outcome:
 
 1. close stale remote PRs after evidence-based classification;
-2. clean stale local worktrees after inventory and merged/superseded checks;
-3. leave one clear canonical baseline;
-4. preserve unique/unmerged work unless its lifecycle is explicitly decided.
+2. retire stale remote branches only after branch-by-branch audit;
+3. clean stale local worktrees after inventory and merged/superseded checks;
+4. leave one clear canonical baseline;
+5. preserve unique/unmerged work unless its lifecycle is explicitly decided.
 
-## Phase A result — remote PR hygiene
+## Phase A result — remote hygiene
 
 Completed.
+
+PRs:
 
 - #25: `SUPERSEDED/HISTORICAL` → CLOSED / UNMERGED
 - #26: `SUPERSEDED/HISTORICAL` → CLOSED / UNMERGED
 - #28: `MERGED/EQUIVALENT_BY_LATER_MAIN` → CLOSED / UNMERGED
 - verified open PR count after cleanup: `0`
-- remote branches retained; no branch deletion performed
+
+Remote branches:
+
+- non-`main` remote branches audited: `25`
+- `SAFE_DELETE_MERGED`: `21`
+- `SAFE_DELETE_SUPERSEDED`: `4`
+- `KEEP_UNIQUE_HISTORY`: `0`
+- `UNKNOWN_STOP`: `0`
+- owner executed the exact audited deletion set;
+- post-delete fetch/prune shows only `origin/main` plus symbolic `origin/HEAD -> origin/main`.
+
+Remote branch retirement is complete. No branch with unique required work was deleted.
 
 ## Phase B — local worktree inventory and retirement
 
@@ -54,17 +68,16 @@ Authorized Phase B mutation:
 
 - remove registered/local worktrees only after evidence proves `SAFE_TO_RETIRE_*` and the worktree is clean;
 - prune stale worktree registration only after the underlying target is proven absent/stale;
-- preserve local and remote branch/history unless separately authorized.
+- preserve local branch/history until its own explicit lifecycle decision.
 
 Do not auto-reset, stash, clean, or delete dirty/unique work to make it removable.
 
 ## Later Phase C
 
-After worktree cleanup, reconcile one clear canonical checkout/main baseline, classify stale branches/docs/release artifacts, and produce the final repository closeout receipt.
+After worktree cleanup, reconcile one clear canonical checkout/main baseline, classify stale local branches/docs/release artifacts, and produce the final repository closeout receipt.
 
 ## Non-goals
 
 - no product behavior changes;
 - no tag/release;
-- no driver/CoreAudio/TCC/default-device changes;
-- no remote branch deletion unless separately authorized after branch inventory.
+- no driver/CoreAudio/TCC/default-device changes.
