@@ -1,15 +1,18 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_1_IMPLEMENTATION_IN_PROGRESS`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_1_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Task 043: `MERGED / HUMAN_ACCEPTANCE_DEFERRED / USER-OWNED`
 Task 045 overall: `ACTIVE`
 Task 045A: `DIAGNOSTICS_GATING / MERGED / MAIN_CI_PASS / CLOSED`
-Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / IMPLEMENTATION_IN_PROGRESS`
+Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / IMPLEMENTATION_COMPLETE / DRAFT_PR_OPEN / DURABLE_CI_PASS / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Active branch: `codex/task045b-domain1-legacy-voice-product-surface`
 Authoritative workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain1-legacy-voice-product-surface`
 Implementation base: `origin/main@03d130ab9129932e3b1dc9fabf818f87f56c8fd4`
+Implementation head: `9795719e403848b397c572a6072c43c76f95b888`
+Remote branch head: `9795719e403848b397c572a6072c43c76f95b888` (equal)
+Draft PR: `#32` (`https://github.com/Lost0rz/RemoteOrbit/pull/32`)
 
 ## Task 045A closeout
 
@@ -18,6 +21,23 @@ Implementation base: `origin/main@03d130ab9129932e3b1dc9fabf818f87f56c8fd4`
 - Post-merge durable CI run `41258162847`, job `124705656701`, runner `remoteorbit-macmini`: source contracts PASS, protocol self-tests PASS, full Swift tests PASS, native Release build PASS, Universal2 build-only packaging smoke PASS.
 - No app install, driver/CoreAudio/TCC mutation, tag, or release was performed.
 - Human RC003/Doubao acceptance remains deferred and user-owned.
+
+## Task 045B Domain 1 execution
+
+- Retired the Settings-only Persistent-session, Receiver-B, and microphone-SHORT
+  product surface, including its SettingsWindow/main bridge wiring.
+- Keymap microphone presentation is now fixed to retained LONG remote voice only.
+- `.voiceKeyDefault` remains Codable-compatible and no longer carries Persistent
+  user-facing wording.
+- Focused source-contract, Keymap, profile-migration, and LONG-only suites passed
+  (`96` tests, `0` failures); full `swift test` passed (`660` tests, `0` failures).
+- `swift build -c release` passed.
+- Durable CI run `41259237157`, job `124708848980`, passed on runner
+  `remoteorbit-macmini`, including Universal2 build-only packaging smoke.
+- The verified clean Task 045A worktree was retired after confirming its clean
+  state and merged ancestry; its branch/history was retained.
+- No Persistent runtime, Dual runtime, or AppStorage legacy persistence mutation
+  was performed.
 
 ## Legacy retirement execution model
 
@@ -74,6 +94,5 @@ Design authority: `docs/design/2026-11-01-045b-domain-1-legacy-voice-product-sur
 
 ## Next gate
 
-Implement only Domain 1 in the active worktree, run focused + full durable verification,
-open one Draft PR, and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. No merge and no
-Domain 2 mutation are authorized locally.
+`WAITING_FOR_INDEPENDENT_WEB_AUDIT` on PR `#32`. No merge and no Domain 2 mutation
+are authorized locally.

@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave B / Domain 1 Legacy Voice Product Surface
 
-Status: `IMPLEMENTATION_IN_PROGRESS`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `BOUNDED LEGACY RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
 Design authority: `docs/design/2026-11-01-045b-domain-1-legacy-voice-product-surface.md`
@@ -109,14 +109,20 @@ The active worktree/branch was created from fresh live `main` after reconciliati
 
 Workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain1-legacy-voice-product-surface`
 Start HEAD: `03d130ab9129932e3b1dc9fabf818f87f56c8fd4`
+Final HEAD: `9795719e403848b397c572a6072c43c76f95b888`
+Remote branch HEAD: `9795719e403848b397c572a6072c43c76f95b888` (equal)
 
 The already-merged Task 045A worktree may be retired only after confirming it is clean and fully merged; do not delete unknown/unmerged work.
 
-Create one Draft PR for Domain 1. Do not merge it locally.
+Draft PR: `#32` (`https://github.com/Lost0rz/RemoteOrbit/pull/32`), open and Draft.
+Durable CI: run `41259237157`, job `124708848980`, `success` on
+`remoteorbit-macmini`; Universal2 build-only packaging smoke passed.
+The 045A predecessor worktree was retired after a clean/merged check; its branch
+was retained.
 
 ## Stop
 
-After implementation, tests, push, Draft PR, durable CI, and atomic control handoff, stop at:
+After implementation, tests, push, Draft PR, durable CI, and this atomic control handoff, stop at:
 
 `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
