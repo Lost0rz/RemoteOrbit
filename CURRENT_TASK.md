@@ -2,11 +2,19 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave B / Domain 3 Persistent Voice Runtime State Machine
 
-Status: `READY_FOR_IMPLEMENTATION_HANDOFF`
+Status: `IMPLEMENTATION_IN_PROGRESS`
 TASK_CLASS: `BOUNDED LEGACY RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
 Design authority: `docs/design/2026-11-01-045b-domain-3-persistent-voice-runtime-retirement.md`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
+
+## Execution transition
+
+- Fresh live basis: `origin/main@54075fbe09c4f76bcb1287e675120fede7de3bc0`, verified from `https://github.com/Lost0rz/remoteorbit.git` immediately before workspace creation.
+- Active branch: `codex/task045b-domain3-persistent-voice-runtime-retirement`.
+- Active workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain3-persistent-voice-runtime-retirement`.
+- Domain 2 worktree retirement was authorized only after clean-state and merged-ancestry verification; its branch/history remain preserved.
+- Domain 3 implementation has started from the fresh live main. Draft PR, implementation HEAD, verification results, and final control HEAD remain pending.
 
 ## Completed prerequisite
 

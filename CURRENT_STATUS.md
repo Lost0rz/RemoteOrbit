@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_3_AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_3_IMPLEMENTATION_IN_PROGRESS`
 Repository: `Lost0rz/RemoteOrbit`
 Task 043: `MERGED / HUMAN_ACCEPTANCE_DEFERRED / USER-OWNED`
 Task 045 overall: `ACTIVE`
@@ -10,8 +10,17 @@ Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / MERGED / MAIN_CI_PASS / CLOS
 Task 045B Domain 2: `LEGACY_VOICE_PERSISTED_PREFERENCE_AUTHORITY / MERGED / MAIN_CI_PASS / CLOSED`
 Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
 
-Canonical implementation basis before Domain 3 control transition: `main@e96f69b7e848a999757e423edd0cc72efd459a7c`.
+Canonical implementation basis before Domain 3 execution: `main@54075fbe09c4f76bcb1287e675120fede7de3bc0`.
 Human runtime/UI acceptance: `PENDING / USER-OWNED`.
+
+## Domain 3 execution transition
+
+- Freshness reconciliation verified canonical remote `https://github.com/Lost0rz/remoteorbit.git` and fetched `origin/main` at `54075fbe09c4f76bcb1287e675120fede7de3bc0`.
+- Active branch: `codex/task045b-domain3-persistent-voice-runtime-retirement`.
+- Authoritative workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain3-persistent-voice-runtime-retirement`.
+- The Domain 2 worktree was clean, its implementation head was an ancestor of `origin/main`, and its merged PR was verified before worktree retirement. Domain 2 branch/history remain preserved.
+- No Domain 3 PR exists at execution start. No product implementation has been performed yet.
+- This control transition is a direct child of the audited `main@54075fbe09c4f76bcb1287e675120fede7de3bc0` and authorizes only the frozen Domain 3 implementation and its required verification/delivery gates.
 
 ## Domain 2 independent Web audit and closeout
 
@@ -79,4 +88,4 @@ Design authority: `docs/design/2026-11-01-045b-domain-3-persistent-voice-runtime
 
 ## Next gate
 
-Domain 3 is frozen and ready for one bounded local implementation. No Domain 4 mutation, merge, app install, driver/CoreAudio/TCC mutation, tag, release, or machine-owned RC003/Doubao acceptance is authorized.
+Implement the frozen Domain 3 in the active worktree, then run its focused/full/build/durable-CI verification and atomic control handoff. No Domain 4 mutation, merge, app install, driver/CoreAudio/TCC mutation, tag, release, or machine-owned RC003/Doubao acceptance is authorized.
