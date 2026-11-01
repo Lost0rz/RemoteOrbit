@@ -91,6 +91,16 @@ struct KeymapPresentation: Equatable {
         binding: ButtonBinding,
         profile: ButtonGestureProfile
     ) -> [KeymapActionLine] {
+        if button == .microphone {
+            return [
+                KeymapActionLine(
+                    id: "\(button.rawValue)-long",
+                    gesture: "长按",
+                    action: "遥控器语音输入"
+                )
+            ]
+        }
+
         var lines: [KeymapActionLine] = []
 
         if case .voiceKeyDefault = binding {
