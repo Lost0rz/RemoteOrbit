@@ -1,86 +1,54 @@
 # CURRENT_STATUS
 
-Last updated: 2026-10-31
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Last updated: 2026-11-01
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAVE_A_AUDIT_STOP / CORRECTIVE_REQUIRED`
 Repository: `Lost0rz/RemoteOrbit`
-Control parent before this execution: `fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
-Audited source authority: `main@fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
-Execution branch: `codex/task045a-diagnostics-gating`
-Execution workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045a-diagnostics-gating`
-Execution start HEAD: `fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
 Task 043: `MERGED / HUMAN_ACCEPTANCE_DEFERRED / USER-OWNED`
 Task 045 overall: `ACTIVE`
-Task 045A: `DIAGNOSTICS_GATING / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Task 045A: `DIAGNOSTICS_GATING / CORRECTIVE_REQUIRED`
 
-## Accepted design
+## Independent Web audit
 
-Durable Task 045 design authority:
+Audit target observed at review time:
 
-`docs/design/2026-10-31-045-diagnostics-gating-and-legacy-retirement.md`
+- PR `#31` (`OPEN / DRAFT`)
+- base `main@fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
+- reviewed head `856fcb065ab94ae01e210df7fa55561a4cfcf11a`
+- live `main` remained at the same base during audit
+- final reviewed CI run `41214430041` succeeded on `remoteorbit-macmini` against the PR merge ref; full Swift tests were `656/656`, native Release build passed, and Universal2 packaging reported `x86_64 arm64`
 
-The audit found no unresolved classification that blocks Wave A.
+Audit independence: `FRESH_CONTEXT` (not a separate agent and not human acceptance).
 
-### Diagnostics facts
+## Verdict
 
-- ordinary `RemoteOrbit.log` already has an effective disabled fast path;
-- `VoiceDiagnosticLogger`, `DiagnosticAuthority`, runtime-health heartbeat, voice-start diagnostic watchdog, long-term observability, and `AudioPipe` per-session diagnostic probes currently perform work outside the ordinary logging toggle;
-- WAV/RAW recording is already a separate explicit opt-in path and remains independent;
-- diagnostic persistence/timers can be gated without changing the current LONG-only voice owners.
+`STOP — REQUIRED CORRECTIVE BEFORE MERGE`
 
-### Legacy-retirement facts
+The core diagnostics gate is sound and the current LONG-only regressions remain green, but two acceptance contracts are not fully closed:
 
-- current product authority is LONG-only; microphone SHORT is a no-op;
-- `VoiceInputProfile` is already the canonical trigger destination authority;
-- Persistent and Receiver-B preferences are explicitly excluded from current profile migration authority;
-- Settings/overlay/runtime/tests still expose or implement obsolete Persistent/Dual semantics;
-- some historically Persistent-named gate/tombstone/suppression mechanisms are now required by LONG-only correctness and must be kept/reframed rather than deleted.
+1. **Runtime diagnostics observer lifecycle is incomplete.**
+   `FrontmostApplicationDiagnosticsObserver` is created/stopped only by application launch/termination. A runtime logging toggle does not start it when diagnostics changes OFF→ON and does not stop/unregister it when diagnostics changes ON→OFF. This leaves diagnostic-only notification observation active after disabling and leaves that diagnostic producer absent after runtime enabling.
 
-## Selected sequence
+2. **Recording independence lacks the required direct combination test.**
+   The Wave A contract requires recording to remain functional with ordinary diagnostics OFF. Existing `WavRecorderDiagnosticsTests` force diagnostics ON in `setUp`; the new gate test only proves that setting `recordingEnabled = true` does not itself enable diagnostics. It does not exercise an actual WAV/RAW recording lifecycle with diagnostics OFF.
 
-1. **Wave A — diagnostics gating**: authorized next implementation handoff.
-2. **Wave B — UI/config retirement**: still frozen.
-3. **Wave C — Persistent/Dual runtime/test retirement**: still frozen.
-4. **Wave D — final regression/resource audit**.
+### Non-blocking observations
 
-Splitting these waves is intentional so a diagnostics/performance regression cannot be mixed with state-machine retirement.
+- Startup still performs a small amount of diagnostic-only metadata work before the structured logger's disabled guard (selected-input registry lookup and run-start calibration/field construction). This is finite one-time work, not a persistent writer/timer. It should be removed in the same corrective if it can be done without widening the voice/runtime boundary, but it is not the primary STOP reason.
+- Final branch-control text records the prior handoff SHA/run rather than the later evidence-refresh head/run. Independent Web audit bound the actual final head and CI directly, so this is bookkeeping rather than semantic evidence loss; refresh controls atomically at the next handoff.
 
-## Wave A target
+## Corrective boundary
 
-One effective process-local diagnostics mode:
+Continue in the existing Task 045A branch/worktree/PR. Do not create a successor task or new PR solely for this corrective.
 
-```text
-effectiveDiagnosticsEnabled = AppStorage.loggingEnabled
-                              OR REMOTE_ORBIT_DIAGNOSTICS=1
-```
+Authorized product mutation is limited to:
 
-Disabled mode must avoid diagnostic disk I/O, structured writer enqueue/serialization and diagnostic-only recurring timers while preserving product correctness owners. Audio recording remains separately controlled by `AppStorage.recordingEnabled`.
+- make the frontmost-application diagnostic observer follow the effective diagnostics runtime gate safely for launch and runtime ON/OFF transitions;
+- add direct regression coverage proving recording ON still writes/finalizes WAV/RAW while diagnostics are OFF and structured recording metadata remains suppressed by the diagnostics gate;
+- remove the finite startup-only diagnostic metadata work while diagnostics are OFF if this remains a local diagnostics-only change;
+- update focused tests and the two control files atomically for the next handoff.
 
-## Current mutation boundary
+Still frozen: Persistent/Dual retirement, microphone SHORT product/config removal, LONG-only semantics, BLE/ATVV, HID mapping correctness, AudioPipe transport/buffer/IOProc, receiver-readiness architecture, app installation, driver/CoreAudio/TCC mutation, tag/release, and merge.
 
-The next local execution context may implement **Wave A only** according to `CURRENT_TASK.md` and the accepted design document.
+## Next gate
 
-It may not remove Persistent/Dual production code, alter SHORT/LONG semantics, install/replace the app, mutate the HAL driver, restart CoreAudio, change TCC/default devices, tag/release, or merge its PR.
-
-Task 043 human runtime acceptance remains deferred; Task 045 work must not relabel it PASS.
-
-## Execution
-
-- Fresh execution worktree and branch were created from the live fetched `origin/main`
-  at `fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`.
-- Wave A implementation was the sole active writer in the execution workspace.
-- Implementation commit: `4720fbd2f6322e687281cdaf9c7db2ab6c10a098`.
-- Control handoff commit: `a47d05e7a03ec97ef1a0506090828cd1e00114d4`.
-- At the final implementation handoff, remote branch and PR head were verified at
-  `a47d05e7a03ec97ef1a0506090828cd1e00114d4`:
-  `origin/codex/task045a-diagnostics-gating`.
-- Draft PR: `https://github.com/Lost0rz/RemoteOrbit/pull/31` (`OPEN / DRAFT`).
-- Remote machine gate at the implementation handoff: workflow run `41214027305`,
-  job `124574698531`, runner `remoteorbit-macmini`, conclusion `success` at the
-  exact handoff SHA.
-  Full Swift tests (`656/656`), native Release build, and Universal2 build-only
-  packaging smoke passed; packaging log verified `x86_64 arm64`.
-- Local verification also passed: focused changed-boundary tests (`26/26`), full
-  Swift tests (`656/656`), `swift build -c release`, and `git diff --check`.
-- No app/driver/CoreAudio/TCC installation or runtime mutation was performed.
-- Final state is intentionally waiting for independent web audit. Human UI/runtime
-  acceptance remains user-owned and pending; no merge, tag, or release occurred.
+Local execution performs only the bounded corrective and machine verification, then returns the same PR to `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Web performs a fresh audit of the corrected head before any merge decision.
