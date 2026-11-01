@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave D / Domain 1 Remote-Only PCM Attribution Retirement
 
-Status: `READY_FOR_IMPLEMENTATION_HANDOFF`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `BOUNDED FINAL RESIDUE RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
 Design authority: `docs/design/2026-11-01-045d-domain-1-remote-only-pcm-attribution-retirement.md`
@@ -177,5 +177,19 @@ After implementation, verification, push, Draft PR, durable CI and atomic contro
 `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Do not start another Wave D domain, install the app, mutate driver/CoreAudio/TCC/default devices, tag/release or merge locally.
+
+## Execution receipt (2026-11-01)
+
+- Fresh start: live `main@8648c3f9c3f0f12e57e54767bfd04d8b05fff3ec`; pre-mutation control CI run `41277112083`, job `124761430249`, final SUCCESS.
+- Branch/worktree: `codex/task045d-domain1-remote-only-pcm-attribution-retirement`.
+- Implementation HEAD = Draft PR #38 head: `23328cc68a3044413b66f4218cf27a925e35e588`.
+- Changed: `AudioPipeRealtime.swift`, `AudioPipe.swift`, `AudioDataPlaneDiagnostics.swift`, `AudioPipeRealtimeTests.swift`, `AudioDataPlaneMeasurementBoundaryTests.swift` (+89/−219).
+- Retired: `AudioPipePCMSource` (incl. `.local`), `remoteQueuedFrames` counter and source-conditioned bookkeeping, `AudioRemoteQueueAttribution`, mixed/local attribution tests. Remote-named result/diagnostic fields retained and equal to total queue depth.
+- Unchanged: ring algorithm/capacity, reserve/render/drain, LONG-only and suppression/tombstone semantics, BLE/ATVV, Domain 6 input lease, diagnostics gate/recording.
+- Focused suites 248/248; full `swift test` 507/507; Release PASS; `git diff --check` clean; local Universal2 packaging smoke PASS (`x86_64 arm64`); durable CI run `41279444041`, job `124768161983`, on `remoteorbit-macmini`, SUCCESS.
+- Domain 6 worktree retired (clean + merged ancestry verified); its branch/history preserved.
+- No merge, no app install, no driver/CoreAudio/TCC/default-device mutation, no tag/release. HUMAN_UI_ACCEPTANCE remains `PENDING / USER-OWNED`.
+
+Next action: independent Web exact-head audit of Draft PR #38 (`FRESH_CONTEXT`).
 
 Return actual governance route/capability, topology/subagents, fresh start main, authority/control CI pre-mutation result, branch/worktree, implementation/final heads, remote equality, Draft PR, changed/deleted paths, retired attribution surface, retained diagnostic field semantics, focused/full/build/diff/CI/package results, Domain 6 worktree disposition, scope-mutation flags, unresolved uncertainty, `HUMAN_UI_ACCEPTANCE`, merge state and final actual state.
