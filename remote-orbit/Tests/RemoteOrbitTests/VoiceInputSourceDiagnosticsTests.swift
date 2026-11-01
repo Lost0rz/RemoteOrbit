@@ -42,7 +42,6 @@ final class VoiceInputSourceDiagnosticsTests: XCTestCase {
 
         controller.beginVoicePress(
             targetApplicationBundleIdentifier: "org.example.RemoteOrbitTests",
-            shortBinding: .voiceKeyDefault,
             source: .hidMonitor
         )
         XCTAssertTrue(voicePress.promoteLongOnlyCandidateForTesting())

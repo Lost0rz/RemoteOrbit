@@ -19,7 +19,6 @@ final class VoiceBoundaryOrderingTests: XCTestCase {
 
         harness.controller.beginVoicePress(
             targetApplicationBundleIdentifier: "org.example.RemoteOrbitTests",
-            shortBinding: .preset(.disabled),
             source: .hidMonitor
         )
         XCTAssertTrue(harness.voicePress.promoteLongOnlyCandidateForTesting())
@@ -47,7 +46,6 @@ final class VoiceBoundaryOrderingTests: XCTestCase {
 
         harness.controller.beginVoicePress(
             targetApplicationBundleIdentifier: "org.example.RemoteOrbitTests",
-            shortBinding: .preset(.disabled),
             source: .voiceKeyFilterFallback
         )
         XCTAssertTrue(harness.voicePress.promoteLongOnlyCandidateForTesting())
@@ -91,7 +89,6 @@ final class VoiceBoundaryOrderingTests: XCTestCase {
             defer { harness.close() }
             harness.controller.beginVoicePress(
                 targetApplicationBundleIdentifier: "org.example.RemoteOrbitTests",
-                shortBinding: .preset(.disabled),
                 source: source
             )
             XCTAssertTrue(harness.voicePress.promoteLongOnlyCandidateForTesting())

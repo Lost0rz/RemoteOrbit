@@ -2,7 +2,7 @@ import XCTest
 @testable import RemoteOrbit
 
 final class KeymapOverlayTests: XCTestCase {
-    func testVoicePressUsesTheOriginalTapClassificationWindow() {
+    func testLongOnlyVoicePressKeepsThe300MillisecondThreshold() {
         XCTAssertEqual(VoicePressCoordinator.holdActivationThreshold, 0.30)
     }
 
@@ -93,32 +93,6 @@ final class KeymapOverlayTests: XCTestCase {
         XCTAssertEqual(decoded.displayName, "语音键默认（长按遥控器语音输入）")
         XCTAssertFalse(decoded.displayName.contains("持续会话"))
         XCTAssertFalse(decoded.displayName.contains("短按"))
-    }
-
-    func testOnlyShortVoiceInputsRequestTheLocalMicrophone() {
-        XCTAssertFalse(
-            VoicePressCoordinator.usesLocalMicrophone(forShortBinding: .voiceKeyDefault)
-        )
-        XCTAssertTrue(
-            VoicePressCoordinator.usesLocalMicrophone(
-                forShortBinding: .preset(.chatGPTStartVoiceChat)
-            )
-        )
-        XCTAssertTrue(
-            VoicePressCoordinator.usesLocalMicrophone(
-                forShortBinding: .preset(.chatGPTStartDictation)
-            )
-        )
-        XCTAssertFalse(
-            VoicePressCoordinator.usesLocalMicrophone(
-                forShortBinding: .preset(.disabled)
-            )
-        )
-        XCTAssertFalse(
-            VoicePressCoordinator.usesLocalMicrophone(
-                forShortBinding: .preset(.returnKey)
-            )
-        )
     }
 
     func testTVLongPressDefaultsToCurrentKeymapInspection() {
