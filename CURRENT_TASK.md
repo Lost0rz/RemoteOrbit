@@ -14,7 +14,7 @@ Human runtime/UI acceptance: `PENDING / USER-OWNED`
 - Active branch: `codex/task045b-domain3-persistent-voice-runtime-retirement`.
 - Active workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain3-persistent-voice-runtime-retirement`.
 - Domain 2 worktree retirement was authorized only after clean-state and merged-ancestry verification; its branch/history remain preserved.
-- Domain 3 implementation is committed at `7cb5822a449340bc10c187a81aeb006958a5b151` from the fresh live main. Focused contracts/LONG-only regressions, full local Swift `623/623`, native Release build, and diff check pass. Draft PR, durable CI, and final control HEAD remain pending.
+- Domain 3 implementation is committed at `7cb5822a449340bc10c187a81aeb006958a5b151` from the fresh live main. Focused contracts/LONG-only regressions, full local Swift `623/623`, native Release build, and diff check pass. Draft PR `#34` is open at exact head `91052b1d1bc196b3e3ae9a59186dd193878cc36b`; durable CI and final control HEAD remain pending.
 
 ## Completed prerequisite
 

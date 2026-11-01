@@ -8,7 +8,7 @@ Task 045 overall: `ACTIVE`
 Task 045A: `DIAGNOSTICS_GATING / MERGED / MAIN_CI_PASS / CLOSED`
 Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / MERGED / MAIN_CI_PASS / CLOSED`
 Task 045B Domain 2: `LEGACY_VOICE_PERSISTED_PREFERENCE_AUTHORITY / MERGED / MAIN_CI_PASS / CLOSED`
-Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / IMPLEMENTATION_IN_PROGRESS / DRAFT_PR_OPEN / CI_PENDING`
 
 Canonical implementation basis before Domain 3 execution: `main@54075fbe09c4f76bcb1287e675120fede7de3bc0`.
 Human runtime/UI acceptance: `PENDING / USER-OWNED`.
@@ -21,6 +21,7 @@ Human runtime/UI acceptance: `PENDING / USER-OWNED`.
 - The Domain 2 worktree was clean, its implementation head was an ancestor of `origin/main`, and its merged PR was verified before worktree retirement. Domain 2 branch/history remain preserved.
 - Domain 3 implementation commit: `7cb5822a449340bc10c187a81aeb006958a5b151`.
 - Local focused contracts and LONG-only regression suites pass; full local Swift suite is `623/623`, and native Release build passes. Durable CI, Draft PR, and final handoff remain pending.
+- Draft PR `#34` is open at exact head `91052b1d1bc196b3e3ae9a59186dd193878cc36b`, targeting `main@54075fbe09c4f76bcb1287e675120fede7de3bc0`; durable CI is pending.
 - This control transition is a direct child of the audited `main@54075fbe09c4f76bcb1287e675120fede7de3bc0` and authorizes only the frozen Domain 3 implementation and its required verification/delivery gates.
 
 ## Domain 2 independent Web audit and closeout
