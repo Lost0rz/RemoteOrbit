@@ -531,7 +531,6 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
     private var diagnosticsActive: Int32 = 0
     private var diagnosticsRenderInFlight: Int32 = 0
     private var remoteActive: Int32 = 0
-    private var localMicrophoneActive: Int32 = 0
     private var remoteWasActive: Int32 = 0
     private var drainWaiterRequested: Int32 = 0
 
@@ -576,16 +575,8 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
         }
     }
 
-    func setLocalMicrophoneActive(_ active: Bool) {
-        atomicStore32(active ? 1 : 0, to: &localMicrophoneActive)
-    }
-
     func currentRemoteActive() -> Bool {
         atomicLoad32(&remoteActive) != 0
-    }
-
-    func currentLocalMicrophoneActive() -> Bool {
-        atomicLoad32(&localMicrophoneActive) != 0
     }
 
     func currentRemoteWasActive() -> Bool {
@@ -680,8 +671,6 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
                 Int64(accounting.idleRenderCallbacks),
                 to: &idleRenderCallbackCount
             )
-        case .localMicrophone:
-            break
         }
 
         if remoteWasActive, readResult.remoteFramesConsumed > 0 {
@@ -901,7 +890,6 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
         case .activeRemote: return 0
         case .tailDrain: return 1
         case .idle: return 2
-        case .localMicrophone: return 3
         }
     }
 

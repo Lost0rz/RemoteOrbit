@@ -126,24 +126,6 @@ final class AudioDataPlaneMeasurementBoundaryTests: XCTestCase {
         XCTAssertEqual(render.idleRenderCallbacks, 0)
     }
 
-    func testLocalMicrophoneRenderIsExcludedFromRemoteDiagnostics() {
-        let render = AudioPipeRenderAccounting.measure(
-            requestedFrames: 512,
-            availableRemoteFrames: 0,
-            pendingRemoteFrames: 0,
-            remoteActive: false,
-            remoteWasActive: true,
-            localMicrophoneActive: true
-        )
-
-        XCTAssertEqual(render.state, .localMicrophone)
-        XCTAssertFalse(render.accounted)
-        XCTAssertEqual(render.activeUnderrunFrames, 0)
-        XCTAssertEqual(render.tailRenderedFrames, 0)
-        XCTAssertEqual(render.tailEmptyCallbacks, 0)
-        XCTAssertEqual(render.idleRenderCallbacks, 0)
-    }
-
     func testLocalOnlyQueueDoesNotEnterRemoteDiagnostics() {
         XCTAssertEqual(
             AudioRemoteQueueAttribution.remoteQueueDepth(

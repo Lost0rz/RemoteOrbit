@@ -61,9 +61,11 @@ RemoteOrbit，不复用原项目的设置入口或配置界面。
 - 输入设备会列出 `RemoteOrbit Mic 2ch（遥控器/自动）`、内置麦克风和当前可用的外接麦克风。
 - 输出设备会列出扬声器、显示器音频和耳机等真实输出设备，并自动隐藏 BlackHole、RemoteOrbit
   等虚拟回环设备，避免误选。
-- 默认输入仍是 RemoteOrbit；当前语音键采用仅长按遥控器麦克风的工作方式，短按不会调用本机麦克风。
-- 如果改选物理麦克风，macOS 会直接把它作为系统默认输入；需要恢复遥控器语音链路时，重新选择
-  `RemoteOrbit Mic 2ch（遥控器/自动）`。
+- 默认输入仍是 RemoteOrbit；当前语音键采用仅长按遥控器麦克风的工作方式，短按是纯无操作，
+  不会打开本机或外接麦克风。
+- 如果改选物理麦克风，macOS 会直接把它作为系统默认输入并记住该选择；长按遥控器语音键时，
+  RemoteOrbit 只会临时把系统输入切到 `RemoteOrbit Mic 2ch`，并在最后一轮语音完全播放结束后
+  自动恢复你保存的输入设备（快速连按两次语音键期间不会来回切换）。
 - 输出设备切换只修改 macOS 系统默认输出，不会重启 App；菜单每次打开时会刷新设备列表。
 
 ## DMG 安装（推荐）
@@ -75,7 +77,8 @@ Xcode Command Line Tools，也不需要再次联网下载 BlackHole 或其他构
 推荐安装流程：
 
 1. 将 DMG 顶层的 `RemoteOrbit.app` 拖到旁边的 `Applications` 快捷入口。
-2. 从 `/Applications/RemoteOrbit.app` 启动，按 macOS 提示授予蓝牙、麦克风、辅助功能和输入监控权限。
+2. 从 `/Applications/RemoteOrbit.app` 启动，按 macOS 提示授予蓝牙、辅助功能和输入监控权限；
+   遥控器语音走蓝牙 ATVV 音频，不再请求 macOS 麦克风权限。
 3. 打开“设置与诊断”。如果虚拟音频组件未检测到，点击“重新安装音频组件”并在管理员对话框中授权。
 4. 应用会自动重新加载 CoreAudio，通常不需要重启 Mac；在“声音”或“音频 MIDI 设置”中确认
    `RemoteOrbit Mic 2ch` 已出现并作为输入设备。
@@ -237,8 +240,8 @@ receiver unified-log window 或 `receiver/evidence-unavailable.json`，以及 `S
 - 增加 GitHub Actions、更多自动测试和干净 Mac 安装验证。
 
 当前 `0.2.12` 是 RemoteOrbit 的正式独立产品基线；安装包使用本地 ad-hoc 签名，仍需用户按
-macOS 提示授予蓝牙、麦克风、辅助功能和输入监控权限。Developer ID 签名和 Apple 公证仍是后续
-发布工作，不影响本机测试和安装。
+macOS 提示授予蓝牙、辅助功能和输入监控权限；遥控器语音不需要 macOS 麦克风权限。Developer ID
+签名和 Apple 公证仍是后续发布工作，不影响本机测试和安装。
 
 ## 目录
 
