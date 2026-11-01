@@ -2,7 +2,7 @@
 
 ## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave B / Domain 3 Persistent Voice Runtime State Machine
 
-Status: `IMPLEMENTATION_IN_PROGRESS`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `BOUNDED LEGACY RETIREMENT`
 Repository: `Lost0rz/RemoteOrbit`
 Design authority: `docs/design/2026-11-01-045b-domain-3-persistent-voice-runtime-retirement.md`
@@ -14,7 +14,8 @@ Human runtime/UI acceptance: `PENDING / USER-OWNED`
 - Active branch: `codex/task045b-domain3-persistent-voice-runtime-retirement`.
 - Active workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain3-persistent-voice-runtime-retirement`.
 - Domain 2 worktree retirement was authorized only after clean-state and merged-ancestry verification; its branch/history remain preserved.
-- Domain 3 implementation is committed at `7cb5822a449340bc10c187a81aeb006958a5b151` from the fresh live main. Focused contracts/LONG-only regressions, full local Swift `623/623`, native Release build, and diff check pass. Draft PR `#34` is open at exact head `91052b1d1bc196b3e3ae9a59186dd193878cc36b`; durable CI and final control HEAD remain pending.
+- Domain 3 implementation is committed at `7cb5822a449340bc10c187a81aeb006958a5b151` from the fresh live main. Focused contracts/LONG-only regressions, full local Swift `623/623`, native Release build, and diff check pass. Draft PR `#34` is open at exact head `6fe81f7e88f841cc69a243da13d35fdaa0771b0e`; durable CI run `41262949952` / job `124719809647` passed on `remoteorbit-macmini`, including Universal2 build-only packaging smoke.
+- Final actual state after this atomic control-file handoff: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
 ## Completed prerequisite
 
@@ -146,6 +147,10 @@ Start from fresh live `main` after reconciliation. Use one fresh worktree/branch
 The merged Domain 2 worktree may be retired only after confirming clean state and merged ancestry. Preserve its branch/history unless separately authorized.
 
 Create one Draft PR. Do not merge locally.
+
+Domain 3 Draft PR: `#34` (`https://github.com/Lost0rz/RemoteOrbit/pull/34`).
+
+Final handoff evidence: implementation HEAD `7cb5822a449340bc10c187a81aeb006958a5b151`; preceding control/PR head `6fe81f7e88f841cc69a243da13d35fdaa0771b0e`; full local Swift `623/623`; native Release build PASS; `git diff --check` PASS; durable CI `41262949952` / job `124719809647` PASS on `remoteorbit-macmini`; Universal2 build-only packaging smoke PASS.
 
 ## Stop
 

@@ -1,14 +1,14 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_3_IMPLEMENTATION_IN_PROGRESS`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Task 043: `MERGED / HUMAN_ACCEPTANCE_DEFERRED / USER-OWNED`
 Task 045 overall: `ACTIVE`
 Task 045A: `DIAGNOSTICS_GATING / MERGED / MAIN_CI_PASS / CLOSED`
 Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / MERGED / MAIN_CI_PASS / CLOSED`
 Task 045B Domain 2: `LEGACY_VOICE_PERSISTED_PREFERENCE_AUTHORITY / MERGED / MAIN_CI_PASS / CLOSED`
-Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / IMPLEMENTATION_IN_PROGRESS / DRAFT_PR_OPEN / CI_PENDING`
+Task 045B Domain 3: `PERSISTENT_VOICE_RUNTIME_STATE_MACHINE / IMPLEMENTATION_COMPLETE / DRAFT_PR_OPEN / DURABLE_CI_PASS / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 Canonical implementation basis before Domain 3 execution: `main@54075fbe09c4f76bcb1287e675120fede7de3bc0`.
 Human runtime/UI acceptance: `PENDING / USER-OWNED`.
@@ -20,8 +20,10 @@ Human runtime/UI acceptance: `PENDING / USER-OWNED`.
 - Authoritative workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain3-persistent-voice-runtime-retirement`.
 - The Domain 2 worktree was clean, its implementation head was an ancestor of `origin/main`, and its merged PR was verified before worktree retirement. Domain 2 branch/history remain preserved.
 - Domain 3 implementation commit: `7cb5822a449340bc10c187a81aeb006958a5b151`.
-- Local focused contracts and LONG-only regression suites pass; full local Swift suite is `623/623`, and native Release build passes. Durable CI, Draft PR, and final handoff remain pending.
-- Draft PR `#34` is open at exact head `91052b1d1bc196b3e3ae9a59186dd193878cc36b`, targeting `main@54075fbe09c4f76bcb1287e675120fede7de3bc0`; durable CI is pending.
+- Local focused contracts and LONG-only regression suites pass; full local Swift suite is `623/623`, native Release build and `git diff --check` pass.
+- Draft PR `#34` is open at exact head `6fe81f7e88f841cc69a243da13d35fdaa0771b0e`, targeting `main@54075fbe09c4f76bcb1287e675120fede7de3bc0`.
+- Durable RemoteOrbit CI run `41262949952`, job `124719809647`, passed on runner `remoteorbit-macmini`; source contracts, protocol self-tests, full Swift tests, native Release build, and Universal2 build-only packaging smoke all passed.
+- The final control handoff is this atomic `CURRENT_STATUS.md` + `CURRENT_TASK.md` commit. No merge, app install, driver/CoreAudio/TCC mutation, tag, release, or Domain 4 work was performed.
 - This control transition is a direct child of the audited `main@54075fbe09c4f76bcb1287e675120fede7de3bc0` and authorizes only the frozen Domain 3 implementation and its required verification/delivery gates.
 
 ## Domain 2 independent Web audit and closeout
@@ -90,4 +92,4 @@ Design authority: `docs/design/2026-11-01-045b-domain-3-persistent-voice-runtime
 
 ## Next gate
 
-Implement the frozen Domain 3 in the active worktree, then run its focused/full/build/durable-CI verification and atomic control handoff. No Domain 4 mutation, merge, app install, driver/CoreAudio/TCC mutation, tag, release, or machine-owned RC003/Doubao acceptance is authorized.
+`WAITING_FOR_INDEPENDENT_WEB_AUDIT`: independently review Draft PR `#34` at exact head `6fe81f7e88f841cc69a243da13d35fdaa0771b0e`. No merge, Domain 4 mutation, app install, driver/CoreAudio/TCC mutation, tag, release, or machine-owned RC003/Doubao acceptance is authorized.
