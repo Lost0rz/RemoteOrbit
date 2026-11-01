@@ -159,7 +159,7 @@ final class AudioPipe: NSObject {
         diagnosticStreamIdentity = 0
         diagnosticObservationSequence = 0
         mainQueueResponsivenessProbe = nextMainQueueProbe
-        let currentDepth = outputRing.queuedRemoteFrames
+        let currentDepth = outputRing.queuedFrames
         remoteDiagnosticsActive = true
         remoteDiagnosticsSawActiveRoute = remoteActive
         continuityRenderLedger = nextContinuityLedger
@@ -252,7 +252,7 @@ final class AudioPipe: NSObject {
         stateLock.lock()
         flushRealtimeEvidenceLocked()
         let totalDepth = outputRing.queuedFrames
-        let currentDepth = outputRing.queuedRemoteFrames
+        let currentDepth = outputRing.queuedFrames
         let counters = resettingWindow ? diagnosticsWindow : diagnosticsCumulative
         let realtimeSnapshot = realtimeDiagnostics.snapshot(reset: resettingWindow)
         var mergedCounters = counters
@@ -261,7 +261,7 @@ final class AudioPipe: NSObject {
             remoteActive: remoteActive,
             currentQueueDepthFrames: currentDepth,
             audioQueueDepthFrames: totalDepth,
-            pendingRemoteFrames: outputRing.queuedRemoteFrames,
+            pendingRemoteFrames: outputRing.queuedFrames,
             sampleRate: Self.outputSampleRate,
             reserve: playoutReserve.snapshot(
                 at: P1A4MonotonicClock.nowNanoseconds()
@@ -527,11 +527,8 @@ final class AudioPipe: NSObject {
             stateLock.unlock()
             return
         }
-        let remoteQueueBeforeSubmission = outputRing.queuedRemoteFrames
-        let writeResult = outputRing.write(
-            resampled,
-            source: .remote
-        )
+        let remoteQueueBeforeSubmission = outputRing.queuedFrames
+        let writeResult = outputRing.write(resampled)
         scheduledRemoteBuffers += 1
         if writeResult.acceptedFrames > 0, remoteDiagnosticsActive {
             diagnosticsCumulative.recordSubmittedRemoteFrames(
@@ -597,7 +594,7 @@ final class AudioPipe: NSObject {
             scheduledPeak,
             resampled.reduce(0) { max($0, abs($1)) }
         )
-        recordQueueDepthLocked(outputRing.queuedRemoteFrames)
+        recordQueueDepthLocked(outputRing.queuedFrames)
         stateLock.unlock()
     }
 
@@ -673,7 +670,7 @@ final class AudioPipe: NSObject {
         let renderTimestamp = P1A4MonotonicClock.nowNanoseconds()
         let reserveDecision = playoutReserve.decision(
             remoteActive: remoteActive,
-            queuedFrames: outputRing.queuedRemoteFrames,
+            queuedFrames: outputRing.queuedFrames,
             now: renderTimestamp
         )
         let readResult: AudioPipePCMReadResult

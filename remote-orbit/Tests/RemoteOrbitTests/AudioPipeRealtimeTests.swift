@@ -20,7 +20,7 @@ final class AudioPipeRealtimeTests: XCTestCase {
         let ring = FixedCapacityPCMFrameRing(capacity: 8)
 
         XCTAssertEqual(
-            ring.write([1, 2, 3], source: .remote).acceptedFrames,
+            ring.write([1, 2, 3]).acceptedFrames,
             3
         )
         let first = read(ring, count: 2)
@@ -29,7 +29,7 @@ final class AudioPipeRealtimeTests: XCTestCase {
         XCTAssertEqual(first.result.unfilledFrames, 0)
 
         XCTAssertEqual(
-            ring.write([4, 5], source: .remote).acceptedFrames,
+            ring.write([4, 5]).acceptedFrames,
             2
         )
         let second = read(ring, count: 3)
@@ -39,7 +39,7 @@ final class AudioPipeRealtimeTests: XCTestCase {
 
     func testPartialReadZeroFillsOnlyTheMissingSuffix() {
         let ring = FixedCapacityPCMFrameRing(capacity: 8)
-        _ = ring.write([7, 8], source: .remote)
+        _ = ring.write([7, 8])
 
         let result = read(ring, count: 4)
 
@@ -52,12 +52,12 @@ final class AudioPipeRealtimeTests: XCTestCase {
     func testExactFullAndExactEmptyStatesRemainDistinct() {
         let ring = FixedCapacityPCMFrameRing(capacity: 4)
 
-        let write = ring.write([1, 2, 3, 4], source: .remote)
+        let write = ring.write([1, 2, 3, 4])
         XCTAssertEqual(write.acceptedFrames, 4)
         XCTAssertEqual(write.droppedFrames, 0)
         XCTAssertEqual(write.queueDepthAfterFrames, 4)
 
-        let rejected = ring.write([5], source: .remote)
+        let rejected = ring.write([5])
         XCTAssertEqual(rejected.acceptedFrames, 0)
         XCTAssertEqual(rejected.droppedFrames, 1)
         XCTAssertEqual(rejected.queueDepthAfterFrames, 4)
@@ -74,14 +74,12 @@ final class AudioPipeRealtimeTests: XCTestCase {
         for cycle in 0..<20 {
             let base = Float(cycle * 4)
             XCTAssertEqual(
-                ring.write([base, base + 1, base + 2], source: .remote)
-                    .acceptedFrames,
+                ring.write([base, base + 1, base + 2]).acceptedFrames,
                 3
             )
             XCTAssertEqual(read(ring, count: 2).samples, [base, base + 1])
             XCTAssertEqual(
-                ring.write([base + 3, base + 4], source: .remote)
-                    .acceptedFrames,
+                ring.write([base + 3, base + 4]).acceptedFrames,
                 2
             )
             XCTAssertEqual(
@@ -95,45 +93,46 @@ final class AudioPipeRealtimeTests: XCTestCase {
         let ring = FixedCapacityPCMFrameRing(capacity: 3)
 
         XCTAssertEqual(
-            ring.write([10, 11, 12], source: .remote).acceptedFrames,
+            ring.write([10, 11, 12]).acceptedFrames,
             3
         )
-        let overflow = ring.write([13, 14], source: .remote)
+        let overflow = ring.write([13, 14])
 
         XCTAssertEqual(overflow.acceptedFrames, 0)
         XCTAssertEqual(overflow.droppedFrames, 2)
         XCTAssertEqual(read(ring, count: 3).samples, [10, 11, 12])
     }
 
-    func testRemoteAttributionTracksOnlyRemoteFramesInMixedFIFO() {
+    func testRemoteQueueDepthFieldsEqualTotalQueueDepth() {
         let ring = FixedCapacityPCMFrameRing(capacity: 8)
 
-        XCTAssertEqual(
-            ring.write([1, 2, 3], source: .remote).remoteQueueDepthAfterFrames,
-            3
-        )
-        XCTAssertEqual(
-            ring.write([4, 5], source: .local).remoteQueueDepthAfterFrames,
-            3
-        )
+        let write = ring.write([1, 2, 3])
+        XCTAssertEqual(write.remoteQueueDepthAfterFrames, 3)
+        XCTAssertEqual(write.remoteQueueDepthAfterFrames, write.queueDepthAfterFrames)
+        XCTAssertEqual(ring.queuedFrames, 3)
 
-        let result = read(ring, count: 4)
+        let result = read(ring, count: 2)
 
-        XCTAssertEqual(result.samples, [1, 2, 3, 4])
-        XCTAssertEqual(result.result.remoteFramesConsumed, 3)
+        XCTAssertEqual(result.result.remoteFramesConsumed, result.result.filledFrames)
         XCTAssertEqual(result.result.remoteQueueDepthBeforeFrames, 3)
-        XCTAssertEqual(result.result.remoteQueueDepthAfterFrames, 0)
-        XCTAssertEqual(result.result.queueDepthAfterFrames, 1)
+        XCTAssertEqual(result.result.remoteQueueDepthBeforeFrames, result.result.queueDepthBeforeFrames)
+        XCTAssertEqual(result.result.remoteQueueDepthAfterFrames, 1)
+        XCTAssertEqual(result.result.remoteQueueDepthAfterFrames, result.result.queueDepthAfterFrames)
+
+        let overflow = ring.write([4, 5, 6, 7, 8, 9, 10, 11, 12])
+        XCTAssertEqual(overflow.acceptedFrames, 7)
+        XCTAssertEqual(overflow.droppedFrames, 2)
+        XCTAssertEqual(overflow.remoteQueueDepthAfterFrames, overflow.queueDepthAfterFrames)
+        XCTAssertEqual(overflow.remoteQueueDepthAfterFrames, 8)
     }
 
-    func testResetClearsQueuedPCMAndRemoteAttribution() {
+    func testResetClearsQueuedPCM() {
         let ring = FixedCapacityPCMFrameRing(capacity: 4)
-        _ = ring.write([1, 2, 3], source: .remote)
+        _ = ring.write([1, 2, 3])
 
         ring.reset()
 
         XCTAssertEqual(ring.queuedFrames, 0)
-        XCTAssertEqual(ring.queuedRemoteFrames, 0)
         XCTAssertEqual(read(ring, count: 2).samples, [0, 0])
     }
 
@@ -158,7 +157,7 @@ final class AudioPipeRealtimeTests: XCTestCase {
             while next < sampleCount {
                 let end = min(sampleCount, next + 11)
                 let chunk = (next..<end).map(Float.init)
-                let result = ring.write(chunk, source: .remote)
+                let result = ring.write(chunk)
                 next += result.acceptedFrames
                 if result.acceptedFrames == 0 {
                     sched_yield()
@@ -189,7 +188,6 @@ final class AudioPipeRealtimeTests: XCTestCase {
         )
         XCTAssertEqual(consumed, (0..<sampleCount).map(Float.init))
         XCTAssertEqual(ring.queuedFrames, 0)
-        XCTAssertEqual(ring.queuedRemoteFrames, 0)
     }
 
     func testRealtimeDiagnosticsPublishesCountersAndBoundedObservations() {

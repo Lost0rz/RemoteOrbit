@@ -150,31 +150,6 @@ struct AudioPipeRenderAccounting: Equatable {
     }
 }
 
-enum AudioRemoteQueueAttribution {
-    static func remoteQueueDepth(
-        totalQueueFrames: Int,
-        pendingRemoteFrames: Int
-    ) -> Int {
-        min(max(0, totalQueueFrames), max(0, pendingRemoteFrames))
-    }
-
-    static func remoteDroppedFrames(
-        totalDroppedFrames: Int,
-        pendingRemoteFrames: Int,
-        sourceIsRemote: Bool = true
-    ) -> Int {
-        guard sourceIsRemote else { return 0 }
-        return min(max(0, totalDroppedFrames), max(0, pendingRemoteFrames))
-    }
-
-    static func shouldRecordCompaction(
-        remoteActive: Bool,
-        pendingRemoteFrames: Int
-    ) -> Bool {
-        remoteActive || pendingRemoteFrames > 0
-    }
-}
-
 struct AudioRenderFillAccounting {
     struct Result: Equatable {
         let filledFrames: Int
