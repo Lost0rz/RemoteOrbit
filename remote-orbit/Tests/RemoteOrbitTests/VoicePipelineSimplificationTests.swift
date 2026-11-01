@@ -1221,8 +1221,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(VoiceTriggerKey.rightControl.rawValue, forKey: AppStorage.momentaryVoiceTriggerKeyKey)
-        defaults.set(VoiceTriggerKey.leftCommand.rawValue, forKey: AppStorage.persistentSessionTriggerKeyKey)
-        defaults.set(VoiceTriggerKey.rightCommand.rawValue, forKey: AppStorage.secondaryMomentaryVoiceTriggerKeyKey)
+        let stalePersistentKey = "RemoteOrbit.persistentSessionTriggerKey"
+        let staleReceiverBKey = "RemoteOrbit.secondaryMomentaryVoiceTriggerKey"
+        defaults.set(VoiceTriggerKey.leftCommand.rawValue, forKey: stalePersistentKey)
+        defaults.set(VoiceTriggerKey.rightCommand.rawValue, forKey: staleReceiverBKey)
 
         let profile = VoiceInputProfileStore.selectedProfile(from: defaults)
 
@@ -1232,6 +1234,8 @@ final class VoicePipelineSimplificationTests: XCTestCase {
             AppStorage.readMomentaryVoiceTriggerKey(from: defaults),
             .rightControl
         )
+        XCTAssertEqual(defaults.string(forKey: stalePersistentKey), VoiceTriggerKey.leftCommand.rawValue)
+        XCTAssertEqual(defaults.string(forKey: staleReceiverBKey), VoiceTriggerKey.rightCommand.rawValue)
     }
 }
 

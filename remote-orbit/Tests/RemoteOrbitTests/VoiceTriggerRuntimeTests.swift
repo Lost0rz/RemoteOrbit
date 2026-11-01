@@ -1123,7 +1123,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         XCTAssertTrue(harness.mappingEnabled)
     }
 
-    func testSecondaryTriggerChangePersistsIndependentlyAndActivatesEligibleMode() {
+    func testSecondaryTriggerChangeUpdatesRuntimeOnlyAndActivatesEligibleMode() {
         let harness = VoiceTriggerRuntimeHarness(
             persistedKey: .leftOption,
             persistedPersistentKey: .leftCommand,
@@ -1145,9 +1145,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             harness.controller.dualReceiverVoiceMode,
             .active(receiverA: .leftOption, receiverB: .rightOption)
         )
-        XCTAssertEqual(harness.secondaryPersistenceWriteCount, 1)
         XCTAssertEqual(harness.persistenceWriteCount, 0)
-        XCTAssertEqual(harness.persistentPersistenceWriteCount, 0)
     }
 
     func testEstablishingDualModeAlwaysAlignsFilterWithPrimaryA() {
@@ -1191,7 +1189,6 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         )
         XCTAssertNil(harness.persistedSecondaryKey)
         XCTAssertNil(harness.controller.currentSecondaryMomentaryVoiceTriggerKey)
-        XCTAssertEqual(harness.secondaryPersistenceWriteCount, 0)
         XCTAssertTrue(harness.mappingCalls.isEmpty)
         recognizer.cancel()
 
@@ -1213,7 +1210,6 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             .busyActiveHold
         )
         XCTAssertNil(harness.persistedSecondaryKey)
-        XCTAssertEqual(harness.secondaryPersistenceWriteCount, 0)
         harness.controller.voicePress.stop()
     }
 
@@ -1234,11 +1230,10 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
             .busyReleaseDrain
         )
         XCTAssertNil(harness.persistedSecondaryKey)
-        XCTAssertEqual(harness.secondaryPersistenceWriteCount, 0)
         harness.controller.voicePress.stop()
     }
 
-    func testConnectedApplyConfiguresLocallyBeforeHIDAndPersistsAfterSuccess() {
+    func testConnectedApplyConfiguresLocallyBeforeHIDAndUpdatesProfileCompatibility() {
         let harness = VoiceTriggerRuntimeHarness(
             connected: true,
             mappingEnabled: true,
@@ -1363,7 +1358,7 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         XCTAssertEqual(result, .applied)
     }
 
-    func testDisconnectedApplyUpdatesLocalAndPersistedTargetsWithoutHID() {
+    func testDisconnectedApplyUpdatesLocalAndProfileCompatibilityWithoutHID() {
         let harness = VoiceTriggerRuntimeHarness(
             connected: false,
             mappingEnabled: false,
@@ -1454,7 +1449,6 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         XCTAssertEqual(harness.controller.voicePress.persistentSessionTriggerOwnerKeyForTesting, .rightCommand)
         XCTAssertEqual(harness.controller.currentMomentaryVoiceTriggerKey, .leftOption)
         XCTAssertEqual(harness.momentaryPersistenceWriteCount, 0)
-        XCTAssertEqual(harness.persistentPersistenceWriteCount, 1)
         harness.controller.voicePress.stop()
     }
 
@@ -1584,7 +1578,6 @@ final class VoiceTriggerRuntimeTests: XCTestCase {
         XCTAssertEqual(harness.controller.currentPersistentSessionTriggerKey, .rightOption)
         XCTAssertEqual(harness.persistedKey, .leftOption)
         XCTAssertEqual(harness.persistenceWriteCount, 0)
-        XCTAssertEqual(harness.persistentPersistenceWriteCount, 0)
         XCTAssertTrue(harness.mappingCalls.isEmpty)
 
         XCTAssertTrue(filter.resetSuppressedHardwareTrigger(
@@ -1762,8 +1755,6 @@ private final class VoiceTriggerRuntimeHarness {
     private let lock = NSLock()
     private var mappingEnabledStorage: Bool
     private var persistedKeyStorage: VoiceTriggerKey
-    private var persistedPersistentKeyStorage: VoiceTriggerKey
-    private var persistedSecondaryKeyStorage: VoiceTriggerKey?
     private var plannedResults: [Bool]
     private var plannedReadbacks: [VoiceDiagnosticHIDVerification]
     private let applyDelay: TimeInterval
@@ -1774,8 +1765,6 @@ private final class VoiceTriggerRuntimeHarness {
     private var mappingCallsStorage: [HIDMappingCall] = []
     private var mappingObservationsStorage: [HIDMappingObservation] = []
     private var persistenceWritesStorage: [VoiceTriggerKey] = []
-    private var persistentPersistenceWritesStorage: [VoiceTriggerKey] = []
-    private var secondaryPersistenceWritesStorage: [VoiceTriggerKey?] = []
 
     let trigger: VoiceOptionTrigger
     let filter: VoiceKeyFilter
@@ -1799,8 +1788,6 @@ private final class VoiceTriggerRuntimeHarness {
     ) {
         mappingEnabledStorage = mappingEnabled
         persistedKeyStorage = persistedKey
-        persistedPersistentKeyStorage = persistedPersistentKey
-        persistedSecondaryKeyStorage = persistedSecondaryKey
         plannedResults = applyResults
         plannedReadbacks = readbackResults
         self.applyDelay = applyDelay
@@ -1872,28 +1859,8 @@ private final class VoiceTriggerRuntimeHarness {
                 persistenceWritesStorage.append(key)
                 lock.unlock()
             },
-            readPersistedPersistentSessionTriggerKey: { [self] in
-                lock.lock()
-                defer { lock.unlock() }
-                return persistedPersistentKeyStorage
-            },
-            persistPersistentSessionTriggerKey: { [self] key in
-                lock.lock()
-                persistedPersistentKeyStorage = key
-                persistentPersistenceWritesStorage.append(key)
-                lock.unlock()
-            },
-            readPersistedSecondaryMomentaryVoiceTriggerKey: { [self] in
-                lock.lock()
-                defer { lock.unlock() }
-                return persistedSecondaryKeyStorage
-            },
-            persistSecondaryMomentaryVoiceTriggerKey: { [self] key in
-                lock.lock()
-                persistedSecondaryKeyStorage = key
-                secondaryPersistenceWritesStorage.append(key)
-                lock.unlock()
-            }
+            initialPersistentSessionTriggerKey: persistedPersistentKey,
+            initialSecondaryMomentaryVoiceTriggerKey: persistedSecondaryKey
         )
     }
 
@@ -1914,9 +1881,7 @@ private final class VoiceTriggerRuntimeHarness {
     }
 
     var persistedSecondaryKey: VoiceTriggerKey? {
-        lock.lock()
-        defer { lock.unlock() }
-        return persistedSecondaryKeyStorage
+        controller.currentSecondaryMomentaryVoiceTriggerKey
     }
 
     var mappingCalls: [HIDMappingCall] {
@@ -1939,17 +1904,6 @@ private final class VoiceTriggerRuntimeHarness {
 
     var momentaryPersistenceWriteCount: Int { persistenceWriteCount }
 
-    var persistentPersistenceWriteCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return persistentPersistenceWritesStorage.count
-    }
-
-    var secondaryPersistenceWriteCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return secondaryPersistenceWritesStorage.count
-    }
 }
 
 private struct TriggerEdge: Equatable {
