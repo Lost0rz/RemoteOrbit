@@ -2,7 +2,7 @@
 
 ## RO-PROJECT-CLOSEOUT-046 — Repository Closeout & Baseline
 
-Status: `REMOTE_PR_HYGIENE / ACTIVE`
+Status: `LOCAL_WORKTREE_INVENTORY / READY`
 TASK_CLASS: `REPOSITORY / WORKSPACE LIFECYCLE CLOSEOUT`
 Repository: `Lost0rz/RemoteOrbit`
 
@@ -17,45 +17,54 @@ Owner-authorized outcome:
 3. leave one clear canonical baseline;
 4. preserve unique/unmerged work unless its lifecycle is explicitly decided.
 
-## Phase A — remote PR hygiene
+## Phase A result — remote PR hygiene
 
-Inventory all currently open PRs and classify each as one of:
+Completed.
 
-- `MERGED/EQUIVALENT` — intent already present in current main;
-- `SUPERSEDED/HISTORICAL` — old work must not be merged into current main;
-- `ACTIVE/RETAIN` — still contains intentional unmerged work that should remain available;
-- `UNKNOWN` — insufficient evidence; do not mutate.
+- #25: `SUPERSEDED/HISTORICAL` → CLOSED / UNMERGED
+- #26: `SUPERSEDED/HISTORICAL` → CLOSED / UNMERGED
+- #28: `MERGED/EQUIVALENT_BY_LATER_MAIN` → CLOSED / UNMERGED
+- verified open PR count after cleanup: `0`
+- remote branches retained; no branch deletion performed
 
-Authorized Phase A side effects:
+## Phase B — local worktree inventory and retirement
 
-- close PRs classified `SUPERSEDED/HISTORICAL`;
-- optionally leave a concise closeout comment recording why they were closed;
-- keep `ACTIVE/RETAIN` and `UNKNOWN` PRs open;
-- update CURRENT_STATUS + CURRENT_TASK atomically after the remote inventory/closure result.
+Next authorized action is read-only inventory first.
 
-Not authorized in Phase A:
+Inventory at minimum:
 
-- merge any stale PR;
-- delete remote branches;
-- rewrite history;
-- product source/runtime changes;
-- tag/release.
+- canonical checkout(s);
+- `git worktree list --porcelain` registrations;
+- known project roots under `/Volumes/Jack-Dev/Projects` and relevant temporary/Codex worktree roots;
+- branch/detached identity;
+- exact HEAD;
+- clean/dirty/untracked state;
+- relationship to current remote `main`;
+- whether unique commits or unique files exist.
 
-### Starting inventory
+Classify each workspace:
 
-Fresh remote evidence found exactly three open Draft PRs:
+- `CANONICAL_KEEP`
+- `SAFE_TO_RETIRE_MERGED`
+- `SAFE_TO_RETIRE_SUPERSEDED`
+- `RETAIN_UNIQUE_WORK`
+- `UNKNOWN_STOP`
 
-- #25 `Release RemoteOrbit v0.2.15` — historical/diverged release/soak candidate;
-- #26 `fix: deterministic mapping entry and observable recordings` — historical/diverged Settings corrective;
-- #28 `ui: unify RemoteOrbit app, settings, and menu bar iconography` — separate branding/icon work requiring an independent lifecycle decision.
+Authorized Phase B mutation:
 
-PR #25 and #26 are authorized for closure once their live identities remain unchanged at mutation time. PR #28 must receive an explicit lifecycle classification from current evidence before any close/merge action.
+- remove registered/local worktrees only after evidence proves `SAFE_TO_RETIRE_*` and the worktree is clean;
+- prune stale worktree registration only after the underlying target is proven absent/stale;
+- preserve local and remote branch/history unless separately authorized.
 
-## Next phases
+Do not auto-reset, stash, clean, or delete dirty/unique work to make it removable.
 
-After Phase A is recorded complete:
+## Later Phase C
 
-- Phase B: local worktree / checkout inventory and retirement;
-- Phase C: canonical baseline reconciliation, stale docs/branches classification, and final repository closeout receipt.
+After worktree cleanup, reconcile one clear canonical checkout/main baseline, classify stale branches/docs/release artifacts, and produce the final repository closeout receipt.
 
-Each phase must preserve unique work and distinguish worktree retirement from branch/history retirement.
+## Non-goals
+
+- no product behavior changes;
+- no tag/release;
+- no driver/CoreAudio/TCC/default-device changes;
+- no remote branch deletion unless separately authorized after branch inventory.
