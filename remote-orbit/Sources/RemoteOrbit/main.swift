@@ -8151,59 +8151,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openKeyMapping() {
-        VoiceSettingsRuntimeBridge.readSecondaryVoiceTriggerKey = { [weak self] in
-            self?.currentSecondaryMomentaryVoiceTriggerKey
-        }
-        VoiceSettingsRuntimeBridge.changeSecondaryVoiceTriggerKey = {
-            [weak self] key, shortBinding, completion in
-            guard let self else {
-                completion(.locked)
-                return
-            }
-            self.applySecondaryVoiceTriggerKey(
-                key,
-                shortBinding: shortBinding,
-                completion: completion
-            )
-        }
-        VoiceSettingsRuntimeBridge.changeMicrophoneShortBinding = { [weak self] binding, completion in
-            guard let self else {
-                completion(.locked)
-                return
-            }
-            switch self.configureDualReceiverVoiceMode(
-                shortBinding: binding,
-                receiverB: self.currentSecondaryMomentaryVoiceTriggerKey
-            ) {
-            case .applied:
-                self.currentDualReceiverShortBinding = binding
-                completion(.applied)
-            case .busy:
-                completion(.busy)
-            case .unavailable:
-                completion(.failed)
-            }
-        }
         SettingsWindow.open(
             store: mappingStore,
             onRecordingChanged: { [weak self] enabled in
                 self?.ble.setRecordingEnabled(enabled)
-            },
-            initialMomentaryVoiceTriggerKey: currentMomentaryVoiceTriggerKey,
-            initialPersistentSessionTriggerKey: currentPersistentSessionTriggerKey,
-            onVoiceTriggerChanged: { [weak self] key, completion in
-                guard let self else {
-                    completion(.locked)
-                    return
-                }
-                self.applyVoiceTriggerKey(key, completion: completion)
-            },
-            onPersistentSessionTriggerKeyChanged: { [weak self] key, completion in
-                guard let self else {
-                    completion(.locked)
-                    return
-                }
-                self.applyPersistentSessionTriggerKey(key, completion: completion)
             }
         )
     }

@@ -1145,7 +1145,7 @@ enum ButtonBinding: Codable, Equatable {
         switch self {
         case let .preset(action):  return action.displayName
         case let .shortcut(chord, _): return chord.displayName
-        case .voiceKeyDefault:     return "语音键默认（短按切换输入法持续会话，长按遥控器麦克风）"
+        case .voiceKeyDefault:     return "语音键默认（长按遥控器语音输入）"
         }
     }
 
@@ -1194,9 +1194,8 @@ enum ButtonBinding: Codable, Equatable {
 /// 所有按钮的默认绑定。
 enum DefaultBindings {
     static let all: [RemoteButton: ButtonBinding] = [
-        // The microphone key is a special two-mode gesture: a short press
-        // toggles the persistent IME session; VoicePressCoordinator owns the
-        // remote-microphone hold and its session-aware trigger policy.
+        // Keep the historical token in the mapping schema. The product surface
+        // presents microphone as the retained remote LONG voice behavior.
         .microphone:  .voiceKeyDefault,
         .power:       .preset(.disabled),
         .up:          .preset(.arrowUp),

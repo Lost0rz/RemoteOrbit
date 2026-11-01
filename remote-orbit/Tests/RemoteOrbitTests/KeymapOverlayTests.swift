@@ -52,32 +52,26 @@ final class KeymapOverlayTests: XCTestCase {
         XCTAssertTrue(profile.usesAdvancedGestures)
     }
 
-    func testVoiceKeyDefaultShowsPersistentIMEAndRemoteLong() {
+    func testMicrophonePresentationShowsOnlyRetainedRemoteLongVoice() {
         let lines = KeymapPresentation.actionLines(
             for: .microphone,
             binding: .voiceKeyDefault,
             profile: MappingStore.defaultMicrophoneGestureProfile
         )
 
-        XCTAssertEqual(lines.map(\.gesture), ["单击", "长按"])
-        XCTAssertEqual(
-            lines.map(\.action),
-            ["输入法持续会话", "遥控器语音输入"]
-        )
+        XCTAssertEqual(lines.map(\.gesture), ["长按"])
+        XCTAssertEqual(lines.map(\.action), ["遥控器语音输入"])
     }
 
-    func testCodexVoiceChoiceShowsComputerVoiceChatAndRemoteLong() {
+    func testMicrophonePresentationIgnoresLegacyCodexShortBinding() {
         let lines = KeymapPresentation.actionLines(
             for: .microphone,
             binding: .preset(.chatGPTStartVoiceChat),
             profile: MappingStore.defaultMicrophoneGestureProfile
         )
 
-        XCTAssertEqual(lines.map(\.gesture), ["单击", "长按"])
-        XCTAssertEqual(
-            lines.map(\.action),
-            ["Codex：开始语音对话", "遥控器语音输入"]
-        )
+        XCTAssertEqual(lines.map(\.gesture), ["长按"])
+        XCTAssertEqual(lines.map(\.action), ["遥控器语音输入"])
     }
 
     func testDisabledMicrophoneShortInputKeepsRemoteLongInput() {
@@ -87,8 +81,18 @@ final class KeymapOverlayTests: XCTestCase {
             profile: MappingStore.defaultMicrophoneGestureProfile
         )
 
-        XCTAssertEqual(lines.map(\.gesture), ["单击", "长按"])
-        XCTAssertEqual(lines.map(\.action), ["禁用", "遥控器语音输入"])
+        XCTAssertEqual(lines.map(\.gesture), ["长按"])
+        XCTAssertEqual(lines.map(\.action), ["遥控器语音输入"])
+    }
+
+    func testVoiceKeyDefaultRoundTripsWithoutPersistentUserWording() throws {
+        let encoded = try JSONEncoder().encode(ButtonBinding.voiceKeyDefault)
+        let decoded = try JSONDecoder().decode(ButtonBinding.self, from: encoded)
+
+        XCTAssertEqual(decoded, .voiceKeyDefault)
+        XCTAssertEqual(decoded.displayName, "语音键默认（长按遥控器语音输入）")
+        XCTAssertFalse(decoded.displayName.contains("持续会话"))
+        XCTAssertFalse(decoded.displayName.contains("短按"))
     }
 
     func testOnlyShortVoiceInputsRequestTheLocalMicrophone() {

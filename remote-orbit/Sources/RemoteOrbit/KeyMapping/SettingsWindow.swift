@@ -13,11 +13,7 @@ final class SettingsWindow {
     /// 打开设置窗口（如果已打开则前置）。
     static func open(
         store: MappingStore,
-        onRecordingChanged: @escaping (Bool) -> Void = { _ in },
-        initialMomentaryVoiceTriggerKey: VoiceTriggerKey,
-        initialPersistentSessionTriggerKey: VoiceTriggerKey,
-        onVoiceTriggerChanged: @escaping VoiceTriggerChangeHandler,
-        onPersistentSessionTriggerKeyChanged: @escaping PersistentSessionTriggerKeyChangeHandler
+        onRecordingChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
@@ -27,11 +23,7 @@ final class SettingsWindow {
 
         let settingsView = SettingsView(
             store: store,
-            initialMomentaryVoiceTriggerKey: initialMomentaryVoiceTriggerKey,
-            initialPersistentSessionTriggerKey: initialPersistentSessionTriggerKey,
-            onRecordingChanged: onRecordingChanged,
-            onVoiceTriggerChanged: onVoiceTriggerChanged,
-            onPersistentSessionTriggerKeyChanged: onPersistentSessionTriggerKeyChanged
+            onRecordingChanged: onRecordingChanged
         )
         let hostingController = NSHostingController(rootView: settingsView)
 
