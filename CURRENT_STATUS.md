@@ -19,7 +19,7 @@ Phase A — remote hygiene: `COMPLETE`
 Phase B — local worktree cleanup: `COMPLETE`
 - stale registrations pruned: `7`;
 - historical worktrees removed: `8`;
-- remaining registered worktree: `/Volumes/Jack-Dev/Projects/remoteorbit` only.
+- remaining registered worktree: `/Volumes/Jack-Dev/Projects/RemoteOrbit` only.
 
 Phase C — local baseline normalization: `COMPLETE / OWNER-VERIFIED`
 - canonical origin normalized to `https://github.com/Lost0rz/RemoteOrbit.git`;

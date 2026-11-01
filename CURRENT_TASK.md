@@ -30,7 +30,7 @@ Completed.
 - 16 merged local branches deleted after ancestry checks;
 - 4 superseded local branches deleted after exact-SHA checks;
 - remaining local branch: `main` only;
-- remaining worktree: `/Volumes/Jack-Dev/Projects/remoteorbit` only;
+- remaining worktree: `/Volumes/Jack-Dev/Projects/RemoteOrbit` only;
 - displayed remote-tracking refs: symbolic `origin/HEAD -> origin/main` plus `origin/main` only.
 
 The final cleanup script stopped only on an over-strict remote-tracking count assertion after all mutations and after printing the expected remote-tracking state. That stop does not indicate an incomplete cleanup.
