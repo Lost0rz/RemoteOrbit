@@ -145,7 +145,7 @@ final class DiagnosticsRuntimeGateTests: XCTestCase {
         XCTAssertEqual(watchdog.timerCountForTesting, 0)
     }
 
-    func testDisabledLongTermObservabilityAndAudioPipeDoNotStartPersistentLifecycle() {
+    func testDisabledLongTermObservabilityAndAudioPipeDoNotStartDiagnosticLifecycle() {
         let authority = GateCapturingAuthority()
         let service = LongTermObservabilityService(
             authority: authority,

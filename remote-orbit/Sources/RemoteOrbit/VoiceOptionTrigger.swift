@@ -624,12 +624,6 @@ enum HardwareOptionResolution: Equatable {
     case noOptionEdge
 }
 
-enum PersistentShortTapDispatchResult: Equatable {
-    case emitted
-    case deferred(waitingOn: UUID)
-    case failed
-}
-
 final class HardwareOptionGate {
     private(set) var activeSessionID: UUID?
     private(set) var suppressedSessionID: UUID?
@@ -640,11 +634,6 @@ final class HardwareOptionGate {
     private var suppressedReleaseArmed = false
     private var suppressedOutputDrainCompleted = false
     private var suppressedReleaseQuietPeriodElapsed = false
-
-    var audioOnlySuppressionOwnerID: UUID? {
-        guard shortTapDiscardSessionID == nil else { return nil }
-        return suppressedSessionID
-    }
 
     @discardableResult
     func begin(sessionID: UUID) -> Bool {
@@ -719,10 +708,10 @@ final class HardwareOptionGate {
         return true
     }
 
-    /// Transfer a classified persistent-session short gesture into bounded
-    /// discard ownership, even when no mapped edge arrived before raw HID-up.
-    /// A previous short-tap discard may be re-owned by a later short toggle;
-    /// an audio-only suppression owner may not be replaced this way.
+    /// Transfer a classified short-prefix gesture into bounded discard
+    /// ownership, even when no mapped edge arrived before raw HID-up. A
+    /// previous short-tap discard may be re-owned by a later LONG-only
+    /// candidate; an existing suppression owner may not be replaced this way.
     @discardableResult
     func beginShortTapDiscard(sessionID: UUID) -> Bool {
         if suppressedSessionID != nil {
@@ -742,9 +731,9 @@ final class HardwareOptionGate {
         return true
     }
 
-    /// A persistent long segment that begins while the preceding short-tap
-    /// quiet window is active inherits that discard owner as audio-only
-    /// suppression for its own gesture lifecycle.
+    /// A LONG-only segment that begins while the preceding short-tap quiet
+    /// window is active inherits that discard owner for its own gesture
+    /// lifecycle.
     @discardableResult
     func transferShortTapDiscardToAudioOnlySuppression(sessionID: UUID) -> Bool {
         guard shortTapDiscardSessionID != nil else { return false }

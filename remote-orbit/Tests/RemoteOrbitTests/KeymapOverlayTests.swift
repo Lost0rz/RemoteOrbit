@@ -121,24 +121,6 @@ final class KeymapOverlayTests: XCTestCase {
         )
     }
 
-    func testOnlyDefaultVoiceBindingTogglesPersistentSession() {
-        XCTAssertTrue(
-            VoicePressCoordinator.togglesPersistentVoiceSession(
-                forShortBinding: .voiceKeyDefault
-            )
-        )
-        XCTAssertFalse(
-            VoicePressCoordinator.togglesPersistentVoiceSession(
-                forShortBinding: .preset(.chatGPTStartVoiceChat)
-            )
-        )
-        XCTAssertFalse(
-            VoicePressCoordinator.togglesPersistentVoiceSession(
-                forShortBinding: .preset(.disabled)
-            )
-        )
-    }
-
     func testTVLongPressDefaultsToCurrentKeymapInspection() {
         let profile = AppTemplatePresetLibrary.defaultKeymapInspectionProfile
 
