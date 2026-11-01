@@ -508,7 +508,7 @@ final class VoiceReceiverReadinessTests: XCTestCase {
 
     func testAudioFirstAloneProjectsNonGreenAudioReady() {
         let state = VoiceHUDProjection.state(
-            for: .holding,
+            for: .streaming,
             remoteAudioAvailable: true,
             receiverReadiness: .inactive
         )
@@ -543,7 +543,7 @@ final class VoiceReceiverReadinessTests: XCTestCase {
     }
 
     func testUnsupportedReceiverNeverProducesGreenFromInternalState() {
-        for voiceState in [VoicePressCoordinator.State.holding, .streaming] {
+        for voiceState in [VoicePressCoordinator.State.streaming] {
             let state = VoiceHUDProjection.state(
                 for: voiceState,
                 remoteAudioAvailable: true,

@@ -10,11 +10,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
 
         XCTAssertFalse(press.hasReleaseOrTailOwnershipForReconfiguration)
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertEqual(press.currentStateForTesting, .opening)
@@ -110,11 +109,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
 
         let sessionA = UUID()
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: sessionA,
                 usesHardwareOption: true,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.onHardwareOptionGateLongReady?(sessionA)
@@ -125,11 +123,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         let sessionB = UUID()
         press.setPreHIDPhysicalStreaming(true)
         XCTAssertFalse(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: sessionB,
                 usesHardwareOption: true,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertNil(press.pendingRepressSessionID)
@@ -200,11 +197,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
 
         let sessionA = UUID()
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: sessionA,
                 usesHardwareOption: true,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertTrue(
@@ -225,11 +221,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         let sessionB = UUID()
         press.setPreHIDPhysicalStreaming(true)
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: sessionB,
                 usesHardwareOption: true,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
 
@@ -259,11 +254,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.hasLivePhysicalCandidate = { true }
         let sessionA = UUID()
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: sessionA,
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertTrue(press.keyUp())
@@ -274,7 +268,6 @@ final class VoicePipelineSimplificationTests: XCTestCase {
                 sessionID: sessionB,
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertEqual(press.pendingRepressSessionID, sessionB)
@@ -382,11 +375,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         }
 
         XCTAssertTrue(
-            harness.press.keyDown(
+            harness.press.keyDownForTesting(
                 sessionID: harness.sessionA,
                 usesHardwareOption: true,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         let oldDown = try XCTUnwrap(harness.makeMappedEvent(keyDown: true))
@@ -422,11 +414,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
 
         let sessionB = UUID()
         XCTAssertTrue(
-            harness.press.keyDown(
+            harness.press.keyDownForTesting(
                 sessionID: sessionB,
                 usesHardwareOption: true,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         let newDown = try XCTUnwrap(harness.makeMappedEvent(keyDown: true))
@@ -548,11 +539,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         let sessionC = UUID()
 
         XCTAssertTrue(
-            harness.press.keyDown(
+            harness.press.keyDownForTesting(
                 sessionID: sessionC,
                 usesHardwareOption: true,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertEqual(harness.press.pendingRepressSessionID, sessionB)
@@ -576,11 +566,9 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         }
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
-                bypassesShortClassification: true,
                 usesHardwareOption: true,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
@@ -605,11 +593,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
 
         XCTAssertFalse(press.preHIDPhysicalStreamingForTesting)
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
     }
@@ -625,12 +612,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         let profile = VoiceInputProfile.supported.first { $0.triggerKey == .rightOption }!
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
-                preparesRemoteTransport: true,
                 profile: profile,
-                directSession: true
             )
         )
         XCTAssertEqual(events.map { ($0.key, $0.isDown) }.count, 1)
@@ -648,11 +633,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         )
         press.setPreHIDPhysicalStreaming(true)
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.setPreHIDPhysicalStreaming(false)
@@ -661,11 +645,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.setRemoteStreaming(false)
         XCTAssertEqual(press.currentStateForTesting, .idle)
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
     }
@@ -683,11 +666,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         let profile = VoiceInputProfile.supported.first { $0.triggerKey == .leftCommand }!
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: profile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
@@ -717,11 +699,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         }
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
@@ -746,11 +727,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
@@ -778,11 +758,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         let profile = VoiceInputProfile.supported.first { $0.triggerKey == .leftCommand }!
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: profile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
@@ -805,11 +784,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertTrue(press.keyUp())
@@ -832,11 +810,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertTrue(press.keyUp())
@@ -861,11 +838,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.handleTransportLoss()
@@ -891,11 +867,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
@@ -931,11 +906,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
 
         let firstSessionID = UUID()
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: firstSessionID,
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
@@ -946,11 +920,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
 
         let secondSessionID = UUID()
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: secondSessionID,
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         firstDrain?()
@@ -972,42 +945,38 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
         let firstSessionID = UUID()
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: firstSessionID,
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
         XCTAssertTrue(press.keyUp())
 
         XCTAssertFalse(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(false)
         XCTAssertNotNil(completeDrain)
         XCTAssertFalse(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
 
         completeDrain?()
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.stop()
@@ -1025,11 +994,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         let nextSessionID = UUID()
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: firstSessionID,
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
@@ -1039,11 +1007,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
 
         press.setPreHIDPhysicalStreaming(true)
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: nextSessionID,
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertEqual(press.pendingRepressSessionID, nextSessionID)
@@ -1068,11 +1035,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
 
         press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
@@ -1081,11 +1047,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.setPreHIDPhysicalStreaming(true)
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertFalse(press.keyUp())
@@ -1109,11 +1074,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
@@ -1124,19 +1088,17 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         let firstPending = UUID()
         let secondPending = UUID()
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: firstPending,
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: secondPending,
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertEqual(press.pendingRepressSessionID, firstPending)
@@ -1155,11 +1117,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
@@ -1167,11 +1128,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.setRemoteStreaming(false)
         press.setPreHIDPhysicalStreaming(true)
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertEqual(events.map(\.isDown), [true])
@@ -1196,11 +1156,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         press.onRemoteOutputDrain = { _, completion in completeDrain = completion }
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: true,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertEqual(order, ["gate-begin", "gate-release"])
@@ -1238,7 +1197,6 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: staleReceiverBKey), VoiceTriggerKey.rightCommand.rawValue)
     }
 }
-
 private final class HardwareRapidRepressHarness {
     private final class Recorder {
         var replayedEvents: [CGEvent] = []
@@ -1335,11 +1293,10 @@ private final class HardwareRapidRepressHarness {
 
     func preparePendingHardwareRepress() throws -> UUID {
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: sessionA,
                 usesHardwareOption: true,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         let oldDown = try XCTUnwrap(makeMappedEvent(keyDown: true))
@@ -1365,11 +1322,10 @@ private final class HardwareRapidRepressHarness {
         let sessionB = UUID()
         press.setPreHIDPhysicalStreaming(true)
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: sessionB,
                 usesHardwareOption: true,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         let newDown = try XCTUnwrap(makeMappedEvent(keyDown: true))
@@ -1386,11 +1342,10 @@ private final class HardwareRapidRepressHarness {
 
     func prepareNoOptionEdgePendingHardwareRepress() throws -> UUID {
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: sessionA,
                 usesHardwareOption: true,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         // Production Gate A can resolve before the mapped Option edge arrives.
@@ -1406,11 +1361,10 @@ private final class HardwareRapidRepressHarness {
         let sessionB = UUID()
         press.setPreHIDPhysicalStreaming(true)
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: sessionB,
                 usesHardwareOption: true,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertEqual(

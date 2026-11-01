@@ -347,50 +347,28 @@ final class VoicePressCoordinator {
         case opening
         case streaming
         case draining
-        case pending
-        case holding
     }
 
     private struct PendingRepress {
         let sessionID: UUID
-        let physicalDownAt: TimeInterval
-        let onShortTap: (() -> Void)?
-        let usesLocalMicrophone: Bool
-        let bypassesShortClassification: Bool
         let usesHardwareOption: Bool
-        let preparesRemoteTransport: Bool
-        let isDirectSession: Bool
-        let directProfile: VoiceInputProfile?
+        let profile: VoiceInputProfile
         var isStillHeld = true
 
         init(
             sessionID: UUID,
-            physicalDownAt: TimeInterval,
-            onShortTap: (() -> Void)?,
-            usesLocalMicrophone: Bool,
-            bypassesShortClassification: Bool,
             usesHardwareOption: Bool,
-            preparesRemoteTransport: Bool,
-            isDirectSession: Bool = false,
-            directProfile: VoiceInputProfile? = nil,
+            profile: VoiceInputProfile,
             isStillHeld: Bool = true
         ) {
             self.sessionID = sessionID
-            self.physicalDownAt = physicalDownAt
-            self.onShortTap = onShortTap
-            self.usesLocalMicrophone = usesLocalMicrophone
-            self.bypassesShortClassification = bypassesShortClassification
             self.usesHardwareOption = usesHardwareOption
-            self.preparesRemoteTransport = preparesRemoteTransport
-            self.isDirectSession = isDirectSession
-            self.directProfile = directProfile
+            self.profile = profile
             self.isStillHeld = isStillHeld
         }
     }
 
     private enum DeferredRepressWaitReason: Equatable {
-        case previousRoute
-        case audioDrain
         case directOutputDrain
     }
 
@@ -421,9 +399,9 @@ final class VoicePressCoordinator {
     /// Lets the HUD update when a long press receives its first real remote
     /// audio frame, without changing the gesture state itself.
     var onRemoteAudioChanged: ((Bool) -> Void)?
-    /// Coordinates the physical hidutil Option edge with the short/long
-    /// classifier. The event tap temporarily stores the original CGEvents
-    /// until the gesture state decides whether to replay or drop them.
+    /// Coordinates the physical hidutil Option edge with Gate-A candidate
+    /// ownership. The event tap temporarily stores the original CGEvents
+    /// until the retained LONG-only path decides whether to release or drop them.
     var onHardwareOptionGateBegin: ((UUID) -> Void)?
     /// Result-bearing variant used by the LONG-only candidate. A rejected
     /// owner must reject the physical gesture before any candidate is armed.
@@ -444,13 +422,11 @@ final class VoicePressCoordinator {
     var onHardwareOptionGateShortDiscard: ((UUID) -> Bool)?
     /// Reset suppression only when HID device removal proves no matching up
     /// event can arrive; ordinary BLE loss keeps waiting for physical up.
-    var onHardwareOptionGateShortReplay: ((UUID) -> Void)?
-    var onHardwareOptionGateCancel: ((UUID) -> Void)?
     /// Testable ordering seam: the state callback is where AppController
     /// requests BLE acquisition, and this callback marks route preparation.
     var onRemoteRoutePreparation: (() -> Void)?
-    /// A disabled short press may prepare ATVV while classification is
-    /// pending. This does not release Option or expose the voice HUD.
+    /// A LONG-only candidate may prewarm ATVV before the 300 ms promotion
+    /// boundary. This does not release Option or expose the voice HUD.
     var onRemoteTransportPreparation: (() -> Void)?
     var onRemoteTransportCancellation: (() -> Void)?
     /// Called only after a private candidate has been promoted into the
@@ -480,12 +456,8 @@ final class VoicePressCoordinator {
     var onHardwareOptionGatePendingRepressCancel: ((UUID, String) -> Void)?
     var onPendingHardwareOptionRepressDownCaptured: ((UUID) -> Void)?
 
-    /// This legacy classifier remains only for retained generic compatibility
-    /// seams. Production microphone input uses Gate A below.
-    ///
-    /// Keep this at 300 ms: the old hold-only experiment lowered it to 120 ms,
-    /// but once short-press behavior was restored that made an ordinary tap
-    /// look like a long press and opened remote dictation unexpectedly.
+    /// Keep this at 300 ms: a physical voice-key press remains a private
+    /// candidate until this LONG-only boundary is confirmed.
     static let holdActivationThreshold: TimeInterval = 0.30
     static func isLongPress(heldDuration: TimeInterval) -> Bool {
         heldDuration >= holdActivationThreshold
@@ -496,37 +468,22 @@ final class VoicePressCoordinator {
     // output route alive long enough for those final frames to render even
     // when the physical Option edge has already been released.
     static let tailDrainDelay: TimeInterval = 0.80
-    // Physical release bounce is independent from the audio tail. Do not use
-    // the tail-drain duration as a press lockout: a completed route must allow
-    // the next real gesture immediately after this small debounce window.
-    private let releaseBounceDebounce: TimeInterval = 0.18
     private var mode: State = .idle
-    private var holdWorkItem: DispatchWorkItem?
     private var longOnlyCandidateTimer: VoicePressCandidateTimer?
     private var longOnlyCandidate: LongOnlyCandidate?
     private let candidateTimerFactory:
         (TimeInterval, @escaping () -> Void) -> VoicePressCandidateTimer
-    private var tailWorkItem: DispatchWorkItem?
-    private var tailSessionID: UUID?
     private var remoteStreaming = false
     private var preHIDPhysicalStreaming = false
     private var remoteAudioAvailable = false
     private var remoteRouted = false
     private var physicalTriggerSuppressionActive = false
-    private var longInputStarted = false
-    private var releaseBounceDebounceUntil = Date.distantPast
-    private var lastPhysicalUpAt: Date?
     private(set) var lastRepressDecisionForTesting: String?
     private var pendingRepress: PendingRepress?
     private var deferredRepressAwaitingActivation = false
     private var deferredRepressActivationWorkItem: DispatchWorkItem?
     private var deferredRepressWaitReason: DeferredRepressWaitReason?
-    private var shortTapAction: (() -> Void)?
-    private var shortInputUsesLocalMicrophone = false
     private var gestureID: UUID?
-    /// Gate-A production ownership. The legacy classifier fields below remain
-    /// available only to historical unit seams; AppController never enters
-    /// them for a physical voice-key press after Gate A.
     private var directSession = false
     private var capturedVoiceProfile: VoiceInputProfile?
     private var directPhysicalUp = false
@@ -538,13 +495,7 @@ final class VoicePressCoordinator {
     private var pendingDirectHardwareRepressOldSessionID: UUID?
     private var pendingDirectHardwareRepressACompleted = false
     private var pendingDirectHardwareRepressDownCaptured = false
-    private var pendingShortPreparationID: UUID?
     private var usesHardwareOptionPath = false
-    private var remoteOutputDrainRequestedSessionID: UUID?
-    private var remoteOutputDrainedSessionID: UUID?
-    private var physicalUpSessionID: UUID?
-    private var awaitingPhysicalVoiceKeyUp = false
-    private var pendingVoiceUIHidden = false
     private let syntheticOptionTrigger: VoiceOptionTrigger
     private let diagnosticLogger: VoiceDiagnosticLogger?
     private var gesturePhysicalDownUptime: TimeInterval?
@@ -559,18 +510,6 @@ final class VoicePressCoordinator {
         syntheticOptionTrigger = optionTrigger
         self.diagnosticLogger = diagnosticLogger
         self.candidateTimerFactory = candidateTimerFactory
-    }
-
-    /// Only these short actions need RemoteOrbit to capture the Mac's
-    /// physical/external microphone. The remote-microphone long press is
-    /// independent and must never inherit this requirement.
-    static func usesLocalMicrophone(forShortBinding binding: ButtonBinding) -> Bool {
-        switch binding {
-        case .preset(.chatGPTStartVoiceChat), .preset(.chatGPTStartDictation):
-            return true
-        default:
-            return false
-        }
     }
 
     var hasRemoteAudio: Bool {
@@ -665,13 +604,7 @@ final class VoicePressCoordinator {
             || remoteRouted
             || remoteStreaming
             || remoteAudioAvailable
-            || longInputStarted
-            || tailWorkItem != nil
             || deferredRepressAwaitingActivation
-            || pendingShortPreparationID != nil
-            || awaitingPhysicalVoiceKeyUp
-            || physicalUpSessionID != nil
-            || remoteOutputDrainRequestedSessionID != nil
     }
 
     var hasVoiceKeyHeldForReconfiguration: Bool {
@@ -684,19 +617,13 @@ final class VoicePressCoordinator {
             || remoteRouted
             || remoteStreaming
             || remoteAudioAvailable
-            || longInputStarted
-            || tailWorkItem != nil
             || deferredRepressAwaitingActivation
-            || pendingShortPreparationID != nil
-            || awaitingPhysicalVoiceKeyUp
-            || physicalUpSessionID != nil
-            || remoteOutputDrainRequestedSessionID != nil
     }
 
     var diagnosticStateFields: [String: Any] {
         [
             "mode": modeName,
-            "voice_session_state": directSession ? modeName : "legacy",
+            "voice_session_state": modeName,
             "voice_input_profile_id": capturedVoiceProfile?.id ?? "none",
             "voice_input_trigger_key": capturedVoiceProfile?.triggerKey.rawValue ?? "none",
             "gesture_id": gestureID?.uuidString ?? "none",
@@ -708,181 +635,42 @@ final class VoicePressCoordinator {
             "pre_hid_physical_streaming": preHIDPhysicalStreaming,
             "transport_stop_observed": directTransportStopObserved,
             "remote_audio_available": remoteAudioAvailable,
-            "long_input_started": longInputStarted,
-            "tail_pending": tailWorkItem != nil,
-            "awaiting_physical_up": awaitingPhysicalVoiceKeyUp,
             "momentary_config": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
             "synthetic_owner": syntheticOptionTrigger.activeSessionID?.uuidString ?? "none",
             "synthetic_down": syntheticOptionTrigger.isOptionDown,
         ]
     }
 
-    var tailDrainDelayForTesting: TimeInterval {
-        Self.tailDrainDelay
-    }
-
-    var hasPendingTailForTesting: Bool {
-        tailWorkItem != nil
-    }
-
-    var shouldShowPendingVoiceUI: Bool {
-        !pendingVoiceUIHidden
-    }
-
-    func invokeTailCompletionForTesting(sessionID: UUID) {
-        finishLongInput(sessionID: sessionID)
-    }
-
     @discardableResult
     func keyDown(
         sessionID: UUID,
-        onShortTap: (() -> Void)? = nil,
-        usesLocalMicrophone: Bool = false,
-        bypassesShortClassification: Bool = false,
         usesHardwareOption: Bool = false,
         preparesRemoteTransport: Bool = false,
         profile: VoiceInputProfile? = nil,
-        directSession: Bool = false,
-        longOnlyAdmission: Bool = false,
         targetApplicationBundleIdentifier: String? = nil
     ) -> Bool {
-        if directSession {
-            if longOnlyAdmission {
-                return startLongOnlyDirectCandidate(
-                    sessionID: sessionID,
-                    profile: profile ?? .defaultProfile,
-                    usesHardwareOption: usesHardwareOption,
-                    preparesRemoteTransport: preparesRemoteTransport,
-                    targetApplicationBundleIdentifier: targetApplicationBundleIdentifier
-                )
-            }
-            return startDirectVoicePress(
-                sessionID: sessionID,
-                profile: profile ?? .defaultProfile,
-                usesHardwareOption: usesHardwareOption
-            )
-        }
-        let now = Date()
-        let physicalDownAt = ProcessInfo.processInfo.systemUptime
-        if now < releaseBounceDebounceUntil {
-            let delta = lastPhysicalUpAt.map {
-                now.timeIntervalSince($0) * 1000
-            } ?? 0
-            lastRepressDecisionForTesting = "release-bounce"
-            logAdmissionDecision(
-                sessionID: sessionID,
-                result: "rejected",
-                reason: "release_bounce"
-            )
-            print(
-                "[PRESS] rejected release bounce delta=" +
-                    String(format: "%.1fms", delta)
-            )
-            return false
-        }
-        guard mode == .idle, !awaitingPhysicalVoiceKeyUp else {
-            logAdmissionDecision(
-                sessionID: sessionID,
-                result: "rejected",
-                reason: "voice_key_release_pending"
-            )
-            return false
-        }
-        if remoteRouted || longInputStarted || tailWorkItem != nil {
-            if pendingRepress == nil {
-                pendingRepress = PendingRepress(
-                    sessionID: sessionID,
-                    physicalDownAt: physicalDownAt,
-                    onShortTap: onShortTap,
-                    usesLocalMicrophone: usesLocalMicrophone,
-                    bypassesShortClassification: bypassesShortClassification,
-                    usesHardwareOption: usesHardwareOption,
-                    preparesRemoteTransport: preparesRemoteTransport
-                )
-                let shortID = String(sessionID.uuidString.prefix(4))
-                print(
-                    "[VOICE][\(shortID)][TIMING] VOICE_DOWN_PHYSICAL " +
-                        "uptime=" + String(format: "%.6f", physicalDownAt)
-                )
-                print(
-                    "[PRESS][\(shortID)] deferred previous-tail-active " +
-                        "session=\(sessionID.uuidString)"
-                )
-            } else {
-                print("[PRESS] deferred re-press already pending")
-            }
-            lastRepressDecisionForTesting = "deferred-previous-tail-active"
-            logAdmissionDecision(
-                sessionID: sessionID,
-                result: "deferred",
-                reason: "previous_route_tail_active"
-            )
-            return true
-        }
-        if isVoiceSessionAdmissionBlocked?() == true {
-            if pendingRepress == nil {
-                pendingRepress = PendingRepress(
-                    sessionID: sessionID,
-                    physicalDownAt: physicalDownAt,
-                    onShortTap: onShortTap,
-                    usesLocalMicrophone: usesLocalMicrophone,
-                    bypassesShortClassification: bypassesShortClassification,
-                    usesHardwareOption: usesHardwareOption,
-                    preparesRemoteTransport: preparesRemoteTransport
-                )
-                deferredRepressWaitReason = .audioDrain
-                deferredRepressAwaitingActivation = true
-                let shortID = String(sessionID.uuidString.prefix(4))
-                print(
-                    "[PRESS][\(shortID)] admission deferred reason=audio-drain "
-                        + "session=\(sessionID.uuidString)"
-                )
-                logAdmissionDecision(
-                    sessionID: sessionID,
-                    result: "deferred",
-                    reason: "audio_drain"
-                )
-            } else {
-                print("[PRESS] admission deferred; re-press already pending")
-                logAdmissionDecision(
-                    sessionID: sessionID,
-                    result: "deferred",
-                    reason: "audio_drain_already_pending"
-                )
-            }
-            lastRepressDecisionForTesting = "deferred-audio-drain"
-            return true
-        }
-        if pendingRepress != nil || deferredRepressAwaitingActivation {
-            logAdmissionDecision(
-                sessionID: sessionID,
-                result: "deferred",
-                reason: "repress_activation_pending"
-            )
-            return true
-        }
-        if lastPhysicalUpAt != nil {
-            lastRepressDecisionForTesting = "accepted-after-route-finished"
-            print("[PRESS] accepted new gesture after previous route finished")
-        } else {
-            lastRepressDecisionForTesting = nil
-        }
-
-        let accepted = startAcceptedVoicePress(
+        startLongOnlyDirectCandidate(
             sessionID: sessionID,
-            physicalDownAt: physicalDownAt,
-            onShortTap: onShortTap,
-            usesLocalMicrophone: usesLocalMicrophone,
-            bypassesShortClassification: bypassesShortClassification,
+            profile: profile ?? .defaultProfile,
             usesHardwareOption: usesHardwareOption,
-            preparesRemoteTransport: preparesRemoteTransport
+            preparesRemoteTransport: preparesRemoteTransport,
+            targetApplicationBundleIdentifier: targetApplicationBundleIdentifier
         )
-        logAdmissionDecision(
+    }
+
+    /// Test seam for the retained direct opening lifecycle. Production input
+    /// always enters through `keyDown`, which owns the 300 ms candidate gate.
+    @discardableResult
+    func keyDownForTesting(
+        sessionID: UUID,
+        usesHardwareOption: Bool = false,
+        profile: VoiceInputProfile? = nil
+    ) -> Bool {
+        startDirectVoicePress(
             sessionID: sessionID,
-            result: accepted ? "admitted" : "rejected",
-            reason: accepted ? "ready" : "voice_session_start_failed"
+            profile: profile ?? .defaultProfile,
+            usesHardwareOption: usesHardwareOption
         )
-        return accepted
     }
 
     /// Gate-A production entry. The physical microphone press is private until
@@ -940,14 +728,8 @@ final class VoicePressCoordinator {
             }
             pendingRepress = PendingRepress(
                 sessionID: sessionID,
-                physicalDownAt: ProcessInfo.processInfo.systemUptime,
-                onShortTap: nil,
-                usesLocalMicrophone: false,
-                bypassesShortClassification: true,
                 usesHardwareOption: usesHardwareOption,
-                preparesRemoteTransport: preparesRemoteTransport,
-                isDirectSession: true,
-                directProfile: profile
+                profile: profile
             )
             deferredRepressAwaitingActivation = true
             deferredRepressWaitReason = .directOutputDrain
@@ -1314,14 +1096,8 @@ final class VoicePressCoordinator {
                 }
                 pendingRepress = PendingRepress(
                     sessionID: sessionID,
-                    physicalDownAt: ProcessInfo.processInfo.systemUptime,
-                    onShortTap: nil,
-                    usesLocalMicrophone: false,
-                    bypassesShortClassification: true,
                     usesHardwareOption: usesHardwareOption,
-                    preparesRemoteTransport: false,
-                    isDirectSession: true,
-                    directProfile: profile
+                    profile: profile
                 )
                 deferredRepressAwaitingActivation = true
                 deferredRepressWaitReason = .directOutputDrain
@@ -1392,11 +1168,6 @@ final class VoicePressCoordinator {
         gesturePhysicalDownUptime = ProcessInfo.processInfo.systemUptime
         remoteAudioAvailable = false
         remoteStreaming = false
-        remoteOutputDrainRequestedSessionID = nil
-        remoteOutputDrainedSessionID = nil
-        physicalUpSessionID = nil
-        awaitingPhysicalVoiceKeyUp = false
-        pendingVoiceUIHidden = false
         VoiceTimingLogger.begin(sessionID: sessionID)
         AudioPipe.shared.beginRemoteCandidate()
 
@@ -1454,7 +1225,6 @@ final class VoicePressCoordinator {
         guard !directPhysicalUp else { return true }
 
         directPhysicalUp = true
-        physicalUpSessionID = sessionID
         VoiceTimingLogger.mark("PHYSICAL_UP", sessionID: sessionID)
         diagnosticLogger?.log(
             category: "voice",
@@ -1552,7 +1322,7 @@ final class VoicePressCoordinator {
     private func completeDirectVoiceSession(sessionID: UUID) {
         guard directSession, gestureID == sessionID else { return }
         if deferredRepressWaitReason == .directOutputDrain,
-           pendingRepress?.isDirectSession == true {
+           pendingRepress != nil {
             pendingDirectHardwareRepressACompleted = true
         }
         directSession = false
@@ -1567,11 +1337,6 @@ final class VoicePressCoordinator {
         onRemoteAudioChanged?(false)
         usesHardwareOptionPath = false
         physicalTriggerSuppressionActive = false
-        remoteOutputDrainRequestedSessionID = nil
-        remoteOutputDrainedSessionID = nil
-        physicalUpSessionID = nil
-        awaitingPhysicalVoiceKeyUp = false
-        pendingVoiceUIHidden = false
         gestureID = nil
         _ = syntheticOptionTrigger.abort(sessionID: sessionID)
         if !preHIDPhysicalStreaming && !livePhysicalCandidateForAdmission {
@@ -1594,7 +1359,6 @@ final class VoicePressCoordinator {
     private func tryActivatePendingDirectHardwareRepress() {
         guard deferredRepressWaitReason == .directOutputDrain,
               let pending = pendingRepress,
-              pending.isDirectSession,
               pendingDirectHardwareRepressACompleted,
               !pendingDirectHardwareRepressAwaitingOldUp,
               !directSession else {
@@ -1618,104 +1382,16 @@ final class VoicePressCoordinator {
             candidate.previousVoiceOwnershipReady = true
             longOnlyCandidate = candidate
         }
-        scheduleDeferredRepressActivation(waitReason: .directOutputDrain)
+        scheduleDeferredRepressActivation()
     }
 
     func pendingHardwareOptionRepressDownCaptured(sessionID: UUID) {
         guard pendingRepress?.sessionID == sessionID,
-              pendingRepress?.isDirectSession == true,
               pendingRepress?.usesHardwareOption == true else {
             return
         }
         pendingDirectHardwareRepressDownCaptured = true
         tryActivatePendingDirectHardwareRepress()
-    }
-
-    private func startAcceptedVoicePress(
-        sessionID: UUID,
-        physicalDownAt: TimeInterval,
-        onShortTap: (() -> Void)?,
-        usesLocalMicrophone: Bool,
-        bypassesShortClassification: Bool,
-        usesHardwareOption: Bool,
-        preparesRemoteTransport: Bool
-    ) -> Bool {
-        // Local capture is only used by explicit Codex short actions.
-        pendingShortPreparationID = nil
-        AudioPipe.shared.setLocalMicrophoneCaptureEnabled(false)
-        shortTapAction = onShortTap
-        shortInputUsesLocalMicrophone = usesLocalMicrophone
-        usesHardwareOptionPath = usesHardwareOption
-        remoteOutputDrainRequestedSessionID = nil
-        remoteOutputDrainedSessionID = nil
-        physicalUpSessionID = nil
-        awaitingPhysicalVoiceKeyUp = false
-        pendingVoiceUIHidden = preparesRemoteTransport
-        gestureID = sessionID
-        gesturePhysicalDownUptime = physicalDownAt
-        VoiceTimingLogger.begin(sessionID: sessionID)
-        _ = syntheticOptionTrigger.begin(sessionID: sessionID)
-        let holdThreshold = Self.holdActivationThreshold
-        diagnosticLogger?.log(
-            category: "voice",
-            event: "GESTURE_BEGIN",
-            gestureID: sessionID,
-            fields: [
-                "momentary_configured_key": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
-                "policy": "momentary_trigger",
-            ]
-        )
-        diagnosticLogger?.log(
-            category: "voice",
-            event: "GESTURE_CLASSIFIER",
-            gestureID: sessionID,
-            key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
-            fields: [
-                "threshold_ms": Int(holdThreshold * 1000),
-                "momentary_key": syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue,
-                "bypasses_short_classification": bypassesShortClassification,
-            ]
-        )
-        if usesHardwareOptionPath {
-            onHardwareOptionGateBegin?(sessionID)
-        }
-        remoteAudioAvailable = false
-        longInputStarted = false
-        AudioPipe.shared.beginRemoteCandidate()
-
-        if bypassesShortClassification {
-            logGestureClassification(result: "hold", sessionID: sessionID)
-            enterHoldingState()
-            return true
-        }
-
-        setMode(.pending)
-        if preparesRemoteTransport && !bypassesShortClassification {
-            onRemoteTransportPreparation?()
-        }
-        let heldDuration = max(
-            0,
-            ProcessInfo.processInfo.systemUptime - physicalDownAt
-        )
-        let isLongPress = heldDuration >= holdThreshold
-        let remainingHoldTime = holdThreshold - heldDuration
-        guard !isLongPress else {
-            promoteToLongPress()
-            return true
-        }
-        let work = DispatchWorkItem { [weak self] in
-            self?.promoteToLongPress()
-        }
-        holdWorkItem = work
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + remainingHoldTime,
-            execute: work
-        )
-        print(
-            "[PRESS] pending; classifying short tap vs remote-mic hold in "
-                + "\(Int(holdThreshold * 1000)) ms"
-        )
-        return true
     }
 
     @discardableResult
@@ -1740,9 +1416,9 @@ final class VoicePressCoordinator {
                 return finishDirectVoicePressRelease()
             }
         }
+
         if deferredRepressWaitReason == .directOutputDrain,
-           let pendingValue = pendingRepress,
-           pendingValue.isDirectSession {
+           let pendingValue = pendingRepress {
             pendingRepress = nil
             deferredRepressAwaitingActivation = false
             deferredRepressActivationWorkItem?.cancel()
@@ -1753,141 +1429,31 @@ final class VoicePressCoordinator {
                     pendingValue.sessionID,
                     "physical-up-before-activation"
                 )
-                clearPendingDirectHardwareRepressState()
             }
+            clearPendingDirectHardwareRepressState()
             print("[PRESS] pending direct re-press released before activation")
             return false
         }
+
         if directSession {
             return finishDirectVoicePressRelease()
         }
-        holdWorkItem?.cancel()
-        holdWorkItem = nil
 
-        switch mode {
-        case .idle:
-            if awaitingPhysicalVoiceKeyUp {
-                awaitingPhysicalVoiceKeyUp = false
-                if let currentGestureID = gestureID {
-                    physicalUpSessionID = currentGestureID
-                    if usesHardwareOptionPath {
-                        onHardwareOptionGatePhysicalUp?(currentGestureID)
-                    }
-                    logPhysicalGestureRelease(sessionID: currentGestureID)
-                    if longInputStarted {
-                        completeLongInputIfReady(sessionID: currentGestureID)
-                    } else {
-                        completeVoiceRouteWithoutAudio(sessionID: currentGestureID)
-                    }
-                }
-                print("[PRESS] completed route consumed pending physical voice-key release")
-                return true
-            }
-            guard let pendingRepress else { return false }
-            self.pendingRepress?.isStillHeld = false
-            self.pendingRepress = nil
-            deferredRepressAwaitingActivation = false
-            deferredRepressActivationWorkItem?.cancel()
-            deferredRepressActivationWorkItem = nil
-            deferredRepressWaitReason = nil
-            let shortID = String(pendingRepress.sessionID.uuidString.prefix(4))
-            print(
-                "[PRESS][\(shortID)] deferred re-press released before activation"
+        guard let pendingRepress else { return false }
+        self.pendingRepress?.isStillHeld = false
+        self.pendingRepress = nil
+        deferredRepressAwaitingActivation = false
+        deferredRepressActivationWorkItem?.cancel()
+        deferredRepressActivationWorkItem = nil
+        deferredRepressWaitReason = nil
+        if pendingRepress.usesHardwareOption {
+            onHardwareOptionGatePendingRepressCancel?(
+                pendingRepress.sessionID,
+                "physical-up-before-activation"
             )
-            return false
-        case .pending:
-            let action = shortTapAction
-            shortTapAction = nil
-            let shouldPrepareLocalMicrophone = shortInputUsesLocalMicrophone
-            shortInputUsesLocalMicrophone = false
-            let currentGestureID = gestureID
-            if let currentGestureID {
-                logGestureClassification(
-                    result: "short",
-                    sessionID: currentGestureID,
-                    policy: "momentary_trigger"
-                )
-            }
-            let shouldUseHardwareOption = usesHardwareOptionPath
-            gestureID = nil
-            usesHardwareOptionPath = false
-            pendingVoiceUIHidden = false
-            setMode(.idle)
-            setRemoteRouted(false)
-            AudioPipe.shared.endRemoteCandidate()
-            if let currentGestureID {
-                VoiceTimingLogger.end(sessionID: currentGestureID)
-            }
-            if shouldPrepareLocalMicrophone, let currentGestureID {
-                pendingShortPreparationID = currentGestureID
-                print("[PRESS] SHORT release → preparing local microphone")
-                AudioPipe.shared.setLocalMicrophoneCaptureEnabled(true) { [weak self] in
-                    guard let self,
-                          self.pendingShortPreparationID == currentGestureID else { return }
-                    self.pendingShortPreparationID = nil
-                    if let action {
-                        print("[PRESS] SHORT local microphone ready → configured voice action")
-                        self.onHardwareOptionGateCancel?(currentGestureID)
-                        _ = self.syntheticOptionTrigger.abort(sessionID: currentGestureID)
-                        action()
-                    } else {
-                        print("[PRESS] SHORT local microphone ready → configured trigger")
-                        self.onHardwareOptionGateShortReplay?(currentGestureID)
-                        self.emitShortPress(
-                            sessionID: currentGestureID,
-                            usesHardwareOption: shouldUseHardwareOption
-                        )
-                    }
-                }
-            } else if let action {
-                print("[PRESS] SHORT release → configured voice action")
-                if let currentGestureID {
-                    onHardwareOptionGateCancel?(currentGestureID)
-                    _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
-                }
-                action()
-            } else {
-                print("[PRESS] SHORT release → configured voice trigger")
-                if let currentGestureID {
-                    onHardwareOptionGateShortReplay?(currentGestureID)
-                    emitShortPress(
-                        sessionID: currentGestureID,
-                        usesHardwareOption: shouldUseHardwareOption
-                    )
-                }
-            }
-            return true
-        case .holding:
-            shortTapAction = nil
-            shortInputUsesLocalMicrophone = false
-            let releasedSessionID = gestureID
-            if let releasedSessionID {
-                physicalUpSessionID = releasedSessionID
-                VoiceTimingLogger.mark("PHYSICAL_UP", sessionID: releasedSessionID)
-                if usesHardwareOptionPath {
-                    onHardwareOptionGatePhysicalUp?(releasedSessionID)
-                }
-            }
-            setMode(.idle)
-            let physicalUpAt = Date()
-            lastPhysicalUpAt = physicalUpAt
-            releaseBounceDebounceUntil = physicalUpAt.addingTimeInterval(
-                releaseBounceDebounce
-            )
-            if longInputStarted {
-                print("[PRESS] LONG release → finish immediately")
-                scheduleLongFinish(sessionID: releasedSessionID)
-            } else {
-                print("[PRESS] LONG release → no remote audio; no Option dialog")
-                finishLongInput(sessionID: releasedSessionID)
-            }
-            if let releasedSessionID {
-                logPhysicalGestureRelease(sessionID: releasedSessionID)
-            }
-            return true
-        case .opening, .streaming, .draining:
-            return finishDirectVoicePressRelease()
         }
+        clearPendingDirectHardwareRepressState()
+        return false
     }
 
     private func armCandidateTriggerOwnershipIfAvailable() {
@@ -1966,77 +1532,31 @@ final class VoicePressCoordinator {
     }
 
     func setRemoteStreaming(_ streaming: Bool) {
-        if directSession {
-            if hasLivePhysicalCandidate?() != true {
-                preHIDPhysicalStreaming = false
-            }
-            remoteStreaming = streaming
-            directTransportStopObserved = !streaming
-            diagnosticLogger?.log(
-                category: "voice",
-                event: streaming ? "AUDIO_START" : "AUDIO_STOP",
-                gestureID: gestureID,
-                key: capturedVoiceProfile?.triggerKey,
-                fields: [
-                    "voice_session_state": streaming ? "streaming" : modeName,
-                    "remote_streaming": streaming,
-                    "remote_routed": remoteRouted,
-                ]
-            )
-            if streaming {
-                setMode(.streaming)
-            } else if directPhysicalUp, let currentGestureID = gestureID {
-                finishDirectTransportStop(sessionID: currentGestureID)
-            }
-            print(
-                "[PRESS] ATVV streaming=\(streaming); "
-                    + "voice_session_state=\(modeName)"
-            )
-            return
+        guard directSession else { return }
+        if hasLivePhysicalCandidate?() != true {
+            preHIDPhysicalStreaming = false
         }
         remoteStreaming = streaming
+        directTransportStopObserved = !streaming
         diagnosticLogger?.log(
             category: "voice",
             event: streaming ? "AUDIO_START" : "AUDIO_STOP",
             gestureID: gestureID,
+            key: capturedVoiceProfile?.triggerKey,
             fields: [
-                "voice_session_state": modeName,
+                "voice_session_state": streaming ? "streaming" : modeName,
                 "remote_streaming": streaming,
                 "remote_routed": remoteRouted,
             ]
         )
-        if !streaming {
-            remoteAudioAvailable = false
-            onRemoteAudioChanged?(false)
-            if mode == .holding {
-                // The BLE side has stopped accepting input, but queued PCM
-                // still owns the Option-up lifetime.
-                print("[PRESS] remote audio stopped after drain; waiting for output drain")
-                if longInputStarted {
-                    awaitingPhysicalVoiceKeyUp = true
-                    setMode(.idle)
-                    requestRemoteOutputDrain(sessionID: gestureID)
-                } else {
-                    if let currentGestureID = gestureID {
-                        onHardwareOptionGateCancel?(currentGestureID)
-                        _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
-                    }
-                    setMode(.idle)
-                    finishLongInput(sessionID: gestureID)
-                }
-            } else if longInputStarted {
-                // The physical HID edge may have arrived before the BLE
-                // drain callback. Preserve the same output-drain barrier.
-                print("[PRESS] remote audio drain complete; waiting for output drain")
-                requestRemoteOutputDrain(sessionID: gestureID)
-            }
+        if streaming {
+            setMode(.streaming)
+        } else if directPhysicalUp, let currentGestureID = gestureID {
+            finishDirectTransportStop(sessionID: currentGestureID)
         }
-        // BLE availability is informational only. HID owns gesture lifetime
-        // and routing policy; transient ATVV events never fall back to the
-        // physical mic during a hold.
         print(
-            "[PRESS] ATVV streaming=\(streaming); " +
-            "gesture=\(modeName); routed=\(remoteRouted)"
+            "[PRESS] ATVV streaming=\(streaming); "
+                + "voice_session_state=\(modeName)"
         )
     }
 
@@ -2069,40 +1589,22 @@ final class VoicePressCoordinator {
     /// The BLE transport may announce AUDIO_START before delivering any PCM.
     /// Only the first decoded frame authorizes the long-press Option hold.
     func setRemoteAudioAvailable() {
-        if directSession {
-            guard let currentGestureID = gestureID, !remoteAudioAvailable else { return }
-            remoteAudioAvailable = true
-            VoiceTimingLogger.mark("AUDIO_FIRST", sessionID: currentGestureID)
-            diagnosticLogger?.log(
-                category: "voice",
-                event: "AUDIO_FIRST",
-                gestureID: currentGestureID,
-                key: capturedVoiceProfile?.triggerKey,
-                fields: [
-                    "voice_session_state": modeName,
-                    "voice_input_profile_id": capturedVoiceProfile?.id ?? "unknown",
-                ]
-            )
-            onRemoteAudioChanged?(true)
-            return
-        }
-        guard mode == .pending || mode == .holding else { return }
-        guard !remoteAudioAvailable else { return }
+        guard directSession,
+              let currentGestureID = gestureID,
+              !remoteAudioAvailable else { return }
         remoteAudioAvailable = true
-        if let currentGestureID = gestureID {
-            VoiceTimingLogger.mark("AUDIO_FIRST", sessionID: currentGestureID)
-            diagnosticLogger?.log(
-                category: "voice",
-                event: "AUDIO_FIRST",
-                gestureID: currentGestureID,
-                    fields: ["voice_session_state": modeName]
-            )
-        }
-        if mode == .holding {
-            onRemoteAudioChanged?(true)
-        }
-        guard mode == .holding else { return }
-        beginLongInput()
+        VoiceTimingLogger.mark("AUDIO_FIRST", sessionID: currentGestureID)
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "AUDIO_FIRST",
+            gestureID: currentGestureID,
+            key: capturedVoiceProfile?.triggerKey,
+            fields: [
+                "voice_session_state": modeName,
+                "voice_input_profile_id": capturedVoiceProfile?.id ?? "unknown",
+            ]
+        )
+        onRemoteAudioChanged?(true)
     }
 
     func stop() {
@@ -2116,7 +1618,22 @@ final class VoicePressCoordinator {
             }
             return
         }
-        stopCurrentVoiceState(preservingDeferredRepress: false)
+
+        deferredRepressActivationWorkItem?.cancel()
+        deferredRepressActivationWorkItem = nil
+        deferredRepressAwaitingActivation = false
+        if let pendingRepress {
+            if pendingRepress.usesHardwareOption {
+                onHardwareOptionGatePendingRepressCancel?(
+                    pendingRepress.sessionID,
+                    "stop"
+                )
+            }
+            self.pendingRepress = nil
+        }
+        deferredRepressWaitReason = nil
+        clearPendingDirectHardwareRepressState()
+        _ = syntheticOptionTrigger.reset()
     }
 
     /// A removed HID device cannot deliver the matching physical UP. Retire
@@ -2124,15 +1641,6 @@ final class VoicePressCoordinator {
     /// the same identity-preserving boundary as the rest of HID cleanup.
     func cancelLongOnlyCandidateForHIDRemoval() {
         _ = cancelLongOnlyCandidate(reason: "hid-removed")
-    }
-
-    func stopCurrentVoiceStatePreservingDeferredRepress() {
-        guard deferredRepressAwaitingActivation, pendingRepress != nil else {
-            stop()
-            return
-        }
-        print("[PRESS] preserving deferred re-press across old transport teardown")
-        stopCurrentVoiceState(preservingDeferredRepress: true)
     }
 
     /// The BLE bridge calls this after the old AUDIO_STOP drain has fully
@@ -2148,35 +1656,6 @@ final class VoicePressCoordinator {
                 tryPromoteLongOnlyCandidate(sessionID: candidate.sessionID)
             }
         }
-        guard deferredRepressAwaitingActivation,
-              deferredRepressWaitReason == .audioDrain,
-              pendingRepress != nil,
-              mode == .idle,
-              !remoteRouted,
-              !longInputStarted,
-              tailWorkItem == nil,
-              gestureID == nil,
-              remoteOutputDrainRequestedSessionID == nil,
-              isVoiceSessionAdmissionBlocked?() != true else {
-            return
-        }
-        deferredRepressAwaitingActivation = false
-        deferredRepressWaitReason = nil
-        deferredRepressActivationWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.deferredRepressActivationWorkItem = nil
-            guard let pendingRepress = self.pendingRepress else { return }
-            self.lastRepressDecisionForTesting = "admitted-after-audio-drain"
-            self.logAdmissionDecision(
-                sessionID: pendingRepress.sessionID,
-                result: "admitted",
-                reason: "audio_drain_cleared"
-            )
-            self.activatePendingRepressIfHeld()
-        }
-        deferredRepressActivationWorkItem = work
-        DispatchQueue.main.async(execute: work)
     }
 
     /// Records whether the old hardware trigger-up now has an event-tap
@@ -2242,157 +1721,12 @@ final class VoicePressCoordinator {
             }
             return
         }
-        stopCurrentVoiceStatePreservingDeferredRepress()
-    }
-
-    private func stopCurrentVoiceState(preservingDeferredRepress: Bool) {
-        holdWorkItem?.cancel()
-        holdWorkItem = nil
-        tailWorkItem?.cancel()
-        tailWorkItem = nil
-        tailSessionID = nil
-        if !preservingDeferredRepress {
-            deferredRepressActivationWorkItem?.cancel()
-            deferredRepressActivationWorkItem = nil
-            deferredRepressAwaitingActivation = false
-            pendingRepress = nil
-            deferredRepressWaitReason = nil
-        }
-        releaseBounceDebounceUntil = .distantPast
-        lastPhysicalUpAt = nil
-        shortTapAction = nil
-        shortInputUsesLocalMicrophone = false
-        let stoppedSessionID = gestureID
-        if let currentGestureID = gestureID {
-            onHardwareOptionGateCancel?(currentGestureID)
-            _ = syntheticOptionTrigger.abort(sessionID: currentGestureID)
-        } else {
-            _ = syntheticOptionTrigger.reset()
-        }
-        gestureID = nil
-        usesHardwareOptionPath = false
-        pendingShortPreparationID = nil
-        AudioPipe.shared.setLocalMicrophoneCaptureEnabled(false)
-        setMode(.idle)
-        setRemoteRouted(false)
-        AudioPipe.shared.endRemoteCandidate()
-        pendingVoiceUIHidden = false
-        longInputStarted = false
-        remoteAudioAvailable = false
-        remoteStreaming = false
-        awaitingPhysicalVoiceKeyUp = false
-        remoteOutputDrainRequestedSessionID = nil
-        remoteOutputDrainedSessionID = nil
-        physicalUpSessionID = nil
-        if let stoppedSessionID {
-            VoiceTimingLogger.mark("ROUTE_OFF", sessionID: stoppedSessionID)
-            VoiceTimingLogger.end(sessionID: stoppedSessionID)
-        }
-    }
-
-    private func promoteToLongPress() {
-        guard mode == .pending else { return }
-        holdWorkItem = nil
-        if let currentGestureID = gestureID {
-            logGestureClassification(
-                result: "hold",
-                sessionID: currentGestureID,
-                policy: "momentary_trigger"
-            )
-        }
-        enterHoldingState()
-    }
-
-    private func enterHoldingState() {
-        guard let currentGestureID = gestureID else { return }
-        shortTapAction = nil
-        shortInputUsesLocalMicrophone = false
-        VoiceTimingLogger.mark("HOLD_CONFIRMED", sessionID: currentGestureID)
-        VoiceTimingLogger.mark("BLE_START_REQUEST", sessionID: currentGestureID)
-        setMode(.holding)
-
-        // Route selection follows the physical HID hold, not BLE notifications.
-        // If ATVV is late or briefly drops, emit silence rather than leaking
-        // the physical microphone into a remote-only gesture.
-        VoiceTimingLogger.mark("REMOTE_ROUTE_BEGIN", sessionID: currentGestureID)
-        onRemoteRoutePreparation?()
-        setRemoteRouted(true)
-        print(
-            "[PRESS] LONG start → waiting for remote audio; source=" +
-            (remoteStreaming ? "stream announced" : "remote waiting")
-        )
-        if remoteAudioAvailable {
-            beginLongInput()
-        }
-    }
-
-    private func beginLongInput() {
-        guard mode == .holding, !longInputStarted else { return }
-        longInputStarted = true
-        guard let currentGestureID = gestureID else { return }
-        if usesHardwareOptionPath {
-            print("[PRESS] LONG audio ready → Option DOWN; source=remote")
-            print("[PRESS] LONG uses hardware-held \(syntheticOptionTrigger.momentaryVoiceTriggerKey.displayName)")
-            onHardwareOptionGateLongReady?(currentGestureID)
-            VoiceTimingLogger.mark("OPTION_GATE_RELEASE", sessionID: currentGestureID)
-            diagnosticLogger?.log(
-                category: "voice",
-                event: "MOMENTARY_HOLD_READY",
-                gestureID: currentGestureID,
-                key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
-                fields: ["source": "hardware", "first_pcm": true]
-            )
-        } else {
-            // Fallback for systems where hidutil could not be applied.
-            print("[PRESS] LONG audio ready → Option DOWN; source=remote")
-            print("[PRESS] LONG uses synthetic \(syntheticOptionTrigger.momentaryVoiceTriggerKey.displayName)")
-            _ = syntheticOptionTrigger.sendDown(sessionID: currentGestureID)
-            VoiceTimingLogger.mark("OPTION_GATE_RELEASE", sessionID: currentGestureID)
-            diagnosticLogger?.log(
-                category: "voice",
-                event: "MOMENTARY_HOLD_READY",
-                gestureID: currentGestureID,
-                key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
-                fields: ["source": "synthetic", "first_pcm": true]
-            )
-        }
-    }
-
-    private func scheduleLongFinish(sessionID: UUID?) {
-        guard longInputStarted else {
-            setRemoteRouted(false)
-            AudioPipe.shared.endRemoteCandidate()
-            longInputStarted = false
-            remoteAudioAvailable = false
-            gestureID = nil
-            usesHardwareOptionPath = false
-            tailSessionID = nil
-            return
-        }
-        tailWorkItem?.cancel()
-        tailSessionID = sessionID
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            guard self.tailSessionID == sessionID else {
-                print("[PRESS] stale tail completion ignored")
-                return
-            }
-            self.tailWorkItem = nil
-            self.tailSessionID = nil
-            self.requestRemoteOutputDrain(sessionID: sessionID)
-        }
-        tailWorkItem = work
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.tailDrainDelay,
-            execute: work
-        )
     }
 
     private func activatePendingRepressIfHeld() {
         guard let pendingRepress else { return }
         let longOnlyCandidate = self.longOnlyCandidate
-        if pendingRepress.isDirectSession,
-           let longOnlyCandidate,
+        if let longOnlyCandidate,
            (longOnlyCandidate.sessionID != pendingRepress.sessionID
                 || !longOnlyCandidate.longConfirmed
                 || !longOnlyCandidate.isStillHeld) {
@@ -2401,74 +1735,48 @@ final class VoicePressCoordinator {
         self.pendingRepress = nil
         deferredRepressWaitReason = nil
         guard pendingRepress.isStillHeld else {
-            if pendingRepress.isDirectSession {
-                clearPendingDirectHardwareRepressState()
-            }
+            clearPendingDirectHardwareRepressState()
             return
         }
 
-        if pendingRepress.isDirectSession {
-            guard livePhysicalCandidateForAdmission else {
-                clearPendingDirectHardwareRepressState()
-                print("[PRESS] direct re-press activation lost physical candidate")
-                return
-            }
-            let activated = startDirectVoicePress(
-                sessionID: pendingRepress.sessionID,
-                profile: pendingRepress.directProfile ?? .defaultProfile,
-                usesHardwareOption: pendingRepress.usesHardwareOption,
-                promotingPendingHardwareRepress: pendingRepress.usesHardwareOption
-            )
+        guard livePhysicalCandidateForAdmission else {
             clearPendingDirectHardwareRepressState()
-            guard activated else {
-                if let longOnlyCandidate {
-                    self.longOnlyCandidate = nil
-                    self.longOnlyCandidateTimer?.cancel()
-                    self.longOnlyCandidateTimer = nil
-                    finishFailedLongOnlyCandidate(longOnlyCandidate)
-                }
-                print("[PRESS] direct re-press activation rejected")
-                return
-            }
+            print("[PRESS] direct re-press activation lost physical candidate")
+            return
+        }
+        let activated = startDirectVoicePress(
+            sessionID: pendingRepress.sessionID,
+            profile: pendingRepress.profile,
+            usesHardwareOption: pendingRepress.usesHardwareOption,
+            promotingPendingHardwareRepress: pendingRepress.usesHardwareOption
+        )
+        clearPendingDirectHardwareRepressState()
+        guard activated else {
             if let longOnlyCandidate {
                 self.longOnlyCandidate = nil
                 self.longOnlyCandidateTimer?.cancel()
                 self.longOnlyCandidateTimer = nil
-                onLongOnlyCandidatePromoted?(
-                    longOnlyCandidate.sessionID,
-                    longOnlyCandidate.targetApplicationBundleIdentifier
-                )
+                finishFailedLongOnlyCandidate(longOnlyCandidate)
             }
-            lastRepressDecisionForTesting = "admitted-after-direct-output-drain"
+            print("[PRESS] direct re-press activation rejected")
             return
         }
-
-        let heldDuration = max(
-            0,
-            ProcessInfo.processInfo.systemUptime - pendingRepress.physicalDownAt
-        )
-        let shortID = String(pendingRepress.sessionID.uuidString.prefix(4))
-        print(
-            "[PRESS][\(shortID)] deferred re-press activated held=" +
-                String(format: "%.1fms", heldDuration * 1000)
-        )
-        _ = startAcceptedVoicePress(
-            sessionID: pendingRepress.sessionID,
-            physicalDownAt: pendingRepress.physicalDownAt,
-            onShortTap: pendingRepress.onShortTap,
-            usesLocalMicrophone: pendingRepress.usesLocalMicrophone,
-            bypassesShortClassification: pendingRepress.bypassesShortClassification,
-            usesHardwareOption: pendingRepress.usesHardwareOption,
-            preparesRemoteTransport: pendingRepress.preparesRemoteTransport
-        )
+        if let longOnlyCandidate {
+            self.longOnlyCandidate = nil
+            self.longOnlyCandidateTimer?.cancel()
+            self.longOnlyCandidateTimer = nil
+            onLongOnlyCandidatePromoted?(
+                longOnlyCandidate.sessionID,
+                longOnlyCandidate.targetApplicationBundleIdentifier
+            )
+        }
+        lastRepressDecisionForTesting = "admitted-after-direct-output-drain"
     }
 
-    private func scheduleDeferredRepressActivation(
-        waitReason: DeferredRepressWaitReason = .previousRoute
-    ) {
+    private func scheduleDeferredRepressActivation() {
         guard pendingRepress != nil else { return }
         deferredRepressAwaitingActivation = true
-        deferredRepressWaitReason = waitReason
+        deferredRepressWaitReason = .directOutputDrain
         deferredRepressActivationWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
@@ -2479,149 +1787,6 @@ final class VoicePressCoordinator {
         }
         deferredRepressActivationWorkItem = work
         DispatchQueue.main.async(execute: work)
-    }
-
-    func finishLongInput(sessionID: UUID?) {
-        if let sessionID, gestureID != sessionID {
-            print(
-                "[PRESS] stale tail completion ignored session=" +
-                    sessionID.uuidString + " current=" +
-                    (gestureID?.uuidString ?? "none")
-            )
-            return
-        }
-        guard let currentSessionID = sessionID ?? gestureID else { return }
-        guard longInputStarted else {
-            completeVoiceRouteWithoutAudio(sessionID: currentSessionID)
-            return
-        }
-        requestRemoteOutputDrain(sessionID: currentSessionID)
-        completeLongInputIfReady(sessionID: currentSessionID)
-    }
-
-    private func requestRemoteOutputDrain(sessionID: UUID?) {
-        guard let sessionID,
-              gestureID == sessionID,
-              longInputStarted else { return }
-        if remoteOutputDrainRequestedSessionID == sessionID {
-            completeLongInputIfReady(sessionID: sessionID)
-            return
-        }
-
-        // Stop accepting new remote samples before asking the output side to
-        // drain. `setRemoteActive(false)` keeps already queued PCM alive.
-        AudioPipe.shared.endRemoteCandidate()
-        _ = setRemoteRouted(false)
-        VoiceTimingLogger.mark("STOP_REQUESTED", sessionID: sessionID)
-        VoiceTimingLogger.mark("OUTPUT_DRAIN_BEGIN", sessionID: sessionID)
-        diagnosticLogger?.log(
-            category: "voice",
-            event: "OUTPUT_DRAIN_BEGIN",
-            gestureID: sessionID,
-            fields: [
-                "voice_session_state": modeName,
-                "tail_pending": tailWorkItem != nil,
-            ]
-        )
-        remoteOutputDrainRequestedSessionID = sessionID
-
-        let completion = { [weak self] in
-            guard let self,
-                  self.gestureID == sessionID,
-                  self.longInputStarted else { return }
-            self.remoteOutputDrainedSessionID = sessionID
-            VoiceTimingLogger.mark("AUDIO_PIPELINE_CLOSED", sessionID: sessionID)
-            self.diagnosticLogger?.log(
-                category: "voice",
-                event: "OUTPUT_DRAIN_COMPLETE",
-                gestureID: sessionID,
-                fields: ["voice_session_state": self.modeName]
-            )
-            self.completeLongInputIfReady(sessionID: sessionID)
-        }
-        if let onRemoteOutputDrain {
-            onRemoteOutputDrain(sessionID, completion)
-        } else {
-            completion()
-        }
-    }
-
-    private func completeLongInputIfReady(sessionID: UUID) {
-        guard gestureID == sessionID,
-              longInputStarted,
-              remoteOutputDrainedSessionID == sessionID,
-              physicalUpSessionID == sessionID else { return }
-
-        holdWorkItem?.cancel()
-        holdWorkItem = nil
-        tailWorkItem?.cancel()
-        tailWorkItem = nil
-        tailSessionID = nil
-        VoiceTimingLogger.mark("OPTION_UP_REQUESTED", sessionID: sessionID)
-        if usesHardwareOptionPath {
-            onHardwareOptionGateOutputDrained?(sessionID)
-            print("[PRESS] LONG end → Option UP after output drain")
-        } else if syntheticOptionTrigger.sendUp(sessionID: sessionID) {
-            print("[PRESS] LONG end → synthetic Option UP after output drain")
-        } else {
-            _ = syntheticOptionTrigger.abort(sessionID: sessionID)
-        }
-        diagnosticLogger?.log(
-            category: "voice",
-            event: "MOMENTARY_COMPLETE",
-            gestureID: sessionID,
-            key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
-            fields: ["source": usesHardwareOptionPath ? "hardware" : "synthetic"]
-        )
-        longInputStarted = false
-        remoteAudioAvailable = false
-        gestureID = nil
-        usesHardwareOptionPath = false
-        remoteOutputDrainRequestedSessionID = nil
-        remoteOutputDrainedSessionID = nil
-        physicalUpSessionID = nil
-        awaitingPhysicalVoiceKeyUp = false
-        pendingVoiceUIHidden = false
-        shortInputUsesLocalMicrophone = false
-        if mode != .idle {
-            setMode(.idle)
-        }
-        VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
-        VoiceTimingLogger.end(sessionID: sessionID)
-        scheduleDeferredRepressActivation()
-    }
-
-    private func completeVoiceRouteWithoutAudio(sessionID: UUID) {
-        onHardwareOptionGateCancel?(sessionID)
-        _ = syntheticOptionTrigger.abort(sessionID: sessionID)
-        _ = setRemoteRouted(false)
-        AudioPipe.shared.endRemoteCandidate()
-        longInputStarted = false
-        remoteAudioAvailable = false
-        gestureID = nil
-        usesHardwareOptionPath = false
-        remoteOutputDrainRequestedSessionID = nil
-        remoteOutputDrainedSessionID = nil
-        physicalUpSessionID = nil
-        awaitingPhysicalVoiceKeyUp = false
-        pendingVoiceUIHidden = false
-        shortInputUsesLocalMicrophone = false
-        VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
-        VoiceTimingLogger.end(sessionID: sessionID)
-        scheduleDeferredRepressActivation()
-    }
-
-    /// Emit one retained configured-trigger action for a generic short binding.
-    private func emitShortPress(
-        sessionID: UUID,
-        usesHardwareOption: Bool
-    ) {
-        if usesHardwareOption {
-            print("[PRESS] SHORT → hardware configured trigger")
-        } else {
-            print("[PRESS] SHORT → synthetic configured trigger")
-            _ = syntheticOptionTrigger.sendTap(sessionID: sessionID)
-        }
     }
 
     @discardableResult
@@ -2643,46 +1808,7 @@ final class VoicePressCoordinator {
         case .opening: return "opening"
         case .streaming: return "streaming"
         case .draining: return "draining"
-        case .pending: return "pending"
-        case .holding: return "holding"
         }
-    }
-
-    private func logGestureClassification(
-        result: String,
-        sessionID: UUID,
-        policy: String = "momentary_trigger"
-    ) {
-        let heldDuration = max(
-            0,
-            ProcessInfo.processInfo.systemUptime - (gesturePhysicalDownUptime ?? ProcessInfo.processInfo.systemUptime)
-        )
-        diagnosticLogger?.log(
-            category: "voice",
-            event: "GESTURE_CLASSIFIED",
-            gestureID: sessionID,
-            fields: [
-                "result": result,
-                "held_ms": Int(heldDuration * 1000),
-                "policy": policy,
-            ]
-        )
-        VoiceTimingLogger.observeControlPolicy(
-            policy: policy,
-            classification: result,
-            triggerSource: usesHardwareOptionPath ? "hardware" : "synthetic",
-            triggerKey: syntheticOptionTrigger.momentaryVoiceTriggerKey.rawValue
-        )
-    }
-
-    private func logPhysicalGestureRelease(sessionID: UUID) {
-        diagnosticLogger?.log(
-            category: "voice",
-            event: "MOMENTARY_RELEASE",
-            gestureID: sessionID,
-            key: syntheticOptionTrigger.momentaryVoiceTriggerKey,
-            fields: ["tail_pending": tailWorkItem != nil]
-        )
     }
 
     private func logAdmissionDecision(
@@ -4543,7 +3669,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.diagnosticUptimeProvider = uptimeProvider
         super.init()
         voicePress.onStateChanged = { [weak self] state in
-            if state == .opening || state == .holding {
+            if state == .opening {
                 self?.activateVoiceInput()
             }
         }
@@ -4949,10 +4075,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
     }
 
-    static func bypassesShortClassification(for binding: ButtonBinding) -> Bool {
-        false
-    }
-
     /// Focus work is part of the public direct opening lifecycle, never the
     /// private DOWN-to-300ms candidate. The target is the identity captured at
     /// physical DOWN, so promotion cannot retarget an already-held gesture.
@@ -5013,7 +4135,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func beginVoicePress(
         targetApplicationBundleIdentifier lockedTarget: String? = nil,
-        shortBinding: ButtonBinding? = nil,
         source: VoicePressInputSource = .voiceKeyFilterFallback
     ) {
         guard !voiceTriggerReconfigurationInProgress,
@@ -5033,8 +4154,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             usesHardwareOption: isVoiceHIDMappingEnabled(),
             preparesRemoteTransport: true,
             profile: currentVoiceInputProfile,
-            directSession: true,
-            longOnlyAdmission: true,
             targetApplicationBundleIdentifier: target
         )
         diagnosticLogger.log(
@@ -5097,35 +4216,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
     }
 
-    private func handleVoiceShortTap(
-        _ binding: ButtonBinding,
-        targetApplicationBundleIdentifier target: String?
-    ) {
-        if handleContextualAction(
-            binding,
-            button: .microphone,
-            gesture: "单击"
-        ) {
-            return
-        }
-        let sent = KeyInjector.send(
-            binding,
-            targetApplicationBundleIdentifier: target,
-            scrollLinesPerStep: mappingStore.scrollLinesPerStep
-        )
-        print("[KEY] 语音键 short → \(binding.displayName); sent=\(sent)")
-        actionHUD.show(
-            button: .microphone,
-            gesture: "单击",
-            action: binding.hudDisplayName,
-            state: actionHUDState(
-                for: binding,
-                targetApplicationBundleIdentifier: target,
-                sent: sent
-            )
-        )
-    }
-
     private func armVoiceFocusSafetyTimeout(gestureID: UUID) {
         voiceFocusSafetyWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -5149,10 +4239,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             remoteAudioAvailable: voicePress.hasRemoteAudio,
             receiverReadiness: lastReceiverReadiness
         ) else {
-            actionHUD.dismiss()
-            return
-        }
-        if state == .pending, !voicePress.shouldShowPendingVoiceUI {
             actionHUD.dismiss()
             return
         }
@@ -5321,7 +4407,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self?.activateVoiceInput()
             }
             switch state {
-            case .opening, .pending, .holding, .streaming:
+            case .opening, .streaming:
                 self?.voiceReceiverReadinessMonitor.activate()
             case .draining, .idle:
                 self?.lastReceiverReadiness = .inactive
@@ -5364,12 +4450,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 reason: "remote-audio-ready"
             )
         }
-        voicePress.onHardwareOptionGateShortReplay = { [weak self] gestureID in
-            self?.filter.releaseDeferredOption(
-                gestureID: gestureID,
-                reason: "short-configured-trigger"
-            )
-        }
         filter.onSuppressedHardwareTriggerSafelyClosed = { [weak self] ownerID in
             self?.voicePress.suppressedHardwareGateDidClose(ownerID: ownerID)
         }
@@ -5386,12 +4466,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.voicePress.longOnlyTriggerHandoffWasInvalidated(
                 sessionID: gestureID,
                 reason: reason
-            )
-        }
-        voicePress.onHardwareOptionGateCancel = { [weak self] gestureID in
-            self?.filter.cancelDeferredOption(
-                gestureID: gestureID,
-                reason: "gesture-cancelled"
             )
         }
         voicePress.onRemoteTransportPreparation = { [weak self] in

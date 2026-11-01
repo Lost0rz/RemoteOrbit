@@ -83,9 +83,9 @@ enum VoiceHUDProjection {
         switch voiceState {
         case .idle:
             return nil
-        case .opening, .pending:
+        case .opening:
             return .voiceStarting
-        case .holding, .streaming:
+        case .streaming:
             guard remoteAudioAvailable else {
                 return .voiceStarting
             }

@@ -48,9 +48,8 @@ final class BLEBridgeTests: XCTestCase {
 
         func deferNextPress() -> UUID {
             XCTAssertTrue(
-                press.keyDown(
-                    sessionID: UUID(),
-                    bypassesShortClassification: true
+                press.keyDownForTesting(
+                    sessionID: UUID()
                 )
             )
             press.setRemoteAudioAvailable()
@@ -66,6 +65,7 @@ final class BLEBridgeTests: XCTestCase {
                     preparesRemoteTransport: true
                 )
             )
+            _ = press.promoteLongOnlyCandidateForTesting()
             return deferredSessionID
         }
 
@@ -104,14 +104,14 @@ final class BLEBridgeTests: XCTestCase {
         defer { harness.shutdown() }
         _ = harness.deferNextPress()
 
-        XCTAssertFalse(harness.press.keyUp())
+        XCTAssertTrue(harness.press.keyUp())
         harness.bridge.completeAudioStopDrainForTesting()
         harness.wait()
 
         XCTAssertEqual(harness.probe.admissionNotifications, 1)
         XCTAssertNil(harness.press.pendingRepressSessionID)
         XCTAssertNil(harness.press.currentGestureIDForDiagnostics)
-        XCTAssertEqual(harness.probe.transportPreparations, 0)
+        XCTAssertEqual(harness.probe.transportPreparations, 1)
         XCTAssertEqual(harness.probe.optionEdges, [true, false])
     }
 
@@ -132,7 +132,7 @@ final class BLEBridgeTests: XCTestCase {
         harness.wait()
         XCTAssertEqual(harness.probe.admissionNotifications, 1)
         XCTAssertEqual(harness.probe.transportPreparations, 1)
-        XCTAssertEqual(harness.probe.optionEdges, [true, false])
+        XCTAssertEqual(harness.probe.optionEdges, [true, false, true])
     }
 
     func testExplicitTransportStopRetiresAudioDrainBarrierAndReplaysDeferredRepressExactlyOnce() {
@@ -154,7 +154,7 @@ final class BLEBridgeTests: XCTestCase {
         harness.wait()
         XCTAssertEqual(harness.probe.admissionNotifications, 1)
         XCTAssertEqual(harness.probe.transportPreparations, 1)
-        XCTAssertEqual(harness.probe.optionEdges, [true, false])
+        XCTAssertEqual(harness.probe.optionEdges, [true, false, true])
     }
 
     func testPendingPreparationKeepsTransportAndVoiceIntentSeparate() {
@@ -208,11 +208,10 @@ final class BLEBridgeTests: XCTestCase {
         harness.wait()
 
         XCTAssertTrue(
-            harness.press.keyDown(
+            harness.press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertEqual(harness.press.currentStateForTesting, .opening)
@@ -329,11 +328,10 @@ final class BLEBridgeTests: XCTestCase {
         bridge.beginAudioStartForTesting()
         let sessionA = UUID()
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: sessionA,
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         press.setRemoteStreaming(true)
@@ -393,11 +391,10 @@ final class BLEBridgeTests: XCTestCase {
         // active AudioPipe route.
         let sessionB = UUID()
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: sessionB,
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
@@ -496,11 +493,10 @@ final class BLEBridgeTests: XCTestCase {
         XCTAssertTrue(bridge.canReuseReadyTransportForTesting)
 
         XCTAssertTrue(
-            press.keyDown(
+            press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
         XCTAssertEqual(bridge.streamOwnershipForTesting, .voiceSession)
@@ -663,14 +659,12 @@ final class BLEBridgeTests: XCTestCase {
         harness.bridge.beginPreHIDPhysicalStreamForTesting()
         harness.wait()
         XCTAssertTrue(
-            harness.press.keyDown(
+            harness.press.keyDownForTesting(
                 sessionID: UUID(),
                 usesHardwareOption: false,
                 profile: .defaultProfile,
-                directSession: true
             )
         )
-
         harness.bridge.requestVoiceActivationForTesting()
         harness.wait()
         XCTAssertEqual(harness.bridge.streamOwnershipForTesting, .voiceSession)
