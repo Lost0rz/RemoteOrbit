@@ -1,87 +1,74 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_1_AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
 Repository: `Lost0rz/RemoteOrbit`
 Task 043: `MERGED / HUMAN_ACCEPTANCE_DEFERRED / USER-OWNED`
 Task 045 overall: `ACTIVE`
-Task 045A: `DIAGNOSTICS_GATING / CORRECTIVE_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Task 045A: `DIAGNOSTICS_GATING / MERGED / MAIN_CI_PASS / CLOSED`
+Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
 
-## Independent Web audit
+## Task 045A closeout
 
-Audit target observed at review time:
+- PR `#31` merged from exact reviewed head `d41a53e1f0d484bbf591bd8244cdf22ceedc9ece`.
+- Merge commit: `27357a8e6301507b712ef65e9a74e973786dd263`.
+- Post-merge durable CI run `41258162847`, job `124705656701`, runner `remoteorbit-macmini`: source contracts PASS, protocol self-tests PASS, full Swift tests PASS, native Release build PASS, Universal2 build-only packaging smoke PASS.
+- No app install, driver/CoreAudio/TCC mutation, tag, or release was performed.
+- Human RC003/Doubao acceptance remains deferred and user-owned.
 
-- PR `#31` (`OPEN / DRAFT`)
-- base `main@fb4f8fd34015bb7aee9b8700068fe9f51ffc76d9`
-- reviewed head `856fcb065ab94ae01e210df7fa55561a4cfcf11a`
-- live `main` remained at the same base during audit
-- final reviewed CI run `41214430041` succeeded on `remoteorbit-macmini` against the PR merge ref; full Swift tests were `656/656`, native Release build passed, and Universal2 packaging reported `x86_64 arm64`
+## Legacy retirement execution model
 
-Audit independence: `FRESH_CONTEXT` (not a separate agent and not human acceptance).
+Legacy retirement proceeds serially by bounded domain:
 
-## Independent Web audit verdict (historical)
+1. Web performs a fresh read-only domain audit and freezes `KEEP / RETIRE / COMPATIBILITY` boundaries.
+2. Local execution removes only that audited domain and returns machine evidence in one Draft PR/workspace.
+3. Web independently re-audits the exact implementation head.
+4. The current domain must be accepted and merged/closed before the next domain is authorized.
 
-`STOP — REQUIRED CORRECTIVE BEFORE MERGE`
+Local execution performs only freshness/identity reconciliation. It must not re-audit or redesign an already frozen domain unless live repository facts materially conflict with the authority.
 
-The core diagnostics gate is sound and the current LONG-only regressions remain green, but two acceptance contracts are not fully closed:
+## Domain 1 audit — Legacy Voice Product Surface
 
-1. **Runtime diagnostics observer lifecycle is incomplete.**
-   `FrontmostApplicationDiagnosticsObserver` is created/stopped only by application launch/termination. A runtime logging toggle does not start it when diagnostics changes OFF→ON and does not stop/unregister it when diagnostics changes ON→OFF. This leaves diagnostic-only notification observation active after disabling and leaves that diagnostic producer absent after runtime enabling.
+Audit basis: merged `main@27357a8e6301507b712ef65e9a74e973786dd263`.
 
-2. **Recording independence lacks the required direct combination test.**
-   The Wave A contract requires recording to remain functional with ordinary diagnostics OFF. Existing `WavRecorderDiagnosticsTests` force diagnostics ON in `setUp`; the new gate test only proves that setting `recordingEnabled = true` does not itself enable diagnostics. It does not exercise an actual WAV/RAW recording lifecycle with diagnostics OFF.
+### Verified facts
 
-### Non-blocking observations
+- Production RC003 microphone DOWN/UP uses the Gate A direct voice path; application mappings and the historical microphone short/long classifier do not participate in the production microphone path.
+- `VoiceInputProfile` / `VoiceInputProfileStore` is the retained user voice-trigger configuration authority. Its migration explicitly permits only the old momentary trigger to seed the profile; Persistent and Receiver-B preferences do not compete with the new authority.
+- `SettingsView.swift` still contains legacy Persistent-session, Receiver-B, and microphone-SHORT state, handlers, bridge closures, dead cards, and strings even though the current microphone page uses the newer direct-transfer card.
+- `SettingsWindow.swift` and `main.swift` still wire Persistent/Receiver-B/microphone-SHORT settings callbacks into that legacy Settings surface.
+- `KeymapOverlay.swift` still presents the microphone single-click action as `输入法持续会话`, which contradicts the durable SHORT=no-op product contract.
+- `ButtonBinding.voiceKeyDefault` and the default microphone mapping still carry historical Persistent wording. The enum case remains useful as a persisted configuration compatibility token and must not be removed in Domain 1.
+- AppStorage Persistent/Receiver-B preference keys and the underlying Persistent/Dual runtime are still connected to historical runtime/config plumbing. They are not part of Domain 1 and remain frozen for later domain audits.
 
-- Startup still performs a small amount of diagnostic-only metadata work before the structured logger's disabled guard (selected-input registry lookup and run-start calibration/field construction). This is finite one-time work, not a persistent writer/timer. It should be removed in the same corrective if it can be done without widening the voice/runtime boundary, but it is not the primary STOP reason.
-- Final branch-control text records the prior handoff SHA/run rather than the later evidence-refresh head/run. Independent Web audit bound the actual final head and CI directly, so this is bookkeeping rather than semantic evidence loss; refresh controls atomically at the next handoff.
+### Domain 1 classification
 
-## Corrective boundary
+`RETIRE NOW`:
 
-Continue in the existing Task 045A branch/worktree/PR. Do not create a successor task or new PR solely for this corrective.
+- Settings-only Persistent-session trigger controls/state/handlers;
+- Settings-only Receiver-B controls/state/handlers/runtime bridge;
+- Settings-only microphone-SHORT mode/configuration controls and dead cards;
+- obsolete SettingsWindow/main wiring whose only purpose is to supply those retired Settings controls;
+- stale microphone KeymapOverlay single-click/Persistent presentation;
+- stale user-facing Persistent wording on the retained `.voiceKeyDefault` compatibility token/default-mapping comments.
 
-Authorized product mutation is limited to:
+`KEEP`:
 
-- make the frontmost-application diagnostic observer follow the effective diagnostics runtime gate safely for launch and runtime ON/OFF transitions;
-- add direct regression coverage proving recording ON still writes/finalizes WAV/RAW while diagnostics are OFF and structured recording metadata remains suppressed by the diagnostics gate;
-- remove the finite startup-only diagnostic metadata work while diagnostics are OFF if this remains a local diagnostics-only change;
-- update focused tests and the two control files atomically for the next handoff.
+- `VoiceInputProfile` and `VoiceInputProfileStore`;
+- current selected voice profile and normal direct trigger reconfiguration path;
+- `ButtonBinding.voiceKeyDefault` Codable case as a compatibility token for existing mapping files;
+- mapping file schema and existing user mappings;
+- all LONG-only correctness mechanisms and current Gate A production path.
 
-Still frozen: Persistent/Dual retirement, microphone SHORT product/config removal, LONG-only semantics, BLE/ATVV, HID mapping correctness, AudioPipe transport/buffer/IOProc, receiver-readiness architecture, app installation, driver/CoreAudio/TCC mutation, tag/release, and merge.
+`FROZEN FOR LATER DOMAIN`:
 
-## Corrective execution
+- `AppStorage.persistentSessionTriggerKey*` and `secondaryMomentaryVoiceTriggerKey*` persistence/migration plumbing;
+- `VoiceSessionMode`, `PendingPersistentToggle`, `RemoteSegmentTriggerPolicy`, Persistent runtime state and tests;
+- `DualReceiverVoiceGestureRecognizer`, `DualReceiverVoiceMode`, `DualReceiverMappedTriggerState`, dual runtime reconfiguration and tests;
+- any shared tombstone/suppression/repress/drain mechanism still required by LONG-only behavior.
 
-Fresh reconciliation started from the audited control head `fceda599da15d48d743e4efb162e396704d45f03` on the existing branch/worktree. The bounded corrective implementation was committed as `cb427c49fc594df6ceddbc202d3c589ae637653a` and pushed to the existing PR branch.
-
-Changed product/test paths:
-
-- `remote-orbit/Sources/RemoteOrbit/Diagnostics/FrontmostApplicationDiagnosticsObserver.swift`
-- `remote-orbit/Sources/RemoteOrbit/main.swift`
-- `remote-orbit/Tests/RemoteOrbitTests/FrontmostApplicationDiagnosticsTests.swift`
-- `remote-orbit/Tests/RemoteOrbitTests/WavRecorderDiagnosticsTests.swift`
-
-The observer now has one gate-owned lifecycle coordinator: OFF→ON creates and starts one observer, ON→OFF stops and releases it, and repeated same-state requests are idempotent. Startup selected-input lookup and P1A4 run-start calibration/fields now execute only when diagnostics are enabled. The recording regression uses the real BLEBridge/WavRecorder lifecycle: diagnostics OFF + recording OFF creates no files; diagnostics OFF + recording ON writes and finalizes valid WAV/RAW files while shared diagnostic authority work metrics remain unchanged.
-
-Local verification:
-
-- frontmost lifecycle focused suite: `6/6`;
-- recording diagnostics suite: `8/8`;
-- existing diagnostics gate suite: `5/5`;
-- LONG-only/current gesture regression suite: `51/51`;
-- full `swift test`: `658/658`;
-- `swift build -c release`: passed.
-
-Durable machine verification for the corrected product head:
-
-- CI run `41257070849`, attempt `2`, job `124702797074`;
-- runner `remoteorbit-macmini`, macOS `26.6.2`, arm64, Apple Swift `6.4.2`;
-- source contract checks, protocol self-tests, full Swift `658/658`, native Release build, and build-only packaging smoke all passed;
-- Universal2 packaging reported executable architectures `x86_64 arm64`.
-
-The first attempt of this same run exited with XCTest signal 5 after all reported test cases passed; the failed job was rerun without code changes and the retry passed all stages. This remains a machine-runner flake, not a product assertion failure.
-
-Forbidden mutation receipt: Persistent production state `NO`; Dual Receiver `NO`; app/driver/CoreAudio/TCC installation or mutation `NO`; tag/release `NO`; merge `NO`.
+Design authority: `docs/design/2026-11-01-045b-domain-1-legacy-voice-product-surface.md`.
 
 ## Next gate
 
-The same PR #31 remains `OPEN / DRAFT` on the existing branch. Web must perform a fresh independent audit of the corrected exact head before any merge decision. Current stop state is `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+Local implements only Domain 1 from a fresh branch/worktree based on live `main`, runs focused + full durable verification, opens one Draft PR, and stops at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. No merge and no Domain 2 mutation are authorized locally.
