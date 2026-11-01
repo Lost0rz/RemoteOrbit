@@ -1,98 +1,78 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_1_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — DOMAIN_2_AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
 Repository: `Lost0rz/RemoteOrbit`
 Task 043: `MERGED / HUMAN_ACCEPTANCE_DEFERRED / USER-OWNED`
 Task 045 overall: `ACTIVE`
 Task 045A: `DIAGNOSTICS_GATING / MERGED / MAIN_CI_PASS / CLOSED`
-Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / IMPLEMENTATION_COMPLETE / DRAFT_PR_OPEN / DURABLE_CI_PASS / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
-Active branch: `codex/task045b-domain1-legacy-voice-product-surface`
-Authoritative workspace: `/Volumes/Jack-Dev/Projects/remoteorbit-task045b-domain1-legacy-voice-product-surface`
-Implementation base: `origin/main@03d130ab9129932e3b1dc9fabf818f87f56c8fd4`
-Implementation head: `9795719e403848b397c572a6072c43c76f95b888`
-Remote branch head: `9795719e403848b397c572a6072c43c76f95b888` (equal)
-Draft PR: `#32` (`https://github.com/Lost0rz/RemoteOrbit/pull/32`)
+Task 045B Domain 1: `LEGACY_VOICE_PRODUCT_SURFACE / MERGED / MAIN_CI_PASS / CLOSED`
+Task 045B Domain 2: `LEGACY_VOICE_PERSISTED_PREFERENCE_AUTHORITY / AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
 
-## Task 045A closeout
+## Domain 1 independent Web audit and closeout
 
-- PR `#31` merged from exact reviewed head `d41a53e1f0d484bbf591bd8244cdf22ceedc9ece`.
-- Merge commit: `27357a8e6301507b712ef65e9a74e973786dd263`.
-- Post-merge durable CI run `41258162847`, job `124705656701`, runner `remoteorbit-macmini`: source contracts PASS, protocol self-tests PASS, full Swift tests PASS, native Release build PASS, Universal2 build-only packaging smoke PASS.
-- No app install, driver/CoreAudio/TCC mutation, tag, or release was performed.
-- Human RC003/Doubao acceptance remains deferred and user-owned.
+Audit independence: `FRESH_CONTEXT`.
 
-## Task 045B Domain 1 execution
-
-- Retired the Settings-only Persistent-session, Receiver-B, and microphone-SHORT
-  product surface, including its SettingsWindow/main bridge wiring.
-- Keymap microphone presentation is now fixed to retained LONG remote voice only.
-- `.voiceKeyDefault` remains Codable-compatible and no longer carries Persistent
-  user-facing wording.
-- Focused source-contract, Keymap, profile-migration, and LONG-only suites passed
-  (`96` tests, `0` failures); full `swift test` passed (`660` tests, `0` failures).
-- `swift build -c release` passed.
-- Durable CI run `41259237157`, job `124708848980`, passed on runner
-  `remoteorbit-macmini`, including Universal2 build-only packaging smoke.
-- The verified clean Task 045A worktree was retired after confirming its clean
-  state and merged ancestry; its branch/history was retained.
-- No Persistent runtime, Dual runtime, or AppStorage legacy persistence mutation
-  was performed.
+- PR `#32` was reviewed at exact head `c6dc8c739cd9b5414c02cd2028e68fd57f337e17` against exact base `main@03d130ab9129932e3b1dc9fabf818f87f56c8fd4`.
+- The implementation head was `9795719e403848b397c572a6072c43c76f95b888`; the only later commit to the reviewed head changed `CURRENT_STATUS.md` and `CURRENT_TASK.md` only.
+- Exact-head PR CI `41259513453`, job `124709675970`, runner `remoteorbit-macmini` passed source contracts, protocol self-tests, full Swift `660/660`, native Release build, and Universal2 build-only packaging smoke.
+- Independent source review found no blocking defect or scope escape. Persistent runtime, Dual runtime, AppStorage legacy persistence, LONG-only correctness, and Task 045A diagnostics gating were preserved.
+- PR `#32` was merged with exact expected head as merge commit `1ba1f142a20a1da7a6ad7e6494d2126bc738c327`.
+- Post-merge `main` CI run `41260109751`, job `124711439107`, runner `remoteorbit-macmini` completed successfully through every durable stage.
+- Human UI/runtime acceptance remains `PENDING / USER-OWNED`; no app/driver/CoreAudio/TCC install or mutation was performed.
 
 ## Legacy retirement execution model
 
-Legacy retirement proceeds serially by bounded domain:
+Legacy retirement remains serial by bounded domain:
 
-1. Web performs a fresh read-only domain audit and freezes `KEEP / RETIRE / COMPATIBILITY` boundaries.
-2. Local execution removes only that audited domain and returns machine evidence in one Draft PR/workspace.
-3. Web independently re-audits the exact implementation head.
-4. The current domain must be accepted and merged/closed before the next domain is authorized.
+`Web audit/freeze → local cleanup → Web exact-head audit → merge/closeout → next domain`
 
-Local execution performs only freshness/identity reconciliation. It must not re-audit or redesign an already frozen domain unless live repository facts materially conflict with the authority.
+Local execution performs freshness/identity reconciliation but does not redesign an already frozen domain unless live facts materially conflict with authority.
 
-## Domain 1 audit — Legacy Voice Product Surface
+## Domain 2 audit — Legacy Voice Persisted Preference Authority
 
-Audit basis: merged `main@27357a8e6301507b712ef65e9a74e973786dd263`.
+Audit basis: merged `main@1ba1f142a20a1da7a6ad7e6494d2126bc738c327`.
+Design authority: `docs/design/2026-11-01-045b-domain-2-legacy-voice-persisted-preference-authority.md`.
 
 ### Verified facts
 
-- Production RC003 microphone DOWN/UP uses the Gate A direct voice path; application mappings and the historical microphone short/long classifier do not participate in the production microphone path.
-- `VoiceInputProfile` / `VoiceInputProfileStore` is the retained user voice-trigger configuration authority. Its migration explicitly permits only the old momentary trigger to seed the profile; Persistent and Receiver-B preferences do not compete with the new authority.
-- `SettingsView.swift` still contains legacy Persistent-session, Receiver-B, and microphone-SHORT state, handlers, bridge closures, dead cards, and strings even though the current microphone page uses the newer direct-transfer card.
-- `SettingsWindow.swift` and `main.swift` still wire Persistent/Receiver-B/microphone-SHORT settings callbacks into that legacy Settings surface.
-- `KeymapOverlay.swift` still presents the microphone single-click action as `输入法持续会话`, which contradicts the durable SHORT=no-op product contract.
-- `ButtonBinding.voiceKeyDefault` and the default microphone mapping still carry historical Persistent wording. The enum case remains useful as a persisted configuration compatibility token and must not be removed in Domain 1.
-- AppStorage Persistent/Receiver-B preference keys and the underlying Persistent/Dual runtime are still connected to historical runtime/config plumbing. They are not part of Domain 1 and remain frozen for later domain audits.
+- `VoiceInputProfile` / `VoiceInputProfileStore` is the retained user configuration authority. Its migration reads only the historical momentary trigger and deliberately ignores Persistent and Receiver-B preferences.
+- `AppStorage` still declares and reads/writes `RemoteOrbit.persistentSessionTriggerKey` and `RemoteOrbit.secondaryMomentaryVoiceTriggerKey`; its legacy migration still seeds a Persistent key from the old generic trigger.
+- `AppController.restoreVoiceTriggerRuntime()` still reads both retired preferences at launch, configures the historical Persistent coordinator key, and restores the Receiver-B value even though the direct Gate A microphone path does not consult those authorities.
+- After Domain 1, `applyPersistentSessionTriggerKey` and `applySecondaryVoiceTriggerKey` have no product-surface callers. They remain historical runtime/test seams.
+- The production RC003 microphone path is Gate A direct voice; its HID button-down policy is explicitly evaluated with `dualReceiverVoiceMode: .legacy`.
+- Persistent and Dual runtime state machines still use their internal current-state values and are intentionally outside Domain 2.
 
-### Domain 1 classification
+### Domain 2 classification
 
 `RETIRE NOW`:
 
-- Settings-only Persistent-session trigger controls/state/handlers;
-- Settings-only Receiver-B controls/state/handlers/runtime bridge;
-- Settings-only microphone-SHORT mode/configuration controls and dead cards;
-- obsolete SettingsWindow/main wiring whose only purpose is to supply those retired Settings controls;
-- stale microphone KeymapOverlay single-click/Persistent presentation;
-- stale user-facing Persistent wording on the retained `.voiceKeyDefault` compatibility token/default-mapping comments.
+- actual AppStorage/UserDefaults authority for Persistent-session trigger selection;
+- actual AppStorage/UserDefaults authority for Receiver-B trigger selection;
+- migration logic that creates/seeds the retired Persistent preference;
+- production startup restore/hydration of Persistent and Receiver-B preferences;
+- production persistence writes from the historical Persistent/Receiver-B runtime configuration seams;
+- stale diagnostics/comments that describe these retired values as production persisted authorities;
+- tests whose only contract is that Persistent/Receiver-B preferences independently round-trip through AppStorage.
 
-`KEEP`:
+`KEEP / COMPATIBILITY`:
 
-- `VoiceInputProfile` and `VoiceInputProfileStore`;
-- current selected voice profile and normal direct trigger reconfiguration path;
-- `ButtonBinding.voiceKeyDefault` Codable case as a compatibility token for existing mapping files;
-- mapping file schema and existing user mappings;
-- all LONG-only correctness mechanisms and current Gate A production path.
+- `VoiceInputProfile` / `VoiceInputProfileStore` and `RemoteOrbit.voiceInputProfileID`;
+- historical `RemoteOrbit.voiceTriggerKey` plus `RemoteOrbit.momentaryVoiceTriggerKey` compatibility/migration projection used to seed or roll back the retained profile authority;
+- current direct trigger reconfiguration and selected-profile persistence;
+- `.voiceKeyDefault` Codable mapping token and mapping schema;
+- existing old Persistent/Receiver-B UserDefaults bytes may remain inert; Domain 2 does not actively delete user data.
 
 `FROZEN FOR LATER DOMAIN`:
 
-- `AppStorage.persistentSessionTriggerKey*` and `secondaryMomentaryVoiceTriggerKey*` persistence/migration plumbing;
-- `VoiceSessionMode`, `PendingPersistentToggle`, `RemoteSegmentTriggerPolicy`, Persistent runtime state and tests;
-- `DualReceiverVoiceGestureRecognizer`, `DualReceiverVoiceMode`, `DualReceiverMappedTriggerState`, dual runtime reconfiguration and tests;
-- any shared tombstone/suppression/repress/drain mechanism still required by LONG-only behavior.
-
-Design authority: `docs/design/2026-11-01-045b-domain-1-legacy-voice-product-surface.md`.
+- `VoiceSessionMode`, `PendingPersistentToggle`, `RemoteSegmentTriggerPolicy`, Persistent runtime state transitions and coordinator tests;
+- `DualReceiverVoiceGestureRecognizer`, `DualReceiverVoiceMode`, `DualReceiverMappedTriggerState`, A/B mapping transaction state and runtime tests;
+- `currentPersistentSessionTriggerKey` / `currentSecondaryMomentaryVoiceTriggerKey` as runtime-only state while those legacy state machines still exist;
+- `applyPersistentSessionTriggerKey` / `applySecondaryVoiceTriggerKey` as runtime-only seams, except Domain 2 removes their production persistence side effects;
+- all LONG-only ownership/suppression/repress/drain/pre-HID/BLE/AudioPipe mechanisms.
 
 ## Next gate
 
-`WAITING_FOR_INDEPENDENT_WEB_AUDIT` on PR `#32`. No merge and no Domain 2 mutation
-are authorized locally.
+Local implements only Domain 2 from fresh live `main`, opens one Draft PR, runs focused + full durable verification, updates both control files atomically, and stops at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
+
+No Domain 3 mutation, merge, install, release, driver/CoreAudio/TCC mutation is authorized locally.
