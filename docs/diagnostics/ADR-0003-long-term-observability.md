@@ -6,14 +6,16 @@ Date: 2026-10-29
 
 ## Decision
 
-RemoteOrbit uses one DiagnosticAuthority for durable evidence. Every ordinary voice
-session emits one compact, machine-readable `voice.session.summary` event. A bounded
-high-resolution trace is retained in memory and is serialized only when centralized
-anomaly thresholds classify the session as worth preserving.
+RemoteOrbit uses one DiagnosticAuthority for durable evidence. When the effective
+diagnostics gate is enabled, each ordinary voice session emits one compact,
+machine-readable `voice.session.summary` event. A bounded high-resolution trace is
+retained in memory and is serialized only when centralized anomaly thresholds classify
+the session as worth preserving.
 
 The two evidence levels are:
 
-- L1 summary: always on. It carries `session_id`, `capture_id`, lifecycle timestamps,
+- L1 summary: emitted whenever the effective diagnostics gate is enabled. It carries
+  `session_id`, `capture_id`, lifecycle timestamps,
   control policy/classification, ATVV transport identity, notification/decode/supply/
   playout counters, active-versus-tail deficits, runtime provenance, observation
   schema version, receiver evidence status, and diagnostic drop/write counters.
@@ -47,6 +49,19 @@ lag retains bounded timestamped occurrences in addition to the aggregate histogr
 percentiles. Querying scans one bounded segment at a time and supports process,
 session, incident, correlation, event, subsystem, severity, and wall-clock window
 filters.
+
+## Task 045A runtime policy supersession
+
+Task 045A supersedes the earlier L1 always-on policy. The effective diagnostics gate
+is `AppStorage.loggingEnabled || REMOTE_ORBIT_DIAGNOSTICS == "1"`, sampled into a
+process-local runtime state. When the gate is disabled, structured diagnostic
+producers, timers, probes, bounded trace lifecycle, and persistent diagnostic journal
+work are stopped or skipped; ordinary recording remains independently controlled by
+`AppStorage.recordingEnabled`. The environment override is an explicit diagnostic
+operator control, not a replacement for user-owned acceptance or independent audit.
+
+The prior phrase “L1 summary: always on” is retained only as historical ADR context;
+the L1 always-on policy is superseded by Task 045A.
 
 ## Receiver evidence boundary
 

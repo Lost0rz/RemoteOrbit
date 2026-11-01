@@ -3,6 +3,16 @@ import XCTest
 @testable import RemoteOrbit
 
 final class FrontmostApplicationDiagnosticsTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+    }
+
+    override func tearDown() {
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        super.tearDown()
+    }
+
     func testFrontmostTransitionCatalogAcceptsStableProcessAndApplicationIdentity() throws {
         let input = try DiagnosticEventInput(
             eventType: "application.frontmost.transition",
@@ -108,6 +118,53 @@ final class FrontmostApplicationDiagnosticsTests: XCTestCase {
             "current_bundle_identifier": .string("com.example.editor"),
             "current_process_id": .integer(102),
         ])
+    }
+
+    func testFrontmostObserverLifecycleFollowsDiagnosticsGateExactlyOnce() {
+        final class ObserverSpy: FrontmostApplicationDiagnosticsObserving {
+            private(set) var startCount = 0
+            private(set) var stopCount = 0
+
+            func start() {
+                startCount += 1
+            }
+
+            func stop() {
+                stopCount += 1
+            }
+        }
+
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        let spy = ObserverSpy()
+        let lifecycle = FrontmostApplicationDiagnosticsLifecycle { spy }
+        DiagnosticsRuntimeGate.shared.observe { enabled in
+            lifecycle.setEnabled(enabled)
+        }
+
+        XCTAssertFalse(lifecycle.isRunning)
+        XCTAssertEqual(lifecycle.activeObserverCountForTesting, 0)
+        XCTAssertEqual(spy.startCount, 0)
+
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+        XCTAssertTrue(lifecycle.isRunning)
+        XCTAssertEqual(lifecycle.activeObserverCountForTesting, 1)
+        XCTAssertEqual(spy.startCount, 1)
+
+        lifecycle.setEnabled(true)
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+        XCTAssertEqual(lifecycle.activeObserverCountForTesting, 1)
+        XCTAssertEqual(spy.startCount, 1)
+        XCTAssertEqual(spy.stopCount, 0)
+
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        XCTAssertFalse(lifecycle.isRunning)
+        XCTAssertEqual(lifecycle.activeObserverCountForTesting, 0)
+        XCTAssertEqual(spy.stopCount, 1)
+
+        lifecycle.setEnabled(false)
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        XCTAssertEqual(spy.startCount, 1)
+        XCTAssertEqual(spy.stopCount, 1)
     }
 
     private func makeAuthority() throws -> (DiagnosticAuthorityService, URL) {

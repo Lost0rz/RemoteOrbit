@@ -102,9 +102,11 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             )
         }
 
-        if ProcessInfo.processInfo.environment["REMOTE_ORBIT_DIAGNOSTICS"] == "1" ||
-            AppStorage.loggingEnabled {
-            startDiagnosticsTimer()
+        DiagnosticsRuntimeGate.shared.observe { [weak self] enabled in
+            self?.updateDiagnosticsTimer(enabled: enabled)
+            if !enabled {
+                self?.stopDiagnosticLifecycleForGate()
+            }
         }
     }
 
@@ -131,9 +133,22 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         return outputRing.queuedFrames
     }
 
+    var diagnosticLifecycleActiveForTesting: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return remoteDiagnosticsActive
+    }
+
+    var mainQueueProbeActiveForTesting: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return mainQueueResponsivenessProbe != nil
+    }
+
     func beginRemoteAudioDiagnostics(
         continuityContext: AudioContinuityCaptureContext? = nil
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         realtimeDiagnostics.endDiagnosticsAndWait()
         DiagnosticOutputBoundaryClock.shared.reset()
         // AUDIO_START can precede HID. Establish the shared observability
@@ -181,6 +196,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         captureID: UUID,
         session: AudioContinuitySessionContext
     ) -> Bool {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return false }
         stateLock.lock()
         defer { stateLock.unlock() }
         guard remoteDiagnosticsActive else { return false }
@@ -191,12 +207,17 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 
     func setDiagnosticStreamIdentity(_ streamIdentity: UInt64) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         stateLock.lock()
         diagnosticStreamIdentity = streamIdentity
         stateLock.unlock()
     }
 
     func endRemoteAudioDiagnostics() -> AudioContinuityRenderSnapshot? {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else {
+            stopDiagnosticLifecycleForGate()
+            return nil
+        }
         realtimeDiagnostics.endDiagnosticsAndWait()
         stateLock.lock()
         flushRealtimeEvidenceLocked()
@@ -209,6 +230,13 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 
     func takeLongTermObservationSnapshot() -> LongTermAudioObservationSnapshot {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else {
+            stopDiagnosticLifecycleForGate()
+            return LongTermAudioObservationSnapshot(
+                trace: .empty,
+                mainQueueLag: .empty
+            )
+        }
         let detachedTrace: FixedCapacityObservationTrace
         let probe: MainQueueResponsivenessProbe?
         stateLock.lock()
@@ -1388,6 +1416,7 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     // MARK: - diagnostics
 
     private func startDiagnosticsTimer() {
+        guard DiagnosticsRuntimeGate.shared.isEnabled, diagnosticsTimer == nil else { return }
         diagnosticsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
             [weak self] _ in
             guard let self else { return }
@@ -1431,6 +1460,43 @@ final class AudioPipe: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
                 queuedFrames
             ))
         }
+    }
+
+    private func updateDiagnosticsTimer(enabled: Bool) {
+        let update = { [weak self] in
+            guard let self else { return }
+            if enabled {
+                self.startDiagnosticsTimer()
+            } else {
+                self.diagnosticsTimer?.invalidate()
+                self.diagnosticsTimer = nil
+            }
+        }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
+        }
+    }
+
+    private func stopDiagnosticLifecycleForGate() {
+        realtimeDiagnostics.endDiagnosticsAndWait()
+        let probe: MainQueueResponsivenessProbe?
+        stateLock.lock()
+        probe = mainQueueResponsivenessProbe
+        mainQueueResponsivenessProbe = nil
+        continuityRenderLedger = nil
+        remoteDiagnosticsActive = false
+        remoteDiagnosticsSawActiveRoute = false
+        diagnosticStreamIdentity = 0
+        diagnosticObservationSequence = 0
+        if longTermPrimaryTraceIsActive {
+            longTermPrimaryTrace.reset()
+        } else {
+            longTermSecondaryTrace.reset()
+        }
+        stateLock.unlock()
+        _ = probe?.stop()
     }
 }
 

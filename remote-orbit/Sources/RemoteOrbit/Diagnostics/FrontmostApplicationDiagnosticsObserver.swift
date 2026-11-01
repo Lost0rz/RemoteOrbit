@@ -62,7 +62,53 @@ final class FrontmostApplicationTransitionReporter {
     }
 }
 
-final class FrontmostApplicationDiagnosticsObserver {
+protocol FrontmostApplicationDiagnosticsObserving: AnyObject {
+    func start()
+    func stop()
+}
+
+/// Owns the single frontmost-application observer for the current diagnostics
+/// runtime state. The gate can be toggled repeatedly, so this coordinator must
+/// keep the observer lifecycle bounded and idempotent.
+final class FrontmostApplicationDiagnosticsLifecycle {
+    private let makeObserver: () -> any FrontmostApplicationDiagnosticsObserving
+    private var observer: (any FrontmostApplicationDiagnosticsObserving)?
+
+    private(set) var isRunning = false
+
+    init(
+        makeObserver: @escaping () -> any FrontmostApplicationDiagnosticsObserving
+    ) {
+        self.makeObserver = makeObserver
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        if enabled {
+            guard observer == nil else { return }
+            let observer = makeObserver()
+            observer.start()
+            self.observer = observer
+            isRunning = true
+            return
+        }
+
+        guard let observer else { return }
+        observer.stop()
+        self.observer = nil
+        isRunning = false
+    }
+
+    func stop() {
+        setEnabled(false)
+    }
+
+    var activeObserverCountForTesting: Int {
+        observer == nil ? 0 : 1
+    }
+}
+
+final class FrontmostApplicationDiagnosticsObserver:
+    FrontmostApplicationDiagnosticsObserving {
     private let workspace: NSWorkspace
     private let notificationCenter: NotificationCenter
     private let reporter: FrontmostApplicationTransitionReporter
@@ -103,6 +149,10 @@ final class FrontmostApplicationDiagnosticsObserver {
         isRunning = false
         observerTokens.forEach(notificationCenter.removeObserver)
         observerTokens.removeAll()
+    }
+
+    var observerTokenCountForTesting: Int {
+        observerTokens.count
     }
 
     private func observeFrontmostApplication(establishingBaseline: Bool = false) {

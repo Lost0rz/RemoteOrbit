@@ -50,6 +50,9 @@ enum AppStorage {
             VoiceInputProfileStore.selectedProfileIDKey:
                 VoiceInputProfile.defaultProfile.id,
         ])
+        DiagnosticsRuntimeGate.shared.configureFromProcessEnvironment(
+            loggingEnabled: loggingEnabled
+        )
         ensureDirectory(logsDirectory)
         ensureDirectory(recordingsDirectory)
         ensureDirectory(configurationDirectory)
@@ -62,7 +65,10 @@ enum AppStorage {
 
     static var loggingEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: loggingEnabledKey) }
-        set { UserDefaults.standard.set(newValue, forKey: loggingEnabledKey) }
+        set {
+            UserDefaults.standard.set(newValue, forKey: loggingEnabledKey)
+            DiagnosticsRuntimeGate.shared.setLoggingEnabled(newValue)
+        }
     }
 
     static var recordingEnabled: Bool {

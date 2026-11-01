@@ -2,6 +2,16 @@ import XCTest
 @testable import RemoteOrbit
 
 final class AudioDataPlaneDiagnosticsTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+    }
+
+    override func tearDown() {
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        super.tearDown()
+    }
+
     func testAudioPipeLongTermSnapshotCapturesSubmissionAndStopsProbe() {
         let pipe = AudioPipe.shared
         pipe.setRemoteActive(false)

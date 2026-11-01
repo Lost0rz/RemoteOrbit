@@ -3,6 +3,16 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceBoundaryOrderingTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+    }
+
+    override func tearDown() {
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        super.tearDown()
+    }
+
     func testPressEntryIsEnqueuedAfterKeyDownGateAndKeepsEntryUptime() throws {
         let harness = makeHarness(uptimes: [123.456])
         defer { harness.close() }

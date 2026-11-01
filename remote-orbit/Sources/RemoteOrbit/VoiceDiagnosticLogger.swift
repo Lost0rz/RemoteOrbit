@@ -148,6 +148,10 @@ final class VoiceDiagnosticLogger {
     private var isActive = false
     private var timestampFormatter: ISO8601DateFormatter?
     private var sequenceNumber: UInt64 = 0
+    private var queuedRecordCount = 0
+    private var jsonSerializationCount = 0
+    private var writeCount = 0
+    private var synchronizeCount = 0
 
     init(
         fileURL: URL,
@@ -169,9 +173,18 @@ final class VoiceDiagnosticLogger {
         self.processIdentifierProvider = processIdentifierProvider
         self.binaryPathProvider = binaryPathProvider
         self.beforeQueuedEventWriteForTesting = beforeQueuedEventWriteForTesting
+        DiagnosticsRuntimeGate.shared.observe { [weak self] enabled in
+            guard let self else { return }
+            if enabled {
+                self.startRun()
+            } else {
+                self.close()
+            }
+        }
     }
 
     func startRun(fields: [String: Any] = [:]) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         let timestamp = dateProvider()
         let uptime = uptimeProvider()
         var runFields = fields
@@ -194,6 +207,7 @@ final class VoiceDiagnosticLogger {
                 fileHandle = handle
                 isActive = true
                 sequenceNumber = 0
+                queuedRecordCount = 0
                 append(category: "app", event: "RUN_START", fields: runFields,
                        timestamp: timestamp, uptime: uptime)
             } catch {
@@ -211,6 +225,7 @@ final class VoiceDiagnosticLogger {
         key: VoiceTriggerKey? = nil,
         fields: [String: Any] = [:]
     ) {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         // Capture event occurrence time before queue delay, but leave all
         // formatting, serialization, and file operations to the writer queue.
         let timestamp = dateProvider()
@@ -219,6 +234,7 @@ final class VoiceDiagnosticLogger {
 
         writerQueue.async { [weak self] in
             guard let self else { return }
+            self.queuedRecordCount += 1
             self.beforeQueuedEventWriteForTesting?()
             guard self.isActive, self.fileHandle != nil else { return }
             var eventFields = capturedFields
@@ -240,8 +256,32 @@ final class VoiceDiagnosticLogger {
 
     /// Waits for previously enqueued records and makes them durable.
     func flush() {
+        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         writerQueue.sync {
+            if fileHandle != nil {
+                synchronizeCount += 1
+            }
             try? fileHandle?.synchronize()
+        }
+    }
+
+    var isActiveForTesting: Bool {
+        writerQueue.sync { isActive && fileHandle != nil }
+    }
+
+    var workMetricsForTesting: (
+        queuedRecordCount: Int,
+        jsonSerializationCount: Int,
+        writeCount: Int,
+        synchronizeCount: Int
+    ) {
+        writerQueue.sync {
+            (
+                queuedRecordCount,
+                jsonSerializationCount,
+                writeCount,
+                synchronizeCount
+            )
         }
     }
 
@@ -252,6 +292,7 @@ final class VoiceDiagnosticLogger {
             try? fileHandle?.close()
             fileHandle = nil
             isActive = false
+            queuedRecordCount = 0
         }
     }
 
@@ -289,9 +330,12 @@ final class VoiceDiagnosticLogger {
             record[key] = value
         }
         do {
+            jsonSerializationCount += 1
             var data = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
             data.append(0x0A)
             try fileHandle.write(contentsOf: data)
+            writeCount += 1
+            synchronizeCount += 1
             try fileHandle.synchronize()
         } catch {
             // Diagnostics are best-effort and must never alter input behavior.

@@ -3,6 +3,16 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceInputSourceDiagnosticsTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+    }
+
+    override func tearDown() {
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        super.tearDown()
+    }
+
     func testPressAndReleaseEntriesRetainHIDInputSourceAndGestureIdentity() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("remoteorbit-source-\(UUID().uuidString).jsonl")

@@ -3,6 +3,16 @@ import AudioToolbox
 @testable import RemoteOrbit
 
 final class AudioPipeTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+    }
+
+    override func tearDown() {
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        super.tearDown()
+    }
+
     func testActivePublicationOrderInitializesConsumerStateBeforeRealtimeActive() {
         var observed: [AudioPipeActivationStep] = []
 

@@ -4,6 +4,16 @@ import XCTest
 @testable import RemoteOrbit
 
 final class VoiceBoundaryDiagnosticsTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+    }
+
+    override func tearDown() {
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+        super.tearDown()
+    }
+
     func testMappedTriggerRecordPreservesOriginalCGEventTimestampWithoutChangingOwnership() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("remoteorbit-boundary-\(UUID().uuidString).jsonl")

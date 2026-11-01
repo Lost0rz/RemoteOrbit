@@ -5318,7 +5318,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let dualReceiverVoiceGestureRecognizer: DualReceiverVoiceGestureRecognizer
     private(set) var dualReceiverVoiceMode: DualReceiverVoiceMode = .legacy
     private let diagnosticLogger: VoiceDiagnosticLogger
-    private var frontmostApplicationDiagnosticsObserver: FrontmostApplicationDiagnosticsObserver?
+    private lazy var frontmostApplicationDiagnosticsLifecycle =
+        FrontmostApplicationDiagnosticsLifecycle {
+            FrontmostApplicationDiagnosticsObserver()
+        }
+    private var diagnosticsRuntimeObserverRegistered = false
     private let ble = BLEBridge()
     private let mappingStore = MappingStore()
     private let hidMonitor = HIDMonitor()
@@ -7127,21 +7131,24 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.setActivationPolicy(.accessory)
         AppStorage.prepare()
         DiagnosticRuntimeHealthService.shared.start()
-        if let input = SystemAudioDeviceManager.defaultInputDevice {
-            DiagnosticRuntimeHealthRegistry.shared.setString(
-                "selected_input_identity",
-                input.stableIdentifier
-            )
+        let diagnosticsEnabled = DiagnosticsRuntimeGate.shared.isEnabled
+        if diagnosticsEnabled {
+            if let input = SystemAudioDeviceManager.defaultInputDevice {
+                DiagnosticRuntimeHealthRegistry.shared.setString(
+                    "selected_input_identity",
+                    input.stableIdentifier
+                )
+            }
+            var runStartFields = P1A4MonotonicClock.runStartCalibrationFields()
+            runStartFields["persisted_persistent"] = readPersistedPersistentSessionTriggerKey().rawValue
+            runStartFields["persisted_momentary"] = readPersistedVoiceTriggerKey().rawValue
+            runStartFields["persisted_legacy"] = UserDefaults.standard.string(
+                forKey: AppStorage.voiceTriggerKeyKey
+            ) ?? "none"
+            diagnosticLogger.startRun(fields: runStartFields)
         }
-        var runStartFields = P1A4MonotonicClock.runStartCalibrationFields()
-        runStartFields["persisted_persistent"] = readPersistedPersistentSessionTriggerKey().rawValue
-        runStartFields["persisted_momentary"] = readPersistedVoiceTriggerKey().rawValue
-        runStartFields["persisted_legacy"] = UserDefaults.standard.string(
-            forKey: AppStorage.voiceTriggerKeyKey
-        ) ?? "none"
-        diagnosticLogger.startRun(fields: runStartFields)
         _ = restoreVoiceTriggerRuntime()
-        if ProcessInfo.processInfo.environment["REMOTE_ORBIT_DIAGNOSTICS"] == "1" {
+        if diagnosticsEnabled {
             let sourceHead = Bundle.main.object(
                 forInfoDictionaryKey: "RemoteOrbitDiagnosticSourceHead"
             ) as? String ?? "UNSTAMPED"
@@ -7158,9 +7165,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "[AUDIO-PATH] DIAGNOSTIC_BUILD "
                     + "head=\(sourceHead) instrumentation=\(instrumentation)"
             )
-            let observer = FrontmostApplicationDiagnosticsObserver()
-            observer.start()
-            frontmostApplicationDiagnosticsObserver = observer
+        }
+        diagnosticsRuntimeObserverRegistered = true
+        DiagnosticsRuntimeGate.shared.observe { [weak self] enabled in
+            guard let self, self.diagnosticsRuntimeObserverRegistered else { return }
+            self.frontmostApplicationDiagnosticsLifecycle.setEnabled(enabled)
         }
         let appVersion = Bundle.main.object(
             forInfoDictionaryKey: "CFBundleShortVersionString"
@@ -8118,8 +8127,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         voiceReceiverReadinessMonitor.deactivate()
-        frontmostApplicationDiagnosticsObserver?.stop()
-        frontmostApplicationDiagnosticsObserver = nil
+        diagnosticsRuntimeObserverRegistered = false
+        frontmostApplicationDiagnosticsLifecycle.stop()
         stopRecordingStatusPulse()
         voiceFocusSafetyWorkItem?.cancel()
         voiceFocusSafetyWorkItem = nil
@@ -8134,6 +8143,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         KeyInjector.releaseAll()
         ble.stop()
         AudioPipe.shared.stop()
+        DiagnosticRuntimeHealthService.shared.stop()
         voiceHIDMappingQueue.sync {
             _ = applyVoiceHIDMapping(false, currentMomentaryVoiceTriggerKey)
         }

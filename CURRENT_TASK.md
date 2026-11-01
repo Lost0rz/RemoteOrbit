@@ -1,121 +1,92 @@
 # RemoteOrbit Current Task
 
-## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave A diagnostics gating
+## RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — Wave A diagnostics-gating corrective
 
-Status: `READY_FOR_IMPLEMENTATION_HANDOFF`
-TASK_CLASS: `BOUNDED PRODUCT IMPLEMENTATION`
+Status: `WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+TASK_CLASS: `BOUNDED PRODUCT CORRECTIVE`
 Repository: `Lost0rz/RemoteOrbit`
-Audited base: `main@650a2c011bb640379842ab866d696302c4adc52e`
 Design authority: `docs/design/2026-10-31-045-diagnostics-gating-and-legacy-retirement.md`
 Human runtime acceptance: `Task 043 still DEFERRED / USER-OWNED`
 
-## Authorized next action
+## Audit result
 
-A fresh local execution context may create one branch/worktree from current `main` and implement **Wave A diagnostics gating only**.
+Independent Web audit of PR #31 at reviewed head `856fcb065ab94ae01e210df7fa55561a4cfcf11a` returned:
 
-The implementation must preserve all current voice semantics and correctness owners while making ordinary diagnostics disabled mode near-zero overhead.
+`STOP — REQUIRED CORRECTIVE BEFORE MERGE`
 
-## Required Wave A behavior
+The implementation's core diagnostics gate and machine regression are accepted as the starting point. Do not re-audit or redesign Wave A locally.
 
-Introduce one cheap process-local effective diagnostics state whose logical authority is:
+## Authorized corrective
 
-```text
-AppStorage.loggingEnabled || REMOTE_ORBIT_DIAGNOSTICS == "1"
-```
+Continue the existing Task 045A execution branch/worktree/PR. Perform only these corrections:
 
-The hot disabled check must not read UserDefaults, serialize JSON, touch disk, or synchronously dispatch on each event.
+1. **Frontmost diagnostic observer runtime lifecycle**
+   - when effective diagnostics transitions OFF→ON, the diagnostic frontmost-application observer must become active exactly once;
+   - when effective diagnostics transitions ON→OFF, it must unregister/stop and own no notification observation;
+   - repeated same-state transitions must be idempotent;
+   - lifecycle changes must remain diagnostics-only and must not change application routing or mapping behavior.
 
-### Gate these surfaces
+2. **Recording independence regression**
+   - add a deterministic test that exercises a real WAV/RAW recording lifecycle while effective diagnostics are OFF;
+   - prove WAV/RAW data is still created/finalized by the independent recording opt-in;
+   - prove structured recording diagnostic metadata is not persisted/enqueued through the disabled diagnostics authority path;
+   - preserve existing recording-OFF behavior.
 
-1. `VoiceDiagnosticLogger`
-   - do not create/open/truncate its file when diagnostics are disabled;
-   - `log()` must return before timestamp/field/enqueue work disabled;
-   - enabling/disabling at runtime must start/stop its run lifecycle safely.
+3. **Finite launch-only diagnostic work**
+   - if locally achievable without crossing a frozen product boundary, avoid selected-input diagnostic registry lookup and run-start calibration/field construction while diagnostics are OFF;
+   - if this cannot be done as a narrow diagnostics-only edit, leave it unchanged and report it explicitly rather than widening scope.
 
-2. `DiagnosticAuthorityService.emit`
-   - disabled return before semaphore admission, clock capture, event construction, writer enqueue and journal append;
-   - query/snapshot/export over existing evidence remain available.
+4. Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` atomically for the corrected handoff.
 
-3. `DiagnosticRuntimeHealthService`
-   - no heartbeat timer disabled;
-   - enabled lifecycle remains functional.
+## Frozen boundaries
 
-4. `VoiceAttemptDiagnostics` / `VoiceStartWatchdog`
-   - preserve any bounded attempt/session identity needed so production callers do not change behavior;
-   - no disabled diagnostic emission or recurring watchdog timer;
-   - enabled watchdog should be bounded to active diagnostic attempts and cancel cleanly.
+Do NOT:
 
-5. `VoiceTimingLogger` / long-term observability
-   - disabled path must not persist summaries/traces or run diagnostic-only recurring work;
-   - enabled behavior remains testable;
-   - supersede ADR-0003's old `L1 summary always on` runtime-policy statement in documentation.
-
-6. `AudioPipe` diagnostic lifecycle
-   - do not start the per-session `MainQueueResponsivenessProbe` or realtime diagnostic capture when diagnostics are disabled;
-   - do not alter AudioPipe transport, IOProc, buffering, gain, prebuffer, route or drain behavior.
-
-7. Settings diagnostics toggle
-   - user-visible ordinary logging toggle must update the effective diagnostics runtime as well as text logging;
-   - environment override remains force-on.
-
-### Keep independent
-
-`AppStorage.recordingEnabled` remains the sole user opt-in for WAV/RAW capture. Recording OFF creates no WAV/RAW files. Recording ON must continue to work even if ordinary diagnostics are OFF; structured recording metadata may be suppressed by the diagnostics gate.
-
-## Explicit non-goals / frozen code
-
-Do NOT in Wave A:
-
-- remove or refactor Persistent-session production state;
+- remove/refactor Persistent-session production state;
 - remove Dual-Receiver source/callers/tests;
-- remove microphone SHORT UI/configuration yet;
-- rename/rewrite generic Option gate/tombstone/suppression mechanisms;
+- remove microphone SHORT UI/configuration;
 - change the 300 ms LONG-only contract;
 - change rapid-repress, pre-HID, BLE READY/reuse, drain/tail/grace behavior;
+- change HID mapping/readback correctness semantics;
 - change receiver-readiness polling architecture;
-- change HID mapping semantics/readback correctness;
-- change ATVV commands/codec/sample rate/gain;
-- install/replace `/Applications/RemoteOrbit.app`;
-- install/reload the driver, restart CoreAudio, change TCC/default devices;
-- tag/release or merge the implementation PR.
+- change ATVV commands/codec/sample rate/gain or AudioPipe transport/buffer/IOProc;
+- install/replace the app;
+- install/reload driver, restart CoreAudio, modify TCC/default devices;
+- tag/release or merge PR #31.
 
-## Tests required before handoff return
+## Verification required
 
-Add focused tests proving disabled-mode work is absent at the relevant ownership seam. Prefer explicit counters/test seams over timing-only assertions.
+Run focused tests proving:
 
-At minimum establish:
+- frontmost observer OFF→ON starts once;
+- ON→OFF stops/unregisters;
+- repeated state transitions remain bounded/idempotent;
+- diagnostics OFF + recording ON produces valid/finalized WAV/RAW while diagnostic structured work remains suppressed;
+- existing diagnostics gate tests remain green;
+- current LONG-only regression tests remain green.
 
-- `VoiceDiagnosticLogger`: disabled has no active file/writer run and no queued record work; enabled still writes/flushes valid JSONL;
-- `DiagnosticAuthority`: disabled `emit` performs zero producer admission/enqueue/journal append; enabled behavior unchanged;
-- runtime health: disabled owns zero heartbeat timer; enabled owns at most one and stops cleanly;
-- voice-start watchdog: disabled owns zero recurring timer; enabled attempt owns bounded timer and cancels on completion/end;
-- `AudioPipe`/long-term diagnostics: disabled session starts no main-queue responsiveness timer/persistent summary path; enabled remains functional;
-- recording OFF creates no WAV/RAW; existing recording ON tests remain green;
-- current LONG-only regression tests remain unchanged and green.
+Then run the existing durable machine gate on `remoteorbit-macmini` for the corrected PR head:
 
-Then run the durable machine gate on `remoteorbit-macmini`:
+- source/protocol checks;
+- full `swift test`;
+- native Release build;
+- Universal2 build-only packaging smoke.
 
-1. focused changed-boundary tests;
-2. full `swift test`;
-3. native Release build;
-4. Universal2 build-only packaging smoke through the durable CI workflow if a PR is opened.
+## Delivery / stop
 
-## Delivery shape
+Corrective implementation commit: `cb427c49fc594df6ceddbc202d3c589ae637653a`, pushed to the existing branch `codex/task045a-diagnostics-gating` and PR #31. The final atomic control update is the direct handoff child of that implementation commit; its exact published HEAD is recorded by the executor's final receipt after remote verification.
 
-Use one fresh branch/worktree and one Draft PR for Wave A. Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` atomically when the execution branch is established and again for the final handoff state as required by governance.
+Actual verification receipt:
 
-Stop after push/PR + machine verification at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge.
+- focused observer lifecycle: `6/6`;
+- focused recording lifecycle/metadata suppression: `8/8`;
+- existing diagnostics gate tests: `5/5`;
+- current LONG-only regression suite: `51/51`;
+- local full `swift test`: `658/658`;
+- local Release build: passed;
+- durable CI `41257070849` attempt `2`, job `124702797074`, runner `remoteorbit-macmini`: all stages passed;
+- Universal2 packaging smoke: `x86_64 arm64`.
 
-## Return evidence
+Keep PR #31 `OPEN / DRAFT`. Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not merge.
 
-Return:
-
-- governance route / capability actually used;
-- start and final branch/HEAD/worktree identity;
-- exact changed paths;
-- effective gate ownership and runtime-toggle behavior;
-- focused test results;
-- full Swift/Release/package results;
-- Draft PR identity and remote-head match;
-- explicit confirmation that no Persistent/Dual retirement, install, driver/CoreAudio/TCC mutation, release or merge occurred;
-- observed blockers/uncertainty, if any.
+Return actual changed paths, corrected head/remote identity, focused/full test results, CI run identity, and any unresolved blocker/uncertainty.

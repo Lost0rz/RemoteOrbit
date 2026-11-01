@@ -20,5 +20,7 @@ final class LongTermObservabilityDocumentationTests: XCTestCase {
         XCTAssertTrue(contract.contains("session_id"))
         XCTAssertTrue(contract.contains("capture_id"))
         XCTAssertTrue(contract.contains("does not establish root cause"))
+        XCTAssertTrue(contract.contains("Task 045A"))
+        XCTAssertTrue(contract.contains("L1 always-on policy is superseded"))
     }
 }
