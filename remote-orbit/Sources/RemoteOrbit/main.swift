@@ -5377,10 +5377,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let readPersistedVoiceTriggerKey: () -> VoiceTriggerKey
     private let persistVoiceTriggerKey: (VoiceTriggerKey) -> Void
     private let usePersistedVoiceProfile: Bool
-    private let readPersistedPersistentSessionTriggerKey: () -> VoiceTriggerKey
-    private let persistPersistentSessionTriggerKey: (VoiceTriggerKey) -> Void
-    private let readPersistedSecondaryMomentaryVoiceTriggerKey: () -> VoiceTriggerKey?
-    private let persistSecondaryMomentaryVoiceTriggerKey: (VoiceTriggerKey?) -> Void
+    private let initialPersistentSessionTriggerKey: VoiceTriggerKey
+    private let initialSecondaryMomentaryVoiceTriggerKey: VoiceTriggerKey?
     private let diagnosticUptimeProvider: () -> TimeInterval
     private let voiceHIDMappingQueue = DispatchQueue(
         label: "com.remoteorbit.voice-trigger-hid-mapping",
@@ -5417,18 +5415,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         persistVoiceTriggerKey: @escaping (VoiceTriggerKey) -> Void = {
             AppStorage.momentaryVoiceTriggerKey = $0
         },
-        readPersistedPersistentSessionTriggerKey: @escaping () -> VoiceTriggerKey = {
-            AppStorage.persistentSessionTriggerKey
-        },
-        persistPersistentSessionTriggerKey: @escaping (VoiceTriggerKey) -> Void = {
-            AppStorage.persistentSessionTriggerKey = $0
-        },
-        readPersistedSecondaryMomentaryVoiceTriggerKey: @escaping () -> VoiceTriggerKey? = {
-            AppStorage.secondaryMomentaryVoiceTriggerKey
-        },
-        persistSecondaryMomentaryVoiceTriggerKey: @escaping (VoiceTriggerKey?) -> Void = {
-            AppStorage.secondaryMomentaryVoiceTriggerKey = $0
-        },
+        initialPersistentSessionTriggerKey: VoiceTriggerKey = .leftOption,
+        initialSecondaryMomentaryVoiceTriggerKey: VoiceTriggerKey? = nil,
         diagnosticLogger: VoiceDiagnosticLogger = .shared,
         uptimeProvider: @escaping () -> TimeInterval = {
             ProcessInfo.processInfo.systemUptime
@@ -5451,11 +5439,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.usePersistedVoiceProfile = usePersistedVoiceProfile
         self.readPersistedVoiceTriggerKey = readPersistedVoiceTriggerKey
         self.persistVoiceTriggerKey = persistVoiceTriggerKey
-        self.readPersistedPersistentSessionTriggerKey = readPersistedPersistentSessionTriggerKey
-        self.persistPersistentSessionTriggerKey = persistPersistentSessionTriggerKey
-        self.readPersistedSecondaryMomentaryVoiceTriggerKey =
-            readPersistedSecondaryMomentaryVoiceTriggerKey
-        self.persistSecondaryMomentaryVoiceTriggerKey = persistSecondaryMomentaryVoiceTriggerKey
+        self.initialPersistentSessionTriggerKey = initialPersistentSessionTriggerKey
+        self.initialSecondaryMomentaryVoiceTriggerKey = initialSecondaryMomentaryVoiceTriggerKey
+        self.currentPersistentSessionTriggerKey = initialPersistentSessionTriggerKey
+        self.currentSecondaryMomentaryVoiceTriggerKey = initialSecondaryMomentaryVoiceTriggerKey
         self.diagnosticUptimeProvider = uptimeProvider
         super.init()
         dualReceiverVoiceGestureRecognizer.onEvent = { [weak self] event in
@@ -5499,27 +5486,27 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @discardableResult
     func restoreVoiceTriggerRuntime() -> Bool {
-        // AppStorage.prepare() performs the real startup migration before the
-        // production delegate reaches this method. The injected legacy reader
-        // remains the deterministic test seam for controller-only harnesses;
-        // it does not participate in the launched app path once the profile ID
-        // has been persisted.
+        // AppStorage.prepare() migrates only the retained momentary/profile
+        // compatibility path before the production delegate reaches this
+        // method. Persistent and Receiver-B values are runtime-only inputs for
+        // historical controller tests; launched product startup never reads
+        // their UserDefaults bytes.
         let restoredProfile = usePersistedVoiceProfile
             ? VoiceInputProfileStore.persistedProfile(from: UserDefaults.standard)
                 ?? VoiceInputProfileStore.profile(for: readPersistedVoiceTriggerKey())
             : VoiceInputProfileStore.profile(for: readPersistedVoiceTriggerKey())
         let restoredMomentaryKey = restoredProfile.triggerKey
-        // The direct Gate A path never consults this legacy field. Keep its
-        // injected value only for historical coordinator tests and rollback
-        // compatibility; no production voice edge routes through it.
-        let restoredPersistentKey = readPersistedPersistentSessionTriggerKey()
-        let restoredSecondaryMomentaryKey = readPersistedSecondaryMomentaryVoiceTriggerKey()
+        // The direct Gate A path never consults these historical runtime fields.
+        // Keep their injected values only for deterministic coordinator tests;
+        // no production voice edge routes through them.
+        let restoredPersistentKey = initialPersistentSessionTriggerKey
+        let restoredSecondaryMomentaryKey = initialSecondaryMomentaryVoiceTriggerKey
         currentDualReceiverShortBinding = mappingStore.binding(for: .microphone)
         diagnosticLogger.log(
             category: "configuration",
             event: "RUNTIME_RESTORE_BEGIN",
             fields: [
-                "persisted_persistent": restoredPersistentKey.rawValue,
+                "runtime_persistent": restoredPersistentKey.rawValue,
                 "persisted_momentary": restoredMomentaryKey.rawValue,
                 "voice_input_profile_id": restoredProfile.id,
                 "persisted_legacy": UserDefaults.standard.string(
@@ -5563,7 +5550,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "controller_momentary": currentMomentaryVoiceTriggerKey.rawValue,
                 "filter_momentary": filter.momentaryVoiceTriggerKey.rawValue,
                 "synthetic_momentary": voicePress.diagnosticStateFields["momentary_config"] as? String ?? "unknown",
-                "persisted_persistent": restoredPersistentKey.rawValue,
+                "runtime_persistent": restoredPersistentKey.rawValue,
+                "runtime_secondary": restoredSecondaryMomentaryKey?.rawValue ?? "off",
                 "persisted_momentary": restoredMomentaryKey.rawValue,
                 "voice_input_profile_id": restoredProfile.id,
             ]
@@ -5670,7 +5658,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Applies Receiver B only while the dual-recognizer, transaction, filter,
     /// and release/drain path are unowned. Receiver A and Persistent Session
-    /// remain separate preferences and runtime authorities.
+    /// remain separate runtime-only state-machine values.
     func applySecondaryVoiceTriggerKey(
         _ newKey: VoiceTriggerKey?,
         shortBinding: ButtonBinding,
@@ -5729,7 +5717,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .applied:
             currentSecondaryMomentaryVoiceTriggerKey = newKey
             currentDualReceiverShortBinding = shortBinding
-            persistSecondaryMomentaryVoiceTriggerKey(newKey)
             diagnosticLogger.log(
                 category: "configuration",
                 event: "SECONDARY_MOMENTARY_RECONFIG_COMMIT",
@@ -6496,7 +6483,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         currentPersistentSessionTriggerKey = newKey
-        persistPersistentSessionTriggerKey(newKey)
         diagnosticLogger.log(
             category: "configuration",
             event: "PERSISTENT_RECONFIG_COMMIT",
@@ -7140,7 +7126,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 )
             }
             var runStartFields = P1A4MonotonicClock.runStartCalibrationFields()
-            runStartFields["persisted_persistent"] = readPersistedPersistentSessionTriggerKey().rawValue
             runStartFields["persisted_momentary"] = readPersistedVoiceTriggerKey().rawValue
             runStartFields["persisted_legacy"] = UserDefaults.standard.string(
                 forKey: AppStorage.voiceTriggerKeyKey

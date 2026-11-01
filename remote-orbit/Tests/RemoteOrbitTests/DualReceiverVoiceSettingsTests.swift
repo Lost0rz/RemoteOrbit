@@ -19,46 +19,6 @@ final class DualReceiverVoiceSettingsTests: XCTestCase {
         super.tearDown()
     }
 
-    func testSecondaryTriggerDefaultsOffAndIgnoresLegacyAndPersistentValues() {
-        defaults.set(VoiceTriggerKey.leftCommand.rawValue, forKey: AppStorage.voiceTriggerKeyKey)
-        defaults.set(
-            VoiceTriggerKey.rightControl.rawValue,
-            forKey: AppStorage.persistentSessionTriggerKeyKey
-        )
-
-        XCTAssertNil(AppStorage.readSecondaryMomentaryVoiceTriggerKey(from: defaults))
-        XCTAssertEqual(defaults.string(forKey: AppStorage.voiceTriggerKeyKey), "left_command")
-        XCTAssertEqual(
-            defaults.string(forKey: AppStorage.persistentSessionTriggerKeyKey),
-            "right_control"
-        )
-    }
-
-    func testSecondaryTriggerRoundTripsAllSixKeysIndependently() {
-        for key in VoiceTriggerKey.allCases {
-            AppStorage.writeSecondaryMomentaryVoiceTriggerKey(key, to: defaults)
-
-            XCTAssertEqual(
-                defaults.string(forKey: AppStorage.secondaryMomentaryVoiceTriggerKeyKey),
-                key.rawValue
-            )
-            XCTAssertEqual(AppStorage.readSecondaryMomentaryVoiceTriggerKey(from: defaults), key)
-            XCTAssertNil(defaults.object(forKey: AppStorage.voiceTriggerKeyKey))
-            XCTAssertNil(defaults.object(forKey: AppStorage.persistentSessionTriggerKeyKey))
-        }
-    }
-
-    func testMissingOrInvalidSecondaryValueMeansOffAndWritingOffRemovesIt() {
-        XCTAssertNil(AppStorage.readSecondaryMomentaryVoiceTriggerKey(from: defaults))
-
-        defaults.set("not-a-trigger", forKey: AppStorage.secondaryMomentaryVoiceTriggerKeyKey)
-        XCTAssertNil(AppStorage.readSecondaryMomentaryVoiceTriggerKey(from: defaults))
-
-        AppStorage.writeSecondaryMomentaryVoiceTriggerKey(nil, to: defaults)
-        XCTAssertNil(defaults.object(forKey: AppStorage.secondaryMomentaryVoiceTriggerKeyKey))
-        XCTAssertNil(AppStorage.readSecondaryMomentaryVoiceTriggerKey(from: defaults))
-    }
-
     func testDualModeRequiresDisabledShortAndDistinctReceiverKeys() {
         XCTAssertEqual(
             DualReceiverVoiceMode.evaluate(
