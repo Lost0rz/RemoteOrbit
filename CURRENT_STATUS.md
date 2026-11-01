@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAVE_D_DOMAIN_1_AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+State: `RO-DIAGNOSTICS-LEGACY-RETIREMENT-045 — WAVE_D_DOMAIN_1_IMPLEMENTATION_COMPLETE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Human runtime/UI acceptance: `PENDING / USER-OWNED`
 
@@ -14,7 +14,7 @@ Human runtime/UI acceptance: `PENDING / USER-OWNED`
 - Task 045B Domain 4: `DUAL_RECEIVER_RUNTIME_STATE_MACHINE / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 5: `LEGACY_GENERIC_SHORT_CLASSIFIER_RUNTIME / MERGED / MAIN_CI_PASS / CLOSED`
 - Task 045B Domain 6: `LOCAL_MICROPHONE_CAPTURE / MERGED / MAIN_CI_PASS / CLOSED`
-- Task 045D Domain 1: `REMOTE_ONLY_PCM_ATTRIBUTION / AUDIT_COMPLETE / READY_FOR_IMPLEMENTATION_HANDOFF`
+- Task 045D Domain 1: `REMOTE_ONLY_PCM_ATTRIBUTION / IMPLEMENTATION_COMPLETE / PR_CI_PASS / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 
 ## Domain 6 independent Web audit and closeout
 
@@ -38,6 +38,32 @@ Final residue/resource/regression work remains serial by bounded domain:
 `Web audit/freeze → local cleanup → Web exact-head audit → merge/closeout → next domain`
 
 Wave D is not a broad cleanup authorization. Each residue is classified first. Live correctness mechanisms with historical names remain KEEP until ownership proves otherwise.
+
+## Wave D Domain 1 execution — Remote-Only PCM Attribution
+
+Implementation branch/worktree: `codex/task045d-domain1-remote-only-pcm-attribution-retirement` from fresh live `main@8648c3f9c3f0f12e57e54767bfd04d8b05fff3ec` (control-only CI run `41277112083`, job `124761430249`, final SUCCESS before mutation).
+
+Implementation HEAD / Draft PR #38 head: `23328cc68a3044413b66f4218cf27a925e35e588`.
+
+Retired surface:
+
+- `AudioPipePCMSource` (including `.local`) — deleted; the single production `.remote` write dropped its discriminator;
+- `remoteQueuedFrames` atomic counter and all source-conditioned increment/decrement/reset bookkeeping — deleted;
+- `AudioRemoteQueueAttribution` — deleted (no production caller);
+- mixed/local-source ring test and two attribution-helper tests — deleted; a new test pins remote-depth fields equal to total depth at write/read/overflow boundaries.
+
+Retained: result/diagnostic field names (`remoteQueueDepth*Frames`, `remoteFramesConsumed`, `pendingRemoteFrames`) now derive from the authoritative total queue depth, observably equal to prior remote-only production values. Ring capacity/FIFO/full-empty/wraparound/reset/SPSC gate, reserve, render, tail/drain, realtime callback contract, LONG-only/suppression/tombstone, BLE/ATVV, Domain 6 input lease, diagnostics gate and recording are unchanged (no voice/transport semantic mutation; ring algorithm and capacity unchanged).
+
+Verification evidence:
+
+- focused suites (AudioPipeRealtime, AudioPipe, AudioDataPlaneMeasurementBoundary, AudioDataPlaneDiagnostics, AudioPipePlayoutReserve, RemoteVoiceInputLease, VoicePipelineSimplification, VoicePressCoordinator, VoiceKeyFilter, BLEBridge, VoiceReceiverReadiness, DiagnosticsRuntimeGate, DiagnosticHardening): 248/248 green;
+- full `swift test`: 507/507 green;
+- `swift build -c release`: PASS;
+- `git diff --check`: clean;
+- local Universal2 build-only packaging smoke: PASS (`x86_64 arm64`);
+- durable RemoteOrbit CI on `remoteorbit-macmini` at exact PR head: run `41279444041`, job `124768161983`, SUCCESS.
+
+Domain 6 worktree retired after clean + merged-ancestry confirmation; branch `codex/task045b-domain6-local-microphone-capture-retirement` and history preserved. No app install, driver/CoreAudio/TCC/default-device mutation, tag/release, or machine-owned hardware acceptance was performed. PR #38 remains Draft and unmerged.
 
 ## Wave D Domain 1 audit — Remote-Only PCM Attribution
 
@@ -77,4 +103,4 @@ Classification:
 
 ## Next gate
 
-Wave D Domain 1 is audited/frozen and ready for one bounded local implementation from fresh live `main` after the CI attached to this control-only authority commit is successful. No other Wave D domain, app install, driver/CoreAudio/TCC mutation, tag/release or machine-owned hardware acceptance is authorized.
+Wave D Domain 1 implementation is complete with durable CI PASS at the exact Draft PR #38 head. Next: independent Web exact-head audit of PR #38 (`FRESH_CONTEXT`), then merge/closeout under that audit's authority. No other Wave D domain, app install, driver/CoreAudio/TCC mutation, tag/release or machine-owned hardware acceptance is authorized.

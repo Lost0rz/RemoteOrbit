@@ -1,11 +1,8 @@
 import AudioToolbox
 import Darwin
 
-enum AudioPipePCMSource: Equatable {
-    case remote
-    case local
-}
-
+/// Write result. The ring is remote-only: remote-attributed depth fields
+/// equal their total-depth counterparts.
 struct AudioPipePCMWriteResult: Equatable {
     let acceptedFrames: Int
     let droppedFrames: Int
@@ -13,6 +10,8 @@ struct AudioPipePCMWriteResult: Equatable {
     let remoteQueueDepthAfterFrames: Int
 }
 
+/// Read result. The ring is remote-only: remote-attributed depth/consumed
+/// fields equal their total-depth counterparts.
 struct AudioPipePCMReadResult: Equatable {
     let requestedFrames: Int
     let filledFrames: Int
@@ -29,16 +28,15 @@ struct AudioPipePCMReadResult: Equatable {
 ///
 /// The producer owns write publication and the CoreAudio callback owns read
 /// publication. The existing AudioPipe producer-side state ownership keeps
-/// local and remote submissions serialized; the callback never takes that
-/// ordinary state lock. Monotonic Int64 indices make exact full and empty
-/// states distinct without reserving a slot.
+/// remote submissions serialized; the callback never takes that ordinary
+/// state lock. Monotonic Int64 indices make exact full and empty states
+/// distinct without reserving a slot.
 final class FixedCapacityPCMFrameRing: @unchecked Sendable {
     let capacity: Int
 
     private let storage: UnsafeMutablePointer<Float>
     private var readIndex: Int64 = 0
     private var writeIndex: Int64 = 0
-    private var remoteQueuedFrames: Int64 = 0
     /// 0 = idle, 1 = render read in progress, 2 = producer reset in progress.
     /// Reset is producer-side and may wait; the realtime reader never waits.
     private var readerGate: Int32 = 0
@@ -61,33 +59,21 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
         return Self.boundedDepth(write - read, capacity: capacity)
     }
 
-    var queuedRemoteFrames: Int {
-        Self.boundedDepth(
-            OSAtomicAdd64Barrier(0, &remoteQueuedFrames),
-            capacity: capacity
-        )
-    }
-
-    func write(
-        _ samples: [Float],
-        source: AudioPipePCMSource
-    ) -> AudioPipePCMWriteResult {
+    func write(_ samples: [Float]) -> AudioPipePCMWriteResult {
         samples.withUnsafeBufferPointer { buffer in
-            write(buffer, source: source)
+            write(buffer)
         }
     }
 
-    func write(
-        _ samples: UnsafeBufferPointer<Float>,
-        source: AudioPipePCMSource
-    ) -> AudioPipePCMWriteResult {
+    func write(_ samples: UnsafeBufferPointer<Float>) -> AudioPipePCMWriteResult {
         let requested = samples.count
         guard requested > 0 else {
+            let depth = queuedFrames
             return AudioPipePCMWriteResult(
                 acceptedFrames: 0,
                 droppedFrames: 0,
-                queueDepthAfterFrames: queuedFrames,
-                remoteQueueDepthAfterFrames: queuedRemoteFrames
+                queueDepthAfterFrames: depth,
+                remoteQueueDepthAfterFrames: depth
             )
         }
 
@@ -103,25 +89,20 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
                 count: accepted,
                 startingAt: write
             )
-            if source == .remote {
-                _ = OSAtomicAdd64Barrier(
-                    Int64(accepted),
-                    &remoteQueuedFrames
-                )
-            }
             publishWriteIndex(write + Int64(accepted))
         }
 
         let afterWrite = OSAtomicAdd64Barrier(0, &writeIndex)
         let afterRead = OSAtomicAdd64Barrier(0, &readIndex)
+        let depthAfter = Self.boundedDepth(
+            afterWrite - afterRead,
+            capacity: capacity
+        )
         return AudioPipePCMWriteResult(
             acceptedFrames: accepted,
             droppedFrames: dropped,
-            queueDepthAfterFrames: Self.boundedDepth(
-                afterWrite - afterRead,
-                capacity: capacity
-            ),
-            remoteQueueDepthAfterFrames: queuedRemoteFrames
+            queueDepthAfterFrames: depthAfter,
+            remoteQueueDepthAfterFrames: depthAfter
         )
     }
 
@@ -130,15 +111,16 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
     func read(into destination: UnsafeMutableBufferPointer<Float>) -> AudioPipePCMReadResult {
         let requested = destination.count
         guard requested > 0 else {
+            let depth = queuedFrames
             return AudioPipePCMReadResult(
                 requestedFrames: 0,
                 filledFrames: 0,
                 unfilledFrames: 0,
                 remoteFramesConsumed: 0,
-                queueDepthBeforeFrames: queuedFrames,
-                remoteQueueDepthBeforeFrames: queuedRemoteFrames,
-                queueDepthAfterFrames: queuedFrames,
-                remoteQueueDepthAfterFrames: queuedRemoteFrames,
+                queueDepthBeforeFrames: depth,
+                remoteQueueDepthBeforeFrames: depth,
+                queueDepthAfterFrames: depth,
+                remoteQueueDepthAfterFrames: depth,
                 peak: 0
             )
         }
@@ -147,15 +129,16 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
             for index in destination.indices {
                 destination[index] = 0
             }
+            let depth = queuedFrames
             return AudioPipePCMReadResult(
                 requestedFrames: requested,
                 filledFrames: 0,
                 unfilledFrames: requested,
                 remoteFramesConsumed: 0,
-                queueDepthBeforeFrames: queuedFrames,
-                remoteQueueDepthBeforeFrames: queuedRemoteFrames,
-                queueDepthAfterFrames: queuedFrames,
-                remoteQueueDepthAfterFrames: queuedRemoteFrames,
+                queueDepthBeforeFrames: depth,
+                remoteQueueDepthBeforeFrames: depth,
+                queueDepthAfterFrames: depth,
+                remoteQueueDepthAfterFrames: depth,
                 peak: 0
             )
         }
@@ -174,15 +157,16 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
     ) -> AudioPipePCMReadResult {
         let requested = max(0, requestedFrames)
         guard requested > 0 else {
+            let depth = queuedFrames
             return AudioPipePCMReadResult(
                 requestedFrames: 0,
                 filledFrames: 0,
                 unfilledFrames: 0,
                 remoteFramesConsumed: 0,
-                queueDepthBeforeFrames: queuedFrames,
-                remoteQueueDepthBeforeFrames: queuedRemoteFrames,
-                queueDepthAfterFrames: queuedFrames,
-                remoteQueueDepthAfterFrames: queuedRemoteFrames,
+                queueDepthBeforeFrames: depth,
+                remoteQueueDepthBeforeFrames: depth,
+                queueDepthAfterFrames: depth,
+                remoteQueueDepthAfterFrames: depth,
                 peak: 0
             )
         }
@@ -190,15 +174,16 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
         let buffers = UnsafeMutableAudioBufferListPointer(outputData)
         guard acquireReaderGate() else {
             zeroFill(buffers, requestedFrames: requested)
+            let depth = queuedFrames
             return AudioPipePCMReadResult(
                 requestedFrames: requested,
                 filledFrames: 0,
                 unfilledFrames: requested,
                 remoteFramesConsumed: 0,
-                queueDepthBeforeFrames: queuedFrames,
-                remoteQueueDepthBeforeFrames: queuedRemoteFrames,
-                queueDepthAfterFrames: queuedFrames,
-                remoteQueueDepthAfterFrames: queuedRemoteFrames,
+                queueDepthBeforeFrames: depth,
+                remoteQueueDepthBeforeFrames: depth,
+                queueDepthAfterFrames: depth,
+                remoteQueueDepthAfterFrames: depth,
                 peak: 0
             )
         }
@@ -208,13 +193,6 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
         let queueDepthBefore = Self.boundedDepth(
             write - read,
             capacity: capacity
-        )
-        let remoteBefore = min(
-            Self.boundedDepth(
-                OSAtomicAdd64Barrier(0, &remoteQueuedFrames),
-                capacity: capacity
-            ),
-            queueDepthBefore
         )
         let filled = min(requested, queueDepthBefore)
         var peak: Float = 0
@@ -243,32 +221,22 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
             }
         }
 
-        let remoteConsumed = min(filled, remoteBefore)
-        if remoteConsumed > 0 {
-            _ = OSAtomicAdd64Barrier(
-                -Int64(remoteConsumed),
-                &remoteQueuedFrames
-            )
-        }
         publishReadIndex(read + Int64(filled))
         let afterWrite = OSAtomicAdd64Barrier(0, &writeIndex)
         let afterRead = OSAtomicAdd64Barrier(0, &readIndex)
-        let afterRemote = Self.boundedDepth(
-            OSAtomicAdd64Barrier(0, &remoteQueuedFrames),
+        let queueDepthAfter = Self.boundedDepth(
+            afterWrite - afterRead,
             capacity: capacity
         )
         let result = AudioPipePCMReadResult(
             requestedFrames: requested,
             filledFrames: filled,
             unfilledFrames: requested - filled,
-            remoteFramesConsumed: remoteConsumed,
+            remoteFramesConsumed: filled,
             queueDepthBeforeFrames: queueDepthBefore,
-            remoteQueueDepthBeforeFrames: remoteBefore,
-            queueDepthAfterFrames: Self.boundedDepth(
-                afterWrite - afterRead,
-                capacity: capacity
-            ),
-            remoteQueueDepthAfterFrames: afterRemote,
+            remoteQueueDepthBeforeFrames: queueDepthBefore,
+            queueDepthAfterFrames: queueDepthAfter,
+            remoteQueueDepthAfterFrames: queueDepthAfter,
             peak: peak
         )
         releaseReaderGate()
@@ -284,7 +252,6 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
     ) -> AudioPipePCMReadResult {
         let requested = max(0, requestedFrames)
         let queueDepth = queuedFrames
-        let remoteDepth = queuedRemoteFrames
         zeroFill(
             UnsafeMutableAudioBufferListPointer(outputData),
             requestedFrames: requested
@@ -295,23 +262,21 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
             unfilledFrames: 0,
             remoteFramesConsumed: 0,
             queueDepthBeforeFrames: queueDepth,
-            remoteQueueDepthBeforeFrames: remoteDepth,
+            remoteQueueDepthBeforeFrames: queueDepth,
             queueDepthAfterFrames: queueDepth,
-            remoteQueueDepthAfterFrames: remoteDepth,
+            remoteQueueDepthAfterFrames: queueDepth,
             peak: 0
         )
     }
 
     /// Explicit session/device reset. It waits off the realtime callback for
-    /// an in-flight reader, then resets both indices and source attribution.
+    /// an in-flight reader, then resets both indices.
     func reset() {
         acquireResetGate()
         let currentWrite = OSAtomicAdd64Barrier(0, &writeIndex)
         let currentRead = OSAtomicAdd64Barrier(0, &readIndex)
         _ = OSAtomicCompareAndSwap64Barrier(currentWrite, 0, &writeIndex)
         _ = OSAtomicCompareAndSwap64Barrier(currentRead, 0, &readIndex)
-        let currentRemote = OSAtomicAdd64Barrier(0, &remoteQueuedFrames)
-        _ = OSAtomicCompareAndSwap64Barrier(currentRemote, 0, &remoteQueuedFrames)
         _ = OSAtomicCompareAndSwap32Barrier(2, 0, &readerGate)
     }
 
@@ -324,13 +289,6 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
         let queueDepthBefore = Self.boundedDepth(
             write - read,
             capacity: capacity
-        )
-        let remoteBefore = min(
-            Self.boundedDepth(
-                OSAtomicAdd64Barrier(0, &remoteQueuedFrames),
-                capacity: capacity
-            ),
-            queueDepthBefore
         )
         let filled = min(requested, queueDepthBefore)
         var peak: Float = 0
@@ -347,19 +305,12 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
             writeSample(frame, sample)
         }
 
-        let remoteConsumed = min(filled, remoteBefore)
-        if remoteConsumed > 0 {
-            _ = OSAtomicAdd64Barrier(
-                -Int64(remoteConsumed),
-                &remoteQueuedFrames
-            )
-        }
         publishReadIndex(read + Int64(filled))
 
         let afterWrite = OSAtomicAdd64Barrier(0, &writeIndex)
         let afterRead = OSAtomicAdd64Barrier(0, &readIndex)
-        let afterRemote = Self.boundedDepth(
-            OSAtomicAdd64Barrier(0, &remoteQueuedFrames),
+        let queueDepthAfter = Self.boundedDepth(
+            afterWrite - afterRead,
             capacity: capacity
         )
         releaseReaderGate()
@@ -367,14 +318,11 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
             requestedFrames: requested,
             filledFrames: filled,
             unfilledFrames: requested - filled,
-            remoteFramesConsumed: remoteConsumed,
+            remoteFramesConsumed: filled,
             queueDepthBeforeFrames: queueDepthBefore,
-            remoteQueueDepthBeforeFrames: remoteBefore,
-            queueDepthAfterFrames: Self.boundedDepth(
-                afterWrite - afterRead,
-                capacity: capacity
-            ),
-            remoteQueueDepthAfterFrames: afterRemote,
+            remoteQueueDepthBeforeFrames: queueDepthBefore,
+            queueDepthAfterFrames: queueDepthAfter,
+            remoteQueueDepthAfterFrames: queueDepthAfter,
             peak: peak
         )
     }
