@@ -1,62 +1,54 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-01
-State: `RO-DOMAIN-DOC-AUDIT-047 — CLOSED / DOCUMENTATION_AUTHORITY_REFRESHED`
+State: `RO-RELEASE-048 — ACTIVE / RELEASE_AUTHORIZED`
 Repository: `Lost0rz/RemoteOrbit`
 Remote authority: `main`
-Closeout parent: `435bbf37eabe83bf5cf34ff13730507cb8a207df`
+Control parent: `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`
+Release target baseline: `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`
 
 ## Accepted baseline
 
-- Task 046 repository/worktree closeout remains the accepted clean repository baseline.
-- Task 047 documentation/domain audit is complete.
-- Remote branch inventory was re-verified at closeout: GitHub exposes exactly one branch, `main`.
-- Product/runtime source behavior was not changed by Task 047.
-- Current source version metadata is `0.2.15` / Build `44` from `remote-orbit/Packaging/Info.plist`; installed-runtime and published-release identity remain separate evidence classes.
+- Task 047 documentation/domain audit is closed and accepted.
+- The exact source baseline authorized for this release is `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`.
+- Source version metadata at that baseline is `0.2.15` / Build `44`.
+- GitHub's latest published release before this task is `v0.2.14`; `v0.2.15` does not yet exist.
+- The requested operation is release publication only; no product behavior redesign is authorized.
 
-## Current documentation authority
+## Active release work
 
-- `README.md` — current product/repository landing page.
-- `SETUP_NOTES.md` — current install, validation, and troubleshooting guide.
-- `docs/DOMAIN_MAP.md` — derived Domain/capability navigation projection from current source/tests.
-- `docs/README.md` — documentation lifecycle/index.
-- `docs/diagnostics/ADR-0001..0003` — retained durable diagnostic design decisions.
-- `docs/incidents/` — retained historical incident evidence, explicitly non-authoritative for current behavior.
-- Root `RELEASE_NOTES_v*.md` — historical version-specific release records; old semantics do not override current product authority.
+Task 048 is authorized to publish `RemoteOrbit v0.2.15` from the exact baseline above.
 
-## Documentation cleanup result
+Authorized release mutations:
+- add/update `RELEASE_NOTES_v0.2.15.md`;
+- add a bounded one-shot GitHub Actions release workflow if required to perform authenticated release publication;
+- build and verify the existing Universal 2 app + RemoteOrbitAudio driver + DMG using repository scripts;
+- run the repository protocol/Swift tests required by the release gate;
+- create tag `v0.2.15` targeting the exact release baseline;
+- create the GitHub Release and upload `RemoteOrbit-0.2.15.dmg` plus checksum evidence;
+- remove any one-shot release workflow after successful publication;
+- reconcile controls and close the task after direct release verification.
 
-Removed from the active documentation tree because they were completed task artifacts, superseded business/design authorities, or duplicated historical planning surfaces:
+## Safety boundary
 
-- 14 files under former `docs/design/`;
-- 23 files under former `docs/superpowers/`;
-- `docs/incident-diagnostics/PERSISTENT_LONG_DIAGNOSTIC_ARCHITECTURE.md`;
-- `docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`.
+- No Swift/product behavior change.
+- No runtime installation, TCC, default-device or CoreAudio mutation on the user's machines.
+- No version bump beyond existing `0.2.15` / Build `44`.
+- Do not move the release tag away from the exact authorized baseline.
+- Release success requires direct GitHub evidence that the release and asset exist.
 
-Total removed active-document files: **39**. Historical recovery remains available through Git history.
+## Release gate
 
-Retired Persistent, dual-receiver/Receiver-B, local-microphone voice-button, and generic SHORT business semantics remain non-production authorities. Current source contract tests continue to protect those retirement boundaries.
+Before publication, the release executor must verify:
+- protocol self-tests PASS;
+- full Swift tests PASS;
+- package build succeeds;
+- packaged executable is Universal 2;
+- packaged metadata is `0.2.15` / Build `44`;
+- DMG exists and has a recorded SHA-256 checksum.
 
-## Verification
+## Current state
 
-Documentation implementation commit: `435bbf37eabe83bf5cf34ff13730507cb8a207df`.
+`ACTIVE / RELEASE_AUTHORIZED`
 
-RemoteOrbit CI run `#76` / run id `41291482216`: `SUCCESS`.
-
-- Source contract checks: PASS
-- Protocol self-tests: PASS
-- Full Swift tests, including documentation contract tests: PASS
-- Native Release build: PASS
-- Build-only packaging smoke: PASS
-
-Remote docs tree was re-read after publication and contains only the intended current/historical documentation classes.
-
-## Remaining boundary
-
-This was a remote repository/documentation task. Local installed app, running process, HAL driver, TCC, default-device state, and local canonical worktree cleanliness were not independently re-verified in this remote session beyond the already accepted Task 046 owner-verified baseline.
-
-## Next state
-
-No product implementation task is authorized by this closeout. Any new source/runtime/packaging/installation or repository-lifecycle mutation requires a new governed `CURRENT_TASK.md` transition first.
-
-DOCUMENT_ALIGNMENT: `UPDATED`
+DOCUMENT_ALIGNMENT: `UNCHANGED`

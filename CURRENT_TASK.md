@@ -1,64 +1,61 @@
 # RemoteOrbit Current Task
 
-## RO-DOMAIN-DOC-AUDIT-047 — Domain Map & Documentation Authority Refresh
+## RO-RELEASE-048 — Publish RemoteOrbit v0.2.15
 
-Status: `CLOSED / DOCUMENTATION_AUTHORITY_REFRESHED`
-TASK_CLASS: `REPOSITORY DOCUMENTATION / DOMAIN NAVIGATION AUDIT`
+Status: `ACTIVE / RELEASE_AUTHORIZED`
+TASK_CLASS: `RELEASE / DISTRIBUTION`
 Repository: `Lost0rz/RemoteOrbit`
-Start control parent: `c614b683e3fe58c423f89be3503dbe0c78aa02e9`
-Documentation implementation commit: `435bbf37eabe83bf5cf34ff13730507cb8a207df`
+Control parent: `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`
+Exact release target: `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`
+Version: `0.2.15`
+Build: `44`
+Tag: `v0.2.15`
 
-## Objective result
+## Objective
 
-PASS. RemoteOrbit's active documentation tree now reflects current product/source authority and no longer presents completed task plans, superseded Persistent/dual-receiver designs, or frozen diagnostic architecture as current guidance.
+Publish the current accepted RemoteOrbit baseline as GitHub Release `v0.2.15`, using the exact pre-release-control baseline as the tag target and attaching a newly built DMG produced by the repository's existing packaging path.
 
-## Completed scope
+## Authorized scope
 
-1. Audited the repository/document structure and current source/test routes used for semantic navigation.
-2. Created `docs/DOMAIN_MAP.md` covering the current project Domains:
-   - voice interaction/lifecycle;
-   - BLE/ATVV transport;
-   - audio data plane/device routing;
-   - HID/mapping/App integrations;
-   - settings/persistence/product surface;
-   - diagnostics/observability;
-   - packaging/install/distribution;
-   - governance/CI/evidence lifecycle.
-3. Rebuilt `README.md` around the current LONG-only remote-voice product contract and current source metadata (`0.2.15` / Build `44`).
-4. Rebuilt `SETUP_NOTES.md` as a current install/validation/troubleshooting guide and removed old commit/task progress history.
-5. Added `docs/README.md`, `docs/diagnostics/README.md`, and `docs/incidents/README.md` to make current-vs-historical authority explicit.
-6. Reconciled the three diagnostic ADRs into durable accepted decisions rather than task/audit diaries.
-7. Removed 39 obsolete active-document files:
-   - 14 former `docs/design/*` files;
-   - 23 former `docs/superpowers/*` files;
-   - one frozen Persistent-long diagnostic architecture file;
-   - one Task 038 diagnostic closeout file.
-8. Retained incident reports and historical release notes as evidence/history, with explicit rules preventing them from overriding current authority.
+1. Prepare durable release notes for v0.2.15.
+2. Re-run release-gate verification against the exact target baseline.
+3. Build the RemoteOrbitAudio driver, Universal 2 app, and DMG using existing repository scripts.
+4. Verify packaged version/build, architecture, signing verification and SHA-256 checksum.
+5. Create lightweight tag `v0.2.15` targeting exactly `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`.
+6. Publish GitHub Release `RemoteOrbit v0.2.15` and attach `RemoteOrbit-0.2.15.dmg` and its checksum file.
+7. Verify the published release/tag/assets through GitHub evidence.
+8. Remove any one-shot release workflow introduced solely to perform this authenticated publication.
+9. Update `CURRENT_STATUS.md` and `CURRENT_TASK.md` together at closeout.
 
-## Preserved boundaries
+## Release content boundary
 
-- No Swift/product behavior change.
-- No test behavior change.
-- No app/driver packaging implementation change.
-- No install, CoreAudio, TCC, default-device, release, tag, PR, branch, or worktree lifecycle mutation.
-- No historical incident/release record was rewritten to pretend old behavior was current behavior.
+The release should summarize the accepted changes since v0.2.14, especially:
+- simplification to the single LONG-only remote voice contract and retirement of Persistent/Dual Receiver/Receiver-B/local-mic voice-button semantics;
+- voice pipeline stability, rapid repress/release ownership and receiver-readiness corrections;
+- audio data-plane/pll/outbound drain and RemoteOrbitAudio routing hardening;
+- long-term diagnostics, bounded observability, read-only export and diagnostics gating;
+- settings/product-surface simplification, icon/branding refresh and current documentation/domain authority;
+- repository CI/governance baseline.
 
-## Verification
+Do not claim unobserved user-runtime acceptance or root cause beyond accepted evidence.
 
-Remote publication of documentation implementation commit: PASS.
+## Non-goals
 
-RemoteOrbit CI run `#76` / id `41291482216`: PASS.
+- No product source change.
+- No new feature.
+- No app installation or host runtime mutation.
+- No release version change beyond v0.2.15 / Build 44.
+- No release of a different commit if `main` advances.
 
-- source contract checks: PASS
-- protocol self-tests: PASS
-- full Swift tests: PASS
-- native Release build: PASS
-- build-only packaging smoke: PASS
+## Completion gate
 
-Remote branch inventory at closeout: exactly one branch, `main`.
+Task 048 closes only when:
+- release-gate tests/build/package checks PASS;
+- tag `v0.2.15` resolves to the exact authorized baseline;
+- GitHub Release `v0.2.15` is published and non-draft/non-prerelease;
+- DMG and checksum assets are present;
+- release publication is re-read from GitHub;
+- one-shot release automation, if used, is removed from live `main`;
+- control files are reconciled in one final commit.
 
-## Closeout
-
-Task 047 is closed. The Domain Map is a derived navigation projection, not a fourth authority. Future product or repository mutation requires a newly authorized task/control transition.
-
-DOCUMENT_ALIGNMENT: `UPDATED`
+DOCUMENT_ALIGNMENT: `UNCHANGED`
