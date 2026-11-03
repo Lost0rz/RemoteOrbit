@@ -12,6 +12,9 @@ enum BLEAudioContinuityDiagnosticReport {
         let audioStart = summaryObject.flatMap {
             unsigned($0["audio_start_timestamp_nanoseconds"])
         }
+        let handlerStart = summaryObject.flatMap {
+            unsigned($0["hold_confirmed_timestamp_nanoseconds"])
+        }
         let streamID = summaryObject.flatMap {
             unsigned($0["audio_stream_id"])
         }
@@ -29,6 +32,7 @@ enum BLEAudioContinuityDiagnosticReport {
         let analysis = BLEAudioContinuityAnalysis.analyze(
             points: points,
             audioStartNanoseconds: audioStart,
+            handlerStartNanoseconds: handlerStart,
             streamID: streamID
         )
         return [
