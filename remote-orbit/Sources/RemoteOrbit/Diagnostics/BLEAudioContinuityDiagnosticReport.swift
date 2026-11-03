@@ -19,7 +19,7 @@ enum BLEAudioContinuityDiagnosticReport {
         let points = relevant
             .filter { $0.eventType == "voice.session.trace" }
             .flatMap { event -> [LongTermObservationPoint] in
-                guard case .array(let observations) = event.payload["observations"] else {
+                guard case .array(let observations)? = event.payload["observations"] else {
                     return []
                 }
                 return observations.compactMap(parsePoint)
@@ -33,7 +33,7 @@ enum BLEAudioContinuityDiagnosticReport {
         )
         return [
             "session_id": sessionID,
-            "stream_id": streamID.map { NSNumber(value: $0) } ?? NSNull(),
+            "stream_id": streamID.map { NSNumber(value: $0) as Any } ?? NSNull(),
             "metric": "ble_arrival_to_pcm_submit",
             "handler_latency": [
                 "sample_count": analysis.handlerLatency.sampleCount,
@@ -54,8 +54,8 @@ enum BLEAudioContinuityDiagnosticReport {
                     "effective_source_hz": window.effectiveSourceHz,
                     "notifications": window.notificationCount,
                     "max_notification_gap_ms": window.maxNotificationGapMilliseconds,
-                    "queue_start_frames": window.queueDepthStartFrames.map { NSNumber(value: $0) } ?? NSNull(),
-                    "queue_end_frames": window.queueDepthEndFrames.map { NSNumber(value: $0) } ?? NSNull(),
+                    "queue_start_frames": window.queueDepthStartFrames.map { NSNumber(value: $0) as Any } ?? NSNull(),
+                    "queue_end_frames": window.queueDepthEndFrames.map { NSNumber(value: $0) as Any } ?? NSNull(),
                 ] as [String: Any]
             },
         ]
@@ -98,16 +98,24 @@ enum BLEAudioContinuityDiagnosticReport {
     private static func object(
         _ value: DiagnosticJSONValue?
     ) -> [String: DiagnosticJSONValue]? {
+        guard case .object(let object)? = value else { return nil }
+        return object
+    }
+
+    private static func object(
+        _ value: DiagnosticJSONValue
+    ) -> [String: DiagnosticJSONValue]? {
         guard case .object(let object) = value else { return nil }
         return object
     }
 
     private static func string(_ value: DiagnosticJSONValue?) -> String? {
-        guard case .string(let string) = value else { return nil }
+        guard case .string(let string)? = value else { return nil }
         return string
     }
 
     private static func unsigned(_ value: DiagnosticJSONValue?) -> UInt64? {
+        guard let value else { return nil }
         switch value {
         case .unsignedInteger(let number):
             return number
@@ -119,6 +127,7 @@ enum BLEAudioContinuityDiagnosticReport {
     }
 
     private static func optionalUnsigned(_ value: DiagnosticJSONValue?) -> UInt64? {
+        guard let value else { return nil }
         if case .null = value { return nil }
         return unsigned(value)
     }
