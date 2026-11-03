@@ -10,10 +10,11 @@ struct BLEAudioHandlerLatencySummary: Equatable {
     let over10Milliseconds: Int
     let over15Milliseconds: Int
 
-    func logLine(streamID: UInt8, sessionID: String) -> String {
-        String(
-            format: "[AUDIO-PATH] BLE_HANDLER_SUMMARY stream=%d session_id=%@ samples=%d p50_us=%.1f p95_us=%.1f p99_us=%.1f max_us=%.1f gt5ms=%d gt10ms=%d gt15ms=%d",
-            streamID,
+    func logLine(streamID: UInt64?, sessionID: String) -> String {
+        let streamText = streamID.map(String.init) ?? "NA"
+        return String(
+            format: "[AUDIO-PATH] BLE_HANDLER_SUMMARY stream=%@ session_id=%@ samples=%d p50_us=%.1f p95_us=%.1f p99_us=%.1f max_us=%.1f gt5ms=%d gt10ms=%d gt15ms=%d metric=ble_arrival_to_pcm_submit",
+            streamText,
             sessionID,
             sampleCount,
             p50Microseconds,
@@ -29,12 +30,13 @@ struct BLEAudioHandlerLatencySummary: Equatable {
 
 struct BLEAudioSupplyWindow: Equatable {
     let index: Int
+    let startNanoseconds: UInt64
     let elapsedNanoseconds: UInt64
     let decodedSamples: Int
     let notificationCount: Int
     let maxNotificationGapNanoseconds: UInt64
-    let queueDepthStartFrames: Int
-    let queueDepthEndFrames: Int
+    let queueDepthStartFrames: Int?
+    let queueDepthEndFrames: Int?
 
     var effectiveSourceHz: Double {
         guard elapsedNanoseconds > 0 else { return 0 }
@@ -49,147 +51,183 @@ struct BLEAudioSupplyWindow: Equatable {
         Double(maxNotificationGapNanoseconds) / 1_000_000
     }
 
-    func logLine(streamID: UInt8, sessionID: String) -> String {
-        String(
-            format: "[AUDIO-PATH] BLE_SUPPLY_WINDOW stream=%d session_id=%@ index=%d elapsed_ms=%.1f decoded_samples=%d effective_source_hz=%.1f notifications=%d max_notification_gap_ms=%.1f queue_start_frames=%d queue_end_frames=%d",
-            streamID,
+    func logLine(streamID: UInt64?, sessionID: String) -> String {
+        let streamText = streamID.map(String.init) ?? "NA"
+        return String(
+            format: "[AUDIO-PATH] BLE_SUPPLY_WINDOW stream=%@ session_id=%@ index=%d start_ms=%.1f elapsed_ms=%.1f decoded_samples=%d effective_source_hz=%.1f notifications=%d max_notification_gap_ms=%.1f queue_start_frames=%@ queue_end_frames=%@",
+            streamText,
             sessionID,
             index,
+            Double(startNanoseconds) / 1_000_000,
             elapsedMilliseconds,
             decodedSamples,
             effectiveSourceHz,
             notificationCount,
             maxNotificationGapMilliseconds,
-            queueDepthStartFrames,
-            queueDepthEndFrames
+            queueDepthStartFrames.map(String.init) ?? "NA",
+            queueDepthEndFrames.map(String.init) ?? "NA"
         )
     }
 }
 
-/// Bounded observation-only accounting for Task 049. The production BLE queue
-/// owns the mutable value, so no additional lock is required. Handler latency
-/// is measured before the probe emits its own once-per-window log line.
-struct BLEAudioContinuityProbe {
-    static let targetWindowNanoseconds: UInt64 = 1_000_000_000
+struct BLEAudioContinuityAnalysis: Equatable {
+    static let windowNanoseconds: UInt64 = 1_000_000_000
 
-    private var handlerDurationsNanoseconds: [UInt64] = []
-    private var windowIndex = 0
-    private var windowStartNanoseconds: UInt64?
-    private var lastNotificationNanoseconds: UInt64?
-    private var previousNotificationNanoseconds: UInt64?
-    private var windowDecodedSamples = 0
-    private var windowNotificationCount = 0
-    private var windowMaxNotificationGapNanoseconds: UInt64 = 0
-    private var windowStartQueueDepthFrames = 0
+    let handlerLatency: BLEAudioHandlerLatencySummary
+    let supplyWindows: [BLEAudioSupplyWindow]
 
-    mutating func reset(
-        startTimestampNanoseconds: UInt64,
-        initialQueueDepthFrames: Int
-    ) {
-        handlerDurationsNanoseconds.removeAll(keepingCapacity: true)
-        handlerDurationsNanoseconds.reserveCapacity(16_384)
-        windowIndex = 0
-        windowStartNanoseconds = startTimestampNanoseconds
-        lastNotificationNanoseconds = nil
-        previousNotificationNanoseconds = nil
-        windowDecodedSamples = 0
-        windowNotificationCount = 0
-        windowMaxNotificationGapNanoseconds = 0
-        windowStartQueueDepthFrames = max(0, initialQueueDepthFrames)
-    }
+    static func analyze(
+        points: [LongTermObservationPoint],
+        audioStartNanoseconds: UInt64?,
+        streamID: UInt64?
+    ) -> BLEAudioContinuityAnalysis {
+        let sorted = points
+            .filter { streamID == nil || $0.streamIdentity == 0 || $0.streamIdentity == streamID }
+            .sorted {
+                if $0.timestampNanoseconds == $1.timestampNanoseconds {
+                    if $0.source == $1.source { return $0.sequence < $1.sequence }
+                    return $0.source < $1.source
+                }
+                return $0.timestampNanoseconds < $1.timestampNanoseconds
+            }
 
-    mutating func recordNotification(timestampNanoseconds: UInt64) {
-        if let previousNotificationNanoseconds,
-           timestampNanoseconds >= previousNotificationNanoseconds {
-            windowMaxNotificationGapNanoseconds = max(
-                windowMaxNotificationGapNanoseconds,
-                timestampNanoseconds - previousNotificationNanoseconds
-            )
-        }
-        previousNotificationNanoseconds = timestampNanoseconds
-        lastNotificationNanoseconds = timestampNanoseconds
-        windowNotificationCount += 1
-    }
-
-    mutating func recordDecodedSamples(_ sampleCount: Int) {
-        windowDecodedSamples += max(0, sampleCount)
-    }
-
-    mutating func recordHandlerDuration(
-        startTimestampNanoseconds: UInt64,
-        endTimestampNanoseconds: UInt64
-    ) {
-        guard endTimestampNanoseconds >= startTimestampNanoseconds else { return }
-        handlerDurationsNanoseconds.append(
-            endTimestampNanoseconds - startTimestampNanoseconds
+        let handlerLatency = handlerLatencySummary(points: sorted)
+        let supplyWindows = supplyRateWindows(
+            points: sorted,
+            audioStartNanoseconds: audioStartNanoseconds
+        )
+        return BLEAudioContinuityAnalysis(
+            handlerLatency: handlerLatency,
+            supplyWindows: supplyWindows
         )
     }
 
-    mutating func closeWindowIfNeeded(
-        at timestampNanoseconds: UInt64,
-        queueDepthFrames: Int
-    ) -> BLEAudioSupplyWindow? {
-        guard let start = windowStartNanoseconds,
-              timestampNanoseconds >= start,
-              timestampNanoseconds - start >= Self.targetWindowNanoseconds,
-              windowNotificationCount > 0 else {
-            return nil
+    func logLines(streamID: UInt64?, sessionID: String) -> [String] {
+        var lines: [String] = []
+        if handlerLatency.sampleCount > 0 {
+            lines.append(handlerLatency.logLine(streamID: streamID, sessionID: sessionID))
         }
-        return closeWindow(queueDepthFrames: queueDepthFrames)
+        lines.append(contentsOf: supplyWindows.map {
+            $0.logLine(streamID: streamID, sessionID: sessionID)
+        })
+        return lines
     }
 
-    mutating func finish(queueDepthFrames: Int) -> BLEAudioSupplyWindow? {
-        guard windowNotificationCount > 0 else { return nil }
-        return closeWindow(queueDepthFrames: queueDepthFrames)
-    }
+    private static func handlerLatencySummary(
+        points: [LongTermObservationPoint]
+    ) -> BLEAudioHandlerLatencySummary {
+        let ble = points.filter { $0.kind == .bleArrival }
+        let submissions = points.filter { $0.kind == .pcmSubmitted }
+        var submissionIndex = 0
+        var latencies: [UInt64] = []
+        latencies.reserveCapacity(min(ble.count, submissions.count))
 
-    func handlerSummary() -> BLEAudioHandlerLatencySummary {
-        let sorted = handlerDurationsNanoseconds.sorted()
-        let sampleCount = sorted.count
-        let p50 = percentile(sorted, quantile: 0.50)
-        let p95 = percentile(sorted, quantile: 0.95)
-        let p99 = percentile(sorted, quantile: 0.99)
-        let maxValue = sorted.last ?? 0
+        for arrival in ble {
+            while submissionIndex < submissions.count,
+                  submissions[submissionIndex].timestampNanoseconds < arrival.timestampNanoseconds {
+                submissionIndex += 1
+            }
+            guard submissionIndex < submissions.count else { break }
+            let submission = submissions[submissionIndex]
+            latencies.append(submission.timestampNanoseconds - arrival.timestampNanoseconds)
+            submissionIndex += 1
+        }
+
+        latencies.sort()
+        let p50 = percentile(latencies, quantile: 0.50)
+        let p95 = percentile(latencies, quantile: 0.95)
+        let p99 = percentile(latencies, quantile: 0.99)
+        let maximum = latencies.last ?? 0
         return BLEAudioHandlerLatencySummary(
-            sampleCount: sampleCount,
+            sampleCount: latencies.count,
             p50Microseconds: Double(p50) / 1_000,
             p95Microseconds: Double(p95) / 1_000,
             p99Microseconds: Double(p99) / 1_000,
-            maxMicroseconds: Double(maxValue) / 1_000,
-            over5Milliseconds: sorted.filter { $0 > 5_000_000 }.count,
-            over10Milliseconds: sorted.filter { $0 > 10_000_000 }.count,
-            over15Milliseconds: sorted.filter { $0 > 15_000_000 }.count
+            maxMicroseconds: Double(maximum) / 1_000,
+            over5Milliseconds: latencies.filter { $0 > 5_000_000 }.count,
+            over10Milliseconds: latencies.filter { $0 > 10_000_000 }.count,
+            over15Milliseconds: latencies.filter { $0 > 15_000_000 }.count
         )
     }
 
-    private mutating func closeWindow(
-        queueDepthFrames: Int
-    ) -> BLEAudioSupplyWindow? {
-        guard let start = windowStartNanoseconds,
-              let end = lastNotificationNanoseconds,
-              end > start else {
-            return nil
+    private static func supplyRateWindows(
+        points: [LongTermObservationPoint],
+        audioStartNanoseconds: UInt64?
+    ) -> [BLEAudioSupplyWindow] {
+        let observed = points.filter {
+            $0.kind == .bleArrival
+                || $0.kind == .decodeComplete
+                || $0.kind == .pcmSubmitted
+                || $0.kind == .render
+                || $0.kind == .queueStarvation
         }
-        let safeEndDepth = max(0, queueDepthFrames)
-        let window = BLEAudioSupplyWindow(
-            index: windowIndex,
-            elapsedNanoseconds: end - start,
-            decodedSamples: windowDecodedSamples,
-            notificationCount: windowNotificationCount,
-            maxNotificationGapNanoseconds: windowMaxNotificationGapNanoseconds,
-            queueDepthStartFrames: windowStartQueueDepthFrames,
-            queueDepthEndFrames: safeEndDepth
-        )
-        windowIndex += 1
-        windowStartNanoseconds = end
-        windowDecodedSamples = 0
-        windowNotificationCount = 0
-        windowMaxNotificationGapNanoseconds = 0
-        windowStartQueueDepthFrames = safeEndDepth
-        return window
+        guard !observed.isEmpty else { return [] }
+        let start = audioStartNanoseconds ?? observed[0].timestampNanoseconds
+        let end = observed.map(\.timestampNanoseconds).max() ?? start
+        guard end >= start else { return [] }
+
+        let finalIndex = Int((end - start) / windowNanoseconds)
+        var windows: [BLEAudioSupplyWindow] = []
+        windows.reserveCapacity(finalIndex + 1)
+        var previousBLETimestamp: UInt64?
+
+        for index in 0...finalIndex {
+            let windowStart = start + UInt64(index) * windowNanoseconds
+            let nominalEnd = windowStart + windowNanoseconds
+            let windowEnd = min(nominalEnd, end)
+            guard windowEnd > windowStart else { continue }
+            let isLastWindow = index == finalIndex
+            let members = observed.filter {
+                $0.timestampNanoseconds >= windowStart
+                    && (isLastWindow
+                        ? $0.timestampNanoseconds <= windowEnd
+                        : $0.timestampNanoseconds < windowEnd)
+            }
+            guard !members.isEmpty else {
+                previousBLETimestamp = nil
+                continue
+            }
+
+            let blePoints = members.filter { $0.kind == .bleArrival }
+            var maxGap: UInt64 = 0
+            for point in blePoints {
+                if let previousBLETimestamp,
+                   point.timestampNanoseconds >= previousBLETimestamp {
+                    maxGap = max(maxGap, point.timestampNanoseconds - previousBLETimestamp)
+                }
+                previousBLETimestamp = point.timestampNanoseconds
+            }
+
+            let decodedSamples = members
+                .filter { $0.kind == .decodeComplete }
+                .reduce(0) { $0 + Int($1.byteOrSampleCount) }
+            let queuePoints = members.filter {
+                $0.source == "audio_pipe"
+                    && ($0.kind == .pcmSubmitted
+                        || $0.kind == .render
+                        || $0.kind == .queueStarvation)
+            }
+            let queueStart = queuePoints.first.flatMap {
+                $0.queueDepthBeforeFrames.map(Int.init) ?? Int($0.queueDepthAfterFrames)
+            }
+            let queueEnd = queuePoints.last.map { Int($0.queueDepthAfterFrames) }
+            windows.append(
+                BLEAudioSupplyWindow(
+                    index: index,
+                    startNanoseconds: windowStart - start,
+                    elapsedNanoseconds: windowEnd - windowStart,
+                    decodedSamples: decodedSamples,
+                    notificationCount: blePoints.count,
+                    maxNotificationGapNanoseconds: maxGap,
+                    queueDepthStartFrames: queueStart,
+                    queueDepthEndFrames: queueEnd
+                )
+            )
+        }
+        return windows
     }
 
-    private func percentile(_ sorted: [UInt64], quantile: Double) -> UInt64 {
+    private static func percentile(_ sorted: [UInt64], quantile: Double) -> UInt64 {
         guard !sorted.isEmpty else { return 0 }
         let clamped = min(1, max(0, quantile))
         let rank = max(1, Int(ceil(clamped * Double(sorted.count))))
