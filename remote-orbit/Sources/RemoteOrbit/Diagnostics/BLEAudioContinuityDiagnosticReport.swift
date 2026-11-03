@@ -12,7 +12,7 @@ enum BLEAudioContinuityDiagnosticReport {
         let audioStart = summaryObject.flatMap {
             unsigned($0["audio_start_timestamp_nanoseconds"])
         }
-        let handlerStart = summaryObject.flatMap {
+        let activeStart = summaryObject.flatMap {
             unsigned($0["hold_confirmed_timestamp_nanoseconds"])
         }
         let streamID = summaryObject.flatMap {
@@ -32,22 +32,22 @@ enum BLEAudioContinuityDiagnosticReport {
         let analysis = BLEAudioContinuityAnalysis.analyze(
             points: points,
             audioStartNanoseconds: audioStart,
-            handlerStartNanoseconds: handlerStart,
+            handlerStartNanoseconds: activeStart,
             streamID: streamID
         )
         return [
             "session_id": sessionID,
             "stream_id": streamID.map { NSNumber(value: $0) as Any } ?? NSNull(),
-            "metric": "ble_arrival_to_pcm_submit",
-            "handler_latency": [
-                "sample_count": analysis.handlerLatency.sampleCount,
-                "p50_us": analysis.handlerLatency.p50Microseconds,
-                "p95_us": analysis.handlerLatency.p95Microseconds,
-                "p99_us": analysis.handlerLatency.p99Microseconds,
-                "max_us": analysis.handlerLatency.maxMicroseconds,
-                "gt5ms": analysis.handlerLatency.over5Milliseconds,
-                "gt10ms": analysis.handlerLatency.over10Milliseconds,
-                "gt15ms": analysis.handlerLatency.over15Milliseconds,
+            "ingress_to_submit_latency": [
+                "metric": "ble_arrival_to_pcm_submit",
+                "sample_count": analysis.ingressToSubmitLatency.sampleCount,
+                "p50_us": analysis.ingressToSubmitLatency.p50Microseconds,
+                "p95_us": analysis.ingressToSubmitLatency.p95Microseconds,
+                "p99_us": analysis.ingressToSubmitLatency.p99Microseconds,
+                "max_us": analysis.ingressToSubmitLatency.maxMicroseconds,
+                "gt5ms": analysis.ingressToSubmitLatency.over5Milliseconds,
+                "gt10ms": analysis.ingressToSubmitLatency.over10Milliseconds,
+                "gt15ms": analysis.ingressToSubmitLatency.over15Milliseconds,
             ],
             "supply_windows": analysis.supplyWindows.map { window in
                 [
