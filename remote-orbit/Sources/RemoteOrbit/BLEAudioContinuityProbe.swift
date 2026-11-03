@@ -37,6 +37,7 @@ struct BLEAudioSupplyWindow: Equatable {
     let maxNotificationGapNanoseconds: UInt64
     let queueDepthStartFrames: Int?
     let queueDepthEndFrames: Int?
+    let traceContiguous: Bool
 
     var effectiveSourceHz: Double {
         guard elapsedNanoseconds > 0 else { return 0 }
@@ -54,7 +55,7 @@ struct BLEAudioSupplyWindow: Equatable {
     func logLine(streamID: UInt64?, sessionID: String) -> String {
         let streamText = streamID.map(String.init) ?? "NA"
         return String(
-            format: "[AUDIO-PATH] BLE_SUPPLY_WINDOW stream=%@ session_id=%@ index=%d start_ms=%.1f elapsed_ms=%.1f decoded_samples=%d effective_source_hz=%.1f notifications=%d max_notification_gap_ms=%.1f queue_start_frames=%@ queue_end_frames=%@",
+            format: "[AUDIO-PATH] BLE_SUPPLY_WINDOW stream=%@ session_id=%@ index=%d start_ms=%.1f elapsed_ms=%.1f decoded_samples=%d effective_source_hz=%.1f notifications=%d max_notification_gap_ms=%.1f queue_start_frames=%@ queue_end_frames=%@ trace_contiguous=%@",
             streamText,
             sessionID,
             index,
@@ -65,7 +66,8 @@ struct BLEAudioSupplyWindow: Equatable {
             notificationCount,
             maxNotificationGapMilliseconds,
             queueDepthStartFrames.map(String.init) ?? "NA",
-            queueDepthEndFrames.map(String.init) ?? "NA"
+            queueDepthEndFrames.map(String.init) ?? "NA",
+            traceContiguous ? "YES" : "NO"
         )
     }
 }
@@ -122,13 +124,19 @@ struct BLEAudioContinuityAnalysis: Equatable {
         var latencies: [UInt64] = []
         latencies.reserveCapacity(min(ble.count, submissions.count))
 
-        for arrival in ble {
+        for (index, arrival) in ble.enumerated() {
             while submissionIndex < submissions.count,
                   submissions[submissionIndex].timestampNanoseconds < arrival.timestampNanoseconds {
                 submissionIndex += 1
             }
             guard submissionIndex < submissions.count else { break }
             let submission = submissions[submissionIndex]
+            let nextArrival = index + 1 < ble.count
+                ? ble[index + 1].timestampNanoseconds
+                : UInt64.max
+            guard submission.timestampNanoseconds < nextArrival else {
+                continue
+            }
             latencies.append(submission.timestampNanoseconds - arrival.timestampNanoseconds)
             submissionIndex += 1
         }
@@ -165,6 +173,7 @@ struct BLEAudioContinuityAnalysis: Equatable {
         let start = audioStartNanoseconds ?? observed[0].timestampNanoseconds
         let end = observed.map(\.timestampNanoseconds).max() ?? start
         guard end >= start else { return [] }
+        let traceGaps = sequenceGapIntervals(points: observed)
 
         let finalIndex = Int((end - start) / windowNanoseconds)
         var windows: [BLEAudioSupplyWindow] = []
@@ -212,6 +221,9 @@ struct BLEAudioContinuityAnalysis: Equatable {
                     ?? Int(point.queueDepthAfterFrames)
             }
             let queueEnd = queuePoints.last.map { Int($0.queueDepthAfterFrames) }
+            let traceContiguous = !traceGaps.contains { gap in
+                gap.start < windowEnd && gap.end > windowStart
+            }
             windows.append(
                 BLEAudioSupplyWindow(
                     index: index,
@@ -221,11 +233,35 @@ struct BLEAudioContinuityAnalysis: Equatable {
                     notificationCount: blePoints.count,
                     maxNotificationGapNanoseconds: maxGap,
                     queueDepthStartFrames: queueStart,
-                    queueDepthEndFrames: queueEnd
+                    queueDepthEndFrames: queueEnd,
+                    traceContiguous: traceContiguous
                 )
             )
         }
         return windows
+    }
+
+    private static func sequenceGapIntervals(
+        points: [LongTermObservationPoint]
+    ) -> [(start: UInt64, end: UInt64)] {
+        var gaps: [(start: UInt64, end: UInt64)] = []
+        for source in Set(points.map(\.source)) {
+            let sourcePoints = points
+                .filter { $0.source == source && $0.sequence > 0 }
+                .sorted { $0.timestampNanoseconds < $1.timestampNanoseconds }
+            guard sourcePoints.count > 1 else { continue }
+            for index in 1..<sourcePoints.count {
+                let previous = sourcePoints[index - 1]
+                let current = sourcePoints[index]
+                if current.sequence > previous.sequence + 1 {
+                    gaps.append((
+                        start: previous.timestampNanoseconds,
+                        end: current.timestampNanoseconds
+                    ))
+                }
+            }
+        }
+        return gaps
     }
 
     private static func percentile(_ sorted: [UInt64], quantile: Double) -> UInt64 {
