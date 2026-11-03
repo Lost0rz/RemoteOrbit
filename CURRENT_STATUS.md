@@ -1,64 +1,79 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-03
-State: `RO-AUDIO-CONTINUITY-DIAGNOSTIC-049 — ACTIVE / REMOTE_DIAGNOSTIC_IMPLEMENTATION`
+State: `RO-AUDIO-CONTINUITY-DIAGNOSTIC-049 — ACTIVE / WAITING_FOR_FRESH_HARDWARE_CAPTURE`
 Repository: `Lost0rz/RemoteOrbit`
 Remote control authority: `main`
-Start control parent: `41156e6989cceebac44e6f04e07083add0b4dbe9`
-Authorized implementation branch: `codex/audio-continuity-diagnostic-049`
+Control parent: `15f213d9bb81986685e751d89753fd7f293e108b`
+Implementation branch: `codex/audio-continuity-diagnostic-049`
+Implementation HEAD: `1d6370cb9a9bfa1f1d8bff10095f149fefe89288`
+Draft PR: `#40`
 
 ## Accepted release baseline
 
-RemoteOrbit `v0.2.15` remains the latest published release.
+RemoteOrbit `v0.2.15` remains the latest published release. Task 049 is diagnostics-only and does not alter the accepted release or product behavior contract.
 
 - Version: `0.2.15`
 - Build: `44`
 - Tag: `v0.2.15`
 - Tag target: `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`
-- Release id: `430474517`
 
-Task 049 is diagnostics-only and does not change the accepted product behavior contract or release identity.
+## Confirmed incident boundary
 
-## Fresh incident evidence
+The 2026-11-03 RC003 runtime evidence establishes a real decoded-PCM supply deficit with corresponding AudioPipe active-remote underrun. In the inspected sessions, decode rejects / zero-sample decodes and output-ring overflow drops do not explain the deficit. The 500 ms prebuffer is not the observed capacity bottleneck, and the startup-only 45 ms reserve cannot repair a sustained average supply deficit.
 
-The 2026-11-03 runtime log shows repeated audio continuity failure while using the RC003 physical HTT path:
+ROOT_CAUSE_STATUS: `UNKNOWN — fresh Task 049 hardware evidence required`
 
-- decoded PCM supply is below elapsed 16 kHz expectation in affected sessions;
-- AudioPipe reports corresponding active-remote underrun;
-- decode rejects and zero-sample decodes are zero in the inspected sessions;
-- output-ring overflow drops are zero;
-- the current remote prebuffer capacity is 500 ms and is not the observed capacity bottleneck;
-- the 45 ms startup reserve cannot repair sustained supply deficit after playout has started;
-- current evidence does not establish whether the remaining deficit is caused by upstream/remote delivery, local BLE delegate service latency, or effective source-clock mismatch.
+Remaining causal boundary:
 
-ROOT_CAUSE_STATUS: `UNKNOWN — final boundary requires two minimum probes`
+1. local serial BLE `handleAudio` service time;
+2. sustained effective source-clock mismatch;
+3. episodic upstream / BLE delivery starvation.
 
-## Task 049 diagnostic boundary
+## Task 049 remote implementation result
 
-Authorized remote changes are limited to observation-only instrumentation and focused tests:
+Remote implementation and machine verification are complete at exact branch HEAD `1d6370cb9a9bfa1f1d8bff10095f149fefe89288` in Draft PR #40.
 
-1. per-session BLE audio-handler service-time summary;
-2. approximately one-second decoded-supply windows sufficient to observe effective source rate and burst-vs-sustained deficit shape;
-3. focused regression tests for the diagnostic accounting;
-4. routine repository CI on the existing self-hosted RemoteOrbit runner.
+Probe A:
+- true `BLEBridge.handleAudio` service-time measurement;
+- two monotonic clock reads per audio notification plus fixed histogram/scalar accounting;
+- no per-packet log and no unbounded per-packet storage;
+- one session-end `BLE_HANDLER_SUMMARY` with count, p50/p95/p99/max and >5/>10/>15 ms counts.
 
-No playout reserve, prebuffer, decoder, resampling, drain, keepalive, HID/Option lifecycle, driver, packaging, install, TCC, CoreAudio or default-device behavior change is authorized.
+Probe B:
+- read-only post-capture analysis of existing bounded `BLE arrival → decode → PCM submit → render` trace;
+- approximately one-second decoded-supply windows;
+- effective source Hz, notification count/max gap, queue-depth start/end;
+- retained-trace sequence gaps mark windows non-contiguous so incomplete windows cannot be promoted to source-rate evidence;
+- CLI: `RemoteOrbit diagnostics audio-continuity --session <id>`.
 
-## Runtime / acceptance boundary
+## Machine verification
 
-Remote repository work can implement and machine-verify the probes. Final causal classification requires a fresh local RC003 capture from the instrumented build. Remote execution must not claim installed-app, driver, CoreAudio, TCC, or real-hardware state.
+Exact-head CI run `41628598574`: `SUCCESS` on repository-scoped self-hosted `remoteorbit-macmini` ARM64 runner.
 
-## Current documentation authority
+- source contract checks: PASS
+- protocol self-tests: PASS
+- Full Swift tests: PASS — 513 tests, 0 failures
+- Native Release build: PASS
+- build-only packaging smoke: PASS
 
-- `AGENTS.md` — durable engineering/process and voice interaction rules.
-- `CURRENT_STATUS.md` — this mutable current state.
-- `CURRENT_TASK.md` — Task 049 active authorization.
-- `README.md` / `SETUP_NOTES.md` — current product/install guidance.
-- `docs/DOMAIN_MAP.md` — derived Domain/capability navigation.
-- `docs/diagnostics/ADR-0001..0003` — durable diagnostic architecture decisions.
+Exact-diff audit: PASS.
 
-## Next state
+Changed implementation files are limited to:
+- `remote-orbit/Sources/RemoteOrbit/BLEAudioContinuityProbe.swift`
+- `remote-orbit/Sources/RemoteOrbit/BLEBridge.swift`
+- `remote-orbit/Sources/RemoteOrbit/Diagnostics/BLEAudioContinuityDiagnosticReport.swift`
+- `remote-orbit/Sources/RemoteOrbit/Diagnostics/DiagnosticCLI.swift`
+- `remote-orbit/Tests/RemoteOrbitTests/BLEAudioContinuityProbeTests.swift`
 
-Create the authorized remote implementation branch, add only the two bounded probes plus focused tests, run remote CI, audit the exact diff, and stop at `WAITING_FOR_FRESH_HARDWARE_CAPTURE` if machine verification passes.
+The `BLEBridge.swift` product-path diff is limited to telemetry storage, per-stream reset, entry/exit timing around `handleAudio`, and one session-end summary. No decoder, frame-size, prebuffer, reserve, resampling, drain, keepalive, HID/Option, packaging, install, driver, CoreAudio, TCC, or default-device behavior was changed.
 
-DOCUMENT_ALIGNMENT: `CURRENT_TASK_049_ACTIVE`
+## Current gate
+
+Remote work stops at `WAITING_FOR_FRESH_HARDWARE_CAPTURE`.
+
+A fresh local RC003 capture must run an instrumented Task 049 build. Diagnostic logging / DiagnosticAuthority capture must be enabled for the persisted `voice.session.trace` used by Probe B. The normal runtime log must retain the Task 049 `BLE_HANDLER_SUMMARY` used by Probe A.
+
+No root-cause classification, audio corrective, merge, release, app installation, driver replacement, CoreAudio restart, TCC mutation or default-device change is authorized by this state.
+
+DOCUMENT_ALIGNMENT: `TASK_049_WAITING_FOR_FRESH_HARDWARE_CAPTURE`

@@ -2,111 +2,85 @@
 
 ## RO-AUDIO-CONTINUITY-DIAGNOSTIC-049 — Resolve sustained PCM supply-deficit boundary
 
-Status: `ACTIVE / REMOTE_DIAGNOSTIC_IMPLEMENTATION`
+Status: `ACTIVE / WAITING_FOR_FRESH_HARDWARE_CAPTURE`
 TASK_CLASS: `DIAGNOSTIC / OBSERVABILITY`
 Repository: `Lost0rz/RemoteOrbit`
-Start control parent: `41156e6989cceebac44e6f04e07083add0b4dbe9`
 Control authority: `main`
-Authorized implementation branch: `codex/audio-continuity-diagnostic-049`
+Implementation branch: `codex/audio-continuity-diagnostic-049`
+Implementation HEAD: `1d6370cb9a9bfa1f1d8bff10095f149fefe89288`
+Draft PR: `#40`
+Exact-head CI: `41628598574 — SUCCESS`
 
 ## Objective
 
-Add the minimum observation-only evidence needed to distinguish the remaining causes of the confirmed audio-continuity failure without changing user-visible voice behavior or audio transport semantics.
-
-The next safe corrective decision depends on distinguishing:
-
-1. sustained/episodic upstream decoded-supply deficit or source-clock mismatch; from
-2. local BLE delegate / `handleAudio` service latency large enough to delay notification processing.
-
-## Existing accepted evidence
-
-The 2026-11-03 runtime log and current `main` source establish the following for the inspected sessions:
-
-- decoded PCM duration is materially below elapsed 16 kHz expectation;
-- AudioPipe active-remote underrun follows the supply deficit;
-- decode rejects and zero-sample decodes are not observed in the affected samples;
-- AudioPipe ring overflow drops are zero;
-- `remotePrebufferLimit = 8000` samples (500 ms at 16 kHz), so prebuffer capacity itself is not the observed first-syllable limit;
-- the current 45 ms playout reserve is startup-only and the repository tests explicitly show that startup reserve does not cure sustained deficit.
+Determine whether the confirmed RC003 decoded-PCM supply deficit is caused by local BLE audio-handler service latency, sustained effective source-clock mismatch, or episodic upstream / BLE delivery starvation, without changing product audio behavior before causal evidence exists.
 
 ROOT_CAUSE_STATUS: `UNKNOWN`
 
-## Authorized scope
+## Completed remote scope
 
-### Probe A — BLE audio-handler latency
+Probe A — BLE handler service time:
+- exact `handleAudio` entry/exit monotonic timing;
+- fixed 0.25 ms histogram plus scalar counters;
+- session-end count, p50/p95/p99/max, and >5/>10/>15 ms summary;
+- no per-packet logging or unbounded per-packet collection.
 
-Add bounded per-session accounting around the production BLE audio callback/handler path. Emit a session summary sufficient to determine typical and worst service time, including at least:
+Probe B — decoded supply-rate windows:
+- read-only analysis of existing persisted continuity trace;
+- approximately one-second windows with decoded sample count, effective source Hz, notification count/max gap and AudioPipe queue-depth start/end when retained;
+- incomplete bounded-trace windows are explicitly marked non-contiguous and do not expose an authoritative source-Hz value;
+- read-only CLI entry: `RemoteOrbit diagnostics audio-continuity --session <id>`.
 
-- sample count;
-- p50 / p95 / p99 service duration (or a deterministic equivalent percentile summary);
-- maximum service duration;
-- counts above 5 ms, 10 ms and 15 ms.
+Verification:
+- exact implementation HEAD: `1d6370cb9a9bfa1f1d8bff10095f149fefe89288`;
+- Draft PR #40 remains OPEN / DRAFT / UNMERGED;
+- CI run `41628598574`: SUCCESS;
+- Full Swift tests: 513 / 513 PASS;
+- Native Release build: PASS;
+- build-only packaging smoke: PASS;
+- exact-diff audit: PASS;
+- no product audio behavior change found outside the authorized diagnostic boundary.
 
-Do not log every packet.
+## Current required action — fresh hardware capture
 
-### Probe B — decoded supply-rate windows
+Run a fresh local RC003 voice capture from the instrumented Task 049 build. This is now the only evidence-producing action required before choosing a corrective architecture.
 
-Add low-overhead approximately one-second windows on the same stream, reporting enough evidence to distinguish sustained clock-rate deficit from isolated stalls. Each emitted window must include at least:
+Capture requirements:
+1. Diagnostic logging / DiagnosticAuthority capture is enabled so `voice.session.summary` and `voice.session.trace` are persisted for Probe B.
+2. Exercise several ordinary short phrases and several longer holds that previously exposed continuity loss.
+3. Preserve the normal RemoteOrbit runtime log containing `[AUDIO-PATH] BLE_HANDLER_SUMMARY ... metric=handler_service_time`.
+4. Preserve the affected session IDs and obtain the read-only report with `RemoteOrbit diagnostics audio-continuity --session <id>` for those sessions.
+5. Do not change reserve, prebuffer, resampling, drain, keepalive, decoder or HID/Option behavior during the capture.
 
-- window elapsed time;
-- decoded sample count;
-- effective decoded samples/second;
-- notification count;
-- maximum notification gap in the window;
-- AudioPipe queued-output depth at the start and end of the window when available without changing audio behavior.
+## Decision rules after capture
 
-The probe must not invent packet-loss counts when the protocol does not expose a physical packet sequence.
+- Material handler p95/p99/max or repeated >15 ms service events correlated with starvation keeps local BLE callback work in the causal boundary.
+- Low handler service time plus multiple contiguous windows persistently below nominal 16 kHz supports source-clock mismatch / clock-recovery investigation.
+- Low handler service time plus mostly nominal windows with isolated low-rate windows and large notification gaps supports episodic upstream transport starvation.
+- Any `trace_contiguous=false` window is excluded from source-Hz causal claims.
 
-### Verification
+These are diagnostic decision rules, not pre-authorized fixes.
 
-- add focused deterministic tests for the accounting logic;
-- run the relevant focused tests;
-- run routine repository CI / full Swift tests as required by the existing workflow;
-- perform an exact-diff read-only audit before claiming machine completion.
+## Forbidden until fresh evidence is reviewed
 
-## Non-goals / forbidden changes
-
-Do **not** change:
-
-- ADPCM decode semantics or ATVV frame size;
-- playout reserve value/algorithm;
-- prebuffer capacity/behavior;
-- resampling ratio or add adaptive clock recovery;
+Do not change:
+- ADPCM decode or ATVV frame size;
+- playout reserve;
+- prebuffer;
+- resampling ratio / adaptive clock recovery;
 - packet-loss concealment;
-- AUDIO_STOP drain or post-release grace;
-- keepalive behavior;
-- HID/Option gesture lifecycle;
-- app/driver packaging or release version;
-- installed runtime, CoreAudio, TCC, default audio devices or user configuration.
+- AUDIO_STOP drain / post-release grace;
+- keepalive;
+- HID/Option lifecycle;
+- packaging / release version;
+- installed driver, CoreAudio, TCC or default devices.
 
-Do not merge a speculative corrective fix into this task.
+Do not merge PR #40 or publish a release under this task state.
 
-## Execution / side-effect authority
-
-The user explicitly authorized direct remote repository handling for this bounded diagnostic change on 2026-11-03.
-
-Authorized repository side effects:
-
-- update this control transition on `main` as one atomic control commit;
-- create and push `codex/audio-continuity-diagnostic-049`;
-- modify only diagnostic/accounting source and focused tests needed for Probe A/B;
-- open/update a Draft PR for review and CI.
-
-No local runtime mutation is authorized or required for the remote implementation phase.
-
-## Acceptance / STOP
-
-Machine implementation is complete only when:
-
-1. Probe A and Probe B are present and observation-only;
-2. focused tests pass;
-3. routine CI/full Swift test evidence is green for the exact branch head, or any infrastructure-only blocker is reported distinctly;
-4. exact diff confirms no product-audio behavior change outside the diagnostic boundary.
-
-Then STOP at:
+## STOP
 
 `WAITING_FOR_FRESH_HARDWARE_CAPTURE`
 
-Final root-cause classification and any corrective audio change require a fresh RC003 capture from the instrumented build and a subsequent governed decision.
+After fresh RC003 evidence is collected, return for read-only causal classification. Any corrective implementation requires a subsequent governed transition after that evidence is reviewed.
 
-DOCUMENT_ALIGNMENT: `TASK_049_ACTIVE`
+DOCUMENT_ALIGNMENT: `TASK_049_WAITING_FOR_FRESH_HARDWARE_CAPTURE`
