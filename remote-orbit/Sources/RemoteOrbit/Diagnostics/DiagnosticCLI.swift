@@ -57,6 +57,27 @@ enum DiagnosticCLI {
                 output(try statusJSON(journalURL: journalURL))
                 return 0
 
+            case "audio-continuity":
+                let sessionID = try parseAudioContinuitySession(commandArguments)
+                let page = try authority.query(
+                    DiagnosticQueryFilter(
+                        eventTypes: ["voice.session.summary", "voice.session.trace"],
+                        sessionID: sessionID,
+                        limit: 500
+                    )
+                )
+                guard let report = BLEAudioContinuityDiagnosticReport.make(
+                    events: page.events,
+                    sessionID: sessionID
+                ) else {
+                    errorOutput(
+                        "diagnostics: no persisted audio continuity trace for session \(sessionID)"
+                    )
+                    return 65
+                }
+                output(try encodeJSONObject(report))
+                return 0
+
             case "export":
                 let options = try parseExportOptions(commandArguments)
                 let archive = if let exportHandler {
@@ -117,6 +138,17 @@ enum DiagnosticCLI {
             errorOutput("diagnostics: \(error)")
             return 1
         }
+    }
+
+    private static func parseAudioContinuitySession(_ arguments: [String]) throws -> String {
+        guard arguments.count == 2,
+              arguments[0] == "--session",
+              !arguments[1].isEmpty else {
+            throw DiagnosticCLIError.usage(
+                "audio-continuity requires --session <id>"
+            )
+        }
+        return arguments[1]
     }
 
     private static func parseFilter(_ arguments: [String]) throws -> DiagnosticQueryFilter {
@@ -295,6 +327,7 @@ enum DiagnosticCLI {
 
     Usage:
       RemoteOrbit diagnostics status
+      RemoteOrbit diagnostics audio-continuity --session <id>
       RemoteOrbit diagnostics export --output <directory> [options]
       RemoteOrbit diagnostics query [filters]
       RemoteOrbit diagnostics snapshot [filters]
@@ -321,8 +354,9 @@ enum DiagnosticCLI {
       --since-unix-ms <timestamp>
       --until-unix-ms <timestamp>
 
-    The CLI is read-only. It exposes the existing DiagnosticAuthority query/snapshot
-    contract and has no restart, reset, repair, install, delete, clear, or settings
-    mutation commands.
+    The CLI is read-only. The audio-continuity command derives Task 049 timing and
+    supply-rate evidence from already persisted DiagnosticAuthority session traces;
+    it does not add work to the production BLE or CoreAudio callbacks. The CLI has
+    no restart, reset, repair, install, delete, clear, or settings mutation commands.
     """
 }
