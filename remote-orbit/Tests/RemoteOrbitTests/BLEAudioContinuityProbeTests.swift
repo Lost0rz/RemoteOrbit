@@ -36,6 +36,26 @@ final class BLEAudioContinuityProbeTests: XCTestCase {
         XCTAssertEqual(summary.over15Milliseconds, 85)
     }
 
+    func testHandlerSummaryExcludesPreHIDCandidateDwell() {
+        let points = [
+            point(timestamp: 100_000_000, kind: .bleArrival, source: "voice_service", sequence: 1),
+            point(timestamp: 150_000_000, kind: .pcmSubmitted, source: "audio_pipe", sequence: 1),
+            point(timestamp: 300_000_000, kind: .bleArrival, source: "voice_service", sequence: 2),
+            point(timestamp: 305_000_000, kind: .pcmSubmitted, source: "audio_pipe", sequence: 2),
+        ]
+
+        let summary = BLEAudioContinuityAnalysis.analyze(
+            points: points,
+            audioStartNanoseconds: 100_000_000,
+            handlerStartNanoseconds: 200_000_000,
+            streamID: 1
+        ).handlerLatency
+
+        XCTAssertEqual(summary.sampleCount, 1)
+        XCTAssertEqual(summary.p50Microseconds, 5_000)
+        XCTAssertEqual(summary.maxMicroseconds, 5_000)
+    }
+
     func testSupplyWindowReportsEffectiveRateGapAndQueueDepth() throws {
         let start: UInt64 = 1_000_000_000
         let points = [
@@ -113,6 +133,24 @@ final class BLEAudioContinuityProbeTests: XCTestCase {
         )
         let window = try XCTUnwrap(analysis.supplyWindows.first)
         XCTAssertFalse(window.traceContiguous)
+    }
+
+    func testLifecyclePointDoesNotManufactureSequenceGap() throws {
+        let start: UInt64 = 12_000_000_000
+        let points = [
+            point(timestamp: start, kind: .bleArrival, source: "voice_service", sequence: 1),
+            point(timestamp: start + 100_000_000, kind: .lifecycle, source: "voice_service", sequence: 2),
+            point(timestamp: start + 200_000_000, kind: .decodeComplete, count: 3_200, source: "voice_service", sequence: 3),
+            point(timestamp: start + 1_000_000_000, kind: .render, queueBefore: 480, queueAfter: 0, source: "audio_pipe", sequence: 1),
+        ]
+
+        let analysis = BLEAudioContinuityAnalysis.analyze(
+            points: points,
+            audioStartNanoseconds: start,
+            streamID: 1
+        )
+        let window = try XCTUnwrap(analysis.supplyWindows.first)
+        XCTAssertTrue(window.traceContiguous)
     }
 
     func testAnalysisFiltersDifferentStreamIdentity() {
