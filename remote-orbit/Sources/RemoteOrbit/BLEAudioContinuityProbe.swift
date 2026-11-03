@@ -13,7 +13,7 @@ struct BLEAudioHandlerLatencySummary: Equatable {
     func logLine(streamID: UInt64?, sessionID: String) -> String {
         let streamText = streamID.map(String.init) ?? "NA"
         return String(
-            format: "[AUDIO-PATH] BLE_HANDLER_SUMMARY stream=%@ session_id=%@ samples=%d p50_us=%.1f p95_us=%.1f p99_us=%.1f max_us=%.1f gt5ms=%d gt10ms=%d gt15ms=%d metric=ble_arrival_to_pcm_submit",
+            format: "[AUDIO-PATH] BLE_HANDLER_SUMMARY stream=%@ session_id=%@ samples=%d p50_us=%.1f p95_us=%.1f p99_us=%.1f max_us=%.1f gt5ms=%d gt10ms=%d gt15ms=%d metric=handler_service_time",
             streamText,
             sessionID,
             sampleCount,
@@ -25,6 +25,79 @@ struct BLEAudioHandlerLatencySummary: Equatable {
             over10Milliseconds,
             over15Milliseconds
         )
+    }
+}
+
+/// Fixed-storage handler timing for the serial CoreBluetooth audio callback.
+/// A packet pays only two monotonic-clock reads plus scalar/bucket updates.
+/// Percentiles are approximated to 0.25 ms buckets and computed at session end.
+struct BLEAudioHandlerTelemetry {
+    static let bucketWidthNanoseconds: UInt64 = 250_000
+    static let bucketCount = 128 // 0...32 ms, plus an overflow bucket
+
+    private var buckets = [UInt32](repeating: 0, count: bucketCount)
+    private var overflowBucket: UInt32 = 0
+    private var sampleCount = 0
+    private var maximumNanoseconds: UInt64 = 0
+    private var over5Milliseconds = 0
+    private var over10Milliseconds = 0
+    private var over15Milliseconds = 0
+
+    mutating func reset() {
+        for index in buckets.indices {
+            buckets[index] = 0
+        }
+        overflowBucket = 0
+        sampleCount = 0
+        maximumNanoseconds = 0
+        over5Milliseconds = 0
+        over10Milliseconds = 0
+        over15Milliseconds = 0
+    }
+
+    mutating func record(durationNanoseconds: UInt64) {
+        sampleCount += 1
+        maximumNanoseconds = max(maximumNanoseconds, durationNanoseconds)
+        if durationNanoseconds > 5_000_000 { over5Milliseconds += 1 }
+        if durationNanoseconds > 10_000_000 { over10Milliseconds += 1 }
+        if durationNanoseconds > 15_000_000 { over15Milliseconds += 1 }
+
+        let rawIndex = Int(durationNanoseconds / Self.bucketWidthNanoseconds)
+        if rawIndex < buckets.count {
+            buckets[rawIndex] &+= 1
+        } else {
+            overflowBucket &+= 1
+        }
+    }
+
+    func summary() -> BLEAudioHandlerLatencySummary {
+        BLEAudioHandlerLatencySummary(
+            sampleCount: sampleCount,
+            p50Microseconds: percentileMicroseconds(0.50),
+            p95Microseconds: percentileMicroseconds(0.95),
+            p99Microseconds: percentileMicroseconds(0.99),
+            maxMicroseconds: Double(maximumNanoseconds) / 1_000,
+            over5Milliseconds: over5Milliseconds,
+            over10Milliseconds: over10Milliseconds,
+            over15Milliseconds: over15Milliseconds
+        )
+    }
+
+    private func percentileMicroseconds(_ quantile: Double) -> Double {
+        guard sampleCount > 0 else { return 0 }
+        let target = max(1, Int(ceil(Double(sampleCount) * min(1, max(0, quantile)))))
+        var cumulative = 0
+        for (index, count) in buckets.enumerated() {
+            cumulative += Int(count)
+            if cumulative >= target {
+                let upperBoundNanoseconds = UInt64(index + 1) * Self.bucketWidthNanoseconds
+                return Double(upperBoundNanoseconds) / 1_000
+            }
+        }
+        if overflowBucket > 0 {
+            return Double(maximumNanoseconds) / 1_000
+        }
+        return 0
     }
 }
 
@@ -54,15 +127,18 @@ struct BLEAudioSupplyWindow: Equatable {
 
     func logLine(streamID: UInt64?, sessionID: String) -> String {
         let streamText = streamID.map(String.init) ?? "NA"
+        let sourceRateText = traceContiguous
+            ? String(format: "%.1f", effectiveSourceHz)
+            : "NA"
         return String(
-            format: "[AUDIO-PATH] BLE_SUPPLY_WINDOW stream=%@ session_id=%@ index=%d start_ms=%.1f elapsed_ms=%.1f decoded_samples=%d effective_source_hz=%.1f notifications=%d max_notification_gap_ms=%.1f queue_start_frames=%@ queue_end_frames=%@ trace_contiguous=%@",
+            format: "[AUDIO-PATH] BLE_SUPPLY_WINDOW stream=%@ session_id=%@ index=%d start_ms=%.1f elapsed_ms=%.1f decoded_samples=%d effective_source_hz=%@ notifications=%d max_notification_gap_ms=%.1f queue_start_frames=%@ queue_end_frames=%@ trace_contiguous=%@",
             streamText,
             sessionID,
             index,
             Double(startNanoseconds) / 1_000_000,
             elapsedMilliseconds,
             decodedSamples,
-            effectiveSourceHz,
+            sourceRateText,
             notificationCount,
             maxNotificationGapMilliseconds,
             queueDepthStartFrames.map(String.init) ?? "NA",
@@ -75,7 +151,9 @@ struct BLEAudioSupplyWindow: Equatable {
 struct BLEAudioContinuityAnalysis: Equatable {
     static let windowNanoseconds: UInt64 = 1_000_000_000
 
-    let handlerLatency: BLEAudioHandlerLatencySummary
+    /// Supplemental retained-trace metric. The exact handler service time is
+    /// measured independently by BLEAudioHandlerTelemetry in BLEBridge.
+    let ingressToSubmitLatency: BLEAudioHandlerLatencySummary
     let supplyWindows: [BLEAudioSupplyWindow]
 
     static func analyze(
@@ -94,7 +172,7 @@ struct BLEAudioContinuityAnalysis: Equatable {
                 return $0.timestampNanoseconds < $1.timestampNanoseconds
             }
 
-        let handlerLatency = handlerLatencySummary(
+        let ingressToSubmitLatency = ingressToSubmitLatencySummary(
             points: sorted,
             startNanoseconds: handlerStartNanoseconds
         )
@@ -103,33 +181,25 @@ struct BLEAudioContinuityAnalysis: Equatable {
             audioStartNanoseconds: audioStartNanoseconds
         )
         return BLEAudioContinuityAnalysis(
-            handlerLatency: handlerLatency,
+            ingressToSubmitLatency: ingressToSubmitLatency,
             supplyWindows: supplyWindows
         )
     }
 
-    func logLines(streamID: UInt64?, sessionID: String) -> [String] {
-        var lines: [String] = []
-        if handlerLatency.sampleCount > 0 {
-            lines.append(handlerLatency.logLine(streamID: streamID, sessionID: sessionID))
-        }
-        lines.append(contentsOf: supplyWindows.map {
-            $0.logLine(streamID: streamID, sessionID: sessionID)
-        })
-        return lines
-    }
-
-    private static func handlerLatencySummary(
+    private static func ingressToSubmitLatencySummary(
         points: [LongTermObservationPoint],
         startNanoseconds: UInt64?
     ) -> BLEAudioHandlerLatencySummary {
+        func isInActiveRange(_ point: LongTermObservationPoint) -> Bool {
+            guard let startNanoseconds else { return true }
+            return point.timestampNanoseconds >= startNanoseconds
+        }
+
         let ble = points.filter {
-            $0.kind == .bleArrival
-                && (startNanoseconds == nil || $0.timestampNanoseconds >= startNanoseconds!)
+            $0.kind == .bleArrival && isInActiveRange($0)
         }
         let submissions = points.filter {
-            $0.kind == .pcmSubmitted
-                && (startNanoseconds == nil || $0.timestampNanoseconds >= startNanoseconds!)
+            $0.kind == .pcmSubmitted && isInActiveRange($0)
         }
         var submissionIndex = 0
         var latencies: [UInt64] = []
