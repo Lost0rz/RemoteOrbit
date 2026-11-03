@@ -2,7 +2,40 @@ import XCTest
 @testable import RemoteOrbit
 
 final class BLEAudioContinuityProbeTests: XCTestCase {
-    func testHandlerSummaryPairsBLEArrivalToNextPCMSubmit() {
+    func testHandlerTelemetryUsesFixedBucketsAndThresholdCounts() {
+        var telemetry = BLEAudioHandlerTelemetry()
+        telemetry.reset()
+        for index in 0..<100 {
+            telemetry.record(
+                durationNanoseconds: UInt64(index) * 250_000 + 100_000
+            )
+        }
+
+        let summary = telemetry.summary()
+        XCTAssertEqual(summary.sampleCount, 100)
+        XCTAssertEqual(summary.p50Microseconds, 12_500)
+        XCTAssertEqual(summary.p95Microseconds, 23_750)
+        XCTAssertEqual(summary.p99Microseconds, 24_750)
+        XCTAssertEqual(summary.maxMicroseconds, 24_850)
+        XCTAssertEqual(summary.over5Milliseconds, 80)
+        XCTAssertEqual(summary.over10Milliseconds, 60)
+        XCTAssertEqual(summary.over15Milliseconds, 40)
+    }
+
+    func testHandlerTelemetryOverflowUsesObservedMaximumForHighPercentile() {
+        var telemetry = BLEAudioHandlerTelemetry()
+        telemetry.reset()
+        telemetry.record(durationNanoseconds: 1_000_000)
+        telemetry.record(durationNanoseconds: 50_000_000)
+
+        let summary = telemetry.summary()
+        XCTAssertEqual(summary.sampleCount, 2)
+        XCTAssertEqual(summary.p99Microseconds, 50_000)
+        XCTAssertEqual(summary.maxMicroseconds, 50_000)
+        XCTAssertEqual(summary.over15Milliseconds, 1)
+    }
+
+    func testIngressToSubmitSummaryPairsBLEArrivalToNextPCMSubmit() {
         var points: [LongTermObservationPoint] = []
         for millisecond in 1...100 {
             let arrival = UInt64(millisecond) * 200_000_000
@@ -24,7 +57,7 @@ final class BLEAudioContinuityProbeTests: XCTestCase {
             points: points,
             audioStartNanoseconds: nil,
             streamID: 1
-        ).handlerLatency
+        ).ingressToSubmitLatency
 
         XCTAssertEqual(summary.sampleCount, 100)
         XCTAssertEqual(summary.p50Microseconds, 50_000)
@@ -36,7 +69,7 @@ final class BLEAudioContinuityProbeTests: XCTestCase {
         XCTAssertEqual(summary.over15Milliseconds, 85)
     }
 
-    func testHandlerSummaryExcludesPreHIDCandidateDwell() {
+    func testIngressToSubmitSummaryExcludesPreHIDCandidateDwell() {
         let points = [
             point(timestamp: 100_000_000, kind: .bleArrival, source: "voice_service", sequence: 1),
             point(timestamp: 150_000_000, kind: .pcmSubmitted, source: "audio_pipe", sequence: 1),
@@ -49,7 +82,7 @@ final class BLEAudioContinuityProbeTests: XCTestCase {
             audioStartNanoseconds: 100_000_000,
             handlerStartNanoseconds: 200_000_000,
             streamID: 1
-        ).handlerLatency
+        ).ingressToSubmitLatency
 
         XCTAssertEqual(summary.sampleCount, 1)
         XCTAssertEqual(summary.p50Microseconds, 5_000)
@@ -165,7 +198,7 @@ final class BLEAudioContinuityProbeTests: XCTestCase {
             audioStartNanoseconds: nil,
             streamID: 1
         )
-        XCTAssertEqual(analysis.handlerLatency.sampleCount, 1)
+        XCTAssertEqual(analysis.ingressToSubmitLatency.sampleCount, 1)
     }
 
     private func point(
