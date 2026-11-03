@@ -314,6 +314,7 @@ final class BLEBridge: NSObject {
     private var streamDrainFrameCount = 0
     private var audioFramesOutsideStream = 0
     private var streamNotificationTelemetry = BLENotificationTelemetry()
+    private var streamAudioHandlerTelemetry = BLEAudioHandlerTelemetry()
     private var streamDecodeRejectCount = 0
     private var streamZeroSampleDecodeCount = 0
     private var hasRecordedFirstP1A4AudioPacket = false
@@ -1882,6 +1883,7 @@ extension BLEBridge: CBPeripheralDelegate {
             streamSumSquares = 0
             streamClippedSampleCount = 0
             streamNotificationTelemetry.reset()
+            streamAudioHandlerTelemetry.reset()
             streamDecodeRejectCount = 0
             streamZeroSampleDecodeCount = 0
             hasRecordedFirstP1A4AudioPacket = false
@@ -2014,7 +2016,17 @@ extension BLEBridge: CBPeripheralDelegate {
             return
         }
 
-        let packetTimestamp = P1A4MonotonicClock.nowNanoseconds()
+        let handlerStartedAt = P1A4MonotonicClock.nowNanoseconds()
+        defer {
+            let handlerFinishedAt = P1A4MonotonicClock.nowNanoseconds()
+            if handlerFinishedAt >= handlerStartedAt {
+                streamAudioHandlerTelemetry.record(
+                    durationNanoseconds: handlerFinishedAt - handlerStartedAt
+                )
+            }
+        }
+
+        let packetTimestamp = handlerStartedAt
         // The first timestamp is the first received BLE audio notification;
         // the last timestamp is overwritten for each packet without logging
         // from the notification callback.
@@ -2249,6 +2261,12 @@ extension BLEBridge: CBPeripheralDelegate {
             "outside=\(audioFramesOutsideStream)"
         ].joined(separator: " ")
         print(summary)
+        print(
+            streamAudioHandlerTelemetry.summary().logLine(
+                streamID: UInt64(streamID),
+                sessionID: streamSessionID
+            )
+        )
         let sampleRate = protocolHandler.codec?.sampleRate ?? 0
         let delivery = AudioDeliveryAccounting.measure(
             decodedSamples: streamSampleCount,
