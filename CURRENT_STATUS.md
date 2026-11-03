@@ -1,67 +1,64 @@
 # CURRENT_STATUS
 
-Last updated: 2026-11-01
-State: `RO-RELEASE-048 — CLOSED / RELEASE_PUBLISHED`
+Last updated: 2026-11-03
+State: `RO-AUDIO-CONTINUITY-DIAGNOSTIC-049 — ACTIVE / REMOTE_DIAGNOSTIC_IMPLEMENTATION`
 Repository: `Lost0rz/RemoteOrbit`
-Remote authority: `main`
-Release target baseline: `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`
+Remote control authority: `main`
+Start control parent: `41156e6989cceebac44e6f04e07083add0b4dbe9`
+Authorized implementation branch: `codex/audio-continuity-diagnostic-049`
 
 ## Accepted release baseline
 
-- RemoteOrbit `v0.2.15` is published as a final GitHub Release.
+RemoteOrbit `v0.2.15` remains the latest published release.
+
 - Version: `0.2.15`
 - Build: `44`
 - Tag: `v0.2.15`
 - Tag target: `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`
-- GitHub Release id: `430474517`
-- Release is non-draft and non-prerelease.
-- The release target is the exact Task 047 closeout baseline; subsequent release-control commits are not part of the product tag.
+- Release id: `430474517`
 
-## Published assets
+Task 049 is diagnostics-only and does not change the accepted product behavior contract or release identity.
 
-- `RemoteOrbit-0.2.15.dmg`
-  - GitHub asset size: `3,637,708` bytes
-  - SHA-256: `18fdb5c2eed873e195f86d635e927b11707ef201fc723c0cd03cb675ffd57676`
-- `RemoteOrbit-0.2.15.dmg.sha256`
+## Fresh incident evidence
 
-`RELEASE_NOTES_v0.2.15.md` is retained on `main` as the durable repository copy of the published release notes.
+The 2026-11-03 runtime log shows repeated audio continuity failure while using the RC003 physical HTT path:
 
-## Release verification
+- decoded PCM supply is below elapsed 16 kHz expectation in affected sessions;
+- AudioPipe reports corresponding active-remote underrun;
+- decode rejects and zero-sample decodes are zero in the inspected sessions;
+- output-ring overflow drops are zero;
+- the current remote prebuffer capacity is 500 ms and is not the observed capacity bottleneck;
+- the 45 ms startup reserve cannot repair sustained supply deficit after playout has started;
+- current evidence does not establish whether the remaining deficit is caused by upstream/remote delivery, local BLE delegate service latency, or effective source-clock mismatch.
 
-One-shot release workflow run `41292366775`: `SUCCESS`.
+ROOT_CAUSE_STATUS: `UNKNOWN — final boundary requires two minimum probes`
 
-Against the exact release target baseline:
-- release identity check: PASS
-- protocol self-tests: PASS
-- full Swift tests: PASS
-- RemoteOrbitAudio driver + DMG build: PASS
-- packaged version/build/source-head verification: PASS
-- Universal 2 architecture verification: PASS
-- code-signature verification: PASS
-- GitHub Release creation: PASS
-- DMG/checksum upload: PASS
-- published tag/release/assets verification: PASS
+## Task 049 diagnostic boundary
 
-Direct GitHub re-read confirms `refs/tags/v0.2.15` resolves exactly to `7f1c763e60db8c9ecc4a696f4246d3ee9eaaea1a`.
+Authorized remote changes are limited to observation-only instrumentation and focused tests:
 
-## Repository state after release
+1. per-session BLE audio-handler service-time summary;
+2. approximately one-second decoded-supply windows sufficient to observe effective source rate and burst-vs-sustained deficit shape;
+3. focused regression tests for the diagnostic accounting;
+4. routine repository CI on the existing self-hosted RemoteOrbit runner.
 
-- The bounded one-shot `.github/workflows/release-v0.2.15.yml` automation is removed by Task 048 closeout and is not retained as a standing release authority.
-- The durable routine CI workflow remains `.github/workflows/remoteorbit-ci.yml`.
-- No Swift/product behavior was changed by Task 048.
-- No user-machine app/driver/CoreAudio/TCC/default-device state was mutated by this release task.
-- Main may contain governance/release-note commits after the v0.2.15 tag; those do not change the released source baseline.
+No playout reserve, prebuffer, decoder, resampling, drain, keepalive, HID/Option lifecycle, driver, packaging, install, TCC, CoreAudio or default-device behavior change is authorized.
+
+## Runtime / acceptance boundary
+
+Remote repository work can implement and machine-verify the probes. Final causal classification requires a fresh local RC003 capture from the instrumented build. Remote execution must not claim installed-app, driver, CoreAudio, TCC, or real-hardware state.
 
 ## Current documentation authority
 
-- `README.md` — current product/repository landing page.
-- `SETUP_NOTES.md` — install, validation and troubleshooting guide.
-- `docs/DOMAIN_MAP.md` — current derived Domain/capability navigation projection.
+- `AGENTS.md` — durable engineering/process and voice interaction rules.
+- `CURRENT_STATUS.md` — this mutable current state.
+- `CURRENT_TASK.md` — Task 049 active authorization.
+- `README.md` / `SETUP_NOTES.md` — current product/install guidance.
+- `docs/DOMAIN_MAP.md` — derived Domain/capability navigation.
 - `docs/diagnostics/ADR-0001..0003` — durable diagnostic architecture decisions.
-- `docs/incidents/` and root `RELEASE_NOTES_v*.md` — historical/release evidence; they do not override current product authority.
 
 ## Next state
 
-No product implementation or release mutation is authorized by this closeout. Any further source/runtime/packaging/install/release or repository-lifecycle mutation requires a new governed `CURRENT_TASK.md` transition.
+Create the authorized remote implementation branch, add only the two bounded probes plus focused tests, run remote CI, audit the exact diff, and stop at `WAITING_FOR_FRESH_HARDWARE_CAPTURE` if machine verification passes.
 
-DOCUMENT_ALIGNMENT: `UPDATED`
+DOCUMENT_ALIGNMENT: `CURRENT_TASK_049_ACTIVE`
