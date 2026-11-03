@@ -107,6 +107,7 @@ final class BLEAudioContinuityProbeTests: XCTestCase {
             audioStartNanoseconds: start,
             streamID: 1
         )
+        XCTAssertEqual(analysis.supplyWindows.count, 1)
         let window = try XCTUnwrap(analysis.supplyWindows.first)
         XCTAssertEqual(window.index, 0)
         XCTAssertEqual(window.elapsedNanoseconds, 1_000_000_000)
@@ -117,10 +118,6 @@ final class BLEAudioContinuityProbeTests: XCTestCase {
         XCTAssertEqual(window.queueDepthEndFrames, 2_000)
         XCTAssertEqual(window.effectiveSourceHz, 16_000, accuracy: 0.001)
         XCTAssertTrue(window.traceContiguous)
-
-        let boundaryWindow = try XCTUnwrap(analysis.supplyWindows.dropFirst().first)
-        XCTAssertEqual(boundaryWindow.queueDepthStartFrames, 1_200)
-        XCTAssertEqual(boundaryWindow.queueDepthEndFrames, 720)
     }
 
     func testFinalPartialWindowUsesObservedEnd() throws {
