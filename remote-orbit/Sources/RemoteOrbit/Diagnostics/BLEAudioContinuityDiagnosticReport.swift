@@ -51,11 +51,14 @@ enum BLEAudioContinuityDiagnosticReport {
                     "start_ms": Double(window.startNanoseconds) / 1_000_000,
                     "elapsed_ms": window.elapsedMilliseconds,
                     "decoded_samples": window.decodedSamples,
-                    "effective_source_hz": window.effectiveSourceHz,
+                    "effective_source_hz": window.traceContiguous
+                        ? window.effectiveSourceHz as Any
+                        : NSNull(),
                     "notifications": window.notificationCount,
                     "max_notification_gap_ms": window.maxNotificationGapMilliseconds,
                     "queue_start_frames": window.queueDepthStartFrames.map { NSNumber(value: $0) as Any } ?? NSNull(),
                     "queue_end_frames": window.queueDepthEndFrames.map { NSNumber(value: $0) as Any } ?? NSNull(),
+                    "trace_contiguous": window.traceContiguous,
                 ] as [String: Any]
             },
         ]
