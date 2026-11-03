@@ -61,8 +61,13 @@ final class BLEAudioContinuityProbeTests: XCTestCase {
         XCTAssertEqual(window.notificationCount, 3)
         XCTAssertEqual(window.maxNotificationGapNanoseconds, 500_000_000)
         XCTAssertEqual(window.queueDepthStartFrames, 2_160)
-        XCTAssertEqual(window.queueDepthEndFrames, 720)
+        XCTAssertEqual(window.queueDepthEndFrames, 2_000)
         XCTAssertEqual(window.effectiveSourceHz, 16_000, accuracy: 0.001)
+        XCTAssertTrue(window.traceContiguous)
+
+        let boundaryWindow = try XCTUnwrap(analysis.supplyWindows.dropFirst().first)
+        XCTAssertEqual(boundaryWindow.queueDepthStartFrames, 1_200)
+        XCTAssertEqual(boundaryWindow.queueDepthEndFrames, 720)
     }
 
     func testFinalPartialWindowUsesObservedEnd() throws {
@@ -88,6 +93,26 @@ final class BLEAudioContinuityProbeTests: XCTestCase {
         XCTAssertEqual(window.effectiveSourceHz, 16_000, accuracy: 0.001)
         XCTAssertEqual(window.queueDepthStartFrames, 720)
         XCTAssertEqual(window.queueDepthEndFrames, 0)
+        XCTAssertTrue(window.traceContiguous)
+    }
+
+    func testSequenceGapMarksSupplyWindowNonContiguous() throws {
+        let start: UInt64 = 9_000_000_000
+        let points = [
+            point(timestamp: start, kind: .bleArrival, source: "voice_service", sequence: 1),
+            point(timestamp: start + 100_000_000, kind: .decodeComplete, count: 3_200, source: "voice_service", sequence: 2),
+            point(timestamp: start + 400_000_000, kind: .bleArrival, source: "voice_service", sequence: 10),
+            point(timestamp: start + 500_000_000, kind: .decodeComplete, count: 3_200, source: "voice_service", sequence: 11),
+            point(timestamp: start + 1_000_000_000, kind: .render, queueBefore: 480, queueAfter: 0, source: "audio_pipe", sequence: 1),
+        ]
+
+        let analysis = BLEAudioContinuityAnalysis.analyze(
+            points: points,
+            audioStartNanoseconds: start,
+            streamID: 1
+        )
+        let window = try XCTUnwrap(analysis.supplyWindows.first)
+        XCTAssertFalse(window.traceContiguous)
     }
 
     func testAnalysisFiltersDifferentStreamIdentity() {
