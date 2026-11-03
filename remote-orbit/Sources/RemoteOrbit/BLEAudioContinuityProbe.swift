@@ -207,8 +207,9 @@ struct BLEAudioContinuityAnalysis: Equatable {
                         || $0.kind == .render
                         || $0.kind == .queueStarvation)
             }
-            let queueStart = queuePoints.first.flatMap {
-                $0.queueDepthBeforeFrames.map(Int.init) ?? Int($0.queueDepthAfterFrames)
+            let queueStart = queuePoints.first.map { point in
+                point.queueDepthBeforeFrames.map { Int($0) }
+                    ?? Int(point.queueDepthAfterFrames)
             }
             let queueEnd = queuePoints.last.map { Int($0.queueDepthAfterFrames) }
             windows.append(
