@@ -81,6 +81,7 @@ struct BLEAudioContinuityAnalysis: Equatable {
     static func analyze(
         points: [LongTermObservationPoint],
         audioStartNanoseconds: UInt64?,
+        handlerStartNanoseconds: UInt64? = nil,
         streamID: UInt64?
     ) -> BLEAudioContinuityAnalysis {
         let sorted = points
@@ -93,7 +94,10 @@ struct BLEAudioContinuityAnalysis: Equatable {
                 return $0.timestampNanoseconds < $1.timestampNanoseconds
             }
 
-        let handlerLatency = handlerLatencySummary(points: sorted)
+        let handlerLatency = handlerLatencySummary(
+            points: sorted,
+            startNanoseconds: handlerStartNanoseconds
+        )
         let supplyWindows = supplyRateWindows(
             points: sorted,
             audioStartNanoseconds: audioStartNanoseconds
@@ -116,10 +120,17 @@ struct BLEAudioContinuityAnalysis: Equatable {
     }
 
     private static func handlerLatencySummary(
-        points: [LongTermObservationPoint]
+        points: [LongTermObservationPoint],
+        startNanoseconds: UInt64?
     ) -> BLEAudioHandlerLatencySummary {
-        let ble = points.filter { $0.kind == .bleArrival }
-        let submissions = points.filter { $0.kind == .pcmSubmitted }
+        let ble = points.filter {
+            $0.kind == .bleArrival
+                && (startNanoseconds == nil || $0.timestampNanoseconds >= startNanoseconds!)
+        }
+        let submissions = points.filter {
+            $0.kind == .pcmSubmitted
+                && (startNanoseconds == nil || $0.timestampNanoseconds >= startNanoseconds!)
+        }
         var submissionIndex = 0
         var latencies: [UInt64] = []
         latencies.reserveCapacity(min(ble.count, submissions.count))
@@ -173,7 +184,10 @@ struct BLEAudioContinuityAnalysis: Equatable {
         let start = audioStartNanoseconds ?? observed[0].timestampNanoseconds
         let end = observed.map(\.timestampNanoseconds).max() ?? start
         guard end >= start else { return [] }
-        let traceGaps = sequenceGapIntervals(points: observed)
+        // Use the complete retained per-source sequence, including lifecycle
+        // points. Excluding lifecycle observations would manufacture sequence
+        // gaps even when the bounded trace itself is complete.
+        let traceGaps = sequenceGapIntervals(points: points)
 
         let finalIndex = Int((end - start) / windowNanoseconds)
         var windows: [BLEAudioSupplyWindow] = []
