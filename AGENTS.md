@@ -41,6 +41,30 @@ After a material transition (new active worktree, branch/HEAD change, PR
 creation/closure, task handoff, runtime identity change, or accepted conclusion),
 update the relevant current-state/task record as part of the transition.
 
+## Control mode and Issue approver policy
+
+CONTROL_MODE: FILE_CONTROL
+ISSUE_APPROVERS: Lost0rz
+
+FILE_CONTROL remains the sole task authority until a separately authorized and
+verified migration PR is merged to the authoritative `main`. The declarations in a
+preparation branch are proposed policy only; they become accepted repository
+policy only after reviewed merge to `main`. Their presence on a branch does not
+authorize Issue execution or approve an Issue specification.
+
+If a later separately authorized transition adopts `ISSUE_CONTROL`, execution
+requires a separate `SPEC_APPROVAL_V1` GitHub comment by an actual authenticated
+GitHub user listed in `ISSUE_APPROVERS`. The comment must bind the canonical
+repository, Issue, `TASK_ID`, `SPEC_REVISION` and `SPEC_SHA256`, and state
+`DECISION: APPROVED_FOR_EXECUTION`. An execution agent or automated connector
+must not author or synthesize that approval on an approver's behalf or approve its
+own work through the connector.
+
+Web Agent A owns remote read-only project audit, design review and status/evidence
+reading. Local Codex owns only locally authorized execution, focused verification
+and verifiable implementation receipts. A handoff card transports authority
+references and scope; it never replaces accepted repository task authority.
+
 ## Control-plane transition protocol
 
 A material control-plane transition includes any change to:
