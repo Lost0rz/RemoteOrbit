@@ -1,13 +1,15 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-06
-State: `RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 / WP03 — ACTIVE / PREPARATION_PR_DRAFT`
+State: `RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 / WP03 — ACTIVE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Remote control authority: `main`
 Control mode: `FILE_CONTROL`
 Audited control parent: `0b1d3bef345c6d019240f136c875e01a91d25c0e`
+Control transition commit: `4bcca00441e20d64403076a286e925ad04488d29`
+Policy commit: `69470e3caa66c62dff151cc705ddae1eb393fbd8`
 Authorized preparation branch: `codex/task050-wp03-approver-policy`
-Preparation PR: pending creation
+Preparation PR: #43 — https://github.com/Lost0rz/RemoteOrbit/pull/43 — OPEN / DRAFT / UNMERGED
 
 ## Task 050 / WP03 control transition
 
@@ -52,4 +54,4 @@ The hardware gate requires an instrumented Task 049 build, persisted `voice.sess
 
 The canonical local checkout is `/Volumes/Jack-Dev/Projects/RemoteOrbit`. Before this transition it was clean and detached at the PR #40 head; local `main` was fast-forwarded to the audited main without rewriting history. The separate Engineering-Governance source checkout and its pre-existing `.agents/plugins/marketplace.json` modification are outside this task and remain untouched.
 
-Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT` after the Draft PR and exact remote head are verified. Do not merge. FILE_CONTROL remains authoritative until a separately authorized, verified migration PR merge.
+The PR existed at policy commit `69470e3caa66c62dff151cc705ddae1eb393fbd8`; the paired control-file update is now part of the same PR and advances its branch head. Independent Web audit must review the final live PR head. Do not merge. FILE_CONTROL remains authoritative until a separately authorized, verified migration PR merge.

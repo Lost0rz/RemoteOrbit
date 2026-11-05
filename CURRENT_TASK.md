@@ -2,14 +2,16 @@
 
 ## RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 / WP03 — FILE_CONTROL approver-policy bootstrap
 
-Status: `ACTIVE / WP03_PREPARATION_PR`
+Status: `ACTIVE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `GOVERNANCE / CONTROL-PLANE`
 Repository: `Lost0rz/RemoteOrbit`
 Control mode: `FILE_CONTROL`
 Control authority: this `CURRENT_TASK.md` on the authorized preparation branch
 Control parent: `0b1d3bef345c6d019240f136c875e01a91d25c0e`
+Control transition commit: `4bcca00441e20d64403076a286e925ad04488d29`
+Policy commit: `69470e3caa66c62dff151cc705ddae1eb393fbd8`
 Authorized preparation branch: `codex/task050-wp03-approver-policy`
-Preparation PR: pending creation; record its identity in both control files after creation.
+Preparation PR: #43 — https://github.com/Lost0rz/RemoteOrbit/pull/43 — OPEN / DRAFT / UNMERGED.
 
 ## Authorization
 
