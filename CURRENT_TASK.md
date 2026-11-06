@@ -8,9 +8,10 @@ Repository: `Lost0rz/RemoteOrbit`
 Control mode: `FILE_CONTROL`
 Control authority: this `CURRENT_TASK.md` on the authorized Bridge PR branch
 Audited control parent: `a02859e5df597ec7094eda5ac05116c67b0f9d2e`
+WP04 control transition commit: `62aa07ce0e1a2c47c86ed1a840a4930d2b76a1f0`
 WP03 preparation PR: #43 — MERGED at the audited control parent
 Authorized Bridge branch: `codex/task050-wp04-control-bridge`
-Bridge PR: pending Draft PR creation
+Bridge PR: #44 — https://github.com/Lost0rz/RemoteOrbit/pull/44 — OPEN / DRAFT / UNMERGED
 
 ## Authorization
 

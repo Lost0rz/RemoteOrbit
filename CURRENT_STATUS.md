@@ -7,9 +7,9 @@ Remote control authority: `main`
 Control mode: `FILE_CONTROL`
 Audited control parent: `a02859e5df597ec7094eda5ac05116c67b0f9d2e`
 WP03 preparation merge: `a02859e5df597ec7094eda5ac05116c67b0f9d2e` (PR #43)
-WP04 control transition: initial paired commit is a direct child of the audited parent
+WP04 control transition commit: `62aa07ce0e1a2c47c86ed1a840a4930d2b76a1f0` (direct child of the audited parent)
 Authorized bridge branch: `codex/task050-wp04-control-bridge`
-Bridge PR: pending Draft PR creation
+Bridge PR: #44 — https://github.com/Lost0rz/RemoteOrbit/pull/44 — OPEN / DRAFT / UNMERGED
 
 ## Task 050 / WP04 control bridge
 
