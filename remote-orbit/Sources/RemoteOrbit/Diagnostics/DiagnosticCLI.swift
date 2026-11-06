@@ -71,7 +71,7 @@ enum DiagnosticCLI {
                     sessionID: sessionID
                 ) else {
                     errorOutput(
-                        "diagnostics: no persisted audio continuity trace for session \(sessionID)"
+                        "diagnostics: no usable persisted audio continuity statistics or trace for session \(sessionID)"
                     )
                     return 65
                 }
@@ -354,9 +354,11 @@ enum DiagnosticCLI {
       --since-unix-ms <timestamp>
       --until-unix-ms <timestamp>
 
-    The CLI is read-only. The audio-continuity command derives Task 049 timing and
-    supply-rate evidence from already persisted DiagnosticAuthority session traces;
-    it does not add work to the production BLE or CoreAudio callbacks. The CLI has
-    no restart, reset, repair, install, delete, clear, or settings mutation commands.
+    The CLI is read-only. The audio-continuity command uses persisted per-second
+    audio-supply statistics as the authoritative supply-window source for new
+    sessions; retained session traces provide supplemental latency evidence and
+    explicitly labeled legacy windows for historical sessions. It does not add work
+    to production BLE or CoreAudio callbacks. The CLI has no restart, reset, repair,
+    install, delete, clear, or settings mutation commands.
     """
 }

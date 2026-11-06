@@ -1,6 +1,8 @@
 import Foundation
 
 enum BLEAudioContinuityDiagnosticReport {
+    private static let statisticsKey = "per_second_audio_supply_statistics"
+
     static func make(
         events: [DiagnosticEvent],
         sessionID: String
@@ -19,37 +21,63 @@ enum BLEAudioContinuityDiagnosticReport {
             unsigned($0["audio_stream_id"])
         }
 
-        let points = relevant
-            .filter { $0.eventType == "voice.session.trace" }
-            .flatMap { event -> [LongTermObservationPoint] in
-                guard case .array(let observations)? = event.payload["observations"] else {
-                    return []
-                }
-                return observations.compactMap(parsePoint)
-            }
-        guard !points.isEmpty else { return nil }
+        let persistedStatistics = summaryObject?[statisticsKey]
+        let hasStatisticsField = summaryObject?.keys.contains(statisticsKey) == true
+        let statistics = persistedStatistics.flatMap(object)
+        // A non-null but malformed new-format payload is not a historical session.
+        // Fail closed instead of silently substituting trace-derived supply data.
+        let statisticsAreNull = persistedStatistics.map {
+            if case .null = $0 { return true }
+            return false
+        } ?? false
+        guard !hasStatisticsField || statisticsAreNull || statistics != nil else {
+            return nil
+        }
+        let statisticsWindows: [DiagnosticJSONValue]?
+        if let statistics {
+            guard case .array(let windows)? = statistics["windows"],
+                  windows.allSatisfy({ object($0) != nil }) else { return nil }
+            statisticsWindows = windows
+        } else if hasStatisticsField {
+            statisticsWindows = []
+        } else {
+            statisticsWindows = nil
+        }
 
-        let analysis = BLEAudioContinuityAnalysis.analyze(
+        let traceEvents = relevant.filter { $0.eventType == "voice.session.trace" }
+        let observations = traceEvents.flatMap { event -> [DiagnosticJSONValue] in
+            guard case .array(let observations)? = event.payload["observations"] else {
+                return []
+            }
+            return observations
+        }
+        let points = observations.compactMap(parsePoint)
+        guard hasStatisticsField || !points.isEmpty else { return nil }
+
+        let analysis = points.isEmpty ? nil : BLEAudioContinuityAnalysis.analyze(
             points: points,
             audioStartNanoseconds: audioStart,
             handlerStartNanoseconds: activeStart,
             streamID: streamID
         )
-        return [
-            "session_id": sessionID,
-            "stream_id": streamID.map { NSNumber(value: $0) as Any } ?? NSNull(),
-            "ingress_to_submit_latency": [
-                "metric": "ble_arrival_to_pcm_submit",
-                "sample_count": analysis.ingressToSubmitLatency.sampleCount,
-                "p50_us": analysis.ingressToSubmitLatency.p50Microseconds,
-                "p95_us": analysis.ingressToSubmitLatency.p95Microseconds,
-                "p99_us": analysis.ingressToSubmitLatency.p99Microseconds,
-                "max_us": analysis.ingressToSubmitLatency.maxMicroseconds,
-                "gt5ms": analysis.ingressToSubmitLatency.over5Milliseconds,
-                "gt10ms": analysis.ingressToSubmitLatency.over10Milliseconds,
-                "gt15ms": analysis.ingressToSubmitLatency.over15Milliseconds,
-            ],
-            "supply_windows": analysis.supplyWindows.map { window in
+        let trace = traceEvidence(
+            events: traceEvents,
+            parsedPointCount: points.count,
+            unparsedObservationCount: observations.count - points.count
+        )
+        let latency = latencyReport(
+            analysis?.ingressToSubmitLatency,
+            traceStatus: trace.status
+        )
+
+        let supplyWindows: [[String: Any]]
+        let supplyWindowSource: String
+        if let statisticsWindows {
+            supplyWindowSource = statisticsKey
+            supplyWindows = statisticsWindows.map(dictionaryValue)
+        } else {
+            supplyWindowSource = "legacy_voice_session_trace"
+            supplyWindows = (analysis?.supplyWindows ?? []).map { window in
                 [
                     "index": window.index,
                     "start_ms": Double(window.startNanoseconds) / 1_000_000,
@@ -63,9 +91,131 @@ enum BLEAudioContinuityDiagnosticReport {
                     "queue_start_frames": window.queueDepthStartFrames.map { NSNumber(value: $0) as Any } ?? NSNull(),
                     "queue_end_frames": window.queueDepthEndFrames.map { NSNumber(value: $0) as Any } ?? NSNull(),
                     "trace_contiguous": window.traceContiguous,
+                    "validity": window.traceContiguous ? "LEGACY_CONTIGUOUS" : "LEGACY_INCOMPLETE",
+                    "evidence_source": "legacy_voice_session_trace",
                 ] as [String: Any]
-            },
+            }
+        }
+
+        return [
+            "report_schema_version": 2,
+            "session_id": sessionID,
+            "stream_id": streamID.map { NSNumber(value: $0) as Any } ?? NSNull(),
+            "supply_window_source": supplyWindowSource,
+            "legacy_only": !hasStatisticsField,
+            "supply_statistics_status": statistics == nil ? "UNAVAILABLE" : "AVAILABLE",
+            statisticsKey: statistics.map { foundationValue(.object($0)) } ?? NSNull(),
+            "supply_windows": supplyWindows,
+            "legacy_trace_evidence": trace.dictionary,
+            // Kept for the existing CLI consumer shape; the fields explicitly mark
+            // this latency view as supplemental trace evidence, never supply data.
+            "ingress_to_submit_latency": latency,
         ]
+    }
+
+    private static func latencyReport(
+        _ summary: BLEAudioHandlerLatencySummary?,
+        traceStatus: String
+    ) -> [String: Any] {
+        let sampleCount = summary?.sampleCount ?? 0
+        let hasSamples = sampleCount > 0
+        return [
+            "metric": "ble_arrival_to_pcm_submit",
+            "role": "supplemental",
+            "evidence_source": "legacy_voice_session_trace",
+            "trace_status": traceStatus,
+            "sample_count": sampleCount,
+            "p50_us": hasSamples ? summary?.p50Microseconds as Any : NSNull(),
+            "p95_us": hasSamples ? summary?.p95Microseconds as Any : NSNull(),
+            "p99_us": hasSamples ? summary?.p99Microseconds as Any : NSNull(),
+            "max_us": hasSamples ? summary?.maxMicroseconds as Any : NSNull(),
+            "gt5ms": summary?.over5Milliseconds ?? 0,
+            "gt10ms": summary?.over10Milliseconds ?? 0,
+            "gt15ms": summary?.over15Milliseconds ?? 0,
+        ]
+    }
+
+    private static func traceEvidence(
+        events: [DiagnosticEvent],
+        parsedPointCount: Int,
+        unparsedObservationCount: Int
+    ) -> TraceEvidence {
+        guard !events.isEmpty else {
+            return TraceEvidence(
+                status: "MISSING",
+                expectedChunkCount: nil,
+                observedChunkCount: 0,
+                droppedObservationCount: 0,
+                unparsedObservationCount: 0
+            )
+        }
+
+        let captureGroups = Dictionary(grouping: events) {
+            string($0.payload["capture_id"]) ?? "__missing_capture_id__"
+        }
+        var expectedChunkCount: UInt64 = 0
+        var observedChunkCount = 0
+        var chunksComplete = true
+        for captureEvents in captureGroups.values {
+            let chunkCounts = Set(captureEvents.compactMap {
+                unsigned($0.payload["chunk_count"])
+            })
+            guard chunkCounts.count == 1,
+                  let expected = chunkCounts.first,
+                  expected > 0,
+                  expected <= UInt64(Int.max) else {
+                chunksComplete = false
+                continue
+            }
+            let indexes = Set(captureEvents.compactMap { event -> UInt64? in
+                guard let index = unsigned(event.payload["chunk_index"]),
+                      index < expected else { return nil }
+                return index
+            })
+            expectedChunkCount = saturatingAdd(expectedChunkCount, expected)
+            observedChunkCount += indexes.count
+            chunksComplete = chunksComplete && indexes.count == Int(expected)
+        }
+        let droppedObservationCount = events.reduce(UInt64(0)) { total, event in
+            let dropped = unsigned(event.payload["dropped_observations"]) ?? 0
+            let (sum, overflow) = total.addingReportingOverflow(dropped)
+            return overflow ? UInt64.max : sum
+        }
+        let complete = parsedPointCount > 0
+            && unparsedObservationCount == 0
+            && expectedChunkCount > 0
+            && chunksComplete
+            && droppedObservationCount == 0
+        return TraceEvidence(
+            status: complete ? "COMPLETE" : "INCOMPLETE",
+            expectedChunkCount: expectedChunkCount > 0 ? expectedChunkCount : nil,
+            observedChunkCount: observedChunkCount,
+            droppedObservationCount: droppedObservationCount,
+            unparsedObservationCount: unparsedObservationCount
+        )
+    }
+
+    private static func saturatingAdd(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? UInt64.max : sum
+    }
+
+    private struct TraceEvidence {
+        let status: String
+        let expectedChunkCount: UInt64?
+        let observedChunkCount: Int
+        let droppedObservationCount: UInt64
+        let unparsedObservationCount: Int
+
+        var dictionary: [String: Any] {
+            [
+                "status": status,
+                "expected_chunk_count": expectedChunkCount.map { NSNumber(value: $0) as Any } ?? NSNull(),
+                "observed_chunk_count": observedChunkCount,
+                "dropped_observation_count": droppedObservationCount,
+                "unparsed_observation_count": unparsedObservationCount,
+            ]
+        }
     }
 
     private static func parsePoint(_ value: DiagnosticJSONValue) -> LongTermObservationPoint? {
@@ -137,5 +287,31 @@ enum BLEAudioContinuityDiagnosticReport {
         guard let value else { return nil }
         if case .null = value { return nil }
         return unsigned(value)
+    }
+
+    private static func foundationValue(_ value: DiagnosticJSONValue) -> Any {
+        switch value {
+        case .null:
+            return NSNull()
+        case .bool(let value):
+            return NSNumber(value: value)
+        case .integer(let value):
+            return NSNumber(value: value)
+        case .unsignedInteger(let value):
+            return NSNumber(value: value)
+        case .double(let value):
+            return NSNumber(value: value)
+        case .string(let value):
+            return value
+        case .array(let values):
+            return values.map(foundationValue)
+        case .object(let values):
+            return values.mapValues(foundationValue)
+        }
+    }
+
+    private static func dictionaryValue(_ value: DiagnosticJSONValue) -> [String: Any] {
+        guard case .object(let object) = value else { return [:] }
+        return object.mapValues(foundationValue)
     }
 }
