@@ -1,27 +1,27 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-06
-State: `RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 / WP03 — ACTIVE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 / WP04 — ACTIVE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Remote control authority: `main`
 Control mode: `FILE_CONTROL`
-Audited control parent: `0b1d3bef345c6d019240f136c875e01a91d25c0e`
-Control transition commit: `4bcca00441e20d64403076a286e925ad04488d29`
-Policy commit: `69470e3caa66c62dff151cc705ddae1eb393fbd8`
-Authorized preparation branch: `codex/task050-wp03-approver-policy`
-Preparation PR: #43 — https://github.com/Lost0rz/RemoteOrbit/pull/43 — OPEN / DRAFT / UNMERGED
+Audited control parent: `a02859e5df597ec7094eda5ac05116c67b0f9d2e`
+WP03 preparation merge: `a02859e5df597ec7094eda5ac05116c67b0f9d2e` (PR #43)
+WP04 control transition: initial paired commit is a direct child of the audited parent
+Authorized bridge branch: `codex/task050-wp04-control-bridge`
+Bridge PR: pending Draft PR creation
 
-## Task 050 / WP03 control transition
+## Task 050 / WP04 control bridge
 
-The user-provided card `RO-GOVERNANCE-050-WP03-EXEC-001` authorizes the FILE_CONTROL transition, the three named governance-file changes, publication of the preparation branch and one Draft PR. Issue #42 revision 2 remains an unapproved planning reference. ISSUE_CONTROL has not been activated.
+The user-provided card `RO-GOVERNANCE-050-WP04-CONTROL-BRIDGE-001` explicitly authorizes the WP03 to WP04 FILE_CONTROL transition and one exceptional control-only Draft PR changing only `CURRENT_TASK.md` and `CURRENT_STATUS.md`. PR #43 merged as `a02859e5df597ec7094eda5ac05116c67b0f9d2e`; its post-merge CI run `42175301091` succeeded on that exact commit. The merged `AGENTS.md` accepts `ISSUE_APPROVERS: Lost0rz`; `CONTROL_MODE` remains `FILE_CONTROL`.
 
-The proposed `ISSUE_APPROVERS: Lost0rz` policy becomes accepted only after the preparation PR is independently reviewed and merged with separate user authorization. Its presence on this branch does not authorize Issue execution or constitute a spec approval.
+This bridge reconciles POST_MERGE_DRIFT: main's Task and Status still identify WP03 as active, say PR #43 is open/unmerged, and wait for the independent audit that was completed before the merge. Issue #41 and #42 remain revision 2 drafts; neither has a matching `SPEC_APPROVAL_V1`. No Issue body or comment is changed by this bridge. Do not switch to ISSUE_CONTROL.
 
-## Preserved Task 049 workstream (non-writing during WP03)
+## Preserved Task 049 workstream (non-writing during this bridge)
 
-Task `RO-AUDIO-CONTINUITY-DIAGNOSTIC-049` remains unfinished at `WAITING_FOR_FRESH_HARDWARE_CAPTURE`. Its objective is to classify the decoded-PCM supply-deficit boundary from fresh RC003 evidence; `ROOT_CAUSE_STATUS` remains `UNKNOWN`. No Task 049 action is authorized during WP03.
+Task `RO-AUDIO-CONTINUITY-DIAGNOSTIC-049` remains unfinished at `WAITING_FOR_FRESH_HARDWARE_CAPTURE`. Its objective is to classify the decoded-PCM supply-deficit boundary from fresh RC003 evidence; `ROOT_CAUSE_STATUS` remains `UNKNOWN`. No Task 049 execution or hardware capture is authorized during this Task 050 bridge stage; Issue #41 remains a non-authoritative draft under FILE_CONTROL.
 
-PR #40 remains the separate product-diagnostics PR. Current GitHub evidence: OPEN / DRAFT / UNMERGED, head `1d6370cb9a9bfa1f1d8bff10095f149fefe89288`, base branch `main`, reported base ref `15f213d9bb81986685e751d89753fd7f293e108b`. Current remote main is `0b1d3bef345c6d019240f136c875e01a91d25c0e`; preserve this observed base-ref difference for later Task 049 reconciliation. Do not update or otherwise modify PR #40 here.
+PR #40 remains the separate product-diagnostics PR. Current GitHub evidence: OPEN / DRAFT / UNMERGED, head `1d6370cb9a9bfa1f1d8bff10095f149fefe89288`, base branch `main`, reported base ref `15f213d9bb81986685e751d89753fd7f293e108b`. Current remote main is `a02859e5df597ec7094eda5ac05116c67b0f9d2e`; preserve the observed base-ref difference for later Task 049 reconciliation. Do not update or otherwise modify PR #40 here.
 
 ### Accepted release baseline
 
@@ -48,10 +48,10 @@ Remote implementation is complete at PR #40 head `1d6370cb9a9bfa1f1d8bff10095f14
 - Exact-head CI run `41628598574`: SUCCESS; 513 Swift tests passed; Native Release build and build-only packaging smoke passed; exact-diff audit passed.
 - These are historical machine results; fresh RC003 capture and human hardware acceptance remain pending.
 
-The hardware gate requires an instrumented Task 049 build, persisted `voice.session.summary` / `voice.session.trace`, normal handler summary logs, session IDs and a read-only report. No capture is authorized by the current Task 050 WP03.
+The hardware gate requires an instrumented Task 049 build, persisted `voice.session.summary` / `voice.session.trace`, normal handler summary logs, session IDs and a read-only report. No capture is authorized by the current Task 050 WP04 Bridge stage.
 
 ## Workspace and next gate
 
-The canonical local checkout is `/Volumes/Jack-Dev/Projects/RemoteOrbit`. Before this transition it was clean and detached at the PR #40 head; local `main` was fast-forwarded to the audited main without rewriting history. The separate Engineering-Governance source checkout and its pre-existing `.agents/plugins/marketplace.json` modification are outside this task and remain untouched.
+The canonical local checkout is `/Volumes/Jack-Dev/Projects/RemoteOrbit`, now on `codex/task050-wp04-control-bridge` based on fetched `origin/main` at `a02859e5df597ec7094eda5ac05116c67b0f9d2e`. It had one registered RemoteOrbit worktree and no unique local changes before this transition. The separate Engineering-Governance source checkout and its pre-existing `.agents/plugins/marketplace.json` modification are outside this task and remain untouched.
 
-The PR existed at policy commit `69470e3caa66c62dff151cc705ddae1eb393fbd8`; the paired control-file update is now part of the same PR and advances its branch head. Independent Web audit must review the final live PR head. Do not merge. FILE_CONTROL remains authoritative until a separately authorized, verified migration PR merge.
+The bridge changes only the paired Task/Status files. Independent Web audit must review the final live Bridge PR head. Keep it Draft and unmerged. After its verified merge, resume WP04 Issue-spec reconciliation and approval preparation under FILE_CONTROL; actual `SPEC_APPROVAL_V1` comments remain owner-authored. PR #40 remains separate and must stay OPEN / DRAFT / UNMERGED.
