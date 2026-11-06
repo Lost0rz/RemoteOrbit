@@ -2,7 +2,7 @@
 
 ## RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 — delegated approval policy migration
 
-Status: `ACTIVE / IN_PROGRESS`
+Status: `ACTIVE / READY_FOR_DRAFT_PR`
 TASK_CLASS: `GOVERNANCE / CONTROL-PLANE`
 Repository: `Lost0rz/RemoteOrbit`
 Control mode: `FILE_CONTROL`
@@ -14,11 +14,11 @@ Authorized branch: `codex/task050-delegated-approval-policy`
 
 The user-provided card `RO-GOVERNANCE-050-DELEGATED-APPROVAL-POLICY-001` explicitly authorizes a narrowly scoped delegated Issue approval policy migration, a paired task/status control transition as the first commit, focused official validator positive/negative checks, and one Draft PR for independent audit. It does not authorize automatic merge, ISSUE_CONTROL cutover, Issue body edits or approval comments during this policy-PR phase, or any product/audio/runtime change.
 
-The first commit must update `CURRENT_TASK.md` and `CURRENT_STATUS.md` together as a direct child of the audited main parent above. The policy PR may change only `AGENTS.md`, `CURRENT_TASK.md`, and `CURRENT_STATUS.md`. Keep the local Bridge branch and the separate dirty Engineering-Governance checkout intact.
+The first paired-control commit updated `CURRENT_TASK.md` and `CURRENT_STATUS.md` together as a direct child of the audited main parent above: `d4008e199a15cbf69a350acad6dfdaa2c88758b9`. The policy PR may change only `AGENTS.md`, `CURRENT_TASK.md`, and `CURRENT_STATUS.md`. Keep the local Bridge branch and the separate dirty Engineering-Governance checkout intact.
 
 ## Objective
 
-Add `ISSUE_DELEGATED_APPROVAL: ENABLED` as one operative declaration in `AGENTS.md` while preserving `CONTROL_MODE: FILE_CONTROL` and the direct human-authored `SPEC_APPROVAL_V1` rule. Delegation is a lower-assurance, exact-spec GitHub approval path only; it does not authorize Issue execution under FILE_CONTROL or enable cutover.
+Propose `ISSUE_DELEGATED_APPROVAL: ENABLED` as one operative declaration in `AGENTS.md` while preserving `CONTROL_MODE: FILE_CONTROL` and the direct human-authored `SPEC_APPROVAL_V1` rule. The declaration exists on this branch only and is not accepted policy until reviewed merge to main. Delegation is a lower-assurance, exact-spec GitHub approval path only; it does not authorize Issue execution under FILE_CONTROL or enable cutover.
 
 ## Policy requirements
 
@@ -30,14 +30,13 @@ Add `ISSUE_DELEGATED_APPROVAL: ENABLED` as one operative declaration in `AGENTS.
 
 ## Verification
 
-- Use the installed official Engineering Governance `issue-spec-check.py` and its corresponding tests without modifying the plugin installation or source checkout.
-- Run delegated positive and negative examples, including default-off rejection, exact matching opt-in acceptance, digest mismatch rejection, and trusted actor/provenance enforcement.
-- Run focused governance checks (`git diff --check`, exact changed-path review, accepted-policy declaration count); do not run Swift/product tests.
+- The installed official Engineering Governance 0.8.1 `test_issue_spec_check.py` suite completed: 34 tests passed, including default-off rejection, exact matching opt-in acceptance, stale digest rejection, and trusted actor/provenance enforcement. No plugin installation or source checkout was modified.
+- `git diff --check` passed; the exact change set remains limited to `AGENTS.md`, `CURRENT_TASK.md`, and `CURRENT_STATUS.md`; do not run Swift/product tests.
 - Do not modify Issues #41/#42 or post any approval comment in this policy-PR phase.
 
 ## PR delivery and stop boundary
 
-Create one Draft PR from the audited main parent and keep it unmerged. Update the paired controls in the same commit when recording the PR identity. Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not mark Ready or merge.
+Next create one Draft PR from the audited main parent and keep it unmerged. After PR creation, update the paired controls in the same commit to record its identity. Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not mark Ready or merge.
 
 ## After independent audit and merge
 
