@@ -2,169 +2,74 @@
 
 ## Mandatory startup contract
 
-Before changing code, diagnostics, packaging, runtime configuration, tests, or project
-state, read these files in order:
+Before any project-state-changing action:
 
-1. `AGENTS.md` — durable project rules.
-2. `CURRENT_STATUS.md` — current repository/runtime/worktree authority.
-3. `CURRENT_TASK.md` — the only currently authorized work scope.
+1. Read this file for the accepted durable rules and control mode.
+2. Resolve the canonical repository and authoritative `main` from live Git evidence.
+3. Select one explicit GitHub Issue and read its current body and comments using the authenticated local GitHub client. Confirm canonical repository, Issue number, `TASK_ID`, `SPEC_REVISION`, canonical digest, trusted approval, and applicable Work Package before changing state.
+4. Read `README.md`, `SETUP_NOTES.md`, and the documents relevant to the requested subsystem.
 
-Do not use chat history, remembered branch names, stale local notes, or an old worktree
-as a substitute for these files.
+Do not use chat history, remembered branch names, stale local notes, or a handoff card as a substitute for accepted repository authority. A handoff carries authority references and a bounded delta; it does not create or expand task authority.
 
-If the local branch, HEAD, worktree, PR, installed runtime, or other material identity
-does not match `CURRENT_STATUS.md`, do not continue production mutation. Perform a
-read-only reconciliation first, update the state record, and only then resume work.
+If local branch, HEAD, worktree, remote Issue, PR, installed runtime, or other material identity is stale, ambiguous, or mismatched, perform read-only reconciliation and stop the affected mutation until it is resolved. Do not reset, clean, stash, rewrite history, prune, or delete work to hide a mismatch.
 
-If the requested work is outside `CURRENT_TASK.md`, update and explicitly re-freeze
-the task before implementation. One active task/worktree is the default; parallel
-work must be explicitly recorded.
-
-Before changing code, packaging, runtime configuration, or diagnostics, also read
-[README.md](README.md), [SETUP_NOTES.md](SETUP_NOTES.md), and the documents relevant
-to the requested subsystem.
+If the requested work is outside the selected Issue's approved scope, stop. A material scope change requires a new Issue revision, canonical digest, and matching approval before the affected mutation.
 
 ## Authority model
 
-- `AGENTS.md` owns durable engineering/process rules.
-- `CURRENT_STATUS.md` owns mutable current-state facts and must distinguish
-  remote-verified facts from local-only or unverified facts.
-- `CURRENT_TASK.md` owns the active scope, non-goals, next action, and completion
-  criteria.
-- Git, GitHub, and runtime evidence are evidence used to update these records; they
-  do not justify silently bypassing a recorded mismatch.
-- A conversation is not a state database.
-- An open PR, existing branch, registered worktree, or remembered checkout is not
-  active merely because it exists.
+- `AGENTS.md` owns durable engineering and process rules and selects the accepted control mode.
+- In accepted `ISSUE_CONTROL`, one selected, approved GitHub Issue revision owns the active task scope, Work Packages, non-goals, STOP conditions, and completion criteria.
+- Approval, revocation, and execution receipts belong in comments on that same Issue. GitHub PR, CI, commit, and release records remain the authorities for their respective delivery facts.
+- Root `CURRENT_TASK.md` and `CURRENT_STATUS.md` are retired from active authority after the migration PR is merged. Their prior contents remain in Git history; do not create or rely on duplicate live task/status controls.
+- Project Profile, Domain maps, planning documents, handoffs, audits, CI/test results, and PR observations do not independently authorize execution.
 
-After a material transition (new active worktree, branch/HEAD change, PR
-creation/closure, task handoff, runtime identity change, or accepted conclusion),
-update the relevant current-state/task record as part of the transition.
+After a material execution or delivery transition, update the selected Issue with a bounded, verifiable receipt when its Work Package requires it. Do not create a second task authority to mirror Issue progress.
 
 ## Control mode and Issue approver policy
 
-CONTROL_MODE: FILE_CONTROL
+CONTROL_MODE: ISSUE_CONTROL
 ISSUE_APPROVERS: Lost0rz
 ISSUE_DELEGATED_APPROVAL: ENABLED
 
-FILE_CONTROL remains the sole task authority until a separately authorized and
-verified migration PR is merged to the authoritative `main`. The declarations in a
-preparation branch are proposed policy only; they become accepted repository
-policy only after reviewed merge to `main`. Their presence on a branch does not
-authorize Issue execution or approve an Issue specification.
+These declarations become accepted repository policy only when the authorized migration PR is merged to the authoritative `main` and the merge is verified. A branch or Draft PR containing these declarations does not itself perform cutover. Until that event, accepted `main` remains under its previously accepted control mode and work must stay within the current accepted task authorization.
 
-If a later separately authorized transition adopts `ISSUE_CONTROL`, an Issue
-specification requires a matching approval before execution. The strict direct
-path is a separate `SPEC_APPROVAL_V1` comment authored by the actual authenticated
-GitHub user listed in `ISSUE_APPROVERS`; it must bind the canonical repository,
-Issue, `TASK_ID`, `SPEC_REVISION` and `SPEC_SHA256`, and state
-`DECISION: APPROVED_FOR_EXECUTION`. An agent or connector must never represent
-its own account-proxy comment as a directly human-authored `SPEC_APPROVAL_V1` or
-synthesize one on an approver's behalf.
+For every state-changing operation, select exactly one canonical repository, Issue, `TASK_ID`, `SPEC_REVISION`, and `SPEC_SHA256`. Using the authenticated local GitHub client and the installed official Governance verifier, verify that the current Issue is open and its exact digest is approved by a trusted author before acting. If the Issue or verifier cannot be read, stop. Verify local `gh` identity and access for any required Issue write; connector access alone is not proof of local CLI capability. Labels, PR metadata, approval-like prose, or a handoff card cannot replace that verification or expand an approved Work Package.
 
-This repository explicitly opts in to the lower-assurance
-`SPEC_DELEGATED_APPROVAL_V1` path through the single operative
-`ISSUE_DELEGATED_APPROVAL: ENABLED` declaration above. Only Web Agent A may use
-this narrow GitHub comment exception, and only after the user explicitly approves
-the exact current Issue specification in the present conversation after review of
-its repository, Issue, task, revision, canonical digest, impact and material
-changes. A delegated comment must use the distinct `SPEC_DELEGATED_APPROVAL_V1`
-identifier and the official fields `REPOSITORY`, `ISSUE`, `TASK_ID`,
-`SPEC_REVISION`, `SPEC_SHA256`, `DECISION`, `AUTHORIZATION_CHANNEL`,
-`USER_DECISION`, `USER_DECISION_SUMMARY` and `PROVENANCE`. Set
-`AUTHORIZATION_CHANNEL: CHATGPT_WEB`,
-`USER_DECISION: EXPLICIT_APPROVAL_OF_CURRENT_SPEC`, and
-`PROVENANCE: ACCOUNT_PROXY_NO_INDEPENDENT_CHAT_PROOF`; the summary must truthfully
-describe the user's explicit decision without sensitive content. The comment
-author must be an authenticated login in `ISSUE_APPROVERS`. The official verifier
-must confirm the Issue is open, all fields and the exact current digest match,
-there is no revocation or conflicting revision hash, and report
-`DELEGATED_ACCOUNT_ATTESTED`. This is an AI account-proxy attestation with lower
-assurance, not independent proof of user intent. A materially changed spec needs
-a new revision, digest and explicit user decision; approval of a prior revision
-does not carry forward.
+The direct approval path is a separate `SPEC_APPROVAL_V1` comment authored by the actual authenticated GitHub user listed in `ISSUE_APPROVERS`. It must bind the canonical repository, Issue, `TASK_ID`, `SPEC_REVISION`, and `SPEC_SHA256`, and state `DECISION: APPROVED_FOR_EXECUTION`. An execution agent or connector must not author or synthesize direct approval on an approver's behalf or approve its own work.
 
-This delegated exception grants no general GitHub Issue write, repository source,
-branch, PR lifecycle, merge, release or cutover authority. It does not change
-`FILE_CONTROL`, authorize Issue execution while `FILE_CONTROL` remains active, or
-let an execution agent approve its own implementation. Local Codex owns only
-locally authorized execution, focused verification and verifiable implementation
-receipts. Web Agent A otherwise remains read-only for project audit, design review
-and status/evidence reading. A handoff card transports authority references and
-scope; it never replaces accepted repository task authority.
+This repository explicitly opts in to the lower-assurance `SPEC_DELEGATED_APPROVAL_V1` path through the single operative declaration above. Only Web Agent A may use this narrow GitHub approval proxy, and only after the user explicitly approves the exact current Issue specification in the present conversation after reviewing its repository, Issue, task, revision, canonical digest, impact, and material changes. A delegated comment must use the distinct identifier and official fields `REPOSITORY`, `ISSUE`, `TASK_ID`, `SPEC_REVISION`, `SPEC_SHA256`, `DECISION`, `AUTHORIZATION_CHANNEL`, `USER_DECISION`, `USER_DECISION_SUMMARY`, and `PROVENANCE`; set `AUTHORIZATION_CHANNEL: CHATGPT_WEB`, `USER_DECISION: EXPLICIT_APPROVAL_OF_CURRENT_SPEC`, and `PROVENANCE: ACCOUNT_PROXY_NO_INDEPENDENT_CHAT_PROOF`. The summary must truthfully describe the user's explicit decision without sensitive content. The authenticated comment author must be listed in `ISSUE_APPROVERS`. The official verifier must confirm the Issue is open, the complete record and exact current digest match, and there is no revocation or conflicting revision hash; report the lower-assurance result as `DELEGATED_ACCOUNT_ATTESTED`. This is an account-proxy attestation, not independent proof of user intent. A materially changed specification needs a new revision, digest, and explicit user decision.
 
-## Control-plane transition protocol
+Delegated approval grants no general GitHub Issue write, repository source, branch, PR lifecycle, merge, release, or cutover authority. It does not authorize execution outside the exact approved Issue scope or permit an execution agent to approve its own implementation.
 
-A material control-plane transition includes any change to:
+Web Agent A owns remote read-only project audit, specification/design review, and status/evidence reading, with only the narrow delegated-approval exception described above. Local Codex owns verification and implementation that are separately authorized by the selected Issue, focused validation, and verifiable execution receipts on that same Issue. Neither role receives broader authority through a card or connector.
 
-- the task name or phase;
-- the set of authorized side effects;
-- the single ACTIVE PR/branch/worktree authority;
-- a lifecycle decision that enables closing, merging, deleting, pruning, installing,
-  releasing, or otherwise mutating project state.
+## Issue-control execution and transition protocol
 
-Such a transition is valid only when one of these is true:
+A material control-plane transition includes changing the active task or phase, authorized side effects, the active Issue/PR/workspace, or a lifecycle decision that enables merge, release, deletion, or other project-state mutation. Such a transition is valid only when the selected approved Issue's completion gate names it and its evidence is satisfied, or the user explicitly authorizes that exact transition under the currently accepted control mode.
 
-1. the user explicitly authorized that transition in the current request; or
-2. the current task's completion gate explicitly names that exact next transition
-   and the gate has been satisfied with evidence.
+Before each material transition:
 
-An agent must not advance to a "logical next phase" on its own.
+1. Read the live authoritative main, selected Issue, relevant PR/ref, and active local branch/worktree.
+2. Revalidate exact Issue revision, digest, approval, revocation state, and current Work Package against the proposed action.
+3. Keep all changes within that Work Package's allowed operations and safety limits. A new material scope requires a new Issue revision and approval.
+4. Record required decisions or outcomes on the same Issue; preserve GitHub as authority for commits, PR, CI, and merge events.
+5. If an approval, Issue body, writer, or authoritative ref changes during the operation, stop and reconcile before continuing.
 
-For every material transition:
-
-1. read the current control-plane branch HEAD;
-2. revalidate the current task/status against direct evidence;
-3. update `CURRENT_STATUS.md` and `CURRENT_TASK.md` in the **same Git commit**;
-4. make that commit a direct child of the HEAD that was audited;
-5. move the branch by fast-forward only;
-6. if the branch HEAD changed before publication, abort the transition, re-read all
-   three files, and restart reconciliation.
-
-A task/status split across separate commits is not an authoritative transition.
-If `CURRENT_STATUS.md` and `CURRENT_TASK.md` disagree about phase, authority, or
-allowed side effects, STOP all state-changing work.
-
-Any detected concurrent control-plane write invalidates an in-progress quality-audit
-PASS count. Reconcile first and restart the audit count from zero.
+Do not update or recreate the retired root task/status files as a parallel control plane. Control-mode migration itself takes effect only after the migration PR has been independently audited, separately authorized for merge, merged to authoritative main, and verified there. Before the merge, do not claim cutover or use proposed branch policy to bypass accepted main authority.
 
 ### PR metadata is evidence, not task authority
 
-The open/closed/draft state of a PR is an observed repository fact. It does not
-grant, revoke, or advance task authority by itself.
+The open/closed/draft state of a PR is an observed repository fact. It does not grant, revoke, or advance task authority by itself.
 
-If PR metadata changes out-of-band:
-
-- treat it as state drift;
-- preserve the lifecycle classification separately from the current PR state;
-- update CURRENT_STATUS with the observed fact;
-- do not infer a new task or phase;
-- do not reopen/close/merge another PR unless CURRENT_TASK explicitly authorizes
-  that exact mutation.
-
-The control-plane branch plus CURRENT_TASK remains task authority even if its PR is
-temporarily closed or PR metadata is changed by another session.
+If PR metadata changes out of band, treat it as state drift; preserve lifecycle classification separately from current PR state; and do not infer a new task or phase. Do not open, close, mark ready, or merge a PR unless the selected approved Issue or the user's current explicit authorization permits that exact action.
 
 ### Live branch identity is not the same as PR head identity
 
-When a branch is the active authority, resolve its current ref directly from the
-repository branch/ref state.
-
-Do not use a pull request's `head_sha` as a proxy for the live branch HEAD after
-the PR has been closed. A closed PR can retain the head SHA from the moment it was
-closed while the underlying branch continues to advance.
-
-Therefore:
-
-- branch authority checks use the live branch ref;
-- PR head SHA is evidence about the PR snapshot;
-- if they differ, record the difference instead of treating either as an implicit
-  task transition.
+When a branch is the active workspace, resolve its current ref directly from repository branch/ref state. Do not use a PR's `head_sha` as a proxy for live branch HEAD after the PR has been closed. If they differ, record the difference rather than treating either as an implicit task transition.
 
 ## Evidence vocabulary
 
-Use these labels consistently whenever project state or diagnostic conclusions are
-material:
+Use these labels consistently whenever project state or diagnostic conclusions are material:
 
 - **FACT** — directly verified by current evidence.
 - **INFERENCE** — strongly supported by verified facts but not directly observed.
@@ -172,54 +77,30 @@ material:
 - **UNKNOWN** — not established by available evidence.
 - **HISTORICAL** — previously reported/accepted context not verified as current.
 
-Do not promote INFERENCE, HYPOTHESIS, UNKNOWN, or HISTORICAL state to FACT through
-repetition.
+Do not promote INFERENCE, HYPOTHESIS, UNKNOWN, or HISTORICAL state to FACT through repetition.
 
 ## State-drift and freshness gate
 
-Before product implementation or another side-effectful operation, revalidate the
-material authority fields needed by the task. At minimum, when applicable:
+Before product implementation or another side-effectful operation, revalidate the material authority fields needed by the selected Issue. At minimum, when applicable:
 
-- verified canonical RemoteOrbit remote identity and its fetched default branch / remote-tracking `main` (use `origin/main` only when `origin` has been verified as that remote);
-- active PR and relevant PR head;
-- authoritative local worktree path;
-- local branch or detached state;
-- exact local HEAD;
-- clean/dirty/untracked state;
+- verified canonical RemoteOrbit remote identity and fetched authoritative main;
+- selected Issue number, task ID, revision, digest, OPEN state, trusted approval, and revocation/conflict state;
+- active PR and relevant live PR head/base;
+- authoritative local worktree path, local branch or detached state, exact local HEAD, and clean/dirty/untracked state;
 - installed/running runtime identity when runtime evidence matters.
 
-If a material field differs from `CURRENT_STATUS.md`, or the snapshot cannot be
-verified:
+If a material field cannot be verified or differs from the selected approved Issue or live host state, stop the affected mutation and reconcile read-only. Do not auto-reset, clean, stash, checkout, rewrite history, prune/delete a worktree, or reinterpret the task to hide the mismatch. Resume only when the authority and local state are coherent.
 
-1. STOP product mutation.
-2. Do not auto-reset, clean, stash, checkout, rewrite history, prune/delete a
-   worktree, or reinterpret the task to hide the mismatch.
-3. Reconcile read-only.
-4. Update the control files only after update authority is explicit.
-5. Resume only after the state is coherent again.
-
-A remote-only session must not claim current local worktree, installed app, running
-process, driver, LaunchAgent, or TCC state without local evidence.
+A remote-only session must not claim current local worktree, installed app, running process, driver, LaunchAgent, or TCC state without local evidence.
 
 ## Project policy
 
-1. Product behavior and explicitly accepted contracts take precedence over
-   implementation convenience. Do not silently redesign user-visible behavior.
-2. Keep this file limited to durable project rules. Current PR, branch, HEAD,
-   incident, release candidate, and active-task status belong in
-   `CURRENT_STATUS.md` or `CURRENT_TASK.md`.
-3. Do not expand a bounded diagnostic or corrective task into unrelated cleanup,
-   refactoring, packaging, release, or installation work without authorization.
-4. Worktree/branch/PR cleanup is state-changing work. Inventory and classify first;
-   delete, prune, close, merge, or rewrite only when the current task explicitly
-   authorizes it.
-5. Worktree retirement and branch retirement are separate lifecycle actions. A clean
-   worktree may be removed while its local and remote branches are deliberately
-   retained when current task authority proves the branch remains a valid history
-   authority. Never treat worktree removal as implicit branch deletion.
-6. If a cleanup target is already absent before the authorized mutation begins,
-   classify it as reconciliation/drift; do not count the current executor as having
-   performed that deletion.
+1. Product behavior and explicitly accepted contracts take precedence over implementation convenience. Do not silently redesign user-visible behavior.
+2. Keep this file limited to durable project rules. Active task authorization belongs to the selected approved Issue; current PR, branch, CI, merge, and release facts belong to their GitHub records.
+3. Do not expand a bounded Issue Work Package into unrelated cleanup, refactoring, packaging, release, or installation work without authorization.
+4. Worktree/branch/PR cleanup is state-changing work. Inventory and classify first; delete, prune, close, merge, or rewrite only when the selected approved Issue or current explicit user authorization permits that exact mutation.
+5. Worktree retirement and branch retirement are separate lifecycle actions. A clean worktree may be removed while its local and remote branches are deliberately retained when current authority proves the branch remains a valid history authority. Never treat worktree removal as implicit branch deletion.
+6. If a cleanup target is already absent before the authorized mutation begins, classify it as reconciliation/drift; do not count the current executor as having performed that deletion.
 
 ## Durable CI authority
 

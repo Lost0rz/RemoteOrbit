@@ -4,15 +4,16 @@ Status: `DERIVED_PROJECTION`
 Last audited: 2026-11-01
 Source snapshot used for route verification: `eac33e1583565e053335a39ec56427e4dc589765`
 
-This file is a navigation map derived from current source and tests. It does **not** own product behavior, task authority, release state, or runtime facts. When this map conflicts with `AGENTS.md`, `CURRENT_STATUS.md`, `CURRENT_TASK.md`, current implementation authority, or fresh runtime evidence, the owning authority wins and this map must be refreshed.
+This file is a navigation map derived from current source and tests. It does **not** own product behavior, task authority, release state, or runtime facts. When this map conflicts with `AGENTS.md`, the selected approved GitHub Issue, current implementation authority, or fresh runtime evidence, the owning authority wins and this map must be refreshed.
 
 ## Authority and entry points
 
 | Concern | Owner / entry point |
 | --- | --- |
 | Durable product and engineering rules | `AGENTS.md` |
-| Mutable project state | `CURRENT_STATUS.md` |
-| Active execution authorization | `CURRENT_TASK.md` |
+| Active execution authorization and Work Packages | One selected, approved GitHub Issue revision and canonical digest |
+| Approval, revocation, and execution receipts | Comments on that same Issue |
+| Commit, PR, CI, merge, and release evidence | GitHub records for the corresponding artifact |
 | Product overview | `README.md` |
 | Install / operator troubleshooting | `SETUP_NOTES.md` |
 | App entry / top-level orchestration | `remote-orbit/Sources/RemoteOrbit/main.swift` |
@@ -206,8 +207,7 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 **Primary routes**
 
 - `AGENTS.md`
-- `CURRENT_STATUS.md`
-- `CURRENT_TASK.md`
+- The selected approved GitHub Issue and its revision-bound approval/execution comments
 - `.github/workflows/remoteorbit-ci.yml`
 - `docs/README.md`
 - `docs/incidents/README.md`
