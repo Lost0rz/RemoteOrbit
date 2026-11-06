@@ -1,47 +1,49 @@
 # RemoteOrbit Current Task
 
-## RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 — delegated approval policy migration
+## RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 — WP05 ISSUE_CONTROL migration PR
 
-Status: `ACTIVE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+Status: `ACTIVE / WP05 IMPLEMENTATION / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `GOVERNANCE / CONTROL-PLANE`
 Repository: `Lost0rz/RemoteOrbit`
-Control mode: `FILE_CONTROL`
-Control authority: paired `CURRENT_TASK.md` / `CURRENT_STATUS.md` on this authorized policy branch, based on authoritative main
-Audited main parent: `660fc839217cbbb290b506357403c0c110171377`
-Authorized branch: `codex/task050-delegated-approval-policy`
+Accepted control mode on main: `FILE_CONTROL`
+Control authority during this branch: this paired `CURRENT_TASK.md` / `CURRENT_STATUS.md` transaction until the migration PR is merged
+Audited main parent: `9ae4d3ab46b93d2229de4c181aae7461e3c187da`
+Authorized branch: `codex/task050-wp05-issue-control-cutover`
 
 ## Authorization
 
-The user-provided card `RO-GOVERNANCE-050-DELEGATED-APPROVAL-POLICY-001` explicitly authorizes a narrowly scoped delegated Issue approval policy migration, a paired task/status control transition as the first commit, focused official validator positive/negative checks, and one Draft PR for independent audit. It does not authorize automatic merge, ISSUE_CONTROL cutover, Issue body edits or approval comments during this policy-PR phase, or any product/audio/runtime change.
+The user-provided card `RO-GOVERNANCE-050-WP05-CUTOVER-PR-001` authorizes WP05 under the approved Task 050 / Issue #42 Revision 4 scope. The installed official Engineering Governance 0.8.1 verifier returned `STRUCTURE_AND_DELEGATED_APPROVAL_PASS` for Issue #42 Revision 4 digest `6f86c72fd713133246e7287d2f6a252e64eede63da83b6935f88889ab5661bc9`, approval assurance `DELEGATED_ACCOUNT_ATTESTED`, comment `IC_kwDOUD0uu88AAAABjmNoTw`. Issue #41 Revision 4 was independently verified for continuity: digest `6e5ecb8e08411e1c51fb9e9ddf54580e7f9c7fd77ce8f1065fd8ad735065f49c`, comment `IC_kwDOUD0uu88AAAABjmMNzg`, same assurance.
 
-The first paired-control commit updated `CURRENT_TASK.md` and `CURRENT_STATUS.md` together as a direct child of the audited main parent above: `d4008e199a15cbf69a350acad6dfdaa2c88758b9`. The policy PR may change only `AGENTS.md`, `CURRENT_TASK.md`, and `CURRENT_STATUS.md`. Keep the local Bridge branch and the separate dirty Engineering-Governance checkout intact.
+This authorization permits one governance-only migration branch and Draft PR. It does not permit direct changes to main, automatic PR merge, activation of ISSUE_CONTROL before a verified merge, Issue body/comment changes, Task 049 execution, PR #40 changes, or product/audio/runtime/CI changes.
 
-## Objective
+## Objective and scope
 
-Propose `ISSUE_DELEGATED_APPROVAL: ENABLED` as one operative declaration in `AGENTS.md` while preserving `CONTROL_MODE: FILE_CONTROL` and the direct human-authored `SPEC_APPROVAL_V1` rule. The declaration exists on this branch only and is not accepted policy until reviewed merge to main. Delegation is a lower-assurance, exact-spec GitHub approval path only; it does not authorize Issue execution under FILE_CONTROL or enable cutover.
+Prepare one migration PR that proposes `CONTROL_MODE: ISSUE_CONTROL`, retains `ISSUE_APPROVERS: Lost0rz` and `ISSUE_DELEGATED_APPROVAL: ENABLED`, replaces live FILE_CONTROL startup/task selection rules with exact approved Issue selection and verification, removes `CURRENT_TASK.md` and `CURRENT_STATUS.md` from the proposed active root, and updates only verified active references in:
 
-## Policy requirements
+- `README.md`
+- `SETUP_NOTES.md`
+- `docs/README.md`
+- `docs/DOMAIN_MAP.md`
 
-- Only an explicit user decision in the current conversation approving the exact current Issue specification after digest/revision review can support `SPEC_DELEGATED_APPROVAL_V1`.
-- Use the distinct `SPEC_DELEGATED_APPROVAL_V1` identifier and the official required repository, Issue, task, revision, digest, decision, authorization-channel, user-decision, summary, and provenance fields. Never label a proxy comment `SPEC_APPROVAL_V1` or claim independent proof of user intent.
-- Preserve trusted `ISSUE_APPROVERS` author checks, OPEN Issue checks, canonical digest equality, revision integrity, revocation detection, and the `DELEGATED_ACCOUNT_ATTESTED` lower-assurance result.
-- Web Agent A remains read-only for project audit/spec/status work except for this narrowly authorized delegated approval comment after exact current-spec user approval. This does not grant general GitHub Issue write, repository source, branch, PR lifecycle, merge, release, or cutover authority.
-- Local Codex and any connector must not synthesize direct `SPEC_APPROVAL_V1` on an approver's behalf. Keep accepted FILE_CONTROL as the only task authority until a separately authorized and verified cutover.
+The first commit of this branch is the paired control-only reconciliation/authorization commit. Subsequent changes remain in the same migration PR. The proposed ISSUE_CONTROL state takes effect only after the Draft PR is independently audited, separately authorized for merge, merged to authoritative main, and the merge is verified.
 
-## Verification
+## Preserved boundaries
 
-- The installed official Engineering Governance 0.8.1 `test_issue_spec_check.py` suite completed: 34 tests passed, including default-off rejection, exact matching opt-in acceptance, stale digest rejection, and trusted actor/provenance enforcement. Official CLI checks against a synthetic fixture also rejected delegation by default, accepted the matching full digest under the branch proposal with `DELEGATED_ACCOUNT_ATTESTED`, and rejected the stale digest. No plugin installation or source checkout was modified.
-- `git diff --check` passed; the exact change set remains limited to `AGENTS.md`, `CURRENT_TASK.md`, and `CURRENT_STATUS.md`; do not run Swift/product tests.
-- Do not modify Issues #41/#42 or post any approval comment in this policy-PR phase.
+- Task `RO-AUDIO-CONTINUITY-DIAGNOSTIC-049` remains `WAITING_FOR_FRESH_HARDWARE_CAPTURE`; no capture, install, driver, CoreAudio, TCC, device, or release operation is authorized.
+- PR #40 remains OPEN / DRAFT / UNMERGED at live head `1d6370cb9a9bfa1f1d8bff10095f149fefe89288`; do not modify it.
+- Preserve durable product, voice, diagnostics, runtime, CI, security, and human-acceptance rules in `AGENTS.md`.
+- Web Agent A retains remote audit/spec/status responsibilities and only the accepted narrow delegated-approval exception. Local Codex verifies and executes the approved Issue scope and records receipts on that same Issue. Neither gains general authority beyond this task.
+- No daemon, watcher, external framework, new CI workflow, or per-comment automation.
 
-## PR delivery and stop boundary
+## Verification and completion
 
-Draft PR #45 (`https://github.com/Lost0rz/RemoteOrbit/pull/45`) was created from the audited main parent and remains `OPEN / DRAFT / UNMERGED`. Its creation head was `a365022f97d068d2a30cad3ceea0fff930d73801`; this paired control receipt records the PR identity. Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not mark Ready or merge.
+- Freshly verify origin/main, Issue #41/#42 exact Revision 4 approvals, local identity/worktree, open PR writers, and the PR #40 head before any further material mutation.
+- Keep the initial control commit limited to `CURRENT_TASK.md` and `CURRENT_STATUS.md`, as a direct child of audited main.
+- Verify the proposed tree has one active authority (`ISSUE_CONTROL`) and no active startup/routing requirement for the retired root files.
+- Run the official delegated verifier against both latest Issue JSON files and the proposed `AGENTS.md`; run focused documentation/link checks and `git diff --check`.
+- Confirm the diff is limited to governance and the necessary active documentation references, and confirm PR #40 is unchanged.
+- Create one Draft PR targeting main and stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`.
 
-## After independent audit and merge
+## STOP boundary
 
-Only after live verification that the strategy PR merged to authoritative main, reread Issues #41/#42 and their current comments. Check their approval-method text and exact current digests. If a specification materially changes, increment its revision and calculate a new digest. Obtain an explicit user decision approving each exact current specification before posting any `SPEC_DELEGATED_APPROVAL_V1`; a prior decision or Revision 3 approval must not be carried to a changed spec. Verify the delegated comment author, full digest binding, revocation state, and lower-assurance result using the official helper. This policy PR does not automatically switch `CONTROL_MODE` or authorize ISSUE_CONTROL cutover.
-
-## Preserved Task 049 and PR #40
-
-Task `RO-AUDIO-CONTINUITY-DIAGNOSTIC-049` remains `WAITING_FOR_FRESH_HARDWARE_CAPTURE`; no capture, installation, driver, CoreAudio, product source, merge, or release action is authorized here. PR #40 must remain OPEN / DRAFT / UNMERGED at its live head and must not be modified.
+Do not mark the PR Ready, merge it, claim cutover, post Issue approvals/receipts, begin WP06, or act on Task 049. Until a verified merge, authoritative main remains FILE_CONTROL. After publishing the Draft PR, wait for independent Web audit and separate owner merge authorization.
