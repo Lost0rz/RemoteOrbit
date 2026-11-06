@@ -1,7 +1,7 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-06
-State: `RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 / Delegated Approval Policy Migration — ACTIVE / READY_FOR_DRAFT_PR`
+State: `RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 / Delegated Approval Policy Migration — ACTIVE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 Repository: `Lost0rz/RemoteOrbit`
 Remote control authority: `main`
 Audited control parent: `660fc839217cbbb290b506357403c0c110171377`
@@ -11,13 +11,14 @@ WP03 approver-policy merge: `a02859e5df597ec7094eda5ac05116c67b0f9d2e` (PR #43, 
 WP04 Bridge merge: `660fc839217cbbb290b506357403c0c110171377` (PR #44, MERGED)
 Main CI run `42191445976`: SUCCESS on `660fc839217cbbb290b506357403c0c110171377`
 Active policy branch: `codex/task050-delegated-approval-policy`, created from the audited main parent
-Policy PR: NOT CREATED
+Policy PR: #45 OPEN / DRAFT / UNMERGED — https://github.com/Lost0rz/RemoteOrbit/pull/45
+Policy PR creation head: `a365022f97d068d2a30cad3ceea0fff930d73801` (paired PR-identity receipt commit follows)
 
 ## Task 050 delegated approval policy migration
 
 The user-provided card `RO-GOVERNANCE-050-DELEGATED-APPROVAL-POLICY-001` authorizes a governance-only proposal to opt in to lower-assurance delegated Issue approvals while preserving exact-spec digest checks and provenance. This branch remains a proposal under `FILE_CONTROL`; it does not authorize Issue execution or change the control mode. The first paired control commit `d4008e199a15cbf69a350acad6dfdaa2c88758b9` is a direct child of audited main `660fc839217cbbb290b506357403c0c110171377`. `AGENTS.md` now contains the proposed delegated policy on this branch; it remains unaccepted until a reviewed PR merges to main.
 
-The authorized PR scope is limited to `AGENTS.md`, `CURRENT_TASK.md`, and `CURRENT_STATUS.md`. The policy must keep direct `SPEC_APPROVAL_V1` human-authored, introduce exactly one operative `ISSUE_DELEGATED_APPROVAL: ENABLED`, restrict Web Agent A to a separately identified delegated approval comment after explicit user approval of the exact current Issue spec, and grant no general repository write, product-code, PR-merge, or cutover authority. The installed official checker at Engineering Governance 0.8.1 passed all 34 official tests, including default-off, exact matching digest, stale digest, trusted actor and provenance cases. `git diff --check` passes and the current change set is limited to the three governance files. The PR must remain Draft and stop for independent audit.
+The authorized PR scope is limited to `AGENTS.md`, `CURRENT_TASK.md`, and `CURRENT_STATUS.md`. The policy must keep direct `SPEC_APPROVAL_V1` human-authored, introduce exactly one operative `ISSUE_DELEGATED_APPROVAL: ENABLED`, restrict Web Agent A to a separately identified delegated approval comment after explicit user approval of the exact current Issue spec, and grant no general repository write, product-code, PR-merge, or cutover authority. The installed official checker at Engineering Governance 0.8.1 passed all 34 official tests. Its CLI also rejected a delegated record with default-off, accepted an exact-digest synthetic record under the branch proposal with `DELEGATED_ACCOUNT_ATTESTED`, and rejected the stale digest. `git diff --check` passed; the PR contains exactly the three governance files. PR #45 must remain Draft and stop for independent audit.
 
 PR #40 is separate and remains OPEN / DRAFT / UNMERGED at head `1d6370cb9a9bfa1f1d8bff10095f149fefe89288`; it is outside this policy change. No Issue #41/#42 body edit or approval comment is in this policy-PR phase. After the policy PR is independently audited and merged, reread both live Issue specs and approval records; materially revised specs require a new revision and digest plus explicit user approval of that exact current spec before any `SPEC_DELEGATED_APPROVAL_V1` comment and official verification. No prior revision decision is carried forward.
 
@@ -58,4 +59,4 @@ The hardware gate requires an instrumented Task 049 build, persisted `voice.sess
 
 The canonical local checkout is `/Volumes/Jack-Dev/Projects/RemoteOrbit`, now on `codex/task050-delegated-approval-policy` from audited `origin/main` `660fc839217cbbb290b506357403c0c110171377`. It had one registered RemoteOrbit worktree and no unique local changes before this transition. The separate Engineering-Governance source checkout and its pre-existing `.agents/plugins/marketplace.json` modification are outside this task and remain untouched.
 
-The first paired control commit establishes this authorized policy-migration phase. The branch now proposes the narrowly scoped delegation policy and the installed official validator suite passed. Next: push this branch and create one Draft PR, then stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not merge automatically. PR #40 remains separate and must stay OPEN / DRAFT / UNMERGED.
+The first paired control commit established this authorized policy-migration phase. Draft PR #45 was created from the branch based on audited main and is `OPEN / DRAFT / UNMERGED`; this paired receipt records its identity. The proposed policy is not accepted until independently reviewed and merged. Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not mark Ready or merge automatically. PR #40 remains separate and must stay OPEN / DRAFT / UNMERGED.

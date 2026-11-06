@@ -2,7 +2,7 @@
 
 ## RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 — delegated approval policy migration
 
-Status: `ACTIVE / READY_FOR_DRAFT_PR`
+Status: `ACTIVE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `GOVERNANCE / CONTROL-PLANE`
 Repository: `Lost0rz/RemoteOrbit`
 Control mode: `FILE_CONTROL`
@@ -30,13 +30,13 @@ Propose `ISSUE_DELEGATED_APPROVAL: ENABLED` as one operative declaration in `AGE
 
 ## Verification
 
-- The installed official Engineering Governance 0.8.1 `test_issue_spec_check.py` suite completed: 34 tests passed, including default-off rejection, exact matching opt-in acceptance, stale digest rejection, and trusted actor/provenance enforcement. No plugin installation or source checkout was modified.
+- The installed official Engineering Governance 0.8.1 `test_issue_spec_check.py` suite completed: 34 tests passed, including default-off rejection, exact matching opt-in acceptance, stale digest rejection, and trusted actor/provenance enforcement. Official CLI checks against a synthetic fixture also rejected delegation by default, accepted the matching full digest under the branch proposal with `DELEGATED_ACCOUNT_ATTESTED`, and rejected the stale digest. No plugin installation or source checkout was modified.
 - `git diff --check` passed; the exact change set remains limited to `AGENTS.md`, `CURRENT_TASK.md`, and `CURRENT_STATUS.md`; do not run Swift/product tests.
 - Do not modify Issues #41/#42 or post any approval comment in this policy-PR phase.
 
 ## PR delivery and stop boundary
 
-Next create one Draft PR from the audited main parent and keep it unmerged. After PR creation, update the paired controls in the same commit to record its identity. Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not mark Ready or merge.
+Draft PR #45 (`https://github.com/Lost0rz/RemoteOrbit/pull/45`) was created from the audited main parent and remains `OPEN / DRAFT / UNMERGED`. Its creation head was `a365022f97d068d2a30cad3ceea0fff930d73801`; this paired control receipt records the PR identity. Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not mark Ready or merge.
 
 ## After independent audit and merge
 
