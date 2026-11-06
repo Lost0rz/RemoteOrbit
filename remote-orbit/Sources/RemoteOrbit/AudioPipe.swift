@@ -70,6 +70,8 @@ final class AudioPipe: NSObject {
     private var lastRemoteSubmittedMonotonicNanoseconds: UInt64?
     private var diagnosticStreamIdentity: UInt64 = 0
     private var diagnosticObservationSequence: UInt64 = 0
+    private var longTermStatisticsRing: AudioSupplyStatisticsRing?
+    private var longTermRealtimeMailboxOverflowCount: UInt64 = 0
 
     private override init() {
         super.init()
@@ -129,7 +131,8 @@ final class AudioPipe: NSObject {
     }
 
     func beginRemoteAudioDiagnostics(
-        continuityContext: AudioContinuityCaptureContext? = nil
+        continuityContext: AudioContinuityCaptureContext? = nil,
+        statisticsSessionStartNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds()
     ) {
         guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         realtimeDiagnostics.endDiagnosticsAndWait()
@@ -158,6 +161,11 @@ final class AudioPipe: NSObject {
         }
         diagnosticStreamIdentity = 0
         diagnosticObservationSequence = 0
+        longTermStatisticsRing = AudioSupplyStatisticsRing(
+            producer: .audioPipe,
+            sessionStartNanoseconds: statisticsSessionStartNanoseconds
+        )
+        longTermRealtimeMailboxOverflowCount = 0
         mainQueueResponsivenessProbe = nextMainQueueProbe
         let currentDepth = outputRing.queuedFrames
         remoteDiagnosticsActive = true
@@ -222,6 +230,8 @@ final class AudioPipe: NSObject {
         }
         let detachedTrace: FixedCapacityObservationTrace
         let probe: MainQueueResponsivenessProbe?
+        let detachedStatisticsRing: AudioSupplyStatisticsRing?
+        let mailboxOverflowCount: UInt64
         stateLock.lock()
         flushRealtimeEvidenceLocked()
         if longTermPrimaryTraceIsActive {
@@ -238,11 +248,17 @@ final class AudioPipe: NSObject {
         longTermPrimaryTraceIsActive = true
         probe = mainQueueResponsivenessProbe
         mainQueueResponsivenessProbe = nil
+        detachedStatisticsRing = longTermStatisticsRing
+        longTermStatisticsRing = nil
+        mailboxOverflowCount = longTermRealtimeMailboxOverflowCount
+        longTermRealtimeMailboxOverflowCount = 0
         stateLock.unlock()
 
         return LongTermAudioObservationSnapshot(
             trace: synchronizedTrace.snapshot(),
-            mainQueueLag: probe?.stop() ?? .empty
+            mainQueueLag: probe?.stop() ?? .empty,
+            audioPipeStatistics: detachedStatisticsRing,
+            coreAudioMailboxOverflowCount: mailboxOverflowCount
         )
     }
 
@@ -772,6 +788,17 @@ final class AudioPipe: NSObject {
 
         let markers = realtimeDiagnostics.markers()
         if markers.droppedObservationCount > 0 {
+            longTermRealtimeMailboxOverflowCount &+= UInt64(markers.droppedObservationCount)
+            if let first = markers.firstDroppedObservationTimestampNanoseconds,
+               let last = markers.lastDroppedObservationTimestampNanoseconds {
+                longTermStatisticsRing?.invalidate(
+                    from: first,
+                    through: last,
+                    reason: .coreAudioMailboxOverflow
+                )
+            } else {
+                longTermStatisticsRing?.recordMissingTimestamp()
+            }
             markLongTermMaterialAnomalyLocked(trigger: .traceDrop)
         }
     }
@@ -897,13 +924,20 @@ final class AudioPipe: NSObject {
             queueDepthBeforeFrames: point.queueDepthBeforeFrames,
             source: "audio_pipe"
         )
-        let appended: Bool
+        longTermStatisticsRing?.record(attributedPoint)
+        let appendResult: FixedCapacityObservationTraceAppendResult
         if longTermPrimaryTraceIsActive {
-            appended = longTermPrimaryTrace.append(attributedPoint)
+            appendResult = longTermPrimaryTrace.appendWithResult(attributedPoint)
         } else {
-            appended = longTermSecondaryTrace.append(attributedPoint)
+            appendResult = longTermSecondaryTrace.appendWithResult(attributedPoint)
         }
-        if !appended {
+        if appendResult != .appended {
+            longTermStatisticsRing?.invalidate(
+                timestampNanoseconds: attributedPoint.timestampNanoseconds,
+                reason: appendResult == .timestampOutOfOrder
+                    ? .audioPipeTimestampOutOfOrder
+                    : .audioPipeObservationDrop
+            )
             LongTermIncidentCoordinator.shared.trigger(
                 producer: .audioPipe,
                 kind: .traceDrop,

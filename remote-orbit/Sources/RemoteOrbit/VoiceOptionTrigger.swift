@@ -232,7 +232,11 @@ enum VoiceTimingLogger {
         )
     }
 
-    static func mark(_ event: String, sessionID: UUID? = nil) {
+    static func mark(
+        _ event: String,
+        sessionID: UUID? = nil,
+        timestampNanoseconds: UInt64? = nil
+    ) {
         guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         guard let activeSessionID,
@@ -244,7 +248,7 @@ enum VoiceTimingLogger {
         let shortID = String(activeSessionID.uuidString.prefix(4))
         let sessionUUID = activeSessionID.uuidString
         lock.unlock()
-        let nowNanoseconds = P1A4MonotonicClock.nowNanoseconds()
+        let nowNanoseconds = timestampNanoseconds ?? P1A4MonotonicClock.nowNanoseconds()
         if let timelineEvent = timelineEventName(for: event) {
             record(timelineEvent, timestampNanoseconds: nowNanoseconds)
         }

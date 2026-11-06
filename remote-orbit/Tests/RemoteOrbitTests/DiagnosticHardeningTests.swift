@@ -289,8 +289,11 @@ final class DiagnosticHardeningTests: XCTestCase {
             recent: [],
             incident: [],
             incidentAnchor: nil,
-            droppedObservationCount: 0,
-            overwrittenObservationCount: 0
+            timestampOutOfOrderRejectionCount: 0,
+            actualObservationDropCount: 0,
+            recentRingOverwriteCount: 0,
+            incidentRingOverwriteCount: 0,
+            incidentFollowupDropCount: 0
         )
         DiagnosticOutputBoundaryClock.shared.reset()
         DiagnosticHardeningSessionEmitter.emit(summary: summary, trace: trace, authority: authority)

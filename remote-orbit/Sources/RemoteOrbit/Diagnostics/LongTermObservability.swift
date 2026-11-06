@@ -239,16 +239,32 @@ struct FixedCapacityObservationTraceSnapshot: Equatable, Sendable {
     let recent: [LongTermObservationPoint]
     let incident: [LongTermObservationPoint]
     let incidentAnchor: LongTermIncidentAnchor?
-    let droppedObservationCount: UInt64
-    let overwrittenObservationCount: UInt64
+    let timestampOutOfOrderRejectionCount: UInt64
+    let actualObservationDropCount: UInt64
+    let recentRingOverwriteCount: UInt64
+    let incidentRingOverwriteCount: UInt64
+    let incidentFollowupDropCount: UInt64
+
+    var droppedObservationCount: UInt64 {
+        timestampOutOfOrderRejectionCount
+            &+ actualObservationDropCount
+            &+ incidentFollowupDropCount
+    }
+
+    var overwrittenObservationCount: UInt64 {
+        recentRingOverwriteCount
+    }
 
     static let empty = FixedCapacityObservationTraceSnapshot(
         front: [],
         recent: [],
         incident: [],
         incidentAnchor: nil,
-        droppedObservationCount: 0,
-        overwrittenObservationCount: 0
+        timestampOutOfOrderRejectionCount: 0,
+        actualObservationDropCount: 0,
+        recentRingOverwriteCount: 0,
+        incidentRingOverwriteCount: 0,
+        incidentFollowupDropCount: 0
     )
 
     var all: [LongTermObservationPoint] { front + recent }
@@ -297,15 +313,39 @@ struct FixedCapacityObservationTraceSnapshot: Equatable, Sendable {
             recent: [],
             incident: mergedIncident,
             incidentAnchor: mergedAnchor,
-            droppedObservationCount: droppedObservationCount &+ other.droppedObservationCount,
-            overwrittenObservationCount: overwrittenObservationCount &+ other.overwrittenObservationCount
+            timestampOutOfOrderRejectionCount: timestampOutOfOrderRejectionCount
+                &+ other.timestampOutOfOrderRejectionCount,
+            actualObservationDropCount: actualObservationDropCount &+ other.actualObservationDropCount,
+            recentRingOverwriteCount: recentRingOverwriteCount &+ other.recentRingOverwriteCount,
+            incidentRingOverwriteCount: incidentRingOverwriteCount &+ other.incidentRingOverwriteCount,
+            incidentFollowupDropCount: incidentFollowupDropCount &+ other.incidentFollowupDropCount
         )
     }
+}
+
+enum FixedCapacityObservationTraceAppendResult: Equatable {
+    case appended
+    case timestampOutOfOrder
+    case capacityDrop
 }
 
 struct LongTermAudioObservationSnapshot: Equatable, Sendable {
     let trace: FixedCapacityObservationTraceSnapshot
     let mainQueueLag: MainQueueLagSummary
+    let audioPipeStatistics: AudioSupplyStatisticsRing?
+    let coreAudioMailboxOverflowCount: UInt64
+
+    init(
+        trace: FixedCapacityObservationTraceSnapshot,
+        mainQueueLag: MainQueueLagSummary,
+        audioPipeStatistics: AudioSupplyStatisticsRing? = nil,
+        coreAudioMailboxOverflowCount: UInt64 = 0
+    ) {
+        self.trace = trace
+        self.mainQueueLag = mainQueueLag
+        self.audioPipeStatistics = audioPipeStatistics
+        self.coreAudioMailboxOverflowCount = coreAudioMailboxOverflowCount
+    }
 }
 
 /// A bounded trace for the timing path. Append only writes into preallocated
@@ -316,7 +356,9 @@ struct FixedCapacityObservationTrace: Sendable {
     private var frontCount = 0
     private var recentCount = 0
     private var recentWriteIndex = 0
-    private var lastTimestampNanoseconds: UInt64?
+    private var lastServiceTimestampNanoseconds: UInt64?
+    private var lastAudioPipeTimestampNanoseconds: UInt64?
+    private var lastOtherTimestampNanoseconds: UInt64?
     private var incident: [LongTermObservationPoint?]
     private var incidentCount = 0
     private var incidentWriteIndex = 0
@@ -330,8 +372,19 @@ struct FixedCapacityObservationTrace: Sendable {
     private let incidentCoordinator: LongTermIncidentCoordinator
     private let incidentProducer: LongTermIncidentProducer
 
-    private(set) var droppedObservationCount: UInt64 = 0
-    private(set) var overwrittenObservationCount: UInt64 = 0
+    private(set) var timestampOutOfOrderRejectionCount: UInt64 = 0
+    private(set) var actualObservationDropCount: UInt64 = 0
+    private(set) var recentRingOverwriteCount: UInt64 = 0
+    private(set) var incidentRingOverwriteCount: UInt64 = 0
+    private(set) var incidentFollowupDropCount: UInt64 = 0
+
+    var droppedObservationCount: UInt64 {
+        timestampOutOfOrderRejectionCount
+            &+ actualObservationDropCount
+            &+ incidentFollowupDropCount
+    }
+
+    var overwrittenObservationCount: UInt64 { recentRingOverwriteCount }
 
     init(
         frontCapacity: Int,
@@ -358,7 +411,9 @@ struct FixedCapacityObservationTrace: Sendable {
         frontCount = 0
         recentCount = 0
         recentWriteIndex = 0
-        lastTimestampNanoseconds = nil
+        lastServiceTimestampNanoseconds = nil
+        lastAudioPipeTimestampNanoseconds = nil
+        lastOtherTimestampNanoseconds = nil
         for index in incident.indices { incident[index] = nil }
         incidentCount = 0
         incidentWriteIndex = 0
@@ -369,28 +424,42 @@ struct FixedCapacityObservationTrace: Sendable {
         incidentFollowupActive = false
         incidentHardFrozen = false
         incidentAnchor = nil
-        droppedObservationCount = 0
-        overwrittenObservationCount = 0
+        timestampOutOfOrderRejectionCount = 0
+        actualObservationDropCount = 0
+        recentRingOverwriteCount = 0
+        incidentRingOverwriteCount = 0
+        incidentFollowupDropCount = 0
     }
 
     @discardableResult
     mutating func append(_ point: LongTermObservationPoint) -> Bool {
+        appendWithResult(point) == .appended
+    }
+
+    @discardableResult
+    mutating func appendWithResult(
+        _ point: LongTermObservationPoint
+    ) -> FixedCapacityObservationTraceAppendResult {
         synchronizeIncidentWithCoordinator()
-        if let lastTimestampNanoseconds,
-           point.timestampNanoseconds < lastTimestampNanoseconds {
-            droppedObservationCount &+= 1
+        if let lastTimestamp = lastTimestamp(for: point.source),
+           point.timestampNanoseconds < lastTimestamp {
+            timestampOutOfOrderRejectionCount &+= 1
             incidentCoordinator.trigger(
                 producer: incidentProducer,
                 kind: .traceDrop,
-                timestampNanoseconds: lastTimestampNanoseconds
+                timestampNanoseconds: lastTimestamp
             )
             synchronizeIncidentWithCoordinator()
-            return false
+            return .timestampOutOfOrder
         }
-        lastTimestampNanoseconds = point.timestampNanoseconds
+        setLastTimestamp(point.timestampNanoseconds, for: point.source)
 
         if !incidentFrozen {
-            if incidentCount < incident.count { incidentCount += 1 }
+            if incidentCount < incident.count {
+                incidentCount += 1
+            } else {
+                incidentRingOverwriteCount &+= 1
+            }
             incident[incidentWriteIndex] = point
             incidentWriteIndex = (incidentWriteIndex + 1) % incident.count
         } else if incidentFollowupActive,
@@ -398,33 +467,35 @@ struct FixedCapacityObservationTrace: Sendable {
             incidentFollowup[incidentFollowupWriteIndex] = point
             incidentFollowupCount += 1
             incidentFollowupWriteIndex = (incidentFollowupWriteIndex + 1) % incidentFollowup.count
+        } else if incidentFollowupActive {
+            incidentFollowupDropCount &+= 1
         }
 
         if frontCount < front.count {
             front[frontCount] = point
             frontCount += 1
-            return true
+            return .appended
         }
 
         guard !recent.isEmpty else {
-            droppedObservationCount &+= 1
+            actualObservationDropCount &+= 1
             incidentCoordinator.trigger(
                 producer: incidentProducer,
                 kind: .traceDrop,
                 timestampNanoseconds: point.timestampNanoseconds
             )
             synchronizeIncidentWithCoordinator()
-            return false
+            return .capacityDrop
         }
 
         if recentCount == recent.count {
-            overwrittenObservationCount &+= 1
+            recentRingOverwriteCount &+= 1
         } else {
             recentCount += 1
         }
         recent[recentWriteIndex] = point
         recentWriteIndex = (recentWriteIndex + 1) % recent.count
-        return true
+        return .appended
     }
 
     /// Stops the preallocated incident ring at the first material anomaly.
@@ -459,8 +530,11 @@ struct FixedCapacityObservationTrace: Sendable {
                 recent: recentSnapshot,
                 incident: incidentSnapshot(),
                 incidentAnchor: incidentAnchor,
-                droppedObservationCount: droppedObservationCount,
-                overwrittenObservationCount: overwrittenObservationCount
+                timestampOutOfOrderRejectionCount: timestampOutOfOrderRejectionCount,
+                actualObservationDropCount: actualObservationDropCount,
+                recentRingOverwriteCount: recentRingOverwriteCount,
+                incidentRingOverwriteCount: incidentRingOverwriteCount,
+                incidentFollowupDropCount: incidentFollowupDropCount
             )
         }
 
@@ -474,9 +548,28 @@ struct FixedCapacityObservationTrace: Sendable {
             recent: recentSnapshot,
             incident: incidentSnapshot(),
             incidentAnchor: incidentAnchor,
-            droppedObservationCount: droppedObservationCount,
-            overwrittenObservationCount: overwrittenObservationCount
+            timestampOutOfOrderRejectionCount: timestampOutOfOrderRejectionCount,
+            actualObservationDropCount: actualObservationDropCount,
+            recentRingOverwriteCount: recentRingOverwriteCount,
+            incidentRingOverwriteCount: incidentRingOverwriteCount,
+            incidentFollowupDropCount: incidentFollowupDropCount
         )
+    }
+
+    private func lastTimestamp(for source: String) -> UInt64? {
+        switch source {
+        case "voice_service": return lastServiceTimestampNanoseconds
+        case "audio_pipe": return lastAudioPipeTimestampNanoseconds
+        default: return lastOtherTimestampNanoseconds
+        }
+    }
+
+    private mutating func setLastTimestamp(_ timestamp: UInt64, for source: String) {
+        switch source {
+        case "voice_service": lastServiceTimestampNanoseconds = timestamp
+        case "audio_pipe": lastAudioPipeTimestampNanoseconds = timestamp
+        default: lastOtherTimestampNanoseconds = timestamp
+        }
     }
 
     private func incidentSnapshot() -> [LongTermObservationPoint] {
@@ -787,6 +880,14 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
     var authorityDroppedEventCount: UInt64 = 0
     var authorityWriteFailureCount: UInt64 = 0
     var traceOverwrittenObservationCount: UInt64 = 0
+    var timestampOutOfOrderRejectionCount: UInt64 = 0
+    var actualDiagnosticObservationDropCount: UInt64 = 0
+    var recentRingOverwriteCount: UInt64 = 0
+    var incidentRingOverwriteCount: UInt64 = 0
+    var incidentFollowupDropCount: UInt64 = 0
+    var coreAudioMailboxOverflowCount: UInt64 = 0
+    var statisticsRingOverwriteCount: UInt64 = 0
+    var audioSupplyStatistics: AudioSupplyStatisticsSnapshot?
     var incidentIdentity: UInt64?
     var incidentAnchorTimestampNanoseconds: UInt64?
     var incidentTriggerSource = "unavailable"
@@ -948,6 +1049,14 @@ struct LongTermVoiceSessionSummary: Equatable, Sendable {
             }),
             "trace_dropped_observations": .unsignedInteger(traceDroppedObservationCount),
             "trace_overwritten_observations": .unsignedInteger(traceOverwrittenObservationCount),
+            "timestamp_out_of_order_rejection_count": .unsignedInteger(timestampOutOfOrderRejectionCount),
+            "actual_diagnostic_observation_drop_count": .unsignedInteger(actualDiagnosticObservationDropCount),
+            "recent_ring_overwrite_count": .unsignedInteger(recentRingOverwriteCount),
+            "incident_ring_overwrite_count": .unsignedInteger(incidentRingOverwriteCount),
+            "incident_followup_drop_count": .unsignedInteger(incidentFollowupDropCount),
+            "coreaudio_mailbox_overflow_count": .unsignedInteger(coreAudioMailboxOverflowCount),
+            "statistics_ring_overwrite_count": .unsignedInteger(statisticsRingOverwriteCount),
+            "per_second_audio_supply_statistics": audioSupplyStatistics?.toDiagnosticJSONValue() ?? .null,
             "incident_identity": optionalUInt(incidentIdentity),
             "incident_anchor_timestamp_nanoseconds": optionalUInt(incidentAnchorTimestampNanoseconds),
             "incident_trigger_source": .string(incidentTriggerSource),
@@ -1119,7 +1228,8 @@ struct LongTermObservabilityThresholds: Equatable, Sendable {
         if summary.mainQueueLag.p95LagNanoseconds > maxMainQueueP95LagNanoseconds {
             flags.append(.mainQueueLag)
         }
-        if trace.droppedObservationCount > maxTraceDroppedObservations {
+        if trace.droppedObservationCount &+ summary.coreAudioMailboxOverflowCount
+            > maxTraceDroppedObservations {
             flags.append(.traceDropped)
         }
         if summary.authorityWriteFailureCount > maxAuthorityWriteFailures {
@@ -1136,6 +1246,9 @@ final class LongTermObservabilityService: @unchecked Sendable {
         var summary: LongTermVoiceSessionSummary
         var trace: FixedCapacityObservationTrace
         var detachedTraceSnapshot: FixedCapacityObservationTraceSnapshot? = nil
+        var voiceServiceStatistics: AudioSupplyStatisticsRing? = nil
+        var audioPipeStatistics: AudioSupplyStatisticsRing? = nil
+        var coreAudioMailboxOverflowCount: UInt64 = 0
 
         init(summary: LongTermVoiceSessionSummary, coordinator: LongTermIncidentCoordinator) {
             self.summary = summary
@@ -1206,11 +1319,17 @@ final class LongTermObservabilityService: @unchecked Sendable {
         lock.lock()
         if activeSession == nil {
             incidentCoordinator.beginCaptureIfNeeded()
+            serviceObservationSequence = 0
             activeSession = ActiveSession(
                 summary: makeSummary(sessionID: "unavailable", captureID: UUID().uuidString),
                 coordinator: incidentCoordinator
             )
         }
+        activeSession!.voiceServiceStatistics = AudioSupplyStatisticsRing(
+            producer: .voiceService,
+            sessionStartNanoseconds: timestampNanoseconds,
+            initialSequence: serviceObservationSequence
+        )
         let captureID = UUID(uuidString: activeSession!.summary.captureID) ?? UUID()
         activeSession!.summary.captureID = captureID.uuidString
         activeSession!.summary.audioStartTimestampNanoseconds = timestampNanoseconds
@@ -1232,8 +1351,8 @@ final class LongTermObservabilityService: @unchecked Sendable {
         guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         lock.lock()
         finalizedSession = nil
-        serviceObservationSequence = 0
         if activeSession == nil {
+            serviceObservationSequence = 0
             incidentCoordinator.beginCaptureIfNeeded()
             activeSession = ActiveSession(
                 summary: makeSummary(sessionID: sessionID.uuidString, captureID: UUID().uuidString),
@@ -1329,8 +1448,23 @@ final class LongTermObservabilityService: @unchecked Sendable {
                     streamIdentity: streamIdentity
                 )
             }) {
-                activeSession?.trace.append(attributedServicePoint(point))
+                let attributed = attributedServicePoint(point)
+                activeSession?.voiceServiceStatistics?.record(
+                    attributed,
+                    gapNanoseconds: gapNanoseconds
+                )
+                let result = activeSession?.trace.appendWithResult(attributed)
+                if result != nil, result != .appended {
+                    activeSession?.voiceServiceStatistics?.invalidate(
+                        timestampNanoseconds: timestampNanoseconds,
+                        reason: result == .timestampOutOfOrder
+                            ? .voiceServiceTimestampOutOfOrder
+                            : .voiceServiceObservationDrop
+                    )
+                }
             }
+        } else {
+            activeSession?.voiceServiceStatistics?.recordMissingTimestamp()
         }
         if let gapNanoseconds, gapNanoseconds > 100_000_000 {
             incidentCoordinator.trigger(
@@ -1422,9 +1556,21 @@ final class LongTermObservabilityService: @unchecked Sendable {
                     streamIdentity: streamIdentity
                 )
             }) {
-                activeSession?.trace.append(attributedServicePoint(point))
+                let attributed = attributedServicePoint(point)
+                activeSession?.voiceServiceStatistics?.record(attributed)
+                let result = activeSession?.trace.appendWithResult(attributed)
+                if result != nil, result != .appended {
+                    activeSession?.voiceServiceStatistics?.invalidate(
+                        timestampNanoseconds: timestampNanoseconds,
+                        reason: result == .timestampOutOfOrder
+                            ? .voiceServiceTimestampOutOfOrder
+                            : .voiceServiceObservationDrop
+                    )
+                }
             }
             activeSession?.trace.synchronizeIncidentWithCoordinator()
+        } else {
+            activeSession?.voiceServiceStatistics?.recordMissingTimestamp()
         }
         lock.unlock()
     }
@@ -1435,7 +1581,16 @@ final class LongTermObservabilityService: @unchecked Sendable {
         let attributed = point.source == "unattributed" || point.sequence == 0
             ? attributedServicePoint(point)
             : point
-        activeSession?.trace.append(attributed)
+        activeSession?.voiceServiceStatistics?.record(attributed)
+        let result = activeSession?.trace.appendWithResult(attributed)
+        if result != nil, result != .appended {
+            activeSession?.voiceServiceStatistics?.invalidate(
+                timestampNanoseconds: attributed.timestampNanoseconds,
+                reason: result == .timestampOutOfOrder
+                    ? .voiceServiceTimestampOutOfOrder
+                    : .voiceServiceObservationDrop
+            )
+        }
         activeSession?.trace.synchronizeIncidentWithCoordinator()
         lock.unlock()
     }
@@ -1536,6 +1691,8 @@ final class LongTermObservabilityService: @unchecked Sendable {
         }
         activeSession!.detachedTraceSnapshot = snapshot.trace
         activeSession!.summary.mainQueueLag = snapshot.mainQueueLag
+        activeSession!.audioPipeStatistics = snapshot.audioPipeStatistics
+        activeSession!.coreAudioMailboxOverflowCount = snapshot.coreAudioMailboxOverflowCount
         lock.unlock()
     }
 
@@ -1570,6 +1727,38 @@ final class LongTermObservabilityService: @unchecked Sendable {
             traceSnapshot.droppedObservationCount
         activeSession.summary.traceOverwrittenObservationCount =
             traceSnapshot.overwrittenObservationCount
+        activeSession.summary.timestampOutOfOrderRejectionCount =
+            traceSnapshot.timestampOutOfOrderRejectionCount
+        activeSession.summary.actualDiagnosticObservationDropCount =
+            traceSnapshot.actualObservationDropCount
+        activeSession.summary.recentRingOverwriteCount =
+            traceSnapshot.recentRingOverwriteCount
+        activeSession.summary.incidentRingOverwriteCount =
+            traceSnapshot.incidentRingOverwriteCount
+        activeSession.summary.incidentFollowupDropCount =
+            traceSnapshot.incidentFollowupDropCount
+        activeSession.summary.coreAudioMailboxOverflowCount =
+            activeSession.coreAudioMailboxOverflowCount
+        let statisticsEndTimestamp = activeSession.summary.audioStopTimestampNanoseconds
+            ?? activeSession.summary.drainFinishTimestampNanoseconds
+            ?? activeSession.summary.outputCompleteTimestampNanoseconds
+        let voiceServiceStatistics = activeSession.summary.audioStartTimestampNanoseconds.flatMap {
+            activeSession.voiceServiceStatistics?.snapshot(
+                through: statisticsEndTimestamp ?? $0
+            )
+        }
+        let audioPipeStatistics = activeSession.summary.audioStartTimestampNanoseconds.flatMap {
+            activeSession.audioPipeStatistics?.snapshot(
+                through: statisticsEndTimestamp ?? $0
+            )
+        }
+        activeSession.summary.audioSupplyStatistics = AudioSupplyStatisticsSnapshot.join(
+            voiceService: voiceServiceStatistics,
+            audioPipe: audioPipeStatistics,
+            sessionEndNanoseconds: statisticsEndTimestamp
+        )
+        activeSession.summary.statisticsRingOverwriteCount =
+            activeSession.summary.audioSupplyStatistics?.ringOverwriteCount ?? 0
         activeSession.summary.underrunEpisodes = DiagnosticUnderrunEpisodeBuilder.build(traceSnapshot.allIncludingIncident)
         if let attemptID = VoiceAttemptDiagnostics.shared.attemptID(for: sessionID.uuidString) {
             activeSession.summary.voiceAttemptID = attemptID

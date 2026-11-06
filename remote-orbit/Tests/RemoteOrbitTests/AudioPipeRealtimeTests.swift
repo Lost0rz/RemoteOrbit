@@ -243,6 +243,47 @@ final class AudioPipeRealtimeTests: XCTestCase {
         XCTAssertNotNil(diagnostics.markers().firstRemoteRenderedMonotonicNanoseconds)
     }
 
+    func testRealtimeMailboxOverflowTracksItsOwnCountAndAffectedTimestampRange() {
+        let diagnostics = AudioPipeRealtimeDiagnostics()
+        diagnostics.setRemoteActive(true)
+        diagnostics.beginDiagnostics(remoteActive: true)
+        let accounting = AudioPipeRenderAccounting.measure(
+            requestedFrames: 4,
+            availableRemoteFrames: 4,
+            pendingRemoteFrames: 4,
+            remoteActive: true,
+            remoteWasActive: true
+        )
+        let readResult = AudioPipePCMReadResult(
+            requestedFrames: 4,
+            filledFrames: 4,
+            unfilledFrames: 0,
+            remoteFramesConsumed: 4,
+            queueDepthBeforeFrames: 4,
+            remoteQueueDepthBeforeFrames: 4,
+            queueDepthAfterFrames: 0,
+            remoteQueueDepthAfterFrames: 0,
+            peak: 0.5
+        )
+
+        for index in 0...4_096 {
+            XCTAssertTrue(diagnostics.beginRenderDiagnosticsIfActive())
+            diagnostics.recordRender(
+                accounting,
+                requestedFrames: 4,
+                readResult: readResult,
+                remoteWasActive: true,
+                timestampNanoseconds: UInt64(1_000 + index)
+            )
+            diagnostics.endRenderDiagnostics()
+        }
+
+        let marker = diagnostics.markers(reset: false)
+        XCTAssertEqual(marker.droppedObservationCount, 1)
+        XCTAssertEqual(marker.firstDroppedObservationTimestampNanoseconds, 5_096)
+        XCTAssertEqual(marker.lastDroppedObservationTimestampNanoseconds, 5_096)
+    }
+
     func testReserveWaitIsIntentionalSilenceNotAnActiveUnderrun() {
         let diagnostics = AudioPipeRealtimeDiagnostics()
         diagnostics.setRemoteActive(true)
@@ -310,6 +351,26 @@ final class AudioPipeRealtimeTests: XCTestCase {
         XCTAssertFalse(renderBody.contains("removeFirst"))
         XCTAssertFalse(renderBody.contains("DispatchQueue"))
         XCTAssertFalse(renderBody.contains("VoiceTimingLogger."))
+    }
+
+    func testRealtimeObservationPublisherUsesOnlyBoundedOperations() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/RemoteOrbit/AudioPipeRealtime.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let recordStart = try XCTUnwrap(source.range(of: "func recordRender("))
+        let recordEnd = try XCTUnwrap(source.range(of: "func recordMeter(", range: recordStart.upperBound..<source.endIndex))
+        let enqueueStart = try XCTUnwrap(source.range(of: "private func enqueue("))
+        let enqueueEnd = try XCTUnwrap(source.range(of: "private func recordQueueDepth(", range: enqueueStart.upperBound..<source.endIndex))
+        let callbackBody = String(source[recordStart.lowerBound..<recordEnd.lowerBound])
+        let enqueueBody = String(source[enqueueStart.lowerBound..<enqueueEnd.lowerBound])
+        let realtimeSource = callbackBody + enqueueBody
+
+        for forbidden in ["NSLock", "DispatchQueue", "DispatchSemaphore", "sched_yield", "wait(", "allocate(", "Data(", "print(", "fopen(", "write("] {
+            XCTAssertFalse(realtimeSource.contains(forbidden), "unexpected realtime operation: \(forbidden)")
+        }
     }
 
     private func read(

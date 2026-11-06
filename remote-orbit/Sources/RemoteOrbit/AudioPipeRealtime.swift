@@ -456,6 +456,8 @@ struct AudioPipeRealtimeMarkerSnapshot {
     let firstRemoteRenderedMonotonicNanoseconds: UInt64?
     let playoutStableMonotonicNanoseconds: UInt64?
     let droppedObservationCount: Int
+    let firstDroppedObservationTimestampNanoseconds: UInt64?
+    let lastDroppedObservationTimestampNanoseconds: UInt64?
 }
 
 struct AudioPipeRealtimeMeterSnapshot {
@@ -474,6 +476,8 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
     private var observationReadIndex: Int64 = 0
     private var observationWriteIndex: Int64 = 0
     private var droppedObservationCount: Int64 = 0
+    private var firstDroppedObservationTimestampNanoseconds: Int64 = Int64.max
+    private var lastDroppedObservationTimestampNanoseconds: Int64 = 0
 
     private var diagnosticsActive: Int32 = 0
     private var diagnosticsRenderInFlight: Int32 = 0
@@ -543,6 +547,8 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
         let write = atomicLoad64(&observationWriteIndex)
         atomicStore64(write, to: &observationReadIndex)
         atomicStore64(0, to: &droppedObservationCount)
+        atomicStore64(Int64.max, to: &firstDroppedObservationTimestampNanoseconds)
+        atomicStore64(0, to: &lastDroppedObservationTimestampNanoseconds)
         resetCounters()
         atomicStore32(remoteActive ? 1 : 0, to: &remoteWasActive)
         atomicStore32(1, to: &diagnosticsActive)
@@ -744,6 +750,15 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
     }
 
     func markers(reset: Bool = true) -> AudioPipeRealtimeMarkerSnapshot {
+        let droppedObservationCount = reset
+            ? atomicSwap64(0, at: &self.droppedObservationCount)
+            : atomicLoad64(&self.droppedObservationCount)
+        let firstDroppedTimestamp = reset
+            ? atomicSwap64(Int64.max, at: &firstDroppedObservationTimestampNanoseconds)
+            : atomicLoad64(&firstDroppedObservationTimestampNanoseconds)
+        let lastDroppedTimestamp = reset
+            ? atomicSwap64(0, at: &lastDroppedObservationTimestampNanoseconds)
+            : atomicLoad64(&lastDroppedObservationTimestampNanoseconds)
         let result = AudioPipeRealtimeMarkerSnapshot(
             firstRemoteRenderedMonotonicNanoseconds: optionalTimestamp(
                 reset
@@ -755,11 +770,11 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
                     ? atomicSwap64(0, at: &playoutStableMonotonicNanoseconds)
                     : atomicLoad64(&playoutStableMonotonicNanoseconds)
             ),
-            droppedObservationCount: safeInt(
-                reset
-                    ? atomicSwap64(0, at: &droppedObservationCount)
-                    : atomicLoad64(&droppedObservationCount)
-            )
+            droppedObservationCount: safeInt(droppedObservationCount),
+            firstDroppedObservationTimestampNanoseconds: firstDroppedTimestamp == Int64.max
+                ? nil
+                : optionalTimestamp(firstDroppedTimestamp),
+            lastDroppedObservationTimestampNanoseconds: optionalTimestamp(lastDroppedTimestamp)
         )
         if reset {
             atomicStore32(0, to: &stableRenderIntervals)
@@ -782,6 +797,9 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
         let read = atomicLoad64(&observationReadIndex)
         guard write - read < Int64(Self.observationCapacity) else {
             _ = OSAtomicAdd64Barrier(1, &droppedObservationCount)
+            let timestamp = Int64(min(observation.timestampNanoseconds, UInt64(Int64.max)))
+            atomicMin64(timestamp, to: &firstDroppedObservationTimestampNanoseconds)
+            atomicMax64(timestamp, to: &lastDroppedObservationTimestampNanoseconds)
             return
         }
         observations[Int(write % Int64(Self.observationCapacity))] = observation

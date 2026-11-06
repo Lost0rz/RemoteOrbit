@@ -13,7 +13,7 @@ final class LongTermObservabilityTests: XCTestCase {
     }
 
     func testFixedTracePreservesFrontAndWrapsRecentWithoutAllocatingOnAppend() {
-        var trace = FixedCapacityObservationTrace(frontCapacity: 2, recentCapacity: 3)
+        var trace = FixedCapacityObservationTrace(frontCapacity: 2, recentCapacity: 3, incidentCapacity: 2)
         for timestamp in UInt64(1)...6 {
             trace.append(point(timestamp: timestamp))
         }
@@ -22,6 +22,8 @@ final class LongTermObservabilityTests: XCTestCase {
         XCTAssertEqual(snapshot.front.map(\.timestampNanoseconds), [1, 2])
         XCTAssertEqual(snapshot.recent.map(\.timestampNanoseconds), [4, 5, 6])
         XCTAssertEqual(snapshot.overwrittenObservationCount, 1)
+        XCTAssertEqual(snapshot.recentRingOverwriteCount, 1)
+        XCTAssertEqual(snapshot.incidentRingOverwriteCount, 4)
         XCTAssertEqual(snapshot.droppedObservationCount, 0)
         XCTAssertEqual(snapshot.all.map(\.timestampNanoseconds), [1, 2, 4, 5, 6])
     }
@@ -33,7 +35,116 @@ final class LongTermObservabilityTests: XCTestCase {
         trace.append(point(timestamp: 11))
 
         XCTAssertEqual(trace.droppedObservationCount, 2)
+        XCTAssertEqual(trace.snapshot().timestampOutOfOrderRejectionCount, 1)
+        XCTAssertEqual(trace.snapshot().actualObservationDropCount, 1)
         XCTAssertEqual(trace.snapshot().all.map(\.timestampNanoseconds), [10])
+    }
+
+    func testProducerTimestampsAreValidatedWithinEachProducerSequence() {
+        var trace = FixedCapacityObservationTrace(frontCapacity: 4, recentCapacity: 4)
+        let laterService = LongTermObservationPoint(
+            timestampNanoseconds: 200,
+            kind: .bleArrival,
+            requestedFrames: 0,
+            filledFrames: 0,
+            unfilledFrames: 0,
+            queueDepthFrames: 0,
+            byteOrSampleCount: 3,
+            marker: .unclassified,
+            sequence: 1,
+            source: "voice_service"
+        )
+        let earlierAudioPipe = LongTermObservationPoint(
+            timestampNanoseconds: 100,
+            kind: .render,
+            requestedFrames: 4,
+            filledFrames: 4,
+            unfilledFrames: 0,
+            queueDepthFrames: 4,
+            byteOrSampleCount: 4,
+            marker: .active,
+            sequence: 1,
+            source: "audio_pipe"
+        )
+
+        XCTAssertTrue(trace.append(laterService))
+        XCTAssertTrue(trace.append(earlierAudioPipe))
+        XCTAssertEqual(trace.snapshot().timestampOutOfOrderRejectionCount, 0)
+        XCTAssertEqual(trace.snapshot().all.map(\.source), ["voice_service", "audio_pipe"])
+    }
+
+    func testSessionSummaryJoinsSeparateProducerStatisticsOffRealtimePath() throws {
+        let authority = CapturingLongTermAuthority()
+        let service = LongTermObservabilityService(authority: authority)
+        let sessionID = UUID()
+        let start: UInt64 = 9_000_000_000
+        service.begin(sessionID: sessionID, timestampNanoseconds: start)
+        _ = service.observeTransportStart(
+            protocolVersion: "v10",
+            mode: "playback_realtime",
+            codec: "adpcm",
+            sampleRate: 16_000,
+            timestampNanoseconds: start
+        )
+
+        var audioPipeStatistics = AudioSupplyStatisticsRing(
+            producer: .audioPipe,
+            sessionStartNanoseconds: start
+        )
+        for second in UInt64(0)...1 {
+            service.observeNotification(
+                bytes: 60,
+                gapNanoseconds: 20_000_000,
+                timestampNanoseconds: start + second * 1_000_000_000 + 100_000_000
+            )
+            service.observeDecode(
+                frameCount: 1,
+                sampleCount: 16_000,
+                timestampNanoseconds: start + second * 1_000_000_000 + 200_000_000
+            )
+            audioPipeStatistics.record(LongTermObservationPoint(
+                timestampNanoseconds: start + second * 1_000_000_000 + 500_000_000,
+                kind: .render,
+                requestedFrames: 480,
+                filledFrames: 480,
+                unfilledFrames: 0,
+                queueDepthFrames: 120,
+                byteOrSampleCount: 480,
+                marker: .active,
+                sequence: second + 1,
+                queueDepthBeforeFrames: 240,
+                source: "audio_pipe"
+            ))
+        }
+        service.observeLongTermAudioSnapshot(LongTermAudioObservationSnapshot(
+            trace: .empty,
+            mainQueueLag: .empty,
+            audioPipeStatistics: audioPipeStatistics
+        ))
+        service.mark("AUDIO_STOP", timestampNanoseconds: start + 2_000_000_000, sessionID: sessionID)
+
+        let summary = try XCTUnwrap(service.end(sessionID: sessionID))
+        let statistics = try XCTUnwrap(summary.audioSupplyStatistics)
+
+        XCTAssertEqual(statistics.windows.count, 2)
+        XCTAssertEqual(statistics.effectiveSourceHzBySecond, [0: 16_000, 1: 16_000])
+        XCTAssertTrue(statistics.windows.allSatisfy(\.invalidReasons.isEmpty))
+        XCTAssertEqual(statistics.windows[0].notificationCount, 1)
+        XCTAssertEqual(statistics.windows[1].decodedPCMSamples, 16_000)
+        XCTAssertEqual(statistics.windows[1].queueStartDepthFrames, 240)
+        XCTAssertEqual(statistics.windows[1].queueEndDepthFrames, 120)
+        let summaryEvent = try XCTUnwrap(authority.inputs.first)
+        XCTAssertEqual(summaryEvent.eventType, "voice.session.summary")
+        guard case .object(let eventPayload) = summaryEvent.payload["summary"],
+              case .object(let statsPayload) = eventPayload["per_second_audio_supply_statistics"],
+              case .array(let encodedWindows) = statsPayload["windows"] else {
+            return XCTFail("per-second statistics were not serialized")
+        }
+        let firstEncodedWindow = try XCTUnwrap(encodedWindows.first)
+        guard case .object(let firstWindow) = firstEncodedWindow,
+              case .unsignedInteger(16_000) = firstWindow["effective_source_hz"] else {
+            return XCTFail("per-second statistics did not serialize valid effective source rate")
+        }
     }
 
     func testIntentionalRecentOverwriteIsRetentionMetadataOnly() {

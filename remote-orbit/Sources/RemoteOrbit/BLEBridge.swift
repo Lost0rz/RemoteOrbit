@@ -1887,9 +1887,11 @@ extension BLEBridge: CBPeripheralDelegate {
             streamDecodeRejectCount = 0
             streamZeroSampleDecodeCount = 0
             hasRecordedFirstP1A4AudioPacket = false
+            let statisticsSessionStartNanoseconds = P1A4MonotonicClock.nowNanoseconds()
             let continuityContext = VoiceTimingLogger.continuityCaptureContextForAudioStart()
             AudioPipe.shared.beginRemoteAudioDiagnostics(
-                continuityContext: continuityContext
+                continuityContext: continuityContext,
+                statisticsSessionStartNanoseconds: statisticsSessionStartNanoseconds
             )
             streamAudioSyncCount = pendingAudioSyncCount
             pendingAudioSyncCount = 0
@@ -1922,9 +1924,13 @@ extension BLEBridge: CBPeripheralDelegate {
                 codec: codec.description,
                 sampleRate: UInt64(max(0, codec.sampleRate)),
                 reason: UInt64(reason),
-                streamID: UInt64(sid)
+                streamID: UInt64(sid),
+                timestampNanoseconds: statisticsSessionStartNanoseconds
             )
-            VoiceTimingLogger.mark("AUDIO_START")
+            VoiceTimingLogger.mark(
+                "AUDIO_START",
+                timestampNanoseconds: statisticsSessionStartNanoseconds
+            )
         case .audioStop(let reason):
             guard isStreaming else {
                 print("[BLE] AUDIO_STOP duplicate ignored reason=0x\(String(format: "%02x", reason))")
