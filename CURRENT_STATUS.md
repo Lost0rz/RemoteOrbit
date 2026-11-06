@@ -1,27 +1,31 @@
 # CURRENT_STATUS
 
 Last updated: 2026-11-06
-State: `RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 / WP04 — ACTIVE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
+State: `RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 / Delegated Approval Policy Migration — ACTIVE / IN_PROGRESS`
 Repository: `Lost0rz/RemoteOrbit`
 Remote control authority: `main`
+Audited control parent: `660fc839217cbbb290b506357403c0c110171377`
 Control mode: `FILE_CONTROL`
-Audited control parent: `a02859e5df597ec7094eda5ac05116c67b0f9d2e`
-WP03 preparation merge: `a02859e5df597ec7094eda5ac05116c67b0f9d2e` (PR #43)
-WP04 control transition commit: `62aa07ce0e1a2c47c86ed1a840a4930d2b76a1f0` (direct child of the audited parent)
-Authorized bridge branch: `codex/task050-wp04-control-bridge`
-Bridge PR: #44 — https://github.com/Lost0rz/RemoteOrbit/pull/44 — OPEN / DRAFT / UNMERGED
+Accepted Issue approvers: `Lost0rz`
+WP03 approver-policy merge: `a02859e5df597ec7094eda5ac05116c67b0f9d2e` (PR #43, MERGED)
+WP04 Bridge merge: `660fc839217cbbb290b506357403c0c110171377` (PR #44, MERGED)
+Main CI run `42191445976`: SUCCESS on `660fc839217cbbb290b506357403c0c110171377`
+Active policy branch: `codex/task050-delegated-approval-policy`, created from the audited main parent
+Policy PR: NOT CREATED
 
-## Task 050 / WP04 control bridge
+## Task 050 delegated approval policy migration
 
-The user-provided card `RO-GOVERNANCE-050-WP04-CONTROL-BRIDGE-001` explicitly authorizes the WP03 to WP04 FILE_CONTROL transition and one exceptional control-only Draft PR changing only `CURRENT_TASK.md` and `CURRENT_STATUS.md`. PR #43 merged as `a02859e5df597ec7094eda5ac05116c67b0f9d2e`; its post-merge CI run `42175301091` succeeded on that exact commit. The merged `AGENTS.md` accepts `ISSUE_APPROVERS: Lost0rz`; `CONTROL_MODE` remains `FILE_CONTROL`.
+The user-provided card `RO-GOVERNANCE-050-DELEGATED-APPROVAL-POLICY-001` authorizes a governance-only proposal to opt in to lower-assurance delegated Issue approvals while preserving exact-spec digest checks and provenance. This branch remains a proposal under `FILE_CONTROL`; it does not authorize Issue execution or change the control mode. The paired control transition is being established from main `660fc839217cbbb290b506357403c0c110171377` before changing `AGENTS.md`.
 
-This bridge reconciles POST_MERGE_DRIFT: main's Task and Status still identify WP03 as active, say PR #43 is open/unmerged, and wait for the independent audit that was completed before the merge. Issue #41 and #42 remain revision 2 drafts; neither has a matching `SPEC_APPROVAL_V1`. No Issue body or comment is changed by this bridge. Do not switch to ISSUE_CONTROL.
+The authorized PR scope is limited to `AGENTS.md`, `CURRENT_TASK.md`, and `CURRENT_STATUS.md`. The policy must keep direct `SPEC_APPROVAL_V1` human-authored, introduce exactly one operative `ISSUE_DELEGATED_APPROVAL: ENABLED`, restrict Web Agent A to a separately identified delegated approval comment after explicit user approval of the exact current Issue spec, and grant no general repository write, product-code, PR-merge, or cutover authority. The installed official checker must pass delegated positive and negative examples. The PR must remain Draft and stop for independent audit.
 
-## Preserved Task 049 workstream (non-writing during this bridge)
+PR #40 is separate and remains OPEN / DRAFT / UNMERGED at head `1d6370cb9a9bfa1f1d8bff10095f149fefe89288`; it is outside this policy change. No Issue #41/#42 body edit or approval comment is in this policy-PR phase. After the policy PR is independently audited and merged, reread both live Issue specs and approval records; materially revised specs require a new revision and digest plus explicit user approval of that exact current spec before any `SPEC_DELEGATED_APPROVAL_V1` comment and official verification. No prior revision decision is carried forward.
 
-Task `RO-AUDIO-CONTINUITY-DIAGNOSTIC-049` remains unfinished at `WAITING_FOR_FRESH_HARDWARE_CAPTURE`. Its objective is to classify the decoded-PCM supply-deficit boundary from fresh RC003 evidence; `ROOT_CAUSE_STATUS` remains `UNKNOWN`. No Task 049 execution or hardware capture is authorized during this Task 050 bridge stage; Issue #41 remains a non-authoritative draft under FILE_CONTROL.
+## Preserved Task 049 workstream (non-writing during Task 050 policy migration)
 
-PR #40 remains the separate product-diagnostics PR. Current GitHub evidence: OPEN / DRAFT / UNMERGED, head `1d6370cb9a9bfa1f1d8bff10095f149fefe89288`, base branch `main`, reported base ref `15f213d9bb81986685e751d89753fd7f293e108b`. Current remote main is `a02859e5df597ec7094eda5ac05116c67b0f9d2e`; preserve the observed base-ref difference for later Task 049 reconciliation. Do not update or otherwise modify PR #40 here.
+Task `RO-AUDIO-CONTINUITY-DIAGNOSTIC-049` remains unfinished at `WAITING_FOR_FRESH_HARDWARE_CAPTURE`. Its objective is to classify the decoded-PCM supply-deficit boundary from fresh RC003 evidence; `ROOT_CAUSE_STATUS` remains `UNKNOWN`. No Task 049 execution or hardware capture is authorized during this Task 050 delegated approval policy migration; Issue #41 remains a non-authoritative draft under FILE_CONTROL.
+
+PR #40 remains the separate product-diagnostics PR. Current GitHub evidence: OPEN / DRAFT / UNMERGED, head `1d6370cb9a9bfa1f1d8bff10095f149fefe89288`, base branch `main`, reported base ref `15f213d9bb81986685e751d89753fd7f293e108b`. Current remote main is `660fc839217cbbb290b506357403c0c110171377`; preserve the observed PR base-ref difference for later Task 049 reconciliation. Do not update or otherwise modify PR #40 here.
 
 ### Accepted release baseline
 
@@ -52,6 +56,6 @@ The hardware gate requires an instrumented Task 049 build, persisted `voice.sess
 
 ## Workspace and next gate
 
-The canonical local checkout is `/Volumes/Jack-Dev/Projects/RemoteOrbit`, now on `codex/task050-wp04-control-bridge` based on fetched `origin/main` at `a02859e5df597ec7094eda5ac05116c67b0f9d2e`. It had one registered RemoteOrbit worktree and no unique local changes before this transition. The separate Engineering-Governance source checkout and its pre-existing `.agents/plugins/marketplace.json` modification are outside this task and remain untouched.
+The canonical local checkout is `/Volumes/Jack-Dev/Projects/RemoteOrbit`, now on `codex/task050-delegated-approval-policy` from audited `origin/main` `660fc839217cbbb290b506357403c0c110171377`. It had one registered RemoteOrbit worktree and no unique local changes before this transition. The separate Engineering-Governance source checkout and its pre-existing `.agents/plugins/marketplace.json` modification are outside this task and remain untouched.
 
-The bridge changes only the paired Task/Status files. Independent Web audit must review the final live Bridge PR head. Keep it Draft and unmerged. After its verified merge, resume WP04 Issue-spec reconciliation and approval preparation under FILE_CONTROL; actual `SPEC_APPROVAL_V1` comments remain owner-authored. PR #40 remains separate and must stay OPEN / DRAFT / UNMERGED.
+The current paired control commit establishes this authorized policy-migration phase. Next: add the narrowly scoped delegation policy to `AGENTS.md`, run the installed official validator's delegated positive/negative tests and focused governance checks, then create one Draft PR. Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not merge automatically. PR #40 remains separate and must stay OPEN / DRAFT / UNMERGED.
