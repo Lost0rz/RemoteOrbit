@@ -1,52 +1,47 @@
 # RemoteOrbit Current Task
 
-## RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 / WP04 — post-merge Issue spec reconciliation
+## RO-GOVERNANCE-ISSUE-CONTROL-MIGRATION-050 — delegated approval policy migration
 
 Status: `ACTIVE / WAITING_FOR_INDEPENDENT_WEB_AUDIT`
 TASK_CLASS: `GOVERNANCE / CONTROL-PLANE`
 Repository: `Lost0rz/RemoteOrbit`
 Control mode: `FILE_CONTROL`
-Control authority: this `CURRENT_TASK.md` on the authorized Bridge PR branch
-Audited control parent: `a02859e5df597ec7094eda5ac05116c67b0f9d2e`
-WP04 control transition commit: `62aa07ce0e1a2c47c86ed1a840a4930d2b76a1f0`
-WP03 preparation PR: #43 — MERGED at the audited control parent
-Authorized Bridge branch: `codex/task050-wp04-control-bridge`
-Bridge PR: #44 — https://github.com/Lost0rz/RemoteOrbit/pull/44 — OPEN / DRAFT / UNMERGED
+Control authority: paired `CURRENT_TASK.md` / `CURRENT_STATUS.md` on this authorized policy branch, based on authoritative main
+Audited main parent: `660fc839217cbbb290b506357403c0c110171377`
+Authorized branch: `codex/task050-delegated-approval-policy`
 
 ## Authorization
 
-The user-provided card `RO-GOVERNANCE-050-WP04-CONTROL-BRIDGE-001` explicitly authorizes the WP03 to WP04 FILE_CONTROL transition, paired updates to `CURRENT_TASK.md` and `CURRENT_STATUS.md`, and one exceptional control-only Draft Bridge PR. The transition commit must be a direct child of the live, audited `origin/main` above. The Bridge PR must remain Draft and unmerged for independent audit.
+The user-provided card `RO-GOVERNANCE-050-DELEGATED-APPROVAL-POLICY-001` explicitly authorizes a narrowly scoped delegated Issue approval policy migration, a paired task/status control transition as the first commit, focused official validator positive/negative checks, and one Draft PR for independent audit. It does not authorize automatic merge, ISSUE_CONTROL cutover, Issue body edits or approval comments during this policy-PR phase, or any product/audio/runtime change.
 
-`AGENTS.md` on accepted main remains `CONTROL_MODE: FILE_CONTROL`; `ISSUE_APPROVERS: Lost0rz` is accepted after PR #43 merged. That policy does not approve either Issue or activate ISSUE_CONTROL.
+The first paired-control commit updated `CURRENT_TASK.md` and `CURRENT_STATUS.md` together as a direct child of the audited main parent above: `d4008e199a15cbf69a350acad6dfdaa2c88758b9`. The policy PR may change only `AGENTS.md`, `CURRENT_TASK.md`, and `CURRENT_STATUS.md`. Keep the local Bridge branch and the separate dirty Engineering-Governance checkout intact.
 
 ## Objective
 
-Reconcile the post-merge WP03 status drift and establish the Task 050 / WP04 authorization on the paired control files. This Bridge PR stage is limited to the two control files. Do not resume Issue #41/#42 body edits or approval preparation until the Bridge PR is merged and its live main state is revalidated.
+Propose `ISSUE_DELEGATED_APPROVAL: ENABLED` as one operative declaration in `AGENTS.md` while preserving `CONTROL_MODE: FILE_CONTROL` and the direct human-authored `SPEC_APPROVAL_V1` rule. The declaration exists on this branch only and is not accepted policy until reviewed merge to main. Delegation is a lower-assurance, exact-spec GitHub approval path only; it does not authorize Issue execution under FILE_CONTROL or enable cutover.
 
-## Current Bridge PR scope and allowed side effects
+## Policy requirements
 
-Only these repository files may change in the Bridge PR:
+- Only an explicit user decision in the current conversation approving the exact current Issue specification after digest/revision review can support `SPEC_DELEGATED_APPROVAL_V1`.
+- Use the distinct `SPEC_DELEGATED_APPROVAL_V1` identifier and the official required repository, Issue, task, revision, digest, decision, authorization-channel, user-decision, summary, and provenance fields. Never label a proxy comment `SPEC_APPROVAL_V1` or claim independent proof of user intent.
+- Preserve trusted `ISSUE_APPROVERS` author checks, OPEN Issue checks, canonical digest equality, revision integrity, revocation detection, and the `DELEGATED_ACCOUNT_ATTESTED` lower-assurance result.
+- Web Agent A remains read-only for project audit/spec/status work except for this narrowly authorized delegated approval comment after exact current-spec user approval. This does not grant general GitHub Issue write, repository source, branch, PR lifecycle, merge, release, or cutover authority.
+- Local Codex and any connector must not synthesize direct `SPEC_APPROVAL_V1` on an approver's behalf. Keep accepted FILE_CONTROL as the only task authority until a separately authorized and verified cutover.
 
-- `CURRENT_TASK.md`
-- `CURRENT_STATUS.md`
+## Verification
 
-Authorized delivery side effects: create the named branch from freshly verified `origin/main`, make the paired control transition commit directly from the audited parent, run focused governance checks, push only this branch, and create one Draft Bridge PR. After PR creation, any update recording its identity must change both control files in the same commit. Do not create another PR or merge this one.
+- The installed official Engineering Governance 0.8.1 `test_issue_spec_check.py` suite completed: 34 tests passed, including default-off rejection, exact matching opt-in acceptance, stale digest rejection, and trusted actor/provenance enforcement. Official CLI checks against a synthetic fixture also rejected delegation by default, accepted the matching full digest under the branch proposal with `DELEGATED_ACCOUNT_ATTESTED`, and rejected the stale digest. No plugin installation or source checkout was modified.
+- `git diff --check` passed; the exact change set remains limited to `AGENTS.md`, `CURRENT_TASK.md`, and `CURRENT_STATUS.md`; do not run Swift/product tests.
+- Do not modify Issues #41/#42 or post any approval comment in this policy-PR phase.
 
-Do not modify `AGENTS.md`, Issue #41 or #42, PR #40, product source, runtime, driver, audio settings, TCC, or CoreAudio. Do not switch to ISSUE_CONTROL, merge any PR, or run the full Swift suite.
+## PR delivery and stop boundary
 
-## WP04 continuation after the Bridge PR gate
+Draft PR #45 (`https://github.com/Lost0rz/RemoteOrbit/pull/45`) was created from the audited main parent and remains `OPEN / DRAFT / UNMERGED`. Its creation head was `a365022f97d068d2a30cad3ceea0fff930d73801`; this paired control receipt records the PR identity. Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`; do not mark Ready or merge.
 
-After an independently audited and verified Bridge PR merge, resume WP04 Issue-spec reconciliation under FILE_CONTROL: reread current main controls and both complete Issue bodies; update stale baselines and authority descriptions; increment a revision when a body materially changes; run the installed official digest and structural checker against fresh JSON; and perform semantic and dependency review. Prepare exact approval records, but only authenticated GitHub user `Lost0rz` may post each `SPEC_APPROVAL_V1` approval. Verify those comments from fresh Issue data. Issue approval does not authorize ISSUE_CONTROL or cutover; WP05 and WP06 remain separate gates.
+## After independent audit and merge
 
-## Preserved Task 049 workstream
+Only after live verification that the strategy PR merged to authoritative main, reread Issues #41/#42 and their current comments. Check their approval-method text and exact current digests. If a specification materially changes, increment its revision and calculate a new digest. Obtain an explicit user decision approving each exact current specification before posting any `SPEC_DELEGATED_APPROVAL_V1`; a prior decision or Revision 3 approval must not be carried to a changed spec. Verify the delegated comment author, full digest binding, revocation state, and lower-assurance result using the official helper. This policy PR does not automatically switch `CONTROL_MODE` or authorize ISSUE_CONTROL cutover.
 
-Task `RO-AUDIO-CONTINUITY-DIAGNOSTIC-049` remains unfinished at `WAITING_FOR_FRESH_HARDWARE_CAPTURE`; its objective remains classifying the decoded-PCM supply-deficit boundary, and `ROOT_CAUSE_STATUS` remains `UNKNOWN`. PR #40 remains OPEN / DRAFT / UNMERGED at head `1d6370cb9a9bfa1f1d8bff10095f149fefe89288`; it must remain unmodified. No Task 049 source edits, hardware capture, installation, driver or CoreAudio action, merge, or release is authorized by this Bridge stage.
+## Preserved Task 049 and PR #40
 
-## Bridge PR completion criteria
-
-- `CURRENT_TASK.md` and `CURRENT_STATUS.md` are updated together, with the first transition commit a direct child of audited `origin/main`.
-- The paired controls identify PR #43 as merged at `a02859e5df597ec7094eda5ac05116c67b0f9d2e`, accepted `ISSUE_APPROVERS: Lost0rz`, and `FILE_CONTROL` as unchanged.
-- Task 049, PR #40, its fresh RC003 hardware gate, and unresolved cause remain preserved.
-- The Bridge PR changes exactly the two authorized control files, is OPEN / DRAFT / UNMERGED, and its live branch head matches the PR head.
-- Focused governance checks pass; the full Swift suite is not run.
-- Stop at `WAITING_FOR_INDEPENDENT_WEB_AUDIT`. Do not auto-merge.
+Task `RO-AUDIO-CONTINUITY-DIAGNOSTIC-049` remains `WAITING_FOR_FRESH_HARDWARE_CAPTURE`; no capture, installation, driver, CoreAudio, product source, merge, or release action is authorized here. PR #40 must remain OPEN / DRAFT / UNMERGED at its live head and must not be modified.

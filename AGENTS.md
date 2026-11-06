@@ -45,6 +45,7 @@ update the relevant current-state/task record as part of the transition.
 
 CONTROL_MODE: FILE_CONTROL
 ISSUE_APPROVERS: Lost0rz
+ISSUE_DELEGATED_APPROVAL: ENABLED
 
 FILE_CONTROL remains the sole task authority until a separately authorized and
 verified migration PR is merged to the authoritative `main`. The declarations in a
@@ -52,18 +53,45 @@ preparation branch are proposed policy only; they become accepted repository
 policy only after reviewed merge to `main`. Their presence on a branch does not
 authorize Issue execution or approve an Issue specification.
 
-If a later separately authorized transition adopts `ISSUE_CONTROL`, execution
-requires a separate `SPEC_APPROVAL_V1` GitHub comment by an actual authenticated
-GitHub user listed in `ISSUE_APPROVERS`. The comment must bind the canonical
-repository, Issue, `TASK_ID`, `SPEC_REVISION` and `SPEC_SHA256`, and state
-`DECISION: APPROVED_FOR_EXECUTION`. An execution agent or automated connector
-must not author or synthesize that approval on an approver's behalf or approve its
-own work through the connector.
+If a later separately authorized transition adopts `ISSUE_CONTROL`, an Issue
+specification requires a matching approval before execution. The strict direct
+path is a separate `SPEC_APPROVAL_V1` comment authored by the actual authenticated
+GitHub user listed in `ISSUE_APPROVERS`; it must bind the canonical repository,
+Issue, `TASK_ID`, `SPEC_REVISION` and `SPEC_SHA256`, and state
+`DECISION: APPROVED_FOR_EXECUTION`. An agent or connector must never represent
+its own account-proxy comment as a directly human-authored `SPEC_APPROVAL_V1` or
+synthesize one on an approver's behalf.
 
-Web Agent A owns remote read-only project audit, design review and status/evidence
-reading. Local Codex owns only locally authorized execution, focused verification
-and verifiable implementation receipts. A handoff card transports authority
-references and scope; it never replaces accepted repository task authority.
+This repository explicitly opts in to the lower-assurance
+`SPEC_DELEGATED_APPROVAL_V1` path through the single operative
+`ISSUE_DELEGATED_APPROVAL: ENABLED` declaration above. Only Web Agent A may use
+this narrow GitHub comment exception, and only after the user explicitly approves
+the exact current Issue specification in the present conversation after review of
+its repository, Issue, task, revision, canonical digest, impact and material
+changes. A delegated comment must use the distinct `SPEC_DELEGATED_APPROVAL_V1`
+identifier and the official fields `REPOSITORY`, `ISSUE`, `TASK_ID`,
+`SPEC_REVISION`, `SPEC_SHA256`, `DECISION`, `AUTHORIZATION_CHANNEL`,
+`USER_DECISION`, `USER_DECISION_SUMMARY` and `PROVENANCE`. Set
+`AUTHORIZATION_CHANNEL: CHATGPT_WEB`,
+`USER_DECISION: EXPLICIT_APPROVAL_OF_CURRENT_SPEC`, and
+`PROVENANCE: ACCOUNT_PROXY_NO_INDEPENDENT_CHAT_PROOF`; the summary must truthfully
+describe the user's explicit decision without sensitive content. The comment
+author must be an authenticated login in `ISSUE_APPROVERS`. The official verifier
+must confirm the Issue is open, all fields and the exact current digest match,
+there is no revocation or conflicting revision hash, and report
+`DELEGATED_ACCOUNT_ATTESTED`. This is an AI account-proxy attestation with lower
+assurance, not independent proof of user intent. A materially changed spec needs
+a new revision, digest and explicit user decision; approval of a prior revision
+does not carry forward.
+
+This delegated exception grants no general GitHub Issue write, repository source,
+branch, PR lifecycle, merge, release or cutover authority. It does not change
+`FILE_CONTROL`, authorize Issue execution while `FILE_CONTROL` remains active, or
+let an execution agent approve its own implementation. Local Codex owns only
+locally authorized execution, focused verification and verifiable implementation
+receipts. Web Agent A otherwise remains read-only for project audit, design review
+and status/evidence reading. A handoff card transports authority references and
+scope; it never replaces accepted repository task authority.
 
 ## Control-plane transition protocol
 
