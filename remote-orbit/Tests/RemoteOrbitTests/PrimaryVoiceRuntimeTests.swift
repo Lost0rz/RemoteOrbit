@@ -446,6 +446,214 @@ final class PrimaryVoiceRuntimeTests: XCTestCase {
         XCTAssertEqual(harness.filter.configureVoiceTriggerKeyCallCountForTesting, filterConfigurationCount)
     }
 
+    func testSameEntryRecordSaveAtoBtoAWithoutRestartUsesUpdatedBinding() throws {
+        let sink = PrimaryVoiceChordEventSink()
+        let emitter = VoiceShortcutEmitter(
+            sink: sink,
+            physicalModifierKeyCodesProvider: { [] },
+            diagnosticSink: { _ in }
+        )
+        let harness = PrimaryVoiceRuntimeHarness(
+            connected: true,
+            mappingEnabled: false,
+            persistedKey: .leftOption,
+            voiceShortcutEmitter: emitter
+        )
+        let priorPresentationSnapshot = VoiceShortcutPresentation.shared.snapshot
+        let priorPresentationReadOnlyReason = VoiceShortcutPresentation.shared.readOnlyReason
+        let coordinator = harness.controller.voicePress
+        defer {
+            coordinator.stop()
+            VoiceShortcutPresentation.shared.replace(
+                snapshot: priorPresentationSnapshot,
+                readOnlyReason: priorPresentationReadOnlyReason
+            )
+        }
+
+        func recordModifierChord(_ pressOrder: [UInt16]) throws -> VoiceShortcutBinding {
+            func input(_ keyCode: UInt16, isDown: Bool) -> ShortcutCaptureInput {
+                switch keyCode {
+                case 54, 55:
+                    return .flagsChanged(
+                        keyCode: keyCode,
+                        modifier: .command,
+                        label: "⌘",
+                        isDown: isDown
+                    )
+                case 58:
+                    return .flagsChanged(
+                        keyCode: keyCode,
+                        modifier: .option,
+                        label: "⌥",
+                        isDown: isDown
+                    )
+                default:
+                    XCTFail("unexpected test modifier keycode \(keyCode)")
+                    return .synthetic
+                }
+            }
+
+            var machine = ShortcutCaptureStateMachine(voiceCaptureEnabled: true)
+            for keyCode in pressOrder {
+                XCTAssertTrue(machine.handle(input(keyCode, isDown: true)).shouldSuppress)
+            }
+            var committed: VoiceShortcutBinding?
+            for keyCode in pressOrder.reversed() {
+                let decision = machine.handle(input(keyCode, isDown: false))
+                if let binding = decision.voiceCommitted { committed = binding }
+            }
+            return try XCTUnwrap(committed)
+        }
+
+        let initial = harness.controller.currentVoiceShortcutSnapshot
+        let entryID = try XCTUnwrap(initial.activeEntryID)
+        let bindingA = try recordModifierChord([58, 54])
+        let entryA = VoiceShortcutEntry(
+            id: entryID,
+            displayName: "Left Option + Right Command",
+            binding: bindingA
+        )
+        let snapshotA = try VoiceShortcutStore.replacingEntry(entryA, in: initial)
+        XCTAssertEqual(snapshotA.activeEntryID, entryID)
+        XCTAssertEqual(update(snapshotA, on: harness.controller), .applied)
+
+        func assertSaved(_ snapshot: VoiceShortcutSnapshot, binding: VoiceShortcutBinding) {
+            XCTAssertEqual(snapshot.activeEntryID, entryID)
+            XCTAssertEqual(snapshot.activeEntry?.id, entryID)
+            XCTAssertEqual(snapshot.activeEntry?.binding, binding)
+            XCTAssertEqual(harness.controller.currentVoiceShortcutSnapshot, snapshot)
+            XCTAssertEqual(harness.controller.currentVoiceInputProfile.id, entryID)
+            XCTAssertEqual(harness.controller.currentVoiceInputProfile.binding, binding)
+            XCTAssertEqual(VoiceShortcutPresentation.shared.snapshot, snapshot)
+            XCTAssertEqual(harness.voiceShortcutData, harness.voiceShortcutData(for: snapshot))
+            XCTAssertEqual(
+                harness.voiceShortcutDefaults.string(forKey: VoiceInputProfileStore.selectedProfileIDKey),
+                entryID
+            )
+            XCTAssertFalse(harness.controller.voiceTriggerRuntimeLocked)
+            XCTAssertFalse(harness.controller.voiceTriggerReconfigurationInProgress)
+            XCTAssertFalse(harness.filter.shouldSuppressDuringVoiceTriggerReconfiguration(keyCode: VK.voiceKey))
+            XCTAssertFalse(harness.mappingEnabled)
+            XCTAssertEqual(harness.controller.currentVoiceTriggerKey, .leftOption)
+            XCTAssertEqual(harness.filter.momentaryVoiceTriggerKey, .leftOption)
+            XCTAssertEqual(harness.trigger.voiceTriggerKey, .leftOption)
+        }
+        assertSaved(snapshotA, binding: bindingA)
+        let mappingCallsAfterInitialSave = harness.mappingCalls
+        let filterConfigurationsAfterInitialSave = harness.filter.configureVoiceTriggerKeyCallCountForTesting
+
+        let bindingB = try recordModifierChord([58, 55])
+        let entryB = VoiceShortcutEntry(
+            id: entryID,
+            displayName: "Left Option + Left Command",
+            binding: bindingB
+        )
+        let snapshotB = try VoiceShortcutStore.replacingEntry(entryB, in: snapshotA)
+        XCTAssertEqual(snapshotB.activeEntryID, entryID)
+        XCTAssertEqual(snapshotB.entries.filter { $0.id == entryID }.count, 1)
+
+        let heldSessionID = UUID()
+        let heldEventStart = sink.successfullyPostedEvents.count
+        XCTAssertTrue(coordinator.keyDown(
+            sessionID: heldSessionID,
+            profile: harness.controller.currentVoiceInputProfile
+        ))
+        XCTAssertTrue(coordinator.promoteLongOnlyCandidateForTesting())
+        XCTAssertEqual(
+            Array(sink.successfullyPostedEvents.suffix(2).map(\.keyCode)),
+            [54, 58]
+        )
+        XCTAssertEqual(update(snapshotB, on: harness.controller), .busyActiveHold)
+        assertSaved(snapshotA, binding: bindingA)
+        XCTAssertEqual(harness.voiceShortcutData, harness.voiceShortcutData(for: snapshotA))
+        XCTAssertEqual(sink.successfullyPostedEvents.count, heldEventStart + 2)
+
+        var heldOutputDrain: (() -> Void)?
+        coordinator.onRemoteOutputDrain = { _, completion in heldOutputDrain = completion }
+        coordinator.setRemoteStreaming(true)
+        XCTAssertTrue(coordinator.keyUp())
+        coordinator.setRemoteStreaming(false)
+        XCTAssertEqual(coordinator.currentStateForTesting, .draining)
+        XCTAssertNotNil(heldOutputDrain)
+        let drainEditResult = update(snapshotB, on: harness.controller)
+        XCTAssertTrue(
+            drainEditResult == .busyActiveHold || drainEditResult == .busyReleaseDrain,
+            "same-entry edits must remain busy until the output drain releases ownership"
+        )
+        assertSaved(snapshotA, binding: bindingA)
+        XCTAssertEqual(sink.successfullyPostedEvents.count, heldEventStart + 2)
+
+        heldOutputDrain?()
+        XCTAssertEqual(
+            Array(sink.successfullyPostedEvents.suffix(2).map(\.keyCode)),
+            [58, 54],
+            "release edges follow output drain in reverse order"
+        )
+        XCTAssertFalse(emitter.hasUnresolvedOwnership)
+        XCTAssertEqual(update(snapshotB, on: harness.controller), .applied)
+        assertSaved(snapshotB, binding: bindingB)
+        XCTAssertEqual(harness.mappingCalls, mappingCallsAfterInitialSave)
+        XCTAssertEqual(
+            harness.filter.configureVoiceTriggerKeyCallCountForTesting,
+            filterConfigurationsAfterInitialSave
+        )
+
+        func exerciseLong(
+            expectedDown: [UInt16],
+            expectedUp: [UInt16]
+        ) {
+            let eventStart = sink.successfullyPostedEvents.count
+            var outputDrain: (() -> Void)?
+            coordinator.onRemoteOutputDrain = { _, completion in outputDrain = completion }
+            let sessionID = UUID()
+            XCTAssertTrue(coordinator.keyDown(
+                sessionID: sessionID,
+                profile: harness.controller.currentVoiceInputProfile
+            ))
+            XCTAssertTrue(coordinator.promoteLongOnlyCandidateForTesting())
+            XCTAssertEqual(coordinator.currentGestureIDForDiagnostics, sessionID)
+            XCTAssertEqual(
+                Array(sink.successfullyPostedEvents.suffix(2).map(\.keyCode)),
+                expectedDown
+            )
+            XCTAssertTrue(emitter.hasUnresolvedOwnership)
+            coordinator.setRemoteStreaming(true)
+            XCTAssertTrue(coordinator.keyUp())
+            coordinator.setRemoteStreaming(false)
+            XCTAssertNotNil(outputDrain)
+            XCTAssertEqual(sink.successfullyPostedEvents.count, eventStart + 2)
+            outputDrain?()
+            XCTAssertEqual(sink.successfullyPostedEvents.count, eventStart + 4)
+            XCTAssertEqual(
+                Array(sink.successfullyPostedEvents.suffix(2).map(\.keyCode)),
+                expectedUp
+            )
+            XCTAssertFalse(emitter.hasUnresolvedOwnership)
+            XCTAssertFalse(coordinator.hasUnresolvedVoiceShortcutOwnership)
+            XCTAssertEqual(coordinator.currentStateForTesting, .idle)
+            XCTAssertEqual(harness.controller.currentVoiceInputProfile.id, entryID)
+        }
+
+        exerciseLong(expectedDown: [55, 58], expectedUp: [58, 55])
+
+        let bindingAAgain = try recordModifierChord([54, 58])
+        let entryAAgain = VoiceShortcutEntry(
+            id: entryID,
+            displayName: "Left Option + Right Command",
+            binding: bindingAAgain
+        )
+        let snapshotAAgain = try VoiceShortcutStore.replacingEntry(entryAAgain, in: snapshotB)
+        XCTAssertEqual(update(snapshotAAgain, on: harness.controller), .applied)
+        assertSaved(snapshotAAgain, binding: bindingAAgain)
+        XCTAssertEqual(harness.mappingCalls, mappingCallsAfterInitialSave)
+        XCTAssertEqual(
+            harness.filter.configureVoiceTriggerKeyCallCountForTesting,
+            filterConfigurationsAfterInitialSave
+        )
+        exerciseLong(expectedDown: [54, 58], expectedUp: [58, 54])
+        assertSaved(snapshotAAgain, binding: bindingAAgain)
+    }
+
     func testModifierOnlyShortcutReleasesItsModifierEdgesAfterOutputDrain() {
         let sink = PrimaryVoiceChordEventSink()
         let emitter = VoiceShortcutEmitter(

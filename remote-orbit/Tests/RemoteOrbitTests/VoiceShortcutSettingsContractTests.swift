@@ -54,6 +54,35 @@ final class VoiceShortcutSettingsContractTests: XCTestCase {
         XCTAssertFalse(helper.contains("typed_text"))
     }
 
+    func testVoiceRecorderStopsEventTapBeforePublishingCompletedBinding() throws {
+        let source = try source("Sources/RemoteOrbit/KeyMapping/ShortcutCaptureMonitor.swift")
+        let handlerStart = try XCTUnwrap(source.range(of: "func handle(type: CGEventType, event: CGEvent)"))
+        let handlerEnd = try XCTUnwrap(source.range(of: "deinit {", range: handlerStart.lowerBound..<source.endIndex))
+        let handler = String(source[handlerStart.lowerBound..<handlerEnd.lowerBound])
+        let stopBeforePublish = try XCTUnwrap(handler.range(
+            of: "self.stopInternal(notify: false)"
+        ))
+        let publishBinding = try XCTUnwrap(handler.range(of: "self.onVoiceRecord(voiceBinding)"))
+        XCTAssertLessThan(
+            stopBeforePublish.lowerBound,
+            publishBinding.lowerBound,
+            "the completed recorder tap must stop before the saved binding is published"
+        )
+
+        let stopStart = try XCTUnwrap(source.range(of: "private func stopInternal(notify: Bool)"))
+        let stopEnd = try XCTUnwrap(source.range(of: "private func report(", range: stopStart.lowerBound..<source.endIndex))
+        let stop = String(source[stopStart.lowerBound..<stopEnd.lowerBound])
+        for requiredOperation in [
+            "CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)",
+            "CGEvent.tapEnable(tap: eventTap, enable: false)",
+            "runLoopSource = nil",
+            "eventTap = nil",
+            "isRunning = false",
+        ] {
+            XCTAssertTrue(stop.contains(requiredOperation), "missing recorder teardown: \(requiredOperation)")
+        }
+    }
+
     private func settingsSource() throws -> String {
         try source("Sources/RemoteOrbit/KeyMapping/SettingsView.swift")
     }

@@ -46,11 +46,22 @@ enum VoiceShortcutEmitResult: Equatable {
 
 struct CGEventVoiceShortcutSink: VoiceShortcutEventSink {
     func post(_ event: VoiceShortcutSyntheticEvent) -> VoiceShortcutEventPostResult {
+        guard let construction = Self.makeEvent(event) else {
+            return .eventConstructionFailed
+        }
+        construction.event.post(tap: .cghidEventTap)
+        return .posted
+    }
+
+    static func makeEvent(
+        _ event: VoiceShortcutSyntheticEvent
+    ) -> (event: CGEvent, constructorType: CGEventType)? {
         guard let cgEvent = CGEvent(
             keyboardEventSource: nil,
             virtualKey: CGKeyCode(event.keyCode),
             keyDown: event.kind != .keyUp
-        ) else { return .eventConstructionFailed }
+        ) else { return nil }
+        let constructorType = cgEvent.type
         switch event.kind {
         case .flagsChanged: cgEvent.type = .flagsChanged
         case .keyDown: cgEvent.type = .keyDown
@@ -58,8 +69,7 @@ struct CGEventVoiceShortcutSink: VoiceShortcutEventSink {
         }
         cgEvent.flags = CGEventFlags(rawValue: event.flags)
         cgEvent.setIntegerValueField(.eventSourceUserData, value: Key.syntheticMarker)
-        cgEvent.post(tap: .cghidEventTap)
-        return .posted
+        return (cgEvent, constructorType)
     }
 }
 

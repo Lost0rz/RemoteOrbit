@@ -1,4 +1,5 @@
 import CoreGraphics
+import IOKit.hidsystem
 import XCTest
 @testable import RemoteOrbit
 
@@ -143,6 +144,106 @@ final class VoiceShortcutEmitterTests: XCTestCase {
         XCTAssertEqual(diagnostic.fields["modifier_key_codes"] as? [Int], [54, 58])
         XCTAssertNil(diagnostic.fields["primary_key_code"])
         XCTAssertNil(diagnostic.fields["display_name"])
+    }
+
+    func testProductionCGEventConstructionPreservesModifierDirectionAndPhysicalSide() throws {
+        let command = CGEventFlags.maskCommand.rawValue
+        let option = CGEventFlags.maskAlternate.rawValue
+        let rightCommand = UInt64(NX_DEVICERCMDKEYMASK)
+        let leftCommand = UInt64(NX_DEVICELCMDKEYMASK)
+        let leftOption = UInt64(NX_DEVICELALTKEYMASK)
+        let cases: [(VoiceShortcutBinding, [UInt16], [UInt64])] = [
+            (
+                .modifierChord(modifierKeyCodes: [54, 58]),
+                [54, 58],
+                [command | rightCommand, command | option | rightCommand | leftOption,
+                 command | rightCommand, 0]
+            ),
+            (
+                .modifierChord(modifierKeyCodes: [55, 58]),
+                [55, 58],
+                [command | leftCommand, command | option | leftCommand | leftOption,
+                 command | leftCommand, 0]
+            ),
+        ]
+
+        for (binding, expectedDownKeyCodes, expectedFlags) in cases {
+            let recordingSink = RecordingVoiceShortcutSink()
+            let emitter = VoiceShortcutEmitter(
+                sink: recordingSink,
+                physicalModifierKeyCodesProvider: { [] }
+            )
+            let sessionID = UUID()
+
+            XCTAssertEqual(emitter.begin(sessionID: sessionID, binding: binding), .accepted)
+            XCTAssertTrue(emitter.end(sessionID: sessionID))
+
+            let events = recordingSink.events
+            XCTAssertEqual(
+                events.map(\.keyCode),
+                expectedDownKeyCodes + Array(expectedDownKeyCodes.reversed())
+            )
+            XCTAssertEqual(events.map(\.kind), Array(repeating: .flagsChanged, count: 4))
+            XCTAssertEqual(events.map(\.flags), expectedFlags)
+
+            for event in events {
+                let construction = try XCTUnwrap(CGEventVoiceShortcutSink.makeEvent(event))
+                XCTAssertEqual(
+                    construction.constructorType,
+                    CGEventType.flagsChanged,
+                    "CoreGraphics constructs a modifier keycode as flagsChanged"
+                )
+                XCTAssertEqual(construction.event.type, CGEventType.flagsChanged)
+                XCTAssertEqual(
+                    construction.event.getIntegerValueField(.keyboardEventKeycode),
+                    Int64(event.keyCode)
+                )
+                XCTAssertEqual(construction.event.flags.rawValue, event.flags)
+                XCTAssertEqual(
+                    construction.event.getIntegerValueField(.eventSourceUserData),
+                    Key.syntheticMarker
+                )
+            }
+        }
+
+        var physicalKeyCodes: Set<UInt16> = []
+        let recordingSink = RecordingVoiceShortcutSink()
+        let emitter = VoiceShortcutEmitter(
+            sink: recordingSink,
+            physicalModifierKeyCodesProvider: { physicalKeyCodes }
+        )
+        let sessionID = UUID()
+        let binding = VoiceShortcutBinding.modifierChord(modifierKeyCodes: [54, 58])
+
+        XCTAssertEqual(emitter.begin(sessionID: sessionID, binding: binding), .accepted)
+        physicalKeyCodes.insert(55)
+        XCTAssertTrue(emitter.end(sessionID: sessionID))
+
+        let releaseEvents = Array(recordingSink.events.suffix(2))
+        XCTAssertEqual(releaseEvents.map(\.keyCode), [58, 54])
+        XCTAssertTrue(releaseEvents.allSatisfy { $0.flags & command != 0 })
+        XCTAssertEqual(
+            releaseEvents.map(\.flags),
+            [command | rightCommand | leftCommand, command | leftCommand]
+        )
+        XCTAssertFalse(recordingSink.events.contains { $0.keyCode == 55 })
+        for event in releaseEvents {
+            let construction = try XCTUnwrap(CGEventVoiceShortcutSink.makeEvent(event))
+            XCTAssertEqual(construction.constructorType, CGEventType.flagsChanged)
+            XCTAssertEqual(construction.event.flags.rawValue, event.flags)
+        }
+        XCTAssertTrue(emitter.ownedSessionIDs.isEmpty)
+
+        let primaryDown = try XCTUnwrap(CGEventVoiceShortcutSink.makeEvent(
+            VoiceShortcutSyntheticEvent(kind: .keyDown, keyCode: 3, flags: command)
+        ))
+        let primaryUp = try XCTUnwrap(CGEventVoiceShortcutSink.makeEvent(
+            VoiceShortcutSyntheticEvent(kind: .keyUp, keyCode: 3, flags: command)
+        ))
+        XCTAssertEqual(primaryDown.constructorType, CGEventType.keyDown)
+        XCTAssertEqual(primaryDown.event.type, CGEventType.keyDown)
+        XCTAssertEqual(primaryUp.constructorType, CGEventType.keyUp)
+        XCTAssertEqual(primaryUp.event.type, CGEventType.keyUp)
     }
 
     func testModifierOnlyChordConflictAndFailedReleaseRetainOwnership() {
