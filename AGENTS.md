@@ -6,14 +6,14 @@ Before any project-state-changing action:
 
 1. Read this file for the accepted durable rules and control mode.
 2. Resolve the canonical repository and authoritative `main` from live Git evidence.
-3. Select one explicit GitHub Issue and read its current body and comments using the authenticated local GitHub client. Confirm canonical repository, Issue number, `TASK_ID`, `SPEC_REVISION`, canonical digest, trusted approval, and applicable Work Package before changing state.
+3. Before execution or other repository mutation, select one explicit GitHub Issue and read its current body and comments using the authenticated local GitHub client. Confirm canonical repository, Issue number, `TASK_ID`, `SPEC_REVISION`, canonical digest, trusted approval, and applicable Work Package. The only exception is the narrowly scoped Web Issue-spec authoring operation below: it may create an unapproved draft or revise one exact Issue body after its separate opt-in and preflight pass, and grants no execution or other repository-mutation authority.
 4. Read `README.md`, `SETUP_NOTES.md`, and the documents relevant to the requested subsystem.
 
 Do not use chat history, remembered branch names, stale local notes, or a handoff card as a substitute for accepted repository authority. A handoff carries authority references and a bounded delta; it does not create or expand task authority.
 
 If local branch, HEAD, worktree, remote Issue, PR, installed runtime, or other material identity is stale, ambiguous, or mismatched, perform read-only reconciliation and stop the affected mutation until it is resolved. Do not reset, clean, stash, rewrite history, prune, or delete work to hide a mismatch.
 
-If the requested work is outside the selected Issue's approved scope, stop. A material scope change requires a new Issue revision, canonical digest, and matching approval before the affected mutation.
+For execution or other repository work outside the selected Issue's approved scope, stop. Web Agent A Issue-spec authoring is a separate, narrowly scoped operation defined below and never expands execution scope. A material execution-scope change requires a new Issue revision, canonical digest, and matching approval before the affected mutation.
 
 ## Authority model
 
@@ -30,10 +30,16 @@ After a material execution or delivery transition, update the selected Issue wit
 CONTROL_MODE: ISSUE_CONTROL
 ISSUE_APPROVERS: Lost0rz
 ISSUE_DELEGATED_APPROVAL: ENABLED
+ISSUE_WEB_SPEC_AUTHORING: ENABLED
 
-These declarations become accepted repository policy only when the authorized migration PR is merged to the authoritative `main` and the merge is verified. A branch or Draft PR containing these declarations does not itself perform cutover. Until that event, accepted `main` remains under its previously accepted control mode and work must stay within the current accepted task authorization.
+`CONTROL_MODE`, `ISSUE_APPROVERS`, and `ISSUE_DELEGATED_APPROVAL` became accepted through the verified merge of the authorized migration PR. A later `ISSUE_WEB_SPEC_AUTHORING` declaration becomes accepted only after its separately authorized policy change is merged to authoritative `main` and verified; a branch or Draft PR does not enable it.
 
-For every state-changing operation, select exactly one canonical repository, Issue, `TASK_ID`, `SPEC_REVISION`, and `SPEC_SHA256`. Using the authenticated local GitHub client and the installed official Governance verifier, verify that the current Issue is open and its exact digest is approved by a trusted author before acting. If the Issue or verifier cannot be read, stop. Verify local `gh` identity and access for any required Issue write; connector access alone is not proof of local CLI capability. Labels, PR metadata, approval-like prose, or a handoff card cannot replace that verification or expand an approved Work Package.
+For every execution, source, runtime, branch, PR, or other repository mutation, select exactly one canonical repository, Issue, `TASK_ID`, `SPEC_REVISION`, and `SPEC_SHA256`. Using the authenticated local GitHub client and the installed official Governance verifier, verify that the current Issue is open and its exact digest is approved by a trusted author before acting. The only exception is the Issue-spec authoring operation below, which has a separate user-request and target-opt-in preflight and does not authorize any other mutation. If the Issue or verifier cannot be read, stop. For any required Issue write, verify the authenticated identity and effective Issue-write permission of the channel actually used. For Web Agent A Issue writes:
+
+- GitHub Connector writes require verification of the Connector's authenticated GitHub identity and its effective Issue-write permission.
+- Local `gh` writes require verification of the authenticated local `gh` identity and its effective Issue-write permission.
+
+A Connector-only Issue write does not require local `gh` write permission. Connector access does not prove local `gh` capability, and local `gh` access does not prove Connector capability. Any separate local `gh` read or official Governance verifier requirements remain applicable where required by the accepted preflight. Labels, PR metadata, approval-like prose, or a handoff card cannot replace that verification or expand an approved Work Package.
 
 The direct approval path is a separate `SPEC_APPROVAL_V1` comment authored by the actual authenticated GitHub user listed in `ISSUE_APPROVERS`. It must bind the canonical repository, Issue, `TASK_ID`, `SPEC_REVISION`, and `SPEC_SHA256`, and state `DECISION: APPROVED_FOR_EXECUTION`. An execution agent or connector must not author or synthesize direct approval on an approver's behalf or approve its own work.
 
@@ -41,17 +47,28 @@ This repository explicitly opts in to the lower-assurance `SPEC_DELEGATED_APPROV
 
 Delegated approval grants no general GitHub Issue write, repository source, branch, PR lifecycle, merge, release, or cutover authority. It does not authorize execution outside the exact approved Issue scope or permit an execution agent to approve its own implementation.
 
-Web Agent A owns remote read-only project audit, specification/design review, and status/evidence reading, with only the narrow delegated-approval exception described above. Local Codex owns verification and implementation that are separately authorized by the selected Issue, focused validation, and verifiable execution receipts on that same Issue. Neither role receives broader authority through a card or connector.
+Web Agent A owns remote read-only project audit, specification/design review, and status/evidence reading, plus the narrow user-directed Issue-spec authoring permission below. Issue-spec authoring is separate from the delegated-approval exception above; it cannot approve an Issue or authorize source execution. Local Codex owns verification and implementation that are separately authorized by the selected Issue, focused validation, and verifiable execution receipts on that same Issue. Neither role receives broader authority through a card or connector.
+
+### Narrow Web Issue-spec authoring
+
+The single operative `ISSUE_WEB_SPEC_AUTHORING: ENABLED` declaration opts this repository into EG-096 Web Issue-spec authoring only after the declaration is accepted on live `main`. The permission is independent from `ISSUE_DELEGATED_APPROVAL`. It allows Web Agent A to create an unapproved execution-spec Issue draft or revise the body of one exact selected Issue only after an explicit current user request.
+
+Before writing, Web Agent A must resolve the canonical repository and live `main`, read the accepted `AGENTS.md`, verify the opt-in with the current official Governance `web_spec_authoring_opt_in()` helper, search for duplicate/current Issues, and check authenticated Issue-writer access and relevant Issue/PR/source writers. For an existing Issue, reread its current body, state, approval/revocation comments, and writer status immediately before the edit. Stop on a stale or changed Issue, duplicate task, revoked/conflicting approval, unclear writer overlap, or unavailable write/readback evidence.
+
+- **Create:** validate the complete nineteen-field execution-spec draft, create only the user-requested Issue, then read it back from GitHub and verify its actual repository, Issue number, state, body, and canonical digest. The Issue remains unapproved.
+- **Revise:** edit only the body of the exact user-selected Issue, preserve its comments and approval history, increment `SPEC_REVISION` for every published body edit, then read back and verify the requested change and new canonical digest. Every body edit changes the canonical digest, so prior approval no longer authorizes execution; require a fresh trusted approval of the new exact digest before execution resumes. If the Issue is approved or a writer is in progress, also require explicit user authorization for the revision and pause affected work. Stop if the writer cannot be safely paused.
+
+This authoring permission never authorizes approval comments, source changes, branch/worktree creation, PR actions, merge, release, runtime changes, or unrelated Issue metadata. Direct `SPEC_APPROVAL_V1` and the existing lower-assurance `SPEC_DELEGATED_APPROVAL_V1` remain separate approval paths. Local source execution continues to require the normal exact-digest approval and receiver preflight.
 
 ## Issue-control execution and transition protocol
 
-A material control-plane transition includes changing the active task or phase, authorized side effects, the active Issue/PR/workspace, or a lifecycle decision that enables merge, release, deletion, or other project-state mutation. Such a transition is valid only when the selected approved Issue's completion gate names it and its evidence is satisfied, or the user explicitly authorizes that exact transition under the currently accepted control mode.
+A material control-plane transition includes changing the active task or phase, authorized side effects, the active Issue/PR/workspace, or a lifecycle decision that enables merge, release, deletion, or other project-state mutation. Such a transition is valid only when the selected approved Issue's completion gate names it and its evidence is satisfied, or the user explicitly authorizes that exact transition under the currently accepted control mode. The sole Issue-authoring exception is the bounded Web Issue-spec draft/body write defined above; it requires the accepted authoring opt-in and an explicit current user request, and it does not advance task execution authority.
 
 Before each material transition:
 
 1. Read the live authoritative main, selected Issue, relevant PR/ref, and active local branch/worktree.
-2. Revalidate exact Issue revision, digest, approval, revocation state, and current Work Package against the proposed action.
-3. Keep all changes within that Work Package's allowed operations and safety limits. A new material scope requires a new Issue revision and approval.
+2. For execution and other repository mutations, revalidate exact Issue revision, digest, approval, revocation state, and current Work Package against the proposed action. A Web Issue-spec authoring operation instead follows the separate request, opt-in, target, and writer checks above; it does not require the draft itself to be approved.
+3. Keep execution and repository changes within that Work Package's allowed operations and safety limits. The Issue-spec authoring exception is limited to the requested Issue draft/body write; a new material execution scope requires a new Issue revision and approval.
 4. Record required decisions or outcomes on the same Issue; preserve GitHub as authority for commits, PR, CI, and merge events.
 5. If an approval, Issue body, writer, or authoritative ref changes during the operation, stop and reconcile before continuing.
 
