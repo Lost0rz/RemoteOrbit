@@ -6,9 +6,23 @@ import Foundation
 struct VoiceInputProfile: Codable, Equatable, Identifiable {
     let id: String
     let displayName: String
-    let triggerKey: VoiceTriggerKey
+    let binding: VoiceShortcutBinding
 
-    static let supported: [VoiceInputProfile] = [
+    /// Compatibility projection used only by the six legacy pure-modifier
+    /// profiles. Chords deliberately have no synthetic/fake modifier value.
+    var triggerKey: VoiceTriggerKey? { binding.pureModifierKey }
+
+    init(id: String, displayName: String, binding: VoiceShortcutBinding) {
+        self.id = id
+        self.displayName = displayName
+        self.binding = binding
+    }
+
+    init(id: String, displayName: String, triggerKey: VoiceTriggerKey) {
+        self.init(id: id, displayName: displayName, binding: .pureModifier(triggerKey))
+    }
+
+    static let legacySeeds: [VoiceInputProfile] = [
         VoiceInputProfile(
             id: "system-left-option",
             displayName: "左 Option · 默认语音输入",
@@ -41,55 +55,53 @@ struct VoiceInputProfile: Codable, Equatable, Identifiable {
         ),
     ]
 
+    static let supported: [VoiceInputProfile] = legacySeeds
+
     static let defaultProfile = supported[0]
+
+    static func profiles(from snapshot: VoiceShortcutSnapshot) -> [VoiceInputProfile] {
+        snapshot.entries.map(\.profile)
+    }
 }
 
 enum VoiceInputProfileStore {
     static let selectedProfileIDKey = "RemoteOrbit.voiceInputProfileID"
 
     static func selectedProfile(from defaults: UserDefaults) -> VoiceInputProfile {
-        if let rawID = defaults.string(forKey: selectedProfileIDKey),
-           let profile = supportedProfile(withID: rawID) {
-            return profile
-        }
-
-        // The old momentary trigger is the only legacy runtime preference
-        // allowed to seed this authority. Persistent and receiver-B keys are
-        // deliberately not consulted, so they cannot compete after migration.
-        let legacyKey = AppStorage.readMomentaryVoiceTriggerKey(from: defaults)
-        let profile = VoiceInputProfile.supported.first {
-            $0.triggerKey == legacyKey
-        } ?? .defaultProfile
-        writeSelectedProfile(profile, to: defaults)
-        return profile
+        let loaded = VoiceShortcutStore.load(from: defaults)
+        return loaded.snapshot.activeEntry?.profile ?? .defaultProfile
     }
 
     static func writeSelectedProfile(
         _ profile: VoiceInputProfile,
         to defaults: UserDefaults
     ) {
-        defaults.set(profile.id, forKey: selectedProfileIDKey)
-        // Keep the old key as a compatibility projection for rollback and
-        // older settings readers. Runtime voice ownership never reads it.
-        AppStorage.writeMomentaryVoiceTriggerKey(profile.triggerKey, to: defaults)
+        let loaded = VoiceShortcutStore.load(from: defaults)
+        guard loaded.isWritable else { return }
+        var snapshot = loaded.snapshot
+        guard snapshot.entries.contains(where: { $0.id == profile.id }) else { return }
+        snapshot.activeEntryID = profile.id
+        do {
+            try VoiceShortcutStore.persist(snapshot, to: defaults)
+            defaults.set(profile.id, forKey: selectedProfileIDKey)
+            if let key = profile.triggerKey {
+                AppStorage.writeMomentaryVoiceTriggerKey(key, to: defaults)
+            }
+        } catch {
+            return
+        }
     }
 
     static func migrate(from defaults: UserDefaults) {
-        _ = selectedProfile(from: defaults)
+        VoiceShortcutStore.migrate(from: defaults)
     }
 
     static func persistedProfile(from defaults: UserDefaults) -> VoiceInputProfile? {
-        guard let rawID = defaults.string(forKey: selectedProfileIDKey) else {
-            return nil
-        }
-        return supportedProfile(withID: rawID)
+        VoiceShortcutStore.load(from: defaults).snapshot.activeEntry?.profile
     }
 
     static func profile(for triggerKey: VoiceTriggerKey) -> VoiceInputProfile {
         VoiceInputProfile.supported.first { $0.triggerKey == triggerKey } ?? .defaultProfile
     }
 
-    private static func supportedProfile(withID id: String) -> VoiceInputProfile? {
-        VoiceInputProfile.supported.first { $0.id == id }
-    }
 }

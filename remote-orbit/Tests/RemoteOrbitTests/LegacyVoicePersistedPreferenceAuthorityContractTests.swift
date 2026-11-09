@@ -45,7 +45,7 @@ final class LegacyVoicePersistedPreferenceAuthorityContractTests: XCTestCase {
 
         XCTAssertFalse(main.contains("initialPersistentSessionTriggerKey"))
         XCTAssertFalse(main.contains("initialSecondaryMomentaryVoiceTriggerKey"))
-        XCTAssertTrue(main.contains("VoiceInputProfileStore.persistedProfile"))
+        XCTAssertTrue(main.contains("VoiceShortcutStore.load"))
         XCTAssertTrue(main.contains("AppStorage.momentaryVoiceTriggerKey"))
     }
 
@@ -63,6 +63,10 @@ final class LegacyVoicePersistedPreferenceAuthorityContractTests: XCTestCase {
         let profile = VoiceInputProfileStore.selectedProfile(from: defaults)
 
         XCTAssertEqual(profile.triggerKey, .rightControl)
+        XCTAssertEqual(
+            VoiceShortcutStore.load(from: defaults).snapshot.activeEntryID,
+            profile.id
+        )
         XCTAssertEqual(
             defaults.string(forKey: AppStorage.momentaryVoiceTriggerKeyKey),
             VoiceTriggerKey.rightControl.rawValue

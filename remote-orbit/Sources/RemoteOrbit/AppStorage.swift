@@ -39,7 +39,7 @@ enum AppStorage {
 
     static func prepare() {
         migrateVoiceTriggerKeys(from: UserDefaults.standard)
-        VoiceInputProfileStore.migrate(from: UserDefaults.standard)
+        VoiceShortcutStore.migrate(from: UserDefaults.standard)
         UserDefaults.standard.register(defaults: [
             loggingEnabledKey: false,
             recordingEnabledKey: false,

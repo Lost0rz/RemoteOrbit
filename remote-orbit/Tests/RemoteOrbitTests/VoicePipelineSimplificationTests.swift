@@ -1188,7 +1188,10 @@ final class VoicePipelineSimplificationTests: XCTestCase {
         let profile = VoiceInputProfileStore.selectedProfile(from: defaults)
 
         XCTAssertEqual(profile.triggerKey, .rightControl)
-        XCTAssertEqual(defaults.string(forKey: VoiceInputProfileStore.selectedProfileIDKey), profile.id)
+        XCTAssertEqual(
+            VoiceShortcutStore.load(from: defaults).snapshot.activeEntryID,
+            profile.id
+        )
         XCTAssertEqual(
             AppStorage.readMomentaryVoiceTriggerKey(from: defaults),
             .rightControl

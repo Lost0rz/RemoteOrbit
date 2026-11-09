@@ -216,6 +216,62 @@ final class PrimaryVoiceRuntimeTests: XCTestCase {
         _ = harness.trigger.abort(sessionID: sessionID)
     }
 
+    func testVoiceShortcutSelectionRejectsActiveHoldWithoutPersisting() {
+        let harness = PrimaryVoiceRuntimeHarness(persistedKey: .leftOption)
+        let originalData = harness.voiceShortcutData
+        let proposed = harness.snapshotSelectingChord()
+        harness.controller.beginVoicePress()
+        XCTAssertTrue(harness.controller.voicePress.promoteLongOnlyCandidateForTesting())
+
+        XCTAssertEqual(update(proposed, on: harness.controller), .busyActiveHold)
+
+        XCTAssertEqual(harness.controller.currentVoiceInputProfile.id, "system-left-option")
+        XCTAssertEqual(harness.controller.currentVoiceShortcutSnapshot.activeEntryID, "system-left-option")
+        XCTAssertEqual(harness.voiceShortcutData, originalData)
+        XCTAssertTrue(harness.mappingCalls.isEmpty)
+        harness.controller.voicePress.stop()
+    }
+
+    func testChordSelectionMappingFailureRestoresOldRuntimeAndSnapshot() {
+        let harness = PrimaryVoiceRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            applyResults: [false, true]
+        )
+        let originalData = harness.voiceShortcutData
+        let proposed = harness.snapshotSelectingChord()
+
+        XCTAssertEqual(update(proposed, on: harness.controller), .failed)
+
+        XCTAssertEqual(harness.controller.currentVoiceInputProfile.id, "system-left-option")
+        XCTAssertEqual(harness.controller.currentVoiceShortcutSnapshot.activeEntryID, "system-left-option")
+        XCTAssertEqual(harness.voiceShortcutData, originalData)
+        XCTAssertTrue(harness.mappingEnabled)
+        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [false, true])
+        XCTAssertEqual(harness.persistenceWriteCount, 0)
+        XCTAssertFalse(harness.controller.voiceTriggerRuntimeLocked)
+        XCTAssertFalse(harness.controller.voiceTriggerReconfigurationInProgress)
+    }
+
+    func testChordSelectionDisablesLegacyMappingBeforeSnapshotCommit() {
+        let harness = PrimaryVoiceRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption
+        )
+        let proposed = harness.snapshotSelectingChord()
+
+        XCTAssertEqual(update(proposed, on: harness.controller), .applied)
+
+        XCTAssertNil(harness.controller.currentVoiceInputProfile.triggerKey)
+        XCTAssertEqual(harness.controller.currentVoiceShortcutSnapshot.activeEntryID, "custom-chord")
+        XCTAssertEqual(harness.voiceShortcutData, harness.voiceShortcutData(for: proposed))
+        XCTAssertFalse(harness.mappingEnabled)
+        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [false])
+        XCTAssertEqual(harness.persistenceWriteCount, 0)
+    }
+
     func testAllSixKeysCanBeDisconnectedPrimaryRuntimeTargets() {
         let harness = PrimaryVoiceRuntimeHarness(persistedKey: .leftOption)
 
@@ -275,6 +331,26 @@ final class PrimaryVoiceRuntimeTests: XCTestCase {
         }
         return result
     }
+
+    private func update(
+        _ snapshot: VoiceShortcutSnapshot,
+        on controller: AppController,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> VoiceTriggerApplyResult {
+        let expectation = expectation(description: "update voice shortcut snapshot")
+        var result: VoiceTriggerApplyResult?
+        controller.updateVoiceShortcutSnapshot(snapshot) {
+            result = $0
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 5)
+        guard let result else {
+            XCTFail("voice shortcut snapshot completion was not received", file: file, line: line)
+            return .locked
+        }
+        return result
+    }
 }
 
 private struct PrimaryVoiceMappingCall: Equatable {
@@ -290,10 +366,12 @@ private final class PrimaryVoiceRuntimeHarness {
     private let applyDelay: TimeInterval
     private var mappingCallsStorage: [PrimaryVoiceMappingCall] = []
     private var persistenceWritesStorage: [VoiceTriggerKey] = []
+    private let defaultsSuiteName: String
 
     let trigger: VoiceOptionTrigger
     let filter: VoiceKeyFilter
     private(set) var controller: AppController!
+    let voiceShortcutDefaults: UserDefaults
 
     init(
         connected: Bool = false,
@@ -306,6 +384,16 @@ private final class PrimaryVoiceRuntimeHarness {
         persistedKeyStorage = persistedKey
         plannedResults = applyResults
         self.applyDelay = applyDelay
+        let defaultsSuiteName = "RemoteOrbitTests.PrimaryVoiceRuntime.\(UUID().uuidString)"
+        self.defaultsSuiteName = defaultsSuiteName
+        voiceShortcutDefaults = UserDefaults(suiteName: defaultsSuiteName)!
+        voiceShortcutDefaults.removePersistentDomain(forName: defaultsSuiteName)
+        let snapshotEncoder = JSONEncoder()
+        snapshotEncoder.outputFormatting = [.sortedKeys]
+        voiceShortcutDefaults.set(
+            try? snapshotEncoder.encode(VoiceShortcutSnapshot.seeded()),
+            forKey: VoiceShortcutStore.snapshotKey
+        )
         trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in })
         filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
         controller = nil
@@ -333,6 +421,7 @@ private final class PrimaryVoiceRuntimeHarness {
             },
             applyVoiceHIDMapping: mappingApply,
             usePersistedVoiceProfile: false,
+            voiceShortcutDefaults: voiceShortcutDefaults,
             readPersistedVoiceTriggerKey: { [self] in
                 lock.lock()
                 defer { lock.unlock() }
@@ -345,6 +434,31 @@ private final class PrimaryVoiceRuntimeHarness {
                 lock.unlock()
             }
         )
+    }
+
+    deinit {
+        voiceShortcutDefaults.removePersistentDomain(forName: defaultsSuiteName)
+    }
+
+    var voiceShortcutData: Data? {
+        voiceShortcutDefaults.data(forKey: VoiceShortcutStore.snapshotKey)
+    }
+
+    func snapshotSelectingChord() -> VoiceShortcutSnapshot {
+        var snapshot = VoiceShortcutSnapshot.seeded()
+        snapshot.entries.append(VoiceShortcutEntry(
+            id: "custom-chord",
+            displayName: "Command F",
+            binding: .chord(primaryKeyCode: 3, preview: "⌘F", modifierKeyCodes: [55])
+        ))
+        snapshot.activeEntryID = "custom-chord"
+        return snapshot
+    }
+
+    func voiceShortcutData(for snapshot: VoiceShortcutSnapshot) -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try? encoder.encode(snapshot)
     }
 
     var mappingEnabled: Bool {

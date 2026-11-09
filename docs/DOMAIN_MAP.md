@@ -1,8 +1,8 @@
 # RemoteOrbit Domain Map
 
 Status: `DERIVED_PROJECTION`
-Last audited: 2026-11-01
-Source snapshot used for route verification: `eac33e1583565e053335a39ec56427e4dc589765`
+Last audited: 2026-11-09
+Source snapshot used for route verification: `997e51d3aebe65c3942530b10a3b63dbfdcd5476` plus the Task 051 working-tree paths listed below
 
 This file is a navigation map derived from current source and tests. It does **not** own product behavior, task authority, release state, or runtime facts. When this map conflicts with `AGENTS.md`, the selected approved GitHub Issue, current implementation authority, or fresh runtime evidence, the owning authority wins and this map must be refreshed.
 
@@ -24,13 +24,15 @@ This file is a navigation map derived from current source and tests. It does **n
 
 ## D1 — Voice interaction and lifecycle
 
-**Purpose:** Own the current RC003 microphone-button path: SHORT no-op, LONG direct remote voice, trigger ownership, receiver readiness, release/drain coordination and remote input lease.
+**Purpose:** Own the current RC003 microphone-button path: SHORT no-op, LONG direct remote voice, named voice shortcut configuration, pure-modifier/chord trigger ownership, receiver readiness, release/drain coordination and remote input lease.
 
 **Primary source routes**
 
 - `remote-orbit/Sources/RemoteOrbit/main.swift` — orchestration and runtime seams.
 - `VoiceOptionTrigger.swift` — trigger synthesis/ownership helper used by the current runtime.
 - `VoiceTriggerKey.swift` / `VoiceInputProfile.swift` — current selected trigger/profile model.
+- `VoiceShortcutBinding.swift` — typed side-preserving binding, validated single snapshot, seed migration and settings projection.
+- `VoiceShortcutEmitter.swift` — session-owned chord edges released after the existing output-drain callback.
 - `VoiceReceiverReadiness.swift` — receiver/readiness coordination.
 - `VoiceFocusTransactionTracker.swift` — bounded focus transaction tracking.
 - `PostReleaseCaptureGrace.swift` — post-release/repress grace mechanism.
@@ -43,6 +45,8 @@ This file is a navigation map derived from current source and tests. It does **n
 - `VoiceOptionTriggerTests.swift`
 - `VoiceReceiverReadinessTests.swift`
 - `VoiceTriggerKeyTests.swift`
+- `VoiceShortcutBindingTests.swift`
+- `VoiceShortcutEmitterTests.swift`
 - `RemoteVoiceInputLeaseTests.swift`
 - `VoiceBoundaryOrderingTests.swift`
 
@@ -100,6 +104,7 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 **Primary source routes**
 
 - `KeyMapping/HIDMonitor.swift`
+- `KeyMapping/ShortcutCaptureMonitor.swift` — exclusive physical recording and voice-only capture result.
 - `KeyMapping/ButtonDefinitions.swift`
 - `KeyMapping/ButtonGestureRecognizer.swift`
 - `KeyMapping/ButtonEdgeDebouncer.swift`
@@ -121,6 +126,7 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 - `MappingStoreRoutingTests.swift`
 - `RemoteVoiceKeyMappingTests.swift`
 - `ShortcutCaptureMonitorTests.swift`
+- `VoiceShortcutEmitterTests.swift`
 
 ## D5 — Settings, persistence and product surface
 
@@ -129,6 +135,8 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 **Primary source routes**
 
 - `AppStorage.swift`
+- `VoiceTriggerKey.swift` / `VoiceInputProfile.swift` — legacy seed adapter and active profile projection.
+- `VoiceShortcutBinding.swift` — the versioned voice-only snapshot and read-only invalid-data fallback.
 - `ProductBranding.swift`
 - `LaunchAtLogin.swift`
 - `KeyMapping/SettingsView.swift`
@@ -141,6 +149,8 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 - `KeymapOverlayTests.swift`
 - `LegacyVoiceProductSurfaceContractTests.swift`
 - `LegacyVoicePersistedPreferenceAuthorityContractTests.swift`
+- `VoiceShortcutBindingTests.swift`
+- `ShortcutCaptureMonitorTests.swift`
 
 **Boundary:** Historical persisted keys may remain as inert bytes for compatibility. Their presence in an old profile/defaults store does not make them current product authority.
 
