@@ -13,9 +13,13 @@ RemoteOrbit 把 Xiaomi Bluetooth Voice Remote 2 Pro 的蓝牙 ATVV 语音链路�
 
 RC003 麦克风键只有一种用户可见语音模式：
 
-- **SHORT**：在约 300 ms 的已接受 hold boundary 前释放，为纯 no-op；不触发输入法、不打开本地麦克风、不切换 Persistent session，也不显示语音/readiness HUD。
-- **LONG**：跨过约 300 ms boundary 后进入直接远程语音生命周期；RemoteOrbit 使用遥控器 ATVV 音频并向 `RemoteOrbit Mic 2ch` 供给 PCM，松开后按当前 drain/close 机制完成收尾。
+- **SHORT**：在约 300 ms 的 hold boundary 前释放，为纯 no-op；不触发输入法、不打开本地麦克风、不切换 Persistent session，也不显示语音/readiness HUD。
+- **LONG**：按住达到约 300 ms 后进入直接远程语音生命周期；RemoteOrbit 使用遥控器 ATVV 音频并向 `RemoteOrbit Mic 2ch` 供给 PCM，松开后等待输出收尾，再释放语音快捷键。
 - Persistent、双 Receiver、Receiver B、本地麦克风短按等旧业务语义均不是当前产品合同。
+
+在 Control Center 的麦克风设置中可以管理具名语音快捷键，并为其中一个配置选择 Active；菜单栏“语音输入”也可以切换 Active。首次配置保留原有六种左右 Option、Control、Command 纯修饰键。自定义组合会保留左右修饰键侧别。活动语音会话或输出收尾期间，切换 Active 或更改/删除当前 Active 会被拒绝，完成后可重试。
+
+语音快捷键不会自动切换 macOS 输入法。组合键通过系统键盘事件发送，具体输入法是否接受该事件取决于输入法自身；软件测试不能证明输入法接收或语音文本完成。
 
 源码中若仍存在历史命名，只能按其当前调用关系和测试判断用途；不能因为符号名包含 Persistent/Dual 等字样就推断旧业务仍有效。
 

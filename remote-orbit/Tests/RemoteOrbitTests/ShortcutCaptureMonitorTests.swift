@@ -73,6 +73,37 @@ final class ShortcutCaptureMonitorTests: XCTestCase {
         let commit = machine.handle(.flagsChanged(keyCode: 55, modifier: .command, label: "⌘", isDown: false))
         XCTAssertTrue(commit.shouldSuppress)
         XCTAssertEqual(commit.committed, KeyChord(keyCode: 55, keyLabel: "⌘", modifiers: []))
+        XCTAssertEqual(commit.voiceCommitted, .pureModifier(.leftCommand))
+    }
+
+    func testVoiceChordRetainsExactLeftRightModifierCodesUntilReleaseCommit() {
+        var machine = ShortcutCaptureStateMachine()
+
+        _ = machine.handle(.flagsChanged(keyCode: 55, modifier: .command, label: "⌘", isDown: true))
+        _ = machine.handle(.flagsChanged(keyCode: 61, modifier: .option, label: "⌥", isDown: true))
+        _ = machine.handle(.keyDown(keyCode: 3, keyLabel: "F", modifiers: [.command, .option], isRepeat: false))
+        _ = machine.handle(.keyUp(keyCode: 3))
+        _ = machine.handle(.flagsChanged(keyCode: 55, modifier: .command, label: "⌘", isDown: false))
+        let commit = machine.handle(.flagsChanged(keyCode: 61, modifier: .option, label: "⌥", isDown: false))
+
+        XCTAssertEqual(
+            commit.voiceCommitted,
+            .chord(primaryKeyCode: 3, preview: "⌥⌘F", modifierKeyCodes: [55, 61])
+        )
+    }
+
+    func testEscapeCancellationDrainsOwnedChordWithoutCommit() {
+        var machine = ShortcutCaptureStateMachine()
+
+        _ = machine.handle(.flagsChanged(keyCode: 61, modifier: .option, label: "⌥", isDown: true))
+        _ = machine.handle(.keyDown(keyCode: 3, keyLabel: "F", modifiers: .option, isRepeat: false))
+        _ = machine.requestCancel()
+        XCTAssertNil(machine.handle(.keyUp(keyCode: 3)).voiceCommitted)
+        let release = machine.handle(.flagsChanged(keyCode: 61, modifier: .option, label: "⌥", isDown: false))
+
+        XCTAssertTrue(release.didStop)
+        XCTAssertNil(release.committed)
+        XCTAssertNil(release.voiceCommitted)
     }
 
     func testAutorepeatIsSuppressedWithoutDuplicateCaptureOrCommit() {

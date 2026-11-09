@@ -375,6 +375,7 @@ final class VoicePressCoordinator {
     private enum LongOnlyTriggerStrategy {
         case hardware
         case syntheticHandoff
+        case voiceShortcutChord
     }
 
     private struct LongOnlyCandidate {
@@ -508,23 +509,45 @@ final class VoicePressCoordinator {
     /// direct successor restores the persisted preferred input.
     private var remoteInputLeaseHeld = false
     private let syntheticOptionTrigger: VoiceOptionTrigger
+    private let voiceShortcutEmitter: VoiceShortcutEmitter
     private let diagnosticLogger: VoiceDiagnosticLogger?
     private var gesturePhysicalDownUptime: TimeInterval?
 
     init(
         optionTrigger: VoiceOptionTrigger = .shared,
+        voiceShortcutEmitter: VoiceShortcutEmitter = VoiceShortcutEmitter(),
         diagnosticLogger: VoiceDiagnosticLogger? = nil,
         candidateTimerFactory: @escaping
             (TimeInterval, @escaping () -> Void) -> VoicePressCandidateTimer =
             VoicePressCandidateTimer.gcdFactory
     ) {
         syntheticOptionTrigger = optionTrigger
+        self.voiceShortcutEmitter = voiceShortcutEmitter
         self.diagnosticLogger = diagnosticLogger
         self.candidateTimerFactory = candidateTimerFactory
+        if let diagnosticLogger {
+            self.voiceShortcutEmitter.diagnosticSink = { [weak diagnosticLogger] diagnostic in
+                diagnosticLogger?.log(
+                    category: "voice",
+                    event: diagnostic.kind.rawValue,
+                    gestureID: diagnostic.sessionID,
+                    fields: diagnostic.fields
+                )
+            }
+        }
     }
 
     var hasRemoteAudio: Bool {
         remoteAudioAvailable
+    }
+
+    var hasUnresolvedVoiceShortcutOwnership: Bool {
+        voiceShortcutEmitter.hasUnresolvedOwnership
+    }
+
+    @discardableResult
+    func recoverPendingVoiceShortcutReleaseOwnership() -> Bool {
+        voiceShortcutEmitter.recoverPendingReleases()
     }
 
     var remoteInputLeaseHeldForTesting: Bool {
@@ -640,7 +663,7 @@ final class VoicePressCoordinator {
             "mode": modeName,
             "voice_session_state": modeName,
             "voice_input_profile_id": capturedVoiceProfile?.id ?? "none",
-            "voice_input_trigger_key": capturedVoiceProfile?.triggerKey.rawValue ?? "none",
+            "voice_input_trigger_key": capturedVoiceProfile?.triggerKey?.rawValue ?? "none",
             "gesture_id": gestureID?.uuidString ?? "none",
             "pending_repress": pendingRepress != nil,
             "long_only_candidate": longOnlyCandidate != nil,
@@ -698,6 +721,7 @@ final class VoicePressCoordinator {
         preparesRemoteTransport: Bool,
         targetApplicationBundleIdentifier: String?
     ) -> Bool {
+        let usesHardwareOption = usesHardwareOption && profile.triggerKey != nil
         guard longOnlyCandidate == nil else {
             logAdmissionDecision(
                 sessionID: sessionID,
@@ -782,7 +806,9 @@ final class VoicePressCoordinator {
         }
 
         var triggerOwnershipReady = true
-        var triggerStrategy: LongOnlyTriggerStrategy = .hardware
+        var triggerStrategy: LongOnlyTriggerStrategy = profile.triggerKey == nil
+            ? .voiceShortcutChord
+            : .hardware
         if usesHardwareOption {
             let began: Bool
             if let beginResult = onHardwareOptionGateBeginResult {
@@ -994,6 +1020,8 @@ final class VoicePressCoordinator {
                 _ = onHardwareOptionGateShortDiscard?(candidate.sessionID)
                     ?? false
             }
+        } else if candidate.triggerStrategy == .voiceShortcutChord {
+            _ = voiceShortcutEmitter.abort(sessionID: candidate.sessionID)
         } else {
             _ = syntheticOptionTrigger.abort(sessionID: candidate.sessionID)
         }
@@ -1041,6 +1069,8 @@ final class VoicePressCoordinator {
                 _ = onHardwareOptionGateShortDiscard?(candidate.sessionID)
                     ?? false
             }
+        } else if candidate.triggerStrategy == .voiceShortcutChord {
+            _ = voiceShortcutEmitter.abort(sessionID: candidate.sessionID)
         } else {
             _ = syntheticOptionTrigger.abort(sessionID: candidate.sessionID)
         }
@@ -1075,6 +1105,7 @@ final class VoicePressCoordinator {
         fromLongOnlyCandidate: Bool = false,
         syntheticHandoff: Bool = false
     ) -> Bool {
+        let usesHardwareOption = usesHardwareOption && profile.triggerKey != nil
         if directSession,
            directPhysicalUp,
            !directOutputDrained,
@@ -1172,6 +1203,32 @@ final class VoicePressCoordinator {
             return false
         }
 
+        if case .chord = profile.binding {
+            let beginResult = voiceShortcutEmitter.begin(
+                sessionID: sessionID,
+                entryID: profile.id,
+                binding: profile.binding
+            )
+            guard beginResult.wasAccepted else {
+                _ = voiceShortcutEmitter.abort(sessionID: sessionID)
+                let reason: String
+                switch beginResult {
+                case .rejected(.unresolvedOwnership): reason = "voice_shortcut_unresolved_ownership"
+                case .rejected(.physicalModifierConflict): reason = "voice_shortcut_physical_modifier_conflict"
+                case .rejected(.invalidBinding): reason = "voice_shortcut_invalid_binding"
+                case .rejected(.eventConstructionFailed): reason = "voice_shortcut_event_construction_failed"
+                case .rejected(.postFailed): reason = "voice_shortcut_post_failed"
+                case .accepted: reason = "voice_shortcut_emit_failed"
+                }
+                logAdmissionDecision(
+                    sessionID: sessionID,
+                    result: "rejected",
+                    reason: reason
+                )
+                return false
+            }
+        }
+
         directSession = true
         capturedVoiceProfile = profile
         directPhysicalUp = false
@@ -1193,12 +1250,12 @@ final class VoicePressCoordinator {
             event: "VOICE_SESSION_OPENING",
             gestureID: sessionID,
             key: profile.triggerKey,
-            fields: [
+            fields: voiceInputDiagnosticFields(profile).merging([
                 "voice_input_profile_id": profile.id,
-                "trigger_key": profile.triggerKey.rawValue,
-                "trigger_source": usesHardwareOption ? "hardware" : "synthetic",
+                "trigger_key": profile.triggerKey?.rawValue ?? "chord",
+                "trigger_source": usesHardwareOption ? "hardware" : (profile.triggerKey == nil ? "voice_shortcut_chord" : "synthetic"),
                 "classifier": "none",
-            ]
+            ]) { _, new in new }
         )
         VoiceTimingLogger.mark("BLE_START_REQUEST", sessionID: sessionID)
 
@@ -1215,14 +1272,16 @@ final class VoicePressCoordinator {
                 }
             }
             VoiceTimingLogger.mark("OPTION_GATE_RELEASE", sessionID: sessionID)
-        } else {
+        } else if profile.triggerKey != nil {
             _ = syntheticOptionTrigger.begin(sessionID: sessionID)
             _ = syntheticOptionTrigger.sendDown(
                 sessionID: sessionID,
-                key: profile.triggerKey,
+                key: profile.triggerKey!,
                 purpose: "voice_session_opening"
             )
             VoiceTimingLogger.mark("OPTION_GATE_RELEASE", sessionID: sessionID)
+        } else {
+            VoiceTimingLogger.mark("VOICE_SHORTCUT_DOWN", sessionID: sessionID)
         }
 
         setMode(.opening)
@@ -1248,10 +1307,10 @@ final class VoicePressCoordinator {
             event: "VOICE_SESSION_DRAINING",
             gestureID: sessionID,
             key: capturedVoiceProfile?.triggerKey,
-            fields: [
+            fields: voiceInputDiagnosticFields(capturedVoiceProfile).merging([
                 "voice_input_profile_id": capturedVoiceProfile?.id ?? "unknown",
-                "trigger_key": capturedVoiceProfile?.triggerKey.rawValue ?? "unknown",
-            ]
+                "trigger_key": capturedVoiceProfile?.triggerKey?.rawValue ?? "chord",
+            ]) { _, new in new }
         )
         if usesHardwareOptionPath || physicalTriggerSuppressionActive {
             onHardwareOptionGatePhysicalUp?(sessionID)
@@ -1298,14 +1357,26 @@ final class VoicePressCoordinator {
             event: "OUTPUT_DRAIN_BEGIN",
             gestureID: sessionID,
             key: capturedVoiceProfile?.triggerKey,
-            fields: ["voice_session_state": "draining"]
+            fields: voiceInputDiagnosticFields(capturedVoiceProfile).merging([
+                "voice_session_state": "draining"
+            ]) { _, new in new }
         )
 
+        let drainProfile = capturedVoiceProfile
         let completion = { [weak self] in
-            guard let self,
-                  self.directSession,
+            guard let self else { return }
+            guard self.directSession,
                   self.gestureID == sessionID,
-                  !self.directOutputDrained else { return }
+                  !self.directOutputDrained else {
+                if let drainProfile, case .chord = drainProfile.binding {
+                    self.voiceShortcutEmitter.recordLateDrainCallback(
+                        sessionID: sessionID,
+                        entryID: drainProfile.id,
+                        binding: drainProfile.binding
+                    )
+                }
+                return
+            }
             self.directOutputDrained = true
             VoiceTimingLogger.mark("AUDIO_PIPELINE_CLOSED", sessionID: sessionID)
             self.diagnosticLogger?.log(
@@ -1313,7 +1384,9 @@ final class VoicePressCoordinator {
                 event: "OUTPUT_DRAIN_COMPLETE",
                 gestureID: sessionID,
                 key: self.capturedVoiceProfile?.triggerKey,
-                fields: ["voice_session_state": "draining"]
+                fields: self.voiceInputDiagnosticFields(self.capturedVoiceProfile).merging([
+                    "voice_session_state": "draining"
+                ]) { _, new in new }
             )
             if self.usesHardwareOptionPath {
                 self.onHardwareOptionGateOutputDrained?(sessionID)
@@ -1322,10 +1395,16 @@ final class VoicePressCoordinator {
                     self.onHardwareOptionGateOutputDrained?(sessionID)
                 }
                 _ = self.syntheticOptionTrigger.sendUp(sessionID: sessionID)
+            } else if case .chord? = self.capturedVoiceProfile?.binding {
+                _ = self.voiceShortcutEmitter.end(sessionID: sessionID)
             } else {
                 _ = self.syntheticOptionTrigger.abort(sessionID: sessionID)
             }
-            VoiceTimingLogger.mark("OPTION_UP_REQUESTED", sessionID: sessionID)
+            if case .chord? = self.capturedVoiceProfile?.binding {
+                VoiceTimingLogger.mark("VOICE_SHORTCUT_UP_REQUESTED", sessionID: sessionID)
+            } else {
+                VoiceTimingLogger.mark("OPTION_UP_REQUESTED", sessionID: sessionID)
+            }
             self.completeDirectVoiceSession(sessionID: sessionID)
         }
 
@@ -1356,6 +1435,7 @@ final class VoicePressCoordinator {
         physicalTriggerSuppressionActive = false
         gestureID = nil
         _ = syntheticOptionTrigger.abort(sessionID: sessionID)
+        _ = voiceShortcutEmitter.abort(sessionID: sessionID)
         if !preHIDPhysicalStreaming && !livePhysicalCandidateForAdmission {
             AudioPipe.shared.endRemoteCandidate()
         }
@@ -1689,6 +1769,7 @@ final class VoicePressCoordinator {
         deferredRepressWaitReason = nil
         clearPendingDirectHardwareRepressState()
         _ = syntheticOptionTrigger.reset()
+        voiceShortcutEmitter.abortAll()
         releaseRemoteInputLeaseIfUnowned()
     }
 
@@ -1869,6 +1950,13 @@ final class VoicePressCoordinator {
         case .streaming: return "streaming"
         case .draining: return "draining"
         }
+    }
+
+    private func voiceInputDiagnosticFields(_ profile: VoiceInputProfile?) -> [String: Any] {
+        guard let profile else { return [:] }
+        var fields = profile.binding.diagnosticFields
+        fields["entry_id"] = profile.id
+        return fields
     }
 
     private func logAdmissionDecision(
@@ -3647,6 +3735,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var diagnosticsRuntimeObserverRegistered = false
     private let ble = BLEBridge()
     private let mappingStore = MappingStore()
+    private let voiceShortcutPresentation = VoiceShortcutPresentation.shared
     private let hidMonitor = HIDMonitor()
     private let buttonGestureRecognizer = ButtonGestureRecognizer()
     private let actionHUD = RemoteActionHUD()
@@ -3666,6 +3755,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
     private(set) var currentMomentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
     private(set) var currentVoiceInputProfile: VoiceInputProfile = .defaultProfile
+    private(set) var currentVoiceShortcutSnapshot = VoiceShortcutSnapshot.seeded()
+    private(set) var voiceShortcutReadOnlyReason: VoiceShortcutValidationError?
     /// Compatibility alias: historical callers meant the mapped momentary
     /// remote-microphone trigger.
     var currentVoiceTriggerKey: VoiceTriggerKey { currentMomentaryVoiceTriggerKey }
@@ -3681,6 +3772,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let readPersistedVoiceTriggerKey: () -> VoiceTriggerKey
     private let persistVoiceTriggerKey: (VoiceTriggerKey) -> Void
     private let usePersistedVoiceProfile: Bool
+    private let voiceShortcutDefaults: UserDefaults
     private let diagnosticUptimeProvider: () -> TimeInterval
     private let voiceHIDMappingQueue = DispatchQueue(
         label: "com.remoteorbit.voice-trigger-hid-mapping",
@@ -3702,6 +3794,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         cancelVoiceTransportPreparation: (() -> Void)? = nil,
         stopVoiceInput: (() -> Void)? = nil,
         usePersistedVoiceProfile: Bool = true,
+        voiceShortcutDefaults: UserDefaults = .standard,
         readPersistedVoiceTriggerKey: @escaping () -> VoiceTriggerKey = {
             AppStorage.momentaryVoiceTriggerKey
         },
@@ -3724,6 +3817,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.cancelVoiceTransportPreparationAction = cancelVoiceTransportPreparation
         self.stopVoiceInputAction = stopVoiceInput
         self.usePersistedVoiceProfile = usePersistedVoiceProfile
+        self.voiceShortcutDefaults = voiceShortcutDefaults
         self.readPersistedVoiceTriggerKey = readPersistedVoiceTriggerKey
         self.persistVoiceTriggerKey = persistVoiceTriggerKey
         self.diagnosticUptimeProvider = uptimeProvider
@@ -3762,14 +3856,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @discardableResult
     func restoreVoiceTriggerRuntime() -> Bool {
-        // AppStorage.prepare() migrates only the retained momentary/profile
-        // compatibility path before the production delegate reaches this
-        // method. Retired Persistent and Receiver-B values are inert bytes.
+        let loaded = VoiceShortcutStore.load(from: voiceShortcutDefaults)
+        currentVoiceShortcutSnapshot = loaded.snapshot
+        voiceShortcutReadOnlyReason = loaded.reason
+        voiceShortcutPresentation.replace(
+            snapshot: loaded.snapshot,
+            readOnlyReason: loaded.reason
+        )
+        let legacyProfile = VoiceInputProfileStore.profile(for: readPersistedVoiceTriggerKey())
         let restoredProfile = usePersistedVoiceProfile
-            ? VoiceInputProfileStore.persistedProfile(from: UserDefaults.standard)
-                ?? VoiceInputProfileStore.profile(for: readPersistedVoiceTriggerKey())
-            : VoiceInputProfileStore.profile(for: readPersistedVoiceTriggerKey())
-        let restoredMomentaryKey = restoredProfile.triggerKey
+            ? loaded.snapshot.activeEntry?.profile ?? legacyProfile
+            : legacyProfile
+        let restoredMomentaryKey = restoredProfile.triggerKey ?? readPersistedVoiceTriggerKey()
         diagnosticLogger.log(
             category: "configuration",
             event: "RUNTIME_RESTORE_BEGIN",
@@ -3793,6 +3891,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         currentMomentaryVoiceTriggerKey = restoredMomentaryKey
         currentVoiceInputProfile = restoredProfile
+        let mappingShouldBeEnabled = restoredProfile.triggerKey != nil && hidConnected
+        let restoredMapping = voiceHIDMappingQueue.sync {
+            applyVoiceHIDMapping(mappingShouldBeEnabled, restoredMomentaryKey)
+        }
+        if !restoredMapping {
+            voiceTriggerRuntimeLocked = true
+            diagnosticLogger.log(
+                category: "configuration",
+                event: "RUNTIME_RESTORE_FAIL",
+                fields: ["reason": "hid_mapping_restore_failed"]
+            )
+            return false
+        }
         print(
             "[VOICE-KEY] startup restored profile=\(restoredProfile.displayName)"
         )
@@ -3861,6 +3972,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The completion is called on the main run loop for every result.
     func applyVoiceTriggerKey(
         _ newKey: VoiceTriggerKey,
+        persistLegacy: Bool = true,
         completion: @escaping (VoiceTriggerApplyResult) -> Void
     ) {
         guard Thread.isMainThread else {
@@ -3869,7 +3981,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     completion(.locked)
                     return
                 }
-                self.applyVoiceTriggerKey(newKey, completion: completion)
+                self.applyVoiceTriggerKey(newKey, persistLegacy: persistLegacy, completion: completion)
             }
             return
         }
@@ -3896,7 +4008,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             completion(.busy)
             return
         }
-        guard newKey != oldKey else {
+        if voicePress.hasUnresolvedVoiceShortcutOwnership {
+            _ = voicePress.recoverPendingVoiceShortcutReleaseOwnership()
+            guard !voicePress.hasUnresolvedVoiceShortcutOwnership else {
+                logReconfigurationBusy(
+                    reason: "unresolved_voice_shortcut_synthetic_ownership",
+                    event: "MOMENTARY_RECONFIG_REJECTED"
+                )
+                completion(.busyReleaseDrain)
+                return
+            }
+        }
+        let hadHardwareMapping = isVoiceHIDMappingEnabled()
+        guard newKey != oldKey || (hidConnected && !hadHardwareMapping) else {
             completion(.unchanged)
             return
         }
@@ -3905,7 +4029,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             completion(busy)
             return
         }
-        let hadHardwareMapping = isVoiceHIDMappingEnabled()
         guard filter.beginVoiceTriggerReconfiguration(from: oldKey, to: newKey) else {
             logReconfigurationBusy(reason: "reconfiguration_busy", event: "MOMENTARY_RECONFIG_REJECTED")
             completion(.busy)
@@ -3938,7 +4061,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         guard hidConnected else {
             currentMomentaryVoiceTriggerKey = newKey
-            persistVoiceTriggerKey(newKey)
+            if persistLegacy { persistVoiceTriggerKey(newKey) }
             completeVoiceTriggerReconfiguration(.applied, completion: completion)
             return
         }
@@ -3957,7 +4080,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     return
                 }
                 self.currentMomentaryVoiceTriggerKey = newKey
-                self.persistVoiceTriggerKey(newKey)
+                if persistLegacy { self.persistVoiceTriggerKey(newKey) }
                 print("[VOICE-KEY] runtime target committed=\(newKey.displayName)")
                 self.completeVoiceTriggerReconfiguration(.applied, completion: completion)
             }
@@ -3968,22 +4091,329 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ profile: VoiceInputProfile,
         completion: @escaping (VoiceTriggerApplyResult) -> Void
     ) {
-        applyVoiceTriggerKey(profile.triggerKey) { [weak self] result in
-            guard let self else {
-                completion(.locked)
+        var proposed = currentVoiceShortcutSnapshot
+        guard proposed.entries.contains(where: { $0.id == profile.id }) else {
+            completion(.failed)
+            return
+        }
+        proposed.activeEntryID = profile.id
+        updateVoiceShortcutSnapshot(proposed, completion: completion)
+    }
+
+    func updateVoiceShortcutSnapshot(
+        _ proposed: VoiceShortcutSnapshot,
+        completion: @escaping (VoiceTriggerApplyResult) -> Void
+    ) {
+        logVoiceShortcutConfiguration(
+            event: "VOICE_SHORTCUT_CONFIG_REQUESTED",
+            entry: proposed.activeEntry,
+            outcome: "requested"
+        )
+        guard Thread.isMainThread,
+              voiceShortcutReadOnlyReason == nil,
+              (try? VoiceShortcutStore.validate(proposed)) != nil
+        else {
+            logVoiceShortcutConfiguration(
+                event: "VOICE_SHORTCUT_CONFIG_REJECTED",
+                entry: proposed.activeEntry,
+                outcome: "rejected",
+                reason: "not_main_thread_read_only_or_invalid_snapshot"
+            )
+            completion(.failed)
+            return
+        }
+        let oldSnapshot = currentVoiceShortcutSnapshot
+        guard let targetEntry = proposed.activeEntry else {
+            logVoiceShortcutConfiguration(
+                event: "VOICE_SHORTCUT_CONFIG_REJECTED",
+                entry: nil,
+                outcome: "rejected",
+                reason: "missing_active_entry"
+            )
+            completion(.failed)
+            return
+        }
+        let target = targetEntry.profile
+        let oldActive = oldSnapshot.activeEntry?.profile ?? currentVoiceInputProfile
+        let activeBindingChanged = oldActive.id != target.id || oldActive.binding != target.binding
+        guard activeBindingChanged else {
+            do {
+                try VoiceShortcutStore.persist(proposed, to: voiceShortcutDefaults)
+                currentVoiceShortcutSnapshot = proposed
+                currentVoiceInputProfile = target
+                self.voiceShortcutPresentation.replace(
+                    snapshot: proposed,
+                    readOnlyReason: nil
+                )
+                rebuildVoiceInputProfileMenu()
+                logVoiceShortcutConfiguration(
+                    event: "VOICE_SHORTCUT_CONFIG_COMMITTED",
+                    entry: targetEntry,
+                    outcome: "snapshot_committed_without_runtime_change"
+                )
+                completion(.applied)
+            } catch {
+                logVoiceShortcutConfiguration(
+                    event: "VOICE_SHORTCUT_CONFIG_COMMIT_FAILED",
+                    entry: targetEntry,
+                    outcome: "commit_failed",
+                    reason: "snapshot_persist_failed"
+                )
+                completion(.failed)
+            }
+            return
+        }
+
+        logVoiceShortcutConfiguration(
+            event: "VOICE_SHORTCUT_RUNTIME_RECONFIG_BEGIN",
+            entry: targetEntry,
+            outcome: "begin",
+            reason: "active_binding_changed"
+        )
+        currentVoiceInputProfile = target
+        let apply: (@escaping (VoiceTriggerApplyResult) -> Void) -> Void
+        if let key = target.triggerKey {
+            apply = { [weak self] done in
+                self?.applyVoiceTriggerKey(key, persistLegacy: false, completion: done)
+                    ?? done(.locked)
+            }
+        } else {
+            apply = { [weak self] done in
+                self?.applyVoiceShortcutChordRuntime(entry: targetEntry, completion: done) ?? done(.locked)
+            }
+        }
+        apply { [weak self] result in
+            guard let self else { completion(.locked); return }
+            guard result == .applied || result == .unchanged else {
+                self.currentVoiceInputProfile = oldActive
+                let isBusy = result == .busy || result == .busyActiveHold || result == .busyReleaseDrain
+                self.logVoiceShortcutConfiguration(
+                    event: isBusy ? "VOICE_SHORTCUT_CONFIG_BUSY" : "VOICE_SHORTCUT_CONFIG_REJECTED",
+                    entry: targetEntry,
+                    outcome: isBusy ? "busy" : "rejected",
+                    reason: self.applyResultReason(result)
+                )
+                completion(result)
                 return
             }
-            if result == .applied || result == .unchanged {
-                self.currentVoiceInputProfile = profile
-                VoiceInputProfileStore.writeSelectedProfile(profile, to: UserDefaults.standard)
+            do {
+                try VoiceShortcutStore.persist(proposed, to: voiceShortcutDefaults)
+                self.currentVoiceShortcutSnapshot = proposed
+                self.currentVoiceInputProfile = target
+                self.voiceShortcutPresentation.replace(
+                    snapshot: proposed,
+                    readOnlyReason: nil
+                )
+                voiceShortcutDefaults.set(target.id, forKey: VoiceInputProfileStore.selectedProfileIDKey)
+                if let key = target.triggerKey {
+                    self.persistVoiceTriggerKey(key)
+                }
+                self.rebuildVoiceInputProfileMenu()
+                self.logVoiceShortcutConfiguration(
+                    event: "VOICE_SHORTCUT_CONFIG_COMMITTED",
+                    entry: targetEntry,
+                    outcome: "runtime_and_snapshot_committed"
+                )
+                completion(result == .unchanged ? .applied : result)
+            } catch {
+                self.currentVoiceInputProfile = oldActive
+                self.logVoiceShortcutConfiguration(
+                    event: "VOICE_SHORTCUT_ROLLBACK_BEGIN",
+                    entry: targetEntry,
+                    outcome: "rollback_requested",
+                    reason: "snapshot_persist_failed"
+                )
+                self.rollbackVoiceShortcutRuntime(to: oldActive) { rollback in
+                    if rollback == .applied || rollback == .unchanged {
+                        self.logVoiceShortcutConfiguration(
+                            event: "VOICE_SHORTCUT_ROLLBACK_COMPLETE",
+                            entry: oldSnapshot.activeEntry,
+                            outcome: "previous_runtime_restored",
+                            reason: "snapshot_persist_failed"
+                        )
+                        completion(.failed)
+                    } else {
+                        self.logVoiceShortcutConfiguration(
+                            event: "VOICE_SHORTCUT_ROLLBACK_FAILED",
+                            entry: oldSnapshot.activeEntry,
+                            outcome: "runtime_state_uncertain",
+                            reason: self.applyResultReason(rollback)
+                        )
+                        self.lockVoiceTriggerRuntime(reason: "voice shortcut snapshot readback and runtime rollback failed")
+                        completion(.locked)
+                    }
+                }
             }
-            completion(result)
+        }
+    }
+
+    private func logVoiceShortcutConfiguration(
+        event: String,
+        entry: VoiceShortcutEntry?,
+        outcome: String,
+        reason: String? = nil
+    ) {
+        var fields = entry?.diagnosticFields ?? ["binding_kind": "unknown"]
+        fields["outcome"] = outcome
+        if let reason { fields["reason"] = reason }
+        diagnosticLogger.log(category: "configuration", event: event, fields: fields)
+    }
+
+    private func rollbackVoiceShortcutRuntime(
+        to profile: VoiceInputProfile,
+        completion: @escaping (VoiceTriggerApplyResult) -> Void
+    ) {
+        currentVoiceInputProfile = profile
+        if let key = profile.triggerKey {
+            applyVoiceTriggerKey(key, completion: completion)
+        } else {
+            applyVoiceShortcutChordRuntime(
+                entry: currentVoiceShortcutSnapshot.entries.first { $0.id == profile.id },
+                completion: completion
+            )
+        }
+    }
+
+    private func applyVoiceShortcutChordRuntime(
+        entry: VoiceShortcutEntry? = nil,
+        completion: @escaping (VoiceTriggerApplyResult) -> Void
+    ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.applyVoiceShortcutChordRuntime(entry: entry, completion: completion) ?? completion(.locked)
+            }
+            return
+        }
+        let targetEntry = entry ?? currentVoiceShortcutSnapshot.activeEntry
+        logVoiceShortcutConfiguration(
+            event: "VOICE_SHORTCUT_RUNTIME_RECONFIG_REQUESTED",
+            entry: targetEntry,
+            outcome: "requested"
+        )
+        guard !voiceTriggerRuntimeLocked else {
+            logVoiceShortcutConfiguration(
+                event: "VOICE_SHORTCUT_CONFIG_BUSY",
+                entry: targetEntry,
+                outcome: "busy",
+                reason: "runtime_locked"
+            )
+            completion(.locked)
+            return
+        }
+        guard !voiceTriggerReconfigurationInProgress else {
+            logVoiceShortcutConfiguration(
+                event: "VOICE_SHORTCUT_CONFIG_BUSY",
+                entry: targetEntry,
+                outcome: "busy",
+                reason: "reconfiguration_busy"
+            )
+            completion(.busy)
+            return
+        }
+        if let busy = voiceConfigurationBusyResult() {
+            logVoiceShortcutConfiguration(
+                event: "VOICE_SHORTCUT_CONFIG_BUSY",
+                entry: targetEntry,
+                outcome: "busy",
+                reason: applyResultReason(busy)
+            )
+            completion(busy)
+            return
+        }
+
+        let key = currentMomentaryVoiceTriggerKey
+        let hadHardwareMapping = isVoiceHIDMappingEnabled()
+        guard filter.beginVoiceTriggerReconfiguration(from: key, to: key) else {
+            logVoiceShortcutConfiguration(
+                event: "VOICE_SHORTCUT_CONFIG_BUSY",
+                entry: targetEntry,
+                outcome: "busy",
+                reason: "filter_reconfiguration_busy"
+            )
+            completion(.busy)
+            return
+        }
+        voiceTriggerReconfigurationInProgress = true
+        guard filter.configureVoiceTriggerKey(key) else {
+            voiceTriggerReconfigurationInProgress = false
+            filter.endVoiceTriggerReconfiguration()
+            logVoiceShortcutConfiguration(
+                event: "VOICE_SHORTCUT_RUNTIME_RECONFIG_FAILED",
+                entry: targetEntry,
+                outcome: "failed_before_mapping_change",
+                reason: "filter_configuration_failed"
+            )
+            completion(.busy)
+            return
+        }
+        voiceHIDMappingQueue.async { [weak self] in
+            guard let self else { return }
+            let disabled = self.applyVoiceHIDMapping(false, key)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { completion(.locked); return }
+                guard disabled else {
+                    self.logVoiceShortcutConfiguration(
+                        event: "VOICE_SHORTCUT_ROLLBACK_BEGIN",
+                        entry: targetEntry,
+                        outcome: "restore_previous_hid_mapping",
+                        reason: "chord_mapping_disable_failed"
+                    )
+                    if hadHardwareMapping {
+                        self.voiceHIDMappingQueue.async { [weak self] in
+                            guard let self else { return }
+                            let restored = self.applyVoiceHIDMapping(true, key)
+                            DispatchQueue.main.async { [weak self] in
+                                guard let self else { completion(.locked); return }
+                                if restored {
+                                    self.logVoiceShortcutConfiguration(
+                                        event: "VOICE_SHORTCUT_ROLLBACK_COMPLETE",
+                                        entry: targetEntry,
+                                        outcome: "previous_hid_mapping_restored",
+                                        reason: "chord_mapping_disable_failed"
+                                    )
+                                    self.completeVoiceTriggerReconfiguration(.failed, completion: completion)
+                                } else {
+                                    self.logVoiceShortcutConfiguration(
+                                        event: "VOICE_SHORTCUT_ROLLBACK_FAILED",
+                                        entry: targetEntry,
+                                        outcome: "runtime_state_uncertain",
+                                        reason: "hid_mapping_restore_failed"
+                                    )
+                                    self.lockVoiceTriggerRuntime(reason: "F5 mapping rollback failed after chord apply")
+                                    completion(.locked)
+                                }
+                            }
+                        }
+                    } else {
+                        self.logVoiceShortcutConfiguration(
+                            event: "VOICE_SHORTCUT_ROLLBACK_COMPLETE",
+                            entry: targetEntry,
+                            outcome: "no_previous_hid_mapping_to_restore",
+                            reason: "chord_mapping_disable_failed"
+                        )
+                        self.completeVoiceTriggerReconfiguration(.failed, completion: completion)
+                    }
+                    return
+                }
+                self.logVoiceShortcutConfiguration(
+                    event: "VOICE_SHORTCUT_RUNTIME_RECONFIG_COMMITTED",
+                    entry: targetEntry,
+                    outcome: "chord_mapping_active"
+                )
+                self.completeVoiceTriggerReconfiguration(.applied, completion: completion)
+            }
         }
     }
 
     private func voiceConfigurationBusyResult() -> VoiceTriggerApplyResult? {
         if voicePress.hasVoiceKeyHeldForReconfiguration || filter.isVoiceKeyHeld {
             return .busyActiveHold
+        }
+        if voicePress.hasUnresolvedVoiceShortcutOwnership {
+            _ = voicePress.recoverPendingVoiceShortcutReleaseOwnership()
+            if voicePress.hasUnresolvedVoiceShortcutOwnership {
+                return .busyReleaseDrain
+            }
         }
         if voicePress.hasReleaseOrTailOwnershipForReconfiguration
             || filter.hasActiveHardwareTriggerOwnership
@@ -4068,7 +4498,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         pendingVoiceHIDMappingRefresh = false
-        let shouldEnable = hidConnected
+        let shouldEnable = hidConnected && currentVoiceInputProfile.triggerKey != nil
         let target = currentMomentaryVoiceTriggerKey
         voiceHIDMappingQueue.async { [weak self] in
             guard let self else { return }
@@ -4093,7 +4523,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func applyResultReason(_ result: VoiceTriggerApplyResult) -> String {
         switch result {
         case .busyActiveHold: "active_hold"
-        case .busyReleaseDrain: "release_drain"
+        case .busyReleaseDrain:
+            voicePress.hasUnresolvedVoiceShortcutOwnership
+                ? "unresolved_voice_shortcut_synthetic_ownership"
+                : "release_drain"
         case .locked: "runtime_locked"
         case .busy: "reconfiguration_busy"
         case .applied, .unchanged, .failed: "unknown"
@@ -4227,7 +4660,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "observer_uptime": occurrenceUptime,
                 "momentary_key": momentaryKeyAtEntry.rawValue,
                 "voice_input_profile_id": currentVoiceInputProfile.id,
-                "voice_input_trigger_key": currentVoiceInputProfile.triggerKey.rawValue,
+                "voice_input_trigger_key": currentVoiceInputProfile.triggerKey?.rawValue ?? "chord",
                 "classifier": "none",
             ]
         )
@@ -4954,8 +5387,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func applyVoiceHIDMappingForConnection(_ active: Bool) {
-        let shouldEnable = active && !voiceTriggerRuntimeLocked
-        let primaryKey = currentVoiceInputProfile.triggerKey
+        let shouldEnable = active
+            && !voiceTriggerRuntimeLocked
+            && currentVoiceInputProfile.triggerKey != nil
+        let primaryKey = currentVoiceInputProfile.triggerKey ?? currentMomentaryVoiceTriggerKey
         let succeeded = voiceHIDMappingQueue.sync {
             applyVoiceHIDMapping(shouldEnable, primaryKey)
         }
@@ -5108,7 +5543,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func rebuildVoiceInputProfileMenu() {
         guard let menu = voiceInputProfileMenu else { return }
         menu.removeAllItems()
-        for profile in VoiceInputProfile.supported {
+        for entry in currentVoiceShortcutSnapshot.entries {
+            let profile = entry.profile
             let item = NSMenuItem(
                 title: profile.displayName,
                 action: #selector(selectVoiceInputProfile(_:)),
@@ -5117,13 +5553,23 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.target = self
             item.representedObject = profile.id
             item.state = profile.id == currentVoiceInputProfile.id ? .on : .off
+            item.isEnabled = voiceShortcutReadOnlyReason == nil
             menu.addItem(item)
         }
+        menu.addItem(.separator())
+        let manage = NSMenuItem(
+            title: "管理语音快捷键…",
+            action: #selector(openKeyMapping),
+            keyEquivalent: ""
+        )
+        manage.target = self
+        menu.addItem(manage)
     }
 
     @objc private func selectVoiceInputProfile(_ sender: NSMenuItem) {
         guard let profileID = sender.representedObject as? String,
-              let profile = VoiceInputProfile.supported.first(where: { $0.id == profileID })
+              let profile = currentVoiceShortcutSnapshot.entries
+                .first(where: { $0.id == profileID })?.profile
         else { return }
         applyVoiceInputProfile(profile) { [weak self] result in
             guard let self else { return }
@@ -5317,6 +5763,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openKeyMapping() {
+        voiceShortcutPresentation.updateSnapshot = { [weak self] snapshot, completion in
+            self?.updateVoiceShortcutSnapshot(snapshot, completion: completion)
+                ?? completion(.locked)
+        }
         SettingsWindow.open(
             store: mappingStore,
             onRecordingChanged: { [weak self] enabled in

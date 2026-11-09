@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject var store: MappingStore
+    @ObservedObject var voiceShortcutPresentation: VoiceShortcutPresentation
     var onRecordingChanged: (Bool) -> Void = { _ in }
     @State private var selectedSection: WorkspaceSection = .overview
     @State private var selectedButton: RemoteButton = .microphone
@@ -17,6 +18,8 @@ struct SettingsView: View {
     @State private var selectedTemplateTarget: TemplateTarget = .none
     @State private var recorderButton: RemoteButton?
     @State private var gestureRecorderTarget: GestureRecorderTarget?
+    @State private var voiceShortcutEditorRequest: VoiceShortcutEditorRequest?
+    @State private var voiceShortcutStatus: String?
     @State private var showResetConfirm = false
     @State private var showTemplateCreator = false
     @State private var showTemplatePresetImporter = false
@@ -32,9 +35,11 @@ struct SettingsView: View {
 
     init(
         store: MappingStore,
+        voiceShortcutPresentation: VoiceShortcutPresentation = .shared,
         onRecordingChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self.store = store
+        self.voiceShortcutPresentation = voiceShortcutPresentation
         self.onRecordingChanged = onRecordingChanged
     }
 
@@ -144,6 +149,15 @@ struct SettingsView: View {
                     )
                     setCurrentGestureEnabled(true, for: target.slot)
                     gestureRecorderTarget = nil
+                }
+            )
+        }
+        .sheet(item: $voiceShortcutEditorRequest) { request in
+            VoiceShortcutEditorSheet(
+                request: request,
+                onCancel: { voiceShortcutEditorRequest = nil },
+                onSave: { entry, completion in
+                    saveVoiceShortcutEntry(entry, completion: completion)
                 }
             )
         }
@@ -668,12 +682,166 @@ struct SettingsView: View {
 
     private var microphoneVoiceControlCard: some View {
         workspaceCard(title: "语音键 · 直接传输控制", symbolName: "mic.circle.fill") {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("按下语音键立即开始遥控器语音会话；松开后等待输出收尾，再释放传输控制键。")
-                Text("语音输入 Profile 在菜单栏“语音输入”中选择，并会持久化到本机。一次会话会固定按下时捕获的 Profile。")
+            VStack(alignment: .leading, spacing: 12) {
+                Text("按住达到约 300ms 开始直接远程语音；松开后等待输出收尾，再释放语音快捷键")
+                    .font(.callout)
+
+                if let reason = voiceShortcutPresentation.readOnlyReason {
+                    Label(reason.localizedDescription, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                ForEach(voiceShortcutPresentation.snapshot.entries) { entry in
+                    HStack(spacing: 8) {
+                        Button {
+                            activateVoiceShortcut(entry.id)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: entry.id == voiceShortcutPresentation.snapshot.activeEntryID
+                                      ? "largecircle.fill.circle" : "circle")
+                                    .foregroundStyle(entry.id == voiceShortcutPresentation.snapshot.activeEntryID
+                                                     ? Color.accentColor : Color.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entry.displayName)
+                                        .font(.callout.weight(.medium))
+                                    Text(entry.binding.sideDescription)
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(.secondary)
+                                }
+                                if entry.id == voiceShortcutPresentation.snapshot.activeEntryID {
+                                    Text("Active")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(voiceShortcutPresentation.readOnlyReason != nil)
+
+                        Spacer(minLength: 8)
+                        Button("编辑") {
+                            voiceShortcutEditorRequest = VoiceShortcutEditorRequest(entry: entry, isNew: false)
+                        }
+                        .controlSize(.small)
+                        .disabled(voiceShortcutPresentation.readOnlyReason != nil)
+                        Button(role: .destructive) {
+                            deleteVoiceShortcut(entry.id)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                        .disabled(voiceShortcutPresentation.readOnlyReason != nil
+                                  || voiceShortcutPresentation.snapshot.entries.count <= 1)
+                    }
+                    .padding(.vertical, 3)
+                }
+
+                HStack {
+                    Button("添加语音快捷键…") {
+                        voiceShortcutEditorRequest = VoiceShortcutEditorRequest(
+                            entry: VoiceShortcutEntry(
+                                displayName: "自定义语音快捷键",
+                                binding: .pureModifier(.leftOption)
+                            ),
+                            isNew: true
+                        )
+                    }
+                    .disabled(voiceShortcutPresentation.readOnlyReason != nil)
+                    Spacer()
+                }
+
+                if let voiceShortcutStatus {
+                    Text(voiceShortcutStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text("菜单栏“语音输入”也可切换 Active。快捷键变化只影响之后开始的长按会话。")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .font(.callout)
+        }
+    }
+
+    private func activateVoiceShortcut(_ id: String) {
+        var proposed = voiceShortcutPresentation.snapshot
+        proposed.activeEntryID = id
+        updateVoiceShortcutSnapshot(proposed)
+    }
+
+    private func deleteVoiceShortcut(_ id: String) {
+        let snapshot = voiceShortcutPresentation.snapshot
+        let replacement = snapshot.activeEntryID == id
+            ? snapshot.entries.first(where: { $0.id != id })?.id
+            : nil
+        do {
+            let proposed = try VoiceShortcutStore.deletingEntry(
+                id: id,
+                from: snapshot,
+                replacementActiveID: replacement
+            )
+            updateVoiceShortcutSnapshot(proposed)
+        } catch {
+            voiceShortcutStatus = error.localizedDescription
+        }
+    }
+
+    private func saveVoiceShortcutEntry(
+        _ entry: VoiceShortcutEntry,
+        completion: @escaping (String?) -> Void
+    ) {
+        do {
+            let proposed = try VoiceShortcutStore.replacingEntry(
+                entry,
+                in: voiceShortcutPresentation.snapshot
+            )
+            voiceShortcutPresentation.updateSnapshot(proposed) { result in
+                DispatchQueue.main.async {
+                    if result == .applied || result == .unchanged {
+                        voiceShortcutStatus = nil
+                        voiceShortcutEditorRequest = nil
+                        completion(nil)
+                    } else {
+                        let message = voiceShortcutFailureMessage(result)
+                        voiceShortcutStatus = message
+                        completion(message)
+                    }
+                }
+            }
+        } catch {
+            voiceShortcutStatus = error.localizedDescription
+            completion(error.localizedDescription)
+        }
+    }
+
+    private func updateVoiceShortcutSnapshot(_ proposed: VoiceShortcutSnapshot) {
+        voiceShortcutPresentation.updateSnapshot(proposed) { result in
+            DispatchQueue.main.async {
+                if result == .applied || result == .unchanged {
+                    voiceShortcutStatus = nil
+                } else {
+                    voiceShortcutStatus = voiceShortcutFailureMessage(result)
+                }
+            }
+        }
+    }
+
+    private func voiceShortcutFailureMessage(_ result: VoiceTriggerApplyResult) -> String {
+        switch result {
+        case .busy, .busyActiveHold:
+            return "语音键仍处于按住状态。请松开后重试；当前 Active 保持不变。"
+        case .busyReleaseDrain:
+            return "语音输出仍在收尾。等待收尾完成后重试；当前 Active 保持不变。"
+        case .locked:
+            return "语音快捷键运行时已锁定。请重启 RemoteOrbit 后重试；当前 Active 保持不变。"
+        case .failed:
+            return "运行时应用或快照回读失败。当前 Active 保持不变，请重试。"
+        case .applied, .unchanged:
+            return ""
         }
     }
 
@@ -2894,5 +3062,185 @@ struct ShortcutRecorderSheet: View {
         case .clear:
             onClear()
         }
+    }
+}
+
+private struct VoiceShortcutEditorRequest: Identifiable {
+    let entry: VoiceShortcutEntry
+    let isNew: Bool
+    var id: String { entry.id }
+}
+
+private struct VoiceShortcutEditorSheet: View {
+    let request: VoiceShortcutEditorRequest
+    let onCancel: () -> Void
+    let onSave: (VoiceShortcutEntry, @escaping (String?) -> Void) -> Void
+
+    @State private var displayName: String
+    @State private var binding: VoiceShortcutBinding
+    @State private var showRecorder = false
+    @State private var errorText = ""
+
+    init(
+        request: VoiceShortcutEditorRequest,
+        onCancel: @escaping () -> Void,
+        onSave: @escaping (VoiceShortcutEntry, @escaping (String?) -> Void) -> Void
+    ) {
+        self.request = request
+        self.onCancel = onCancel
+        self.onSave = onSave
+        _displayName = State(initialValue: request.entry.displayName)
+        _binding = State(initialValue: request.entry.binding)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(request.isNew ? "新增语音快捷键" : "编辑语音快捷键")
+                .font(.title3.weight(.semibold))
+
+            TextField("名称", text: $displayName)
+                .textFieldStyle(.roundedBorder)
+
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("当前快捷键")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(binding.sideDescription)
+                        .font(.system(.body, design: .monospaced).weight(.semibold))
+                }
+                Spacer()
+                Button("录制快捷键…") { showRecorder = true }
+                    .buttonStyle(.bordered)
+            }
+
+            Text("录制支持左右 Option、Control、Command、Shift 及其组合。Fn 与 Escape 用于取消录制。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Button("取消", action: onCancel)
+                Spacer()
+                Button("保存") {
+                    onSave(VoiceShortcutEntry(
+                        id: request.entry.id,
+                        displayName: displayName,
+                        binding: binding
+                    )) { error in
+                        errorText = error ?? ""
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            if !errorText.isEmpty {
+                Text(errorText)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+        .sheet(isPresented: $showRecorder) {
+            VoiceShortcutRecorderSheet(
+                onCancel: { showRecorder = false },
+                onRecord: { recorded in
+                    binding = recorded
+                    showRecorder = false
+                }
+            )
+        }
+    }
+}
+
+private struct VoiceShortcutRecorderSheet: View {
+    let onCancel: () -> Void
+    let onRecord: (VoiceShortcutBinding) -> Void
+
+    @State private var captureMonitor: ShortcutCaptureMonitor?
+    @State private var preview = "请按下语音快捷键"
+    @State private var errorText = ""
+    @State private var pendingCancel = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("录制语音快捷键")
+                .font(.title3.weight(.semibold))
+            Text("按住一个纯修饰键，或按住修饰键再按主键；等全部相关按键释放后完成录制。")
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Text(preview)
+                    .font(.system(size: 26, weight: .medium, design: .rounded))
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 16)
+                    .background(Color.accentColor.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                Spacer()
+            }
+
+            if !errorText.isEmpty {
+                Text(errorText)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+
+            Text("录制会独占并抑制本次按键边沿；Escape 或 Fn 可取消。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Button("取消录制") { requestCancel() }
+                Spacer()
+                Button("重新开始") { startMonitoring() }
+                    .disabled(captureMonitor?.isRunning == true)
+            }
+        }
+        .padding(24)
+        .frame(width: 500)
+        .onAppear { startMonitoring() }
+        .onDisappear { stopMonitoring() }
+    }
+
+    private func startMonitoring() {
+        stopMonitoring()
+        pendingCancel = false
+        preview = "请按下语音快捷键"
+        errorText = ""
+        let monitor = ShortcutCaptureMonitor(
+            initiallyHeldFlags: CGEventSource.flagsState(.combinedSessionState),
+            triggerModeProvider: { .single },
+            voiceCaptureEnabled: true
+        )
+        monitor.onPreview = { preview = $0 }
+        monitor.onError = { errorText = $0 }
+        monitor.onVoiceRecord = { binding in
+            do {
+                try VoiceShortcutStore.validate(binding: binding)
+                preview = binding.displayName
+                onRecord(binding)
+            } catch {
+                errorText = error.localizedDescription
+            }
+        }
+        monitor.onVoiceCancel = onCancel
+        monitor.onStopped = {
+            if pendingCancel { onCancel() }
+        }
+        captureMonitor = monitor
+        if !monitor.start() { captureMonitor = nil }
+    }
+
+    private func requestCancel() {
+        pendingCancel = true
+        if captureMonitor == nil || captureMonitor?.requestCancel() == true {
+            pendingCancel = false
+            onCancel()
+        }
+    }
+
+    private func stopMonitoring() {
+        if captureMonitor?.stop() == true { captureMonitor = nil }
     }
 }
