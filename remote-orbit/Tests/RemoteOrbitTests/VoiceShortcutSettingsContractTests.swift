@@ -31,6 +31,26 @@ final class VoiceShortcutSettingsContractTests: XCTestCase {
         XCTAssertTrue(menu.contains("管理语音快捷键"))
     }
 
+    func testChordConfigurationDiagnosticsCoverBusyAndRollbackWithoutLabels() throws {
+        let main = try source("Sources/RemoteOrbit/main.swift")
+        for event in [
+            "VOICE_SHORTCUT_CONFIG_BUSY",
+            "VOICE_SHORTCUT_ROLLBACK_BEGIN",
+            "VOICE_SHORTCUT_ROLLBACK_COMPLETE",
+            "VOICE_SHORTCUT_ROLLBACK_FAILED",
+        ] {
+            XCTAssertTrue(main.contains(event), "missing configuration diagnostic \(event)")
+        }
+
+        let helperStart = try XCTUnwrap(main.range(of: "private func logVoiceShortcutConfiguration("))
+        let helperEnd = try XCTUnwrap(main.range(of: "private func rollbackVoiceShortcutRuntime(", range: helperStart.lowerBound..<main.endIndex))
+        let helper = String(main[helperStart.lowerBound..<helperEnd.lowerBound])
+        XCTAssertTrue(helper.contains("entry?.diagnosticFields"))
+        XCTAssertFalse(helper.contains("displayName"))
+        XCTAssertFalse(helper.contains("transcription"))
+        XCTAssertFalse(helper.contains("typed_text"))
+    }
+
     private func settingsSource() throws -> String {
         try source("Sources/RemoteOrbit/KeyMapping/SettingsView.swift")
     }

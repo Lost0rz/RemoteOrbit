@@ -130,6 +130,58 @@ final class VoiceShortcutBindingTests: XCTestCase {
         }
     }
 
+    func testMediaUnknownAndSystemReservedPrimaryKeysAreRejectedOnRecordAndRestore() throws {
+        for primaryKeyCode: UInt16 in [
+            53, 57, 63, 72, 73, 74, 102, 104, 107, 110, 113, 114, 127, UInt16.max,
+        ] {
+            let binding = VoiceShortcutBinding.chord(
+                primaryKeyCode: primaryKeyCode,
+                preview: "⌘ key",
+                modifierKeyCodes: [55]
+            )
+            XCTAssertThrowsError(
+                try VoiceShortcutStore.validate(binding: binding),
+                "recording must reject reserved primary key code \(primaryKeyCode)"
+            )
+
+            var snapshot = VoiceShortcutSnapshot.seeded()
+            snapshot.entries[0].binding = binding
+            let originalBytes = try encoded(snapshot)
+            defaults.set(originalBytes, forKey: VoiceShortcutStore.snapshotKey)
+
+            let loaded = VoiceShortcutStore.load(from: defaults)
+            XCTAssertFalse(loaded.isWritable, "restored key code \(primaryKeyCode) must be read-only")
+            XCTAssertEqual(loaded.reason, .invalidSnapshot)
+            XCTAssertEqual(
+                defaults.data(forKey: VoiceShortcutStore.snapshotKey),
+                originalBytes,
+                "invalid snapshot bytes must be preserved for key code \(primaryKeyCode)"
+            )
+        }
+    }
+
+    func testEntryDiagnosticFieldsExposeSideSpecificKeysWithoutUserLabels() {
+        let entry = VoiceShortcutEntry(
+            id: "safe-entry-id",
+            displayName: "typed text must never be logged",
+            binding: .chord(
+                primaryKeyCode: 3,
+                preview: "private preview label",
+                modifierKeyCodes: [54, 61]
+            )
+        )
+
+        let fields = entry.diagnosticFields
+        XCTAssertEqual(fields["entry_id"] as? String, "safe-entry-id")
+        XCTAssertEqual(fields["binding_kind"] as? String, "chord")
+        XCTAssertEqual(fields["primary_key_code"] as? Int, 3)
+        XCTAssertEqual(fields["modifier_key_codes"] as? [Int], [54, 61])
+        XCTAssertNil(fields["display_name"])
+        XCTAssertNil(fields["preview"])
+        XCTAssertNil(fields["typed_text"])
+        XCTAssertNil(fields["transcription"])
+    }
+
     func testDeletionCannotRemoveLastEntry() throws {
         let only = VoiceShortcutSnapshot(
             schemaVersion: VoiceShortcutStore.schemaVersion,

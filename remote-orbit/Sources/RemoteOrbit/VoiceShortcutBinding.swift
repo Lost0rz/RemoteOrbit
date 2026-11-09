@@ -87,6 +87,35 @@ enum VoiceShortcutBinding: Equatable, Hashable, Codable {
             return "chord:\(primary):\(modifiers.sorted().map(String.init).joined(separator: ","))"
         }
     }
+
+    var diagnosticFields: [String: Any] {
+        switch self {
+        case let .pureModifier(key):
+            return [
+                "binding_kind": "pure_modifier",
+                "primary_key_code": Int(key.cgKeyCode),
+                "modifier_key_codes": [Int(key.cgKeyCode)],
+            ]
+        case let .chord(primaryKeyCode, _, modifierKeyCodes):
+            return [
+                "binding_kind": "chord",
+                "primary_key_code": Int(primaryKeyCode),
+                "modifier_key_codes": modifierKeyCodes.map(Int.init),
+            ]
+        }
+    }
+
+    var diagnosticPrimaryKeyCode: UInt16? {
+        guard case let .chord(primaryKeyCode, _, _) = self else { return nil }
+        return primaryKeyCode
+    }
+
+    var diagnosticModifierKeyCodes: [UInt16] {
+        switch self {
+        case let .pureModifier(key): [key.cgKeyCode]
+        case let .chord(_, _, modifierKeyCodes): modifierKeyCodes
+        }
+    }
 }
 
 struct VoiceShortcutEntry: Codable, Equatable, Identifiable {
@@ -102,6 +131,12 @@ struct VoiceShortcutEntry: Codable, Equatable, Identifiable {
 
     var profile: VoiceInputProfile {
         VoiceInputProfile(id: id, displayName: displayName, binding: binding)
+    }
+
+    var diagnosticFields: [String: Any] {
+        var fields = binding.diagnosticFields
+        fields["entry_id"] = id
+        return fields
     }
 }
 
@@ -195,7 +230,15 @@ enum VoiceShortcutStore {
     static let schemaVersion = 1
     static let maximumNameLength = 64
     private static let modifierKeyCodes: Set<UInt16> = [54, 55, 56, 58, 59, 60, 61, 62]
-    private static let prohibitedPrimaryKeyCodes: Set<UInt16> = [53, 63, 127]
+    // macOS virtual key codes from HIToolbox/Events.h that represent usable
+    // keyboard keys. Media, modifier-only, input-method, reserved and unknown
+    // codes are deliberately omitted so a restored snapshot is checked too.
+    // F14/F15 are omitted because Apple keyboards use them for display brightness.
+    private static let supportedPrimaryKeyCodes: Set<UInt16> = Set(0...51).union([
+        64, 65, 67, 69, 71, 75, 76, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89,
+        90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 103, 105, 106, 109,
+        111, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126,
+    ])
 
     /// AppController is the sole runtime owner and calls mutation APIs from its
     /// main-thread state transitions. Invalid bytes are never replaced by a seed.
@@ -290,9 +333,8 @@ enum VoiceShortcutStore {
         case .pureModifier:
             return
         case let .chord(primary, preview, modifiers):
-            guard primary <= 127,
+            guard supportedPrimaryKeyCodes.contains(primary),
                   !modifierKeyCodes.contains(primary),
-                  !prohibitedPrimaryKeyCodes.contains(primary),
                   preview.count <= 24,
                   !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   !modifiers.isEmpty,
