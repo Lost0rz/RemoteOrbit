@@ -272,6 +272,112 @@ final class PrimaryVoiceRuntimeTests: XCTestCase {
         XCTAssertEqual(harness.persistenceWriteCount, 0)
     }
 
+    func testResidualChordOwnershipBlocksProfileSwitchUntilCoordinatorRecovery() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RemoteOrbitTests.PrimaryVoiceRuntime.\(UUID().uuidString).jsonl")
+        DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: true)
+        let diagnosticLogger = VoiceDiagnosticLogger(fileURL: fileURL)
+        diagnosticLogger.startRun()
+        defer {
+            diagnosticLogger.close()
+            DiagnosticsRuntimeGate.shared.configureForTesting(loggingEnabled: false)
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+
+        let sink = PrimaryVoiceChordEventSink()
+        let emitter = VoiceShortcutEmitter(
+            sink: sink,
+            physicalModifierKeyCodesProvider: { [] },
+            diagnosticSink: { _ in }
+        )
+        let harness = PrimaryVoiceRuntimeHarness(
+            persistedKey: .leftOption,
+            voiceShortcutEmitter: emitter,
+            diagnosticLogger: diagnosticLogger
+        )
+        let chordSnapshot = harness.snapshotSelectingChord()
+        XCTAssertEqual(update(chordSnapshot, on: harness.controller), .applied)
+        let committedChordBytes = try XCTUnwrap(harness.voiceShortcutData)
+        let coordinator = harness.controller.voicePress
+        coordinator.onRemoteOutputDrain = { _, completion in completion() }
+
+        XCTAssertTrue(coordinator.keyDownForTesting(
+            sessionID: UUID(),
+            profile: harness.controller.currentVoiceInputProfile
+        ))
+        coordinator.setRemoteStreaming(true)
+        XCTAssertTrue(coordinator.keyUp())
+        coordinator.setRemoteStreaming(false)
+
+        XCTAssertEqual(coordinator.currentStateForTesting, .idle)
+        XCTAssertTrue(emitter.hasUnresolvedOwnership)
+        XCTAssertTrue(coordinator.hasUnresolvedVoiceShortcutOwnership)
+        XCTAssertTrue(emitter.hasPendingReleaseOwnership)
+
+        var pureModifierSnapshot = chordSnapshot
+        pureModifierSnapshot.activeEntryID = "system-left-option"
+        XCTAssertEqual(
+            update(pureModifierSnapshot, on: harness.controller),
+            .busyReleaseDrain
+        )
+        XCTAssertEqual(harness.controller.currentVoiceShortcutSnapshot.activeEntryID, "custom-chord")
+        XCTAssertEqual(harness.controller.currentVoiceInputProfile.id, "custom-chord")
+        XCTAssertEqual(harness.voiceShortcutData, committedChordBytes)
+
+        var secondChordSnapshot = chordSnapshot
+        secondChordSnapshot.entries.append(VoiceShortcutEntry(
+            id: "custom-chord-2",
+            displayName: "Command H",
+            binding: .chord(primaryKeyCode: 4, preview: "⌘H", modifierKeyCodes: [54])
+        ))
+        secondChordSnapshot.activeEntryID = "custom-chord-2"
+        XCTAssertEqual(
+            update(secondChordSnapshot, on: harness.controller),
+            .busyReleaseDrain
+        )
+        XCTAssertEqual(harness.controller.currentVoiceShortcutSnapshot.activeEntryID, "custom-chord")
+        XCTAssertEqual(harness.voiceShortcutData, committedChordBytes)
+        XCTAssertEqual(harness.mappingCalls.map(\.enabled), [false])
+
+        sink.failPrimaryKeyUps = false
+        XCTAssertEqual(
+            update(secondChordSnapshot, on: harness.controller),
+            .applied,
+            "the next configuration attempt retries and resolves the pending owner before switching"
+        )
+        XCTAssertFalse(emitter.hasUnresolvedOwnership)
+        XCTAssertEqual(harness.controller.currentVoiceShortcutSnapshot.activeEntryID, "custom-chord-2")
+
+        XCTAssertEqual(update(pureModifierSnapshot, on: harness.controller), .applied)
+        XCTAssertEqual(harness.controller.currentVoiceShortcutSnapshot.activeEntryID, "system-left-option")
+        XCTAssertEqual(
+            harness.voiceShortcutData,
+            harness.voiceShortcutData(for: pureModifierSnapshot)
+        )
+
+        diagnosticLogger.flush()
+        let records = try String(contentsOf: fileURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .compactMap { try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        XCTAssertGreaterThanOrEqual(
+            records.filter { $0["event"] as? String == "VOICE_SHORTCUT_PRIMARY_UP_FAILED" }.count,
+            2,
+            "drain and abort retry failures must be visible"
+        )
+        let busyRecords = records.filter {
+            $0["event"] as? String == "VOICE_SHORTCUT_CONFIG_BUSY"
+                && $0["reason"] as? String == "unresolved_voice_shortcut_synthetic_ownership"
+        }
+        XCTAssertTrue(busyRecords.contains { $0["entry_id"] as? String == "system-left-option" })
+        XCTAssertTrue(busyRecords.contains { $0["entry_id"] as? String == "custom-chord-2" })
+        for record in busyRecords {
+            XCTAssertNil(record["display_name"])
+            XCTAssertNil(record["preview"])
+            XCTAssertNil(record["typed_text"])
+            XCTAssertNil(record["transcription"])
+        }
+    }
+
     func testAllSixKeysCanBeDisconnectedPrimaryRuntimeTargets() {
         let harness = PrimaryVoiceRuntimeHarness(persistedKey: .leftOption)
 
@@ -378,7 +484,9 @@ private final class PrimaryVoiceRuntimeHarness {
         mappingEnabled: Bool = false,
         persistedKey: VoiceTriggerKey,
         applyResults: [Bool] = [],
-        applyDelay: TimeInterval = 0
+        applyDelay: TimeInterval = 0,
+        voiceShortcutEmitter: VoiceShortcutEmitter = VoiceShortcutEmitter(),
+        diagnosticLogger: VoiceDiagnosticLogger? = nil
     ) {
         mappingEnabledStorage = mappingEnabled
         persistedKeyStorage = persistedKey
@@ -410,9 +518,14 @@ private final class PrimaryVoiceRuntimeHarness {
             return succeeded
         }
 
+        let voicePress = VoicePressCoordinator(
+            optionTrigger: trigger,
+            voiceShortcutEmitter: voiceShortcutEmitter,
+            diagnosticLogger: diagnosticLogger
+        )
         controller = AppController(
             filter: filter,
-            voicePress: VoicePressCoordinator(optionTrigger: trigger),
+            voicePress: voicePress,
             initiallyHIDConnected: connected,
             isVoiceHIDMappingEnabled: { [self] in
                 lock.lock()
@@ -432,7 +545,8 @@ private final class PrimaryVoiceRuntimeHarness {
                 persistedKeyStorage = key
                 persistenceWritesStorage.append(key)
                 lock.unlock()
-            }
+            },
+            diagnosticLogger: diagnosticLogger ?? .shared
         )
     }
 
@@ -483,5 +597,18 @@ private final class PrimaryVoiceRuntimeHarness {
         lock.lock()
         defer { lock.unlock() }
         return persistenceWritesStorage.count
+    }
+}
+
+private final class PrimaryVoiceChordEventSink: VoiceShortcutEventSink {
+    var failPrimaryKeyUps = true
+    private(set) var successfullyPostedEvents: [VoiceShortcutSyntheticEvent] = []
+
+    func post(_ event: VoiceShortcutSyntheticEvent) -> VoiceShortcutEventPostResult {
+        if failPrimaryKeyUps && event.kind == .keyUp {
+            return .postFailed
+        }
+        successfullyPostedEvents.append(event)
+        return .posted
     }
 }

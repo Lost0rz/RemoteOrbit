@@ -541,6 +541,15 @@ final class VoicePressCoordinator {
         remoteAudioAvailable
     }
 
+    var hasUnresolvedVoiceShortcutOwnership: Bool {
+        voiceShortcutEmitter.hasUnresolvedOwnership
+    }
+
+    @discardableResult
+    func recoverPendingVoiceShortcutReleaseOwnership() -> Bool {
+        voiceShortcutEmitter.recoverPendingReleases()
+    }
+
     var remoteInputLeaseHeldForTesting: Bool {
         remoteInputLeaseHeld
     }
@@ -3999,6 +4008,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             completion(.busy)
             return
         }
+        if voicePress.hasUnresolvedVoiceShortcutOwnership {
+            _ = voicePress.recoverPendingVoiceShortcutReleaseOwnership()
+            guard !voicePress.hasUnresolvedVoiceShortcutOwnership else {
+                logReconfigurationBusy(
+                    reason: "unresolved_voice_shortcut_synthetic_ownership",
+                    event: "MOMENTARY_RECONFIG_REJECTED"
+                )
+                completion(.busyReleaseDrain)
+                return
+            }
+        }
         let hadHardwareMapping = isVoiceHIDMappingEnabled()
         guard newKey != oldKey || (hidConnected && !hadHardwareMapping) else {
             completion(.unchanged)
@@ -4389,6 +4409,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if voicePress.hasVoiceKeyHeldForReconfiguration || filter.isVoiceKeyHeld {
             return .busyActiveHold
         }
+        if voicePress.hasUnresolvedVoiceShortcutOwnership {
+            _ = voicePress.recoverPendingVoiceShortcutReleaseOwnership()
+            if voicePress.hasUnresolvedVoiceShortcutOwnership {
+                return .busyReleaseDrain
+            }
+        }
         if voicePress.hasReleaseOrTailOwnershipForReconfiguration
             || filter.hasActiveHardwareTriggerOwnership
             || filter.isSyntheticTriggerDown
@@ -4497,7 +4523,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func applyResultReason(_ result: VoiceTriggerApplyResult) -> String {
         switch result {
         case .busyActiveHold: "active_hold"
-        case .busyReleaseDrain: "release_drain"
+        case .busyReleaseDrain:
+            voicePress.hasUnresolvedVoiceShortcutOwnership
+                ? "unresolved_voice_shortcut_synthetic_ownership"
+                : "release_drain"
         case .locked: "runtime_locked"
         case .busy: "reconfiguration_busy"
         case .applied, .unchanged, .failed: "unknown"
