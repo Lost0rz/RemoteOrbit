@@ -115,6 +115,77 @@ final class VoiceShortcutEmitterTests: XCTestCase {
         XCTAssertTrue(emitter.ownedSessionIDs.isEmpty)
     }
 
+    func testModifierOnlyChordUsesFlagsChangedEdgesAndNoPrimaryKey() throws {
+        let sink = RecordingVoiceShortcutSink()
+        var diagnostics: [VoiceShortcutEmitterDiagnostic] = []
+        let emitter = VoiceShortcutEmitter(
+            sink: sink,
+            physicalModifierKeyCodesProvider: { [] },
+            diagnosticSink: { diagnostics.append($0) }
+        )
+        let sessionID = UUID()
+        let binding = VoiceShortcutBinding.modifierChord(modifierKeyCodes: [58, 54])
+
+        XCTAssertEqual(emitter.begin(sessionID: sessionID, entryID: "modifier-entry", binding: binding), .accepted)
+        XCTAssertEqual(sink.events.map(\.kind), [.flagsChanged, .flagsChanged])
+        XCTAssertEqual(sink.events.map(\.keyCode), [54, 58])
+        XCTAssertTrue(sink.events[0].flags & CGEventFlags.maskCommand.rawValue != 0)
+        XCTAssertTrue(sink.events[1].flags & CGEventFlags.maskAlternate.rawValue != 0)
+
+        XCTAssertTrue(emitter.end(sessionID: sessionID))
+        XCTAssertEqual(sink.events.map(\.kind), [.flagsChanged, .flagsChanged, .flagsChanged, .flagsChanged])
+        XCTAssertEqual(sink.events.map(\.keyCode), [54, 58, 58, 54])
+        XCTAssertEqual(sink.events.last?.flags, 0)
+        XCTAssertTrue(emitter.ownedSessionIDs.isEmpty)
+
+        let diagnostic = try XCTUnwrap(diagnostics.first { $0.kind == .modifierDownPosted })
+        XCTAssertEqual(diagnostic.fields["binding_kind"] as? String, "modifier_chord")
+        XCTAssertEqual(diagnostic.fields["modifier_key_codes"] as? [Int], [54, 58])
+        XCTAssertNil(diagnostic.fields["primary_key_code"])
+        XCTAssertNil(diagnostic.fields["display_name"])
+    }
+
+    func testModifierOnlyChordConflictAndFailedReleaseRetainOwnership() {
+        let conflictSink = RecordingVoiceShortcutSink()
+        let conflicting = VoiceShortcutEmitter(
+            sink: conflictSink,
+            physicalModifierKeyCodesProvider: { [58] }
+        )
+        let binding = VoiceShortcutBinding.modifierChord(modifierKeyCodes: [54, 58])
+        XCTAssertEqual(
+            conflicting.begin(sessionID: UUID(), binding: binding),
+            .rejected(.physicalModifierConflict)
+        )
+        XCTAssertTrue(conflictSink.events.isEmpty)
+
+        var failRightCommandRelease = true
+        let sink = RecordingVoiceShortcutSink { event, _ in
+            failRightCommandRelease
+                && event.kind == .flagsChanged
+                && event.keyCode == 54
+                && event.flags & CGEventFlags.maskCommand.rawValue == 0
+        }
+        let emitter = VoiceShortcutEmitter(sink: sink, physicalModifierKeyCodesProvider: { [] })
+        let first = UUID()
+        let second = UUID()
+        XCTAssertEqual(emitter.begin(sessionID: first, binding: binding), .accepted)
+        XCTAssertFalse(emitter.end(sessionID: first))
+        XCTAssertTrue(emitter.hasUnresolvedOwnership)
+        XCTAssertTrue(emitter.hasPendingReleaseOwnership)
+        XCTAssertFalse(sink.events.contains { $0.kind == .keyDown || $0.kind == .keyUp })
+
+        XCTAssertEqual(
+            emitter.begin(sessionID: second, binding: binding),
+            .rejected(.unresolvedOwnership)
+        )
+        failRightCommandRelease = false
+        XCTAssertEqual(emitter.begin(sessionID: second, binding: binding), .accepted)
+        XCTAssertTrue(emitter.hasUnresolvedOwnership, "the new modifier-only session owns its down edges")
+        XCTAssertEqual(sink.events.filter { $0.kind == .keyDown || $0.kind == .keyUp }, [])
+        XCTAssertTrue(emitter.end(sessionID: second))
+        XCTAssertFalse(emitter.hasUnresolvedOwnership)
+    }
+
     func testPartialPrimaryConstructionFailureCompensatesOwnedModifier() {
         let sink = RecordingVoiceShortcutSink(eventConstructionFailureCallIndexes: [1])
         let emitter = VoiceShortcutEmitter(sink: sink, physicalModifierKeyCodesProvider: { [] })

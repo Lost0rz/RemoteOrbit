@@ -1203,7 +1203,7 @@ final class VoicePressCoordinator {
             return false
         }
 
-        if case .chord = profile.binding {
+        if profile.binding.usesVoiceShortcutEmitter {
             let beginResult = voiceShortcutEmitter.begin(
                 sessionID: sessionID,
                 entryID: profile.id,
@@ -1368,7 +1368,7 @@ final class VoicePressCoordinator {
             guard self.directSession,
                   self.gestureID == sessionID,
                   !self.directOutputDrained else {
-                if let drainProfile, case .chord = drainProfile.binding {
+                if let drainProfile, drainProfile.binding.usesVoiceShortcutEmitter {
                     self.voiceShortcutEmitter.recordLateDrainCallback(
                         sessionID: sessionID,
                         entryID: drainProfile.id,
@@ -1395,12 +1395,12 @@ final class VoicePressCoordinator {
                     self.onHardwareOptionGateOutputDrained?(sessionID)
                 }
                 _ = self.syntheticOptionTrigger.sendUp(sessionID: sessionID)
-            } else if case .chord? = self.capturedVoiceProfile?.binding {
+            } else if self.capturedVoiceProfile?.binding.usesVoiceShortcutEmitter == true {
                 _ = self.voiceShortcutEmitter.end(sessionID: sessionID)
             } else {
                 _ = self.syntheticOptionTrigger.abort(sessionID: sessionID)
             }
-            if case .chord? = self.capturedVoiceProfile?.binding {
+            if self.capturedVoiceProfile?.binding.usesVoiceShortcutEmitter == true {
                 VoiceTimingLogger.mark("VOICE_SHORTCUT_UP_REQUESTED", sessionID: sessionID)
             } else {
                 VoiceTimingLogger.mark("OPTION_UP_REQUESTED", sessionID: sessionID)

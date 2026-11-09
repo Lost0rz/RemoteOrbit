@@ -31,7 +31,7 @@ This file is a navigation map derived from current source and tests. It does **n
 - `remote-orbit/Sources/RemoteOrbit/main.swift` — orchestration and runtime seams.
 - `VoiceOptionTrigger.swift` — trigger synthesis/ownership helper used by the current runtime.
 - `VoiceTriggerKey.swift` / `VoiceInputProfile.swift` — current selected trigger/profile model.
-- `VoiceShortcutBinding.swift` — typed side-preserving binding, validated single snapshot, seed migration and settings projection.
+- `VoiceShortcutBinding.swift` — typed side-preserving pure modifiers, regular chords and modifier-only chords; validated single snapshot, seed migration and settings projection.
 - `VoiceShortcutEmitter.swift` — session-owned chord edges released after the existing output-drain callback.
 - `VoiceReceiverReadiness.swift` — receiver/readiness coordination.
 - `VoiceFocusTransactionTracker.swift` — bounded focus transaction tracking.
@@ -104,7 +104,7 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 **Primary source routes**
 
 - `KeyMapping/HIDMonitor.swift`
-- `KeyMapping/ShortcutCaptureMonitor.swift` — exclusive physical recording and voice-only capture result.
+- `KeyMapping/ShortcutCaptureMonitor.swift` — exclusive physical recording; the voice-only path can capture modifier-only combinations without changing generic remote key mapping.
 - `KeyMapping/ButtonDefinitions.swift`
 - `KeyMapping/ButtonGestureRecognizer.swift`
 - `KeyMapping/ButtonEdgeDebouncer.swift`
@@ -136,7 +136,7 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 
 - `AppStorage.swift`
 - `VoiceTriggerKey.swift` / `VoiceInputProfile.swift` — legacy seed adapter and active profile projection.
-- `VoiceShortcutBinding.swift` — the versioned voice-only snapshot and read-only invalid-data fallback.
+- `VoiceShortcutBinding.swift` — the versioned voice-only snapshot, additive modifier-only binding and read-only invalid-data fallback.
 - `ProductBranding.swift`
 - `LaunchAtLogin.swift`
 - `KeyMapping/SettingsView.swift`

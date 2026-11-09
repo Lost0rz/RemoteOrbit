@@ -272,6 +272,48 @@ final class PrimaryVoiceRuntimeTests: XCTestCase {
         XCTAssertEqual(harness.persistenceWriteCount, 0)
     }
 
+    func testModifierOnlyShortcutReleasesItsModifierEdgesAfterOutputDrain() {
+        let sink = PrimaryVoiceChordEventSink()
+        let emitter = VoiceShortcutEmitter(
+            sink: sink,
+            physicalModifierKeyCodesProvider: { [] },
+            diagnosticSink: { _ in }
+        )
+        let harness = PrimaryVoiceRuntimeHarness(
+            persistedKey: .leftOption,
+            voiceShortcutEmitter: emitter
+        )
+        var snapshot = harness.snapshotSelectingChord()
+        snapshot.entries[snapshot.entries.count - 1].binding =
+            .modifierChord(modifierKeyCodes: [58, 55])
+        XCTAssertEqual(update(snapshot, on: harness.controller), .applied)
+
+        let coordinator = harness.controller.voicePress
+        var outputDrain: (() -> Void)?
+        coordinator.onRemoteOutputDrain = { _, completion in outputDrain = completion }
+        XCTAssertTrue(coordinator.keyDownForTesting(
+            sessionID: UUID(),
+            profile: harness.controller.currentVoiceInputProfile
+        ))
+        XCTAssertEqual(sink.successfullyPostedEvents.map(\.kind), [.flagsChanged, .flagsChanged])
+        XCTAssertEqual(sink.successfullyPostedEvents.map(\.keyCode), [55, 58])
+
+        coordinator.setRemoteStreaming(true)
+        XCTAssertTrue(coordinator.keyUp())
+        coordinator.setRemoteStreaming(false)
+        XCTAssertEqual(sink.successfullyPostedEvents.count, 2, "modifier release must wait for output drain")
+
+        outputDrain?()
+        XCTAssertEqual(
+            sink.successfullyPostedEvents.map(\.kind),
+            [.flagsChanged, .flagsChanged, .flagsChanged, .flagsChanged]
+        )
+        XCTAssertEqual(sink.successfullyPostedEvents.map(\.keyCode), [55, 58, 58, 55])
+        XCTAssertFalse(sink.successfullyPostedEvents.contains { $0.kind == .keyDown || $0.kind == .keyUp })
+        XCTAssertFalse(emitter.hasUnresolvedOwnership)
+        coordinator.stop()
+    }
+
     func testResidualChordOwnershipBlocksProfileSwitchUntilCoordinatorRecovery() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("RemoteOrbitTests.PrimaryVoiceRuntime.\(UUID().uuidString).jsonl")

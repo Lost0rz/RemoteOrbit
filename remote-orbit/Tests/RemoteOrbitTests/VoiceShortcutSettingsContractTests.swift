@@ -12,6 +12,8 @@ final class VoiceShortcutSettingsContractTests: XCTestCase {
         XCTAssertTrue(editor.contains("TextField(\"名称\""))
         XCTAssertTrue(editor.contains("录制快捷键…"))
         XCTAssertTrue(editor.contains("Button(\"保存\")"))
+        XCTAssertTrue(editor.contains("两个或更多不同类型的修饰键"))
+        XCTAssertTrue(editor.contains("Fn/Globe 尚未验证"))
         XCTAssertFalse(editor.contains("触发方式"))
         XCTAssertFalse(editor.contains("ShortcutTriggerMode"))
     }
@@ -21,6 +23,7 @@ final class VoiceShortcutSettingsContractTests: XCTestCase {
         XCTAssertTrue(settings.contains("按住达到约 300ms 开始直接远程语音；松开后等待输出收尾，再释放语音快捷键"))
         XCTAssertTrue(settings.contains("voiceShortcutPresentation.snapshot.entries"))
         XCTAssertTrue(settings.contains("voiceShortcutPresentation.snapshot.activeEntryID"))
+        XCTAssertTrue(settings.contains("两个或更多不同类型的修饰键"))
 
         let main = try source("Sources/RemoteOrbit/main.swift")
         let menuStart = try XCTUnwrap(main.range(of: "private func rebuildVoiceInputProfileMenu()"))
