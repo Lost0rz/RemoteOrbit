@@ -27,7 +27,7 @@ An exact approved Issue authorizes only its listed scope and current Work Packag
 
 ## Freshness, PR and workspace safety
 
-At each material transition, re-read live `main`, the selected Issue, relevant PR/ref and active local branch/worktree. Resolve a live branch from branch/ref state; do not substitute a PR `head_sha` for the live branch HEAD, especially after PR closure. PR open/closed/draft state is evidence, not task authority. Do not write directly to protected `main` unless the selected approved Issue and accepted repository rules expressly authorize it. If a material identity or writer changes, stop and reconcile before continuing.
+At each material transition, re-read live `main`, the selected Issue, relevant PR/ref and active local branch/worktree. Resolve a live branch from branch/ref state; do not substitute a PR `head_sha` for the live branch HEAD, especially after PR closure. PR open/closed/draft state is evidence, not task authority. Do not write directly to `main` unless the selected approved Issue and accepted repository rules expressly authorize it. If a material identity or writer changes, stop and reconcile before continuing.
 
 Worktree, branch and PR cleanup are state-changing actions. Inventory and classify first; preserve unknown or unique work. Do not reset, clean, stash, overwrite, prune, delete or rewrite history to conceal a mismatch. Worktree retirement and branch retirement are separate; removing one does not imply deleting the other. If a cleanup target is already absent, classify it as pre-existing drift rather than executor-performed cleanup. Remote evidence alone does not prove local branch, worktree, cleanliness or runtime state.
 
