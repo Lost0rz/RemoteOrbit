@@ -2100,6 +2100,7 @@ final class VoiceKeyFilter {
     var pendingLongOnlySuppressionHandoffGestureIDForTesting: UUID? {
         pendingLongOnlySuppressionHandoff?.gestureID
     }
+    private(set) var configureVoiceTriggerKeyCallCountForTesting = 0
     var onReplayedHardwareOptionUpPassAcknowledged: ((UUID) -> Void)?
     var onPendingHardwareOptionRepressDownCaptured: ((UUID) -> Void)?
     var hasActiveHardwareTriggerOwnership: Bool {
@@ -2161,6 +2162,7 @@ final class VoiceKeyFilter {
 
     @discardableResult
     func configureVoiceTriggerKey(_ key: VoiceTriggerKey) -> Bool {
+        configureVoiceTriggerKeyCallCountForTesting += 1
         guard !hasActiveHardwareTriggerOwnership else {
             return false
         }
@@ -2169,6 +2171,11 @@ final class VoiceKeyFilter {
         }
         momentaryVoiceTriggerKey = key
         return true
+    }
+
+    func isVoiceTriggerConfiguredConsistently(for key: VoiceTriggerKey) -> Bool {
+        momentaryVoiceTriggerKey == key
+            && syntheticOptionTrigger.momentaryVoiceTriggerKey == key
     }
 
     @discardableResult
@@ -4323,6 +4330,29 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let key = currentMomentaryVoiceTriggerKey
         let hadHardwareMapping = isVoiceHIDMappingEnabled()
+        let previousBindingIsModifierChord: Bool = {
+            guard let binding = currentVoiceShortcutSnapshot.activeEntry?.binding,
+                  case .modifierChord = binding else {
+                return false
+            }
+            return true
+        }()
+        let targetBindingIsModifierChord: Bool = {
+            guard let binding = targetEntry?.binding,
+                  case .modifierChord = binding else {
+                return false
+            }
+            return true
+        }()
+        if previousBindingIsModifierChord,
+           targetBindingIsModifierChord,
+           !hadHardwareMapping,
+           filter.isVoiceTriggerConfiguredConsistently(for: key),
+           !filter.shouldSuppressDuringVoiceTriggerReconfiguration(keyCode: VK.voiceKey) {
+            completion(.unchanged)
+            return
+        }
+
         guard filter.beginVoiceTriggerReconfiguration(from: key, to: key) else {
             logVoiceShortcutConfiguration(
                 event: "VOICE_SHORTCUT_CONFIG_BUSY",
