@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 @testable import RemoteOrbit
 
 final class PrimaryVoiceRuntimeTests: XCTestCase {
@@ -842,6 +843,174 @@ final class PrimaryVoiceRuntimeTests: XCTestCase {
         ))
     }
 
+    func testQATapRecreationPassesAtIdleAndIsOneShotThroughAppController() throws {
+        let harness = PrimaryVoiceRuntimeHarness(persistedKey: .leftOption)
+        try harness.filter.start()
+
+        XCTAssertEqual(
+            harness.controller.attemptQATapRecreationForTesting(),
+            .recreated(attempts: 1)
+        )
+        XCTAssertEqual(harness.tapResources.createCount, 2)
+        XCTAssertEqual(harness.tapResources.removeCount, 1)
+        XCTAssertEqual(
+            harness.controller.attemptQATapRecreationForTesting(),
+            .rejected(reason: "one_shot_already_used")
+        )
+        XCTAssertEqual(harness.tapResources.createCount, 2)
+        XCTAssertEqual(harness.tapResources.removeCount, 1)
+    }
+
+    func testQATapRecreationRejectsLongOnlyCandidateWithoutCleaningItUp() throws {
+        let harness = PrimaryVoiceRuntimeHarness(persistedKey: .leftOption)
+        try harness.filter.start()
+        let sessionID = UUID()
+        XCTAssertTrue(harness.controller.voicePress.keyDown(
+            sessionID: sessionID,
+            usesHardwareOption: false,
+            preparesRemoteTransport: false,
+            profile: .defaultProfile
+        ))
+        XCTAssertTrue(harness.controller.voicePress.hasLongOnlyCandidateForTesting)
+
+        XCTAssertEqual(
+            harness.controller.attemptQATapRecreationForTesting(),
+            .rejected(reason: "voice_coordinator_or_emitter_ownership")
+        )
+        XCTAssertTrue(harness.controller.voicePress.hasLongOnlyCandidateForTesting)
+        XCTAssertEqual(harness.tapResources.createCount, 1)
+        XCTAssertEqual(harness.tapResources.removeCount, 0)
+
+        _ = harness.controller.voicePress.keyUp()
+        XCTAssertFalse(harness.controller.voicePress.hasLongOnlyCandidateForTesting)
+    }
+
+    func testQATapRecreationRejectsUnresolvedEmitterOwnership() throws {
+        let sink = PrimaryVoiceChordEventSink()
+        sink.failPrimaryKeyUps = false
+        let emitter = VoiceShortcutEmitter(
+            sink: sink,
+            physicalModifierKeyCodesProvider: { [] },
+            physicalModifierFlagsProvider: { 0 }
+        )
+        let sessionID = UUID()
+        XCTAssertEqual(
+            emitter.begin(
+                sessionID: sessionID,
+                entryID: "qa-gate-test",
+                binding: .modifierChord(modifierKeyCodes: [54, 58])
+            ),
+            .accepted
+        )
+        let harness = PrimaryVoiceRuntimeHarness(
+            persistedKey: .leftOption,
+            voiceShortcutEmitter: emitter
+        )
+        try harness.filter.start()
+
+        XCTAssertEqual(
+            harness.controller.attemptQATapRecreationForTesting(),
+            .rejected(reason: "voice_coordinator_or_emitter_ownership")
+        )
+        XCTAssertTrue(emitter.hasUnresolvedOwnership)
+        XCTAssertEqual(harness.tapResources.createCount, 1)
+        XCTAssertEqual(harness.tapResources.removeCount, 0)
+    }
+
+    func testQATapRecreationRejectsEmitterReleaseThatRetainsOwnership() throws {
+        let sink = PrimaryVoiceChordEventSink()
+        let emitter = VoiceShortcutEmitter(
+            sink: sink,
+            physicalModifierKeyCodesProvider: { [] },
+            physicalModifierFlagsProvider: { 0 }
+        )
+        let sessionID = UUID()
+        XCTAssertEqual(
+            emitter.begin(
+                sessionID: sessionID,
+                entryID: "qa-gate-release-test",
+                binding: .modifierChord(modifierKeyCodes: [54, 58])
+            ),
+            .accepted
+        )
+        sink.failFlagsChanged = true
+        XCTAssertFalse(emitter.end(sessionID: sessionID))
+        XCTAssertTrue(emitter.hasUnresolvedOwnership)
+
+        let harness = PrimaryVoiceRuntimeHarness(
+            persistedKey: .leftOption,
+            voiceShortcutEmitter: emitter
+        )
+        try harness.filter.start()
+
+        XCTAssertEqual(
+            harness.controller.attemptQATapRecreationForTesting(),
+            .rejected(reason: "voice_coordinator_or_emitter_ownership")
+        )
+        XCTAssertTrue(emitter.hasUnresolvedOwnership)
+        XCTAssertEqual(harness.tapResources.createCount, 1)
+        XCTAssertEqual(harness.tapResources.removeCount, 0)
+    }
+
+    func testQATapRecreationRejectsUnavailableHardwareAdmissionEvidence() throws {
+        let harness = PrimaryVoiceRuntimeHarness(persistedKey: .leftOption)
+        try harness.filter.start()
+
+        harness.controller.voicePress.hasLivePhysicalCandidate = nil
+        XCTAssertEqual(
+            harness.controller.attemptQATapRecreationForTesting(),
+            .rejected(reason: "hardware_admission_state_uncertain")
+        )
+        harness.controller.voicePress.hasLivePhysicalCandidate = { false }
+        harness.controller.voicePress.isVoiceSessionAdmissionBlocked = nil
+        XCTAssertEqual(
+            harness.controller.attemptQATapRecreationForTesting(),
+            .rejected(reason: "hardware_admission_state_uncertain")
+        )
+        XCTAssertEqual(harness.tapResources.createCount, 1)
+        XCTAssertEqual(harness.tapResources.removeCount, 0)
+        XCTAssertTrue(harness.tapResources.isReadyForEventDelivery)
+    }
+
+    func testQATapRecreationRejectsHeldModifierFlagsBeforeTapMutation() throws {
+        let harness = PrimaryVoiceRuntimeHarness(
+            persistedKey: .leftOption,
+            qaModifierFlags: .maskAlternate
+        )
+        try harness.filter.start()
+
+        XCTAssertEqual(
+            harness.controller.attemptQATapRecreationForTesting(),
+            .rejected(reason: "physical_modifier_flags_active")
+        )
+        XCTAssertEqual(harness.tapResources.createCount, 1)
+        XCTAssertEqual(harness.tapResources.removeCount, 0)
+        XCTAssertTrue(harness.tapResources.isReadyForEventDelivery)
+    }
+
+    func testQATapRecreationRejectsConfigurationTransitionBeforeTapMutation() throws {
+        let harness = PrimaryVoiceRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            applyDelay: 0.15
+        )
+        try harness.filter.start()
+        let completion = expectation(description: "momentary reconfiguration completes")
+        harness.controller.applyVoiceTriggerKey(.rightControl) { _ in
+            completion.fulfill()
+        }
+        XCTAssertTrue(harness.controller.voiceTriggerReconfigurationInProgress)
+
+        XCTAssertEqual(
+            harness.controller.attemptQATapRecreationForTesting(),
+            .rejected(reason: "configuration_transition_or_lock")
+        )
+        XCTAssertEqual(harness.tapResources.createCount, 1)
+        XCTAssertEqual(harness.tapResources.removeCount, 0)
+        wait(for: [completion], timeout: 5)
+    }
+
     private func apply(
         _ key: VoiceTriggerKey,
         to controller: AppController,
@@ -900,6 +1069,8 @@ private final class PrimaryVoiceRuntimeHarness {
 
     let trigger: VoiceOptionTrigger
     let filter: VoiceKeyFilter
+    let tapResources: PrimaryVoiceTapResourceLifecycleFake
+    let voiceShortcutEmitter: VoiceShortcutEmitter
     private(set) var controller: AppController!
     let voiceShortcutDefaults: UserDefaults
 
@@ -910,6 +1081,7 @@ private final class PrimaryVoiceRuntimeHarness {
         applyResults: [Bool] = [],
         applyDelay: TimeInterval = 0,
         voiceShortcutEmitter: VoiceShortcutEmitter = VoiceShortcutEmitter(),
+        qaModifierFlags: CGEventFlags = [],
         diagnosticLogger: VoiceDiagnosticLogger? = nil
     ) {
         mappingEnabledStorage = mappingEnabled
@@ -927,7 +1099,14 @@ private final class PrimaryVoiceRuntimeHarness {
             forKey: VoiceShortcutStore.snapshotKey
         )
         trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in })
-        filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
+        self.voiceShortcutEmitter = voiceShortcutEmitter
+        tapResources = PrimaryVoiceTapResourceLifecycleFake()
+        filter = VoiceKeyFilter(
+            syntheticOptionTrigger: trigger,
+            tapResourceLifecycle: tapResources,
+            accessibilityTrustCheck: { true },
+            accessibilityTrustRequest: { _ in true }
+        )
         controller = nil
 
         let mappingApply: (Bool, VoiceTriggerKey) -> Bool = { [self] enabled, key in
@@ -957,6 +1136,10 @@ private final class PrimaryVoiceRuntimeHarness {
                 return mappingEnabledStorage
             },
             applyVoiceHIDMapping: mappingApply,
+            prepareVoiceTransport: {},
+            activateVoiceInput: {},
+            cancelVoiceTransportPreparation: {},
+            stopVoiceInput: {},
             usePersistedVoiceProfile: false,
             voiceShortcutDefaults: voiceShortcutDefaults,
             readPersistedVoiceTriggerKey: { [self] in
@@ -970,7 +1153,8 @@ private final class PrimaryVoiceRuntimeHarness {
                 persistenceWritesStorage.append(key)
                 lock.unlock()
             },
-            diagnosticLogger: diagnosticLogger ?? .shared
+            diagnosticLogger: diagnosticLogger ?? .shared,
+            qaTapRecreationModifierFlagsProvider: { qaModifierFlags }
         )
     }
 
@@ -1026,13 +1210,41 @@ private final class PrimaryVoiceRuntimeHarness {
 
 private final class PrimaryVoiceChordEventSink: VoiceShortcutEventSink {
     var failPrimaryKeyUps = true
+    var failFlagsChanged = false
     private(set) var successfullyPostedEvents: [VoiceShortcutSyntheticEvent] = []
 
     func post(_ event: VoiceShortcutSyntheticEvent) -> VoiceShortcutEventPostResult {
-        if failPrimaryKeyUps && event.kind == .keyUp {
+        if (failPrimaryKeyUps && event.kind == .keyUp)
+            || (failFlagsChanged && event.kind == .flagsChanged) {
             return .postFailed
         }
         successfullyPostedEvents.append(event)
         return .posted
+    }
+}
+
+private final class PrimaryVoiceTapResourceLifecycleFake:
+    VoiceKeyFilterTapResourceLifecycle {
+    private(set) var createCount = 0
+    private(set) var removeCount = 0
+    private(set) var isReadyForEventDelivery = false
+    private(set) var isAbsent = true
+
+    var tapPort: CFMachPort? { nil }
+
+    func create(
+        callback: CGEventTapCallBack,
+        userInfo: UnsafeMutableRawPointer
+    ) throws {
+        createCount += 1
+        isReadyForEventDelivery = true
+        isAbsent = false
+    }
+
+    func removeAndVerifyAbsence() -> Bool {
+        removeCount += 1
+        isReadyForEventDelivery = false
+        isAbsent = true
+        return true
     }
 }

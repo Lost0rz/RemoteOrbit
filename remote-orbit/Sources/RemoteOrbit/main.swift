@@ -541,6 +541,14 @@ final class VoicePressCoordinator {
         remoteAudioAvailable
     }
 
+    var hasPhysicalCandidateReaderForQATapRecreation: Bool {
+        hasLivePhysicalCandidate != nil
+    }
+
+    var isSessionAdmissionClearForQATapRecreation: Bool {
+        isVoiceSessionAdmissionBlocked?() == false
+    }
+
     var hasUnresolvedVoiceShortcutOwnership: Bool {
         voiceShortcutEmitter.hasUnresolvedOwnership
     }
@@ -656,6 +664,33 @@ final class VoicePressCoordinator {
             || remoteStreaming
             || remoteAudioAvailable
             || deferredRepressAwaitingActivation
+    }
+
+    var hasAnyOwnershipForQATapRecreation: Bool {
+        mode != .idle
+            || longOnlyCandidateTimer != nil
+            || longOnlyCandidate != nil
+            || remoteStreaming
+            || preHIDPhysicalStreaming
+            || remoteAudioAvailable
+            || remoteRouted
+            || physicalTriggerSuppressionActive
+            || pendingRepress != nil
+            || deferredRepressAwaitingActivation
+            || deferredRepressActivationWorkItem != nil
+            || deferredRepressWaitReason != nil
+            || gestureID != nil
+            || directSession
+            || (directOutputDrainRequested && !directOutputDrained)
+            || pendingDirectHardwareRepressAwaitingOldUp
+            || pendingDirectHardwareRepressOldSessionID != nil
+            || pendingDirectHardwareRepressACompleted
+            || pendingDirectHardwareRepressDownCaptured
+            || remoteInputLeaseHeld
+            || syntheticOptionTrigger.activeSessionID != nil
+            || syntheticOptionTrigger.isOptionDown
+            || voiceShortcutEmitter.hasUnresolvedOwnership
+            || livePhysicalCandidateForAdmission
     }
 
     var diagnosticStateFields: [String: Any] {
@@ -1982,6 +2017,18 @@ final class VoicePressCoordinator {
 
 // MARK: - F5 → Option hold filter (CGEvent tap)
 
+protocol VoiceKeyFilterTapResourceLifecycle: AnyObject {
+    var tapPort: CFMachPort? { get }
+    var isReadyForEventDelivery: Bool { get }
+    var isAbsent: Bool { get }
+
+    func create(
+        callback: CGEventTapCallBack,
+        userInfo: UnsafeMutableRawPointer
+    ) throws
+    func removeAndVerifyAbsence() -> Bool
+}
+
 final class VoiceKeyFilter {
     enum HeldHardwareOptionUpCaptureDecision: Equatable {
         case captured
@@ -2008,8 +2055,15 @@ final class VoiceKeyFilter {
         }
     }
 
-    private var tapPort: CFMachPort?
-    private var tapSource: CFRunLoopSource?
+    private let tapResourceLifecycle: VoiceKeyFilterTapResourceLifecycle
+    private let accessibilityTrustCheck: () -> Bool
+    private let accessibilityTrustRequest: (Bool) -> Bool
+    private var retainedTapCallback: CGEventTapCallBack?
+    private let tapCallbackStateLock = NSLock()
+    private var tapCallbackDepth = 0
+    private var qaTapRecreationAccepted = false
+    private var qaTapRecreationInProgress = false
+    private var tapPort: CFMachPort? { tapResourceLifecycle.tapPort }
     private var voiceKeyIsDown = false
     private let optionGate = HardwareOptionGate()
     private let syntheticOptionTrigger: VoiceOptionTrigger
@@ -2106,12 +2160,22 @@ final class VoiceKeyFilter {
     var hasActiveHardwareTriggerOwnership: Bool {
         optionGate.activeSessionID != nil
             || optionGate.suppressedSessionID != nil
+            || optionGate.shortTapDiscardSessionID != nil
             || heldHardwareOptionSessionID != nil
             || pendingReplayedHardwareOptionUp != nil
             || pendingHardwareOptionRepress != nil
             || pendingLongOnlySuppressionHandoff != nil
             || hardwareOptionReleaseArmed
             || !heldHardwareOptionUpEvents.isEmpty
+            || heldHardwareOptionFlagsUpSeen
+            || heldHardwareOptionKeyUpSeen
+            || deferredOptionDownSeen
+            || deferredOptionUpSeen
+            || !deferredOptionDownEvents.isEmpty
+            || !deferredOptionUpEvents.isEmpty
+            || longConfirmedOptionGestureID != nil
+            || suppressedTriggerReleaseCompletionWorkItem != nil
+            || suppressedTriggerReleaseCompletionToken != nil
             || voiceKeyIsDown
     }
     var hasSyntheticTriggerOwnership: Bool {
@@ -2123,6 +2187,44 @@ final class VoiceKeyFilter {
     }
     var isVoiceKeyHeld: Bool {
         voiceKeyIsDown
+    }
+
+    var isQuiescentForQATapRecreation: Bool {
+        !hasActiveHardwareTriggerOwnership
+            && !hasShortTapDiscardOwnership
+            && !hasSyntheticTriggerOwnership
+            && !isSyntheticTriggerDown
+            && voiceTriggerReconfigurationKeyCodes == nil
+            && !hasTapCallbackInFlight
+            && !qaTapRecreationInProgress
+    }
+
+    var hasAcceptedQATapRecreation: Bool {
+        qaTapRecreationAccepted
+    }
+
+    private var hasTapCallbackInFlight: Bool {
+        tapCallbackStateLock.lock()
+        defer { tapCallbackStateLock.unlock() }
+        return tapCallbackDepth > 0
+    }
+
+    private func tapCallbackDidEnter() {
+        tapCallbackStateLock.lock()
+        tapCallbackDepth += 1
+        tapCallbackStateLock.unlock()
+    }
+
+    private func tapCallbackDidExit() {
+        tapCallbackStateLock.lock()
+        tapCallbackDepth = max(0, tapCallbackDepth - 1)
+        tapCallbackStateLock.unlock()
+    }
+
+    func withTapCallbackOwnershipForTesting(_ body: () -> Void) {
+        tapCallbackDidEnter()
+        defer { tapCallbackDidExit() }
+        body()
     }
     var onVoiceKeyDown: (() -> Void)?
     var onVoiceKeyUp: (() -> Void)?
@@ -2152,12 +2254,26 @@ final class VoiceKeyFilter {
         },
         emitEmergencyHardwareOptionUp: @escaping (VoiceTriggerKey) -> Void = {
             Key.voiceTriggerUp($0)
+        },
+        tapResourceLifecycle: VoiceKeyFilterTapResourceLifecycle =
+            CoreGraphicsVoiceKeyFilterTapResourceLifecycle(),
+        accessibilityTrustCheck: @escaping () -> Bool = {
+            AXIsProcessTrusted()
+        },
+        accessibilityTrustRequest: @escaping (Bool) -> Bool = { prompt in
+            let opts: CFDictionary = [
+                kAXTrustedCheckOptionPrompt.takeRetainedValue() as CFString: prompt
+            ] as CFDictionary
+            return AXIsProcessTrustedWithOptions(opts)
         }
     ) {
         self.syntheticOptionTrigger = syntheticOptionTrigger
         self.diagnosticLogger = diagnosticLogger
         self.replayEventPoster = replayEventPoster
         self.emitEmergencyHardwareOptionUp = emitEmergencyHardwareOptionUp
+        self.tapResourceLifecycle = tapResourceLifecycle
+        self.accessibilityTrustCheck = accessibilityTrustCheck
+        self.accessibilityTrustRequest = accessibilityTrustRequest
     }
 
     @discardableResult
@@ -3374,17 +3490,14 @@ final class VoiceKeyFilter {
     }
 
     func start() throws {
-        guard tapPort == nil else {
+        guard tapResourceLifecycle.isAbsent else {
             print("[FILTER] event tap already running")
             return
         }
 
         // Don't prompt user each time — check if already trusted.
-        let trusted = AXIsProcessTrusted()
-        let opts: CFDictionary = [
-            kAXTrustedCheckOptionPrompt.takeRetainedValue() as CFString: !trusted
-        ] as CFDictionary
-        let granted = AXIsProcessTrustedWithOptions(opts)
+        let trusted = accessibilityTrustCheck()
+        let granted = accessibilityTrustRequest(!trusted)
         print("[FILTER] AX trusted=\(granted) (was \(trusted))")
         if !granted {
             // mtime on the binary changes when SwiftPM rebuilds; we exit
@@ -3392,13 +3505,15 @@ final class VoiceKeyFilter {
             throw FilterError.accessibilityDenied
         }
 
-        let mask: CGEventMask =
-            (1 << CGEventType.keyDown.rawValue) |
-            (1 << CGEventType.keyUp.rawValue) |
-            (1 << CGEventType.flagsChanged.rawValue)
-        let callback: CGEventTapCallBack = { (_, type, event, userInfo) -> Unmanaged<CGEvent>? in
+        let callback: CGEventTapCallBack
+        if let retainedTapCallback {
+            callback = retainedTapCallback
+        } else {
+            callback = { (_, type, event, userInfo) -> Unmanaged<CGEvent>? in
             guard let userInfo else { return Unmanaged.passUnretained(event) }
             let filter = Unmanaged<VoiceKeyFilter>.fromOpaque(userInfo).takeUnretainedValue()
+            filter.tapCallbackDidEnter()
+            defer { filter.tapCallbackDidExit() }
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let tap = filter.tapPort {
                     CGEvent.tapEnable(tap: tap, enable: true)
@@ -3635,28 +3750,90 @@ final class VoiceKeyFilter {
                 action: "pass"
             )
             return Unmanaged.passUnretained(event)
+            }
+            retainedTapCallback = callback
         }
-        guard let tap = CGEvent.tapCreate(
-            tap: .cghidEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: mask,
-            callback: callback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else {
+        do {
+            try tapResourceLifecycle.create(
+                callback: callback,
+                userInfo: Unmanaged.passUnretained(self).toOpaque()
+            )
+        } catch {
             throw FilterError.tapCreationFailed
         }
-        tapPort = tap
-        guard let src = CFMachPortCreateRunLoopSource(nil, tap, 0) else {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            tapPort = nil
+        guard tapResourceLifecycle.isReadyForEventDelivery else {
+            _ = tapResourceLifecycle.removeAndVerifyAbsence()
             throw FilterError.tapCreationFailed
         }
-        CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
-        tapSource = src
-        CGEvent.tapEnable(tap: tap, enable: true)
         print("[FILTER] tap enabled; voice key 0x60 (F5) is suppressed; HID mapping supplies physical Option, with synthetic fallback")
     }
+
+    enum QATapRecreationResult: Equatable {
+        case recreated(attempts: Int)
+        case rejected(reason: String)
+        case degraded(reason: String)
+    }
+
+#if DEBUG
+    func recreateTapResourcesForQA() -> QATapRecreationResult {
+        guard Thread.isMainThread else {
+            return .rejected(reason: "not_main_thread")
+        }
+        guard !qaTapRecreationAccepted else {
+            return .rejected(reason: "one_shot_already_used")
+        }
+        guard isQuiescentForQATapRecreation else {
+            return .rejected(reason: "filter_ownership_active_or_uncertain")
+        }
+        guard accessibilityTrustCheck() else {
+            return .rejected(reason: "accessibility_trust_unavailable")
+        }
+        guard tapResourceLifecycle.isReadyForEventDelivery else {
+            return .rejected(reason: "existing_tap_invalid_or_disabled")
+        }
+        guard let retainedTapCallback else {
+            return .rejected(reason: "retained_callback_missing")
+        }
+
+        // Consume the one-shot before touching the Tap. A failed teardown or
+        // replacement must not make this action repeatable in the same process.
+        qaTapRecreationAccepted = true
+        qaTapRecreationInProgress = true
+        defer { qaTapRecreationInProgress = false }
+
+        guard tapResourceLifecycle.removeAndVerifyAbsence(),
+              tapResourceLifecycle.isAbsent else {
+            return .degraded(reason: "old_tap_teardown_not_verified")
+        }
+
+        let userInfo = Unmanaged.passUnretained(self).toOpaque()
+        for attempt in 1...2 {
+            do {
+                try tapResourceLifecycle.create(
+                    callback: retainedTapCallback,
+                    userInfo: userInfo
+                )
+            } catch {
+                // The manager may have allocated a partial replacement; the
+                // next attempt is allowed only after verified teardown.
+            }
+
+            if tapResourceLifecycle.isReadyForEventDelivery {
+                return .recreated(attempts: attempt)
+            }
+
+            guard tapResourceLifecycle.removeAndVerifyAbsence(),
+                  tapResourceLifecycle.isAbsent else {
+                return .degraded(reason: "failed_replacement_cleanup_not_verified")
+            }
+            if attempt == 2 {
+                return .degraded(reason: "replacement_failed_after_one_retry")
+            }
+        }
+
+        return .degraded(reason: "replacement_failed")
+    }
+#endif
 
     func stop() {
         if let gestureID = optionGate.activeSessionID {
@@ -3691,12 +3868,86 @@ final class VoiceKeyFilter {
             voiceKeyIsDown = false
             onVoiceKeyUp?()
         }
-        if let source = tapSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        _ = tapResourceLifecycle.removeAndVerifyAbsence()
+    }
+}
+
+final class CoreGraphicsVoiceKeyFilterTapResourceLifecycle:
+    VoiceKeyFilterTapResourceLifecycle {
+    private(set) var tapPort: CFMachPort?
+    private var tapSource: CFRunLoopSource?
+
+    var isReadyForEventDelivery: Bool {
+        guard let tapPort, let tapSource else { return false }
+        return CFMachPortIsValid(tapPort)
+            && CFRunLoopContainsSource(
+                CFRunLoopGetMain(),
+                tapSource,
+                CFRunLoopMode.defaultMode
+            )
+            && CGEvent.tapIsEnabled(tap: tapPort)
+    }
+
+    var isAbsent: Bool {
+        tapPort == nil && tapSource == nil
+    }
+
+    func create(
+        callback: CGEventTapCallBack,
+        userInfo: UnsafeMutableRawPointer
+    ) throws {
+        guard isAbsent else { throw VoiceKeyFilter.FilterError.tapCreationFailed }
+        let mask: CGEventMask =
+            (1 << CGEventType.keyDown.rawValue) |
+            (1 << CGEventType.keyUp.rawValue) |
+            (1 << CGEventType.flagsChanged.rawValue)
+        guard let tap = CGEvent.tapCreate(
+            tap: .cghidEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: callback,
+            userInfo: userInfo
+        ) else {
+            throw VoiceKeyFilter.FilterError.tapCreationFailed
         }
-        if let t = tapPort { CGEvent.tapEnable(tap: t, enable: false) }
+        tapPort = tap
+        guard let source = CFMachPortCreateRunLoopSource(nil, tap, 0) else {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+            tapPort = nil
+            throw VoiceKeyFilter.FilterError.tapCreationFailed
+        }
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        tapSource = source
+        CGEvent.tapEnable(tap: tap, enable: true)
+        guard isReadyForEventDelivery else {
+            _ = removeAndVerifyAbsence()
+            throw VoiceKeyFilter.FilterError.tapCreationFailed
+        }
+    }
+
+    func removeAndVerifyAbsence() -> Bool {
+        let runLoop = CFRunLoopGetMain()
+        let oldPort = tapPort
+        let oldSource = tapSource
+        if let oldPort {
+            CGEvent.tapEnable(tap: oldPort, enable: false)
+        }
+        if let oldSource {
+            CFRunLoopRemoveSource(runLoop, oldSource, .commonModes)
+        }
+        if let oldPort {
+            CFMachPortInvalidate(oldPort)
+        }
         tapSource = nil
         tapPort = nil
+
+        let sourceRemoved = oldSource.map {
+            !CFRunLoopContainsSource(runLoop, $0, CFRunLoopMode.defaultMode)
+        } ?? true
+        let portInvalidated = oldPort.map { !CFMachPortIsValid($0) } ?? true
+        return isAbsent && sourceRemoved && portInvalidated
     }
 }
 
@@ -3731,6 +3982,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var remoteStreaming = false
     private var statusPulseTimer: Timer?
     private var statusPulsePhase = false
+#if DEBUG
+    private var qaTapRecreationMenuItem: NSMenuItem?
+#endif
 
     let filter: VoiceKeyFilter
     let voicePress: VoicePressCoordinator
@@ -3781,6 +4035,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let usePersistedVoiceProfile: Bool
     private let voiceShortcutDefaults: UserDefaults
     private let diagnosticUptimeProvider: () -> TimeInterval
+    private let qaTapRecreationModifierFlagsProvider: () -> CGEventFlags
     private let voiceHIDMappingQueue = DispatchQueue(
         label: "com.remoteorbit.voice-trigger-hid-mapping",
         qos: .userInitiated
@@ -3811,6 +4066,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         diagnosticLogger: VoiceDiagnosticLogger = .shared,
         uptimeProvider: @escaping () -> TimeInterval = {
             ProcessInfo.processInfo.systemUptime
+        },
+        qaTapRecreationModifierFlagsProvider: @escaping () -> CGEventFlags = {
+            CGEventSource.flagsState(.combinedSessionState)
+                .union(CGEventSource.flagsState(.hidSystemState))
         }
     ) {
         self.filter = filter
@@ -3828,6 +4087,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.readPersistedVoiceTriggerKey = readPersistedVoiceTriggerKey
         self.persistVoiceTriggerKey = persistVoiceTriggerKey
         self.diagnosticUptimeProvider = uptimeProvider
+        self.qaTapRecreationModifierFlagsProvider = qaTapRecreationModifierFlagsProvider
         super.init()
         voicePress.onStateChanged = { [weak self] state in
             if state == .opening {
@@ -3860,6 +4120,80 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.voicePress.hardwareOptionUpPassAcknowledged(sessionID: gestureID)
         }
     }
+
+#if DEBUG
+    @discardableResult
+    func attemptQATapRecreationForTesting() -> VoiceKeyFilter.QATapRecreationResult {
+        let result: VoiceKeyFilter.QATapRecreationResult
+        if let reason = qaTapRecreationBlockReason() {
+            result = .rejected(reason: reason)
+        } else {
+            result = filter.recreateTapResourcesForQA()
+        }
+
+        var fields: [String: Any]
+        switch result {
+        case .recreated(let attempts):
+            fields = ["outcome": "recreated", "create_attempts": attempts]
+        case .rejected(let reason):
+            fields = ["outcome": "rejected", "reason": reason]
+        case .degraded(let reason):
+            fields = ["outcome": "degraded", "reason": reason]
+        }
+        diagnosticLogger.log(
+            category: "filter",
+            event: "VOICE_FILTER_QA_TAP_RECREATION",
+            fields: fields
+        )
+        if filter.hasAcceptedQATapRecreation {
+            qaTapRecreationMenuItem?.isEnabled = false
+        }
+        return result
+    }
+
+    private func qaTapRecreationBlockReason() -> String? {
+        guard Thread.isMainThread else { return "not_main_run_loop" }
+        guard !voiceTriggerRuntimeLocked,
+              !voiceTriggerReconfigurationInProgress,
+              !pendingVoiceHIDMappingRefresh else {
+            return "configuration_transition_or_lock"
+        }
+        guard voicePress.hasPhysicalCandidateReaderForQATapRecreation,
+              voicePress.isSessionAdmissionClearForQATapRecreation else {
+            return "hardware_admission_state_uncertain"
+        }
+        guard !voicePress.hasAnyOwnershipForQATapRecreation else {
+            return "voice_coordinator_or_emitter_ownership"
+        }
+        guard voiceFocusTransactions.activeGestureID == nil,
+              voiceFocusSafetyWorkItem == nil else {
+            return "voice_focus_transaction_active"
+        }
+        guard VoiceAttemptDiagnostics.shared.currentID == nil else {
+            return "voice_attempt_active"
+        }
+        guard filter.isQuiescentForQATapRecreation else {
+            return "filter_hardware_or_replay_ownership"
+        }
+
+        let relevantModifierFlags: CGEventFlags = [
+            .maskAlternate,
+            .maskCommand,
+            .maskControl,
+            .maskShift,
+            .maskSecondaryFn,
+        ]
+        guard qaTapRecreationModifierFlagsProvider()
+            .intersection(relevantModifierFlags).isEmpty else {
+            return "physical_modifier_flags_active"
+        }
+        return nil
+    }
+
+    @objc private func performQATapRecreation(_ sender: Any) {
+        _ = attemptQATapRecreationForTesting()
+    }
+#endif
 
     @discardableResult
     func restoreVoiceTriggerRuntime() -> Bool {
@@ -4899,6 +5233,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(refreshAudioDevices)
 
         menu.addItem(.separator())
+
+#if DEBUG
+        let qaTapRecreation = NSMenuItem(
+            title: "QA：重建语音 Event Tap（一次）",
+            action: #selector(performQATapRecreation),
+            keyEquivalent: ""
+        )
+        qaTapRecreation.target = self
+        qaTapRecreationMenuItem = qaTapRecreation
+        menu.addItem(qaTapRecreation)
+        menu.addItem(.separator())
+#endif
 
         let controlCenter = NSMenuItem(
             title: "打开设置…",

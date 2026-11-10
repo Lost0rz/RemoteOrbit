@@ -482,6 +482,161 @@ final class VoiceKeyFilterTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
     }
 
+    func testQATapRecreationReusesCallbackAndOnlyReplacesTapResources() throws {
+        let harness = makeTapLifecycleHarness(createResults: [true, true])
+        try harness.filter.start()
+
+        XCTAssertTrue(harness.filter.isQuiescentForQATapRecreation)
+        XCTAssertEqual(
+            harness.filter.recreateTapResourcesForQA(),
+            .recreated(attempts: 1)
+        )
+        XCTAssertEqual(harness.resources.createCount, 2)
+        XCTAssertEqual(harness.resources.removeCount, 1)
+        XCTAssertEqual(harness.resources.callbackPointers.count, 2)
+        XCTAssertEqual(
+            harness.resources.callbackPointers[0],
+            harness.resources.callbackPointers[1],
+            "Tap recreation must reuse the same VoiceKeyFilter callback"
+        )
+        XCTAssertTrue(harness.resources.isReadyForEventDelivery)
+        XCTAssertEqual(harness.promptRecorder.values, [false], "recreation must not prompt")
+        XCTAssertTrue(harness.filter.hasAcceptedQATapRecreation)
+        XCTAssertEqual(
+            harness.filter.recreateTapResourcesForQA(),
+            .rejected(reason: "one_shot_already_used")
+        )
+        XCTAssertEqual(harness.resources.createCount, 2)
+        XCTAssertEqual(harness.resources.removeCount, 1)
+    }
+
+    func testQATapRecreationAllowsOnlyOneBoundedReplacementRetry() throws {
+        let harness = makeTapLifecycleHarness(createResults: [true, false, true])
+        try harness.filter.start()
+
+        XCTAssertEqual(
+            harness.filter.recreateTapResourcesForQA(),
+            .recreated(attempts: 2)
+        )
+        XCTAssertEqual(harness.resources.createCount, 3)
+        XCTAssertEqual(harness.resources.removeCount, 2)
+        XCTAssertTrue(harness.resources.isReadyForEventDelivery)
+    }
+
+    func testQATapRecreationFailureLeavesTapAbsentAndCannotRepeat() throws {
+        let harness = makeTapLifecycleHarness(createResults: [true, false, false])
+        try harness.filter.start()
+
+        XCTAssertEqual(
+            harness.filter.recreateTapResourcesForQA(),
+            .degraded(reason: "replacement_failed_after_one_retry")
+        )
+        XCTAssertEqual(harness.resources.createCount, 3)
+        XCTAssertEqual(harness.resources.removeCount, 3)
+        XCTAssertTrue(harness.resources.isAbsent)
+        XCTAssertEqual(
+            harness.filter.recreateTapResourcesForQA(),
+            .rejected(reason: "one_shot_already_used")
+        )
+        XCTAssertEqual(harness.resources.createCount, 3)
+    }
+
+    func testQATapRecreationRejectsShortTapDiscardWithoutCleaningOwnership() throws {
+        let harness = makeTapLifecycleHarness(createResults: [true, true])
+        try harness.filter.start()
+        let sessionID = UUID()
+        XCTAssertTrue(harness.filter.beginOptionDeferral(gestureID: sessionID))
+        XCTAssertTrue(harness.filter.discardDeferredHardwareTrigger(
+            gestureID: sessionID,
+            reason: "qa-recreation-gate-test"
+        ))
+
+        XCTAssertTrue(harness.filter.hasShortTapDiscardOwnership)
+        XCTAssertEqual(
+            harness.filter.recreateTapResourcesForQA(),
+            .rejected(reason: "filter_ownership_active_or_uncertain")
+        )
+        XCTAssertEqual(harness.resources.createCount, 1)
+        XCTAssertEqual(harness.resources.removeCount, 0)
+        XCTAssertTrue(harness.filter.hasShortTapDiscardOwnership)
+        XCTAssertTrue(harness.filter.resetSuppressedHardwareTrigger(
+            gestureID: sessionID,
+            reason: "qa-recreation-test-cleanup"
+        ))
+    }
+
+    func testQATapRecreationRejectsCallbackOwnershipAndUntrustedProcessWithoutPrompt() throws {
+        let harness = makeTapLifecycleHarness(createResults: [true, true])
+        try harness.filter.start()
+
+        var callbackResult: VoiceKeyFilter.QATapRecreationResult?
+        harness.filter.withTapCallbackOwnershipForTesting {
+            callbackResult = harness.filter.recreateTapResourcesForQA()
+        }
+        XCTAssertEqual(
+            callbackResult,
+            .rejected(reason: "filter_ownership_active_or_uncertain")
+        )
+        XCTAssertEqual(harness.resources.removeCount, 0)
+
+        harness.accessibilityTrust.isTrusted = false
+        XCTAssertEqual(
+            harness.filter.recreateTapResourcesForQA(),
+            .rejected(reason: "accessibility_trust_unavailable")
+        )
+        XCTAssertEqual(harness.promptRecorder.values, [false], "QA action must never prompt")
+        XCTAssertEqual(harness.resources.removeCount, 0)
+    }
+
+    func testQATapRecreationRejectsReconfigurationAndInvalidTap() throws {
+        let harness = makeTapLifecycleHarness(createResults: [true, true])
+        try harness.filter.start()
+        XCTAssertTrue(harness.filter.beginVoiceTriggerReconfiguration(
+            from: .leftOption,
+            to: .rightCommand
+        ))
+        XCTAssertEqual(
+            harness.filter.recreateTapResourcesForQA(),
+            .rejected(reason: "filter_ownership_active_or_uncertain")
+        )
+        XCTAssertEqual(harness.resources.removeCount, 0)
+        harness.filter.endVoiceTriggerReconfiguration()
+
+        harness.resources.disable()
+        XCTAssertEqual(
+            harness.filter.recreateTapResourcesForQA(),
+            .rejected(reason: "existing_tap_invalid_or_disabled")
+        )
+        XCTAssertEqual(harness.resources.removeCount, 0)
+    }
+
+    private func makeTapLifecycleHarness(
+        createResults: [Bool],
+        removalResults: [Bool] = []
+    ) -> VoiceKeyFilterTapLifecycleHarness {
+        let promptRecorder = AccessibilityPromptRecorder()
+        let trust = AccessibilityTrustRecorder()
+        let resources = FakeVoiceKeyFilterTapResourceLifecycle(
+            createResults: createResults,
+            removalResults: removalResults
+        )
+        let filter = VoiceKeyFilter(
+            syntheticOptionTrigger: VoiceOptionTrigger(keyedEventSink: { _, _ in }),
+            tapResourceLifecycle: resources,
+            accessibilityTrustCheck: { trust.isTrusted },
+            accessibilityTrustRequest: { prompt in
+                promptRecorder.values.append(prompt)
+                return trust.isTrusted
+            }
+        )
+        return VoiceKeyFilterTapLifecycleHarness(
+            filter: filter,
+            resources: resources,
+            promptRecorder: promptRecorder,
+            accessibilityTrust: trust
+        )
+    }
+
     private func captureDeferredMappedDown(
         in filter: VoiceKeyFilter,
         key: VoiceTriggerKey = .leftOption,
@@ -545,4 +700,76 @@ final class VoiceKeyFilterTests: XCTestCase {
 
 private final class HardwareReplayPostRecorder {
     var events: [CGEvent] = []
+}
+
+private final class VoiceKeyFilterTapLifecycleHarness {
+    let filter: VoiceKeyFilter
+    let resources: FakeVoiceKeyFilterTapResourceLifecycle
+    let promptRecorder: AccessibilityPromptRecorder
+    let accessibilityTrust: AccessibilityTrustRecorder
+
+    init(
+        filter: VoiceKeyFilter,
+        resources: FakeVoiceKeyFilterTapResourceLifecycle,
+        promptRecorder: AccessibilityPromptRecorder,
+        accessibilityTrust: AccessibilityTrustRecorder
+    ) {
+        self.filter = filter
+        self.resources = resources
+        self.promptRecorder = promptRecorder
+        self.accessibilityTrust = accessibilityTrust
+    }
+}
+
+private final class AccessibilityPromptRecorder {
+    var values: [Bool] = []
+}
+
+private final class AccessibilityTrustRecorder {
+    var isTrusted = true
+}
+
+private final class FakeVoiceKeyFilterTapResourceLifecycle:
+    VoiceKeyFilterTapResourceLifecycle {
+    private var createResults: [Bool]
+    private var removalResults: [Bool]
+    private var ready = false
+    private var absent = true
+    private(set) var createCount = 0
+    private(set) var removeCount = 0
+    private(set) var callbackPointers: [UInt] = []
+
+    var tapPort: CFMachPort? { nil }
+    var isReadyForEventDelivery: Bool { ready }
+    var isAbsent: Bool { absent }
+
+    init(createResults: [Bool], removalResults: [Bool]) {
+        self.createResults = createResults
+        self.removalResults = removalResults
+    }
+
+    func create(
+        callback: CGEventTapCallBack,
+        userInfo: UnsafeMutableRawPointer
+    ) throws {
+        createCount += 1
+        callbackPointers.append(unsafeBitCast(callback, to: UInt.self))
+        let succeeded = createResults.isEmpty ? true : createResults.removeFirst()
+        guard succeeded else { throw VoiceKeyFilter.FilterError.tapCreationFailed }
+        ready = true
+        absent = false
+    }
+
+    func removeAndVerifyAbsence() -> Bool {
+        removeCount += 1
+        let succeeded = removalResults.isEmpty ? true : removalResults.removeFirst()
+        guard succeeded else { return false }
+        ready = false
+        absent = true
+        return true
+    }
+
+    func disable() {
+        ready = false
+    }
 }
