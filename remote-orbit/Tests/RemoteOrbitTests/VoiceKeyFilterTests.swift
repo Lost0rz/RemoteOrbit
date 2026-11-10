@@ -541,6 +541,38 @@ final class VoiceKeyFilterTests: XCTestCase {
         XCTAssertEqual(harness.resources.createCount, 3)
     }
 
+    func testQATapRecreationTeardownFailureDoesNotCreateReplacementOrCleanBusinessState() throws {
+        let harness = makeTapLifecycleHarness(
+            createResults: [true, true],
+            removalResults: [false]
+        )
+        var voiceKeyCallbackCount = 0
+        harness.filter.onVoiceKeyDown = { voiceKeyCallbackCount += 1 }
+        harness.filter.onVoiceKeyUp = { voiceKeyCallbackCount += 1 }
+        try harness.filter.start()
+
+        XCTAssertEqual(
+            harness.filter.recreateTapResourcesForQA(),
+            .degraded(reason: "old_tap_teardown_not_verified")
+        )
+        XCTAssertEqual(harness.resources.createCount, 1, "failed teardown must not attempt replacement")
+        XCTAssertEqual(harness.resources.removeCount, 1)
+        XCTAssertTrue(harness.resources.isReadyForEventDelivery)
+        XCTAssertFalse(harness.resources.isAbsent, "the fake must preserve its failed resource state")
+        XCTAssertTrue(harness.filter.hasAcceptedQATapRecreation)
+        XCTAssertTrue(harness.syntheticEvents.events.isEmpty, "recreation must not emit modifier edges")
+        XCTAssertEqual(voiceKeyCallbackCount, 0, "recreation must not invoke voice business callbacks")
+        XCTAssertEqual(harness.promptRecorder.values, [false], "recreation must not prompt")
+
+        XCTAssertEqual(
+            harness.filter.recreateTapResourcesForQA(),
+            .rejected(reason: "one_shot_already_used")
+        )
+        XCTAssertEqual(harness.resources.createCount, 1)
+        XCTAssertEqual(harness.resources.removeCount, 1)
+        XCTAssertTrue(harness.resources.isReadyForEventDelivery)
+    }
+
     func testQATapRecreationRejectsShortTapDiscardWithoutCleaningOwnership() throws {
         let harness = makeTapLifecycleHarness(createResults: [true, true])
         try harness.filter.start()
@@ -616,12 +648,15 @@ final class VoiceKeyFilterTests: XCTestCase {
     ) -> VoiceKeyFilterTapLifecycleHarness {
         let promptRecorder = AccessibilityPromptRecorder()
         let trust = AccessibilityTrustRecorder()
+        let syntheticEvents = SyntheticTriggerEventRecorder()
         let resources = FakeVoiceKeyFilterTapResourceLifecycle(
             createResults: createResults,
             removalResults: removalResults
         )
         let filter = VoiceKeyFilter(
-            syntheticOptionTrigger: VoiceOptionTrigger(keyedEventSink: { _, _ in }),
+            syntheticOptionTrigger: VoiceOptionTrigger(keyedEventSink: { key, isDown in
+                syntheticEvents.events.append((key, isDown))
+            }),
             tapResourceLifecycle: resources,
             accessibilityTrustCheck: { trust.isTrusted },
             accessibilityTrustRequest: { prompt in
@@ -633,7 +668,8 @@ final class VoiceKeyFilterTests: XCTestCase {
             filter: filter,
             resources: resources,
             promptRecorder: promptRecorder,
-            accessibilityTrust: trust
+            accessibilityTrust: trust,
+            syntheticEvents: syntheticEvents
         )
     }
 
@@ -707,18 +743,25 @@ private final class VoiceKeyFilterTapLifecycleHarness {
     let resources: FakeVoiceKeyFilterTapResourceLifecycle
     let promptRecorder: AccessibilityPromptRecorder
     let accessibilityTrust: AccessibilityTrustRecorder
+    let syntheticEvents: SyntheticTriggerEventRecorder
 
     init(
         filter: VoiceKeyFilter,
         resources: FakeVoiceKeyFilterTapResourceLifecycle,
         promptRecorder: AccessibilityPromptRecorder,
-        accessibilityTrust: AccessibilityTrustRecorder
+        accessibilityTrust: AccessibilityTrustRecorder,
+        syntheticEvents: SyntheticTriggerEventRecorder
     ) {
         self.filter = filter
         self.resources = resources
         self.promptRecorder = promptRecorder
         self.accessibilityTrust = accessibilityTrust
+        self.syntheticEvents = syntheticEvents
     }
+}
+
+private final class SyntheticTriggerEventRecorder {
+    var events: [(VoiceTriggerKey, Bool)] = []
 }
 
 private final class AccessibilityPromptRecorder {
