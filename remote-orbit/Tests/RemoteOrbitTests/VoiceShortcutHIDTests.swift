@@ -439,6 +439,206 @@ final class RemoteOrbitHIDHelperSessionTests: XCTestCase {
         XCTAssertEqual(transport.bitmaps, [0x0C, 0, 0], "a released-session replay stays neutral and idempotent")
     }
 
+    func testDelayedNeutralFromA_CannotClearBAndBCanRelease() {
+        let transport = ControlledFakeHelperTransport()
+        let manager = RemoteOrbitHIDHelperSessionManager(transport: transport, physicalModifierKeyCodesProvider: { [] })
+        let connectionA = UUID()
+        let sessionA = UUID()
+        let connectionB = UUID()
+        let sessionB = UUID()
+
+        let aBegan = expectation(description: "A begin acknowledged")
+        manager.submit(request(connectionA, id: sessionA, seq: 1, operation: .begin([55, 58]))) { reply in
+            XCTAssertEqual(reply.outcome, .queued)
+            aBegan.fulfill()
+        }
+        guard transport.waitForSubmissionCount(1) else { return XCTFail("A begin was not submitted") }
+        transport.complete(at: 0, outcome: .queued)
+        wait(for: [aBegan], timeout: 2)
+
+        var aReleaseReply: RemoteOrbitHIDHelperReply?
+        var aRecoverReply: RemoteOrbitHIDHelperReply?
+        let aReleased = expectation(description: "A release resolved")
+        let aRecovered = expectation(description: "A concurrent recover resolved")
+        manager.submit(request(connectionA, id: sessionA, seq: 2, operation: .release)) { reply in
+            aReleaseReply = reply
+            aReleased.fulfill()
+        }
+        guard transport.waitForSubmissionCount(2) else { return XCTFail("A release neutral was not submitted") }
+
+        manager.submit(request(connectionA, id: sessionA, seq: 3, operation: .recover)) { reply in
+            aRecoverReply = reply
+            aRecovered.fulfill()
+        }
+        manager.disconnect(connectionID: connectionA)
+        manager.disconnect(connectionID: connectionA)
+        XCTAssertTrue(manager.hasUnresolvedOwnership, "the serial barrier observes recover and duplicate disconnect requests")
+
+        let aNeutralIndices = transport.indices(for: 0)
+        XCTAssertEqual(aNeutralIndices.count, 1, "concurrent release, recover, and duplicate disconnects share one neutral attempt")
+        transport.complete(at: aNeutralIndices[0], outcome: .queued)
+        wait(for: [aReleased], timeout: 2)
+
+        let bBegan = expectation(description: "B begin acknowledged")
+        let beforeBBegin = transport.submissionCount
+        manager.submit(request(connectionB, id: sessionB, seq: 4, operation: .begin([54, 58]))) { reply in
+            XCTAssertEqual(reply.outcome, .queued)
+            bBegan.fulfill()
+        }
+        guard transport.waitForSubmissionCount(beforeBBegin + 1) else { return XCTFail("B begin was not submitted") }
+        let bBeginIndex = transport.submissionCount - 1
+        XCTAssertEqual(transport.bitmap(at: bBeginIndex), 0x84)
+        transport.complete(at: bBeginIndex, outcome: .queued)
+        wait(for: [bBegan], timeout: 2)
+
+        let submissionsWithB = transport.submissionCount
+        manager.disconnect(connectionID: connectionA)
+        XCTAssertEqual(submit(manager, request(connectionA, id: sessionA, seq: 5, operation: .release)).outcome, .rejected)
+        XCTAssertEqual(submit(manager, request(UUID(), id: sessionA, seq: 6, operation: .recover)).outcome, .rejected)
+        XCTAssertTrue(manager.hasUnresolvedOwnership)
+        XCTAssertEqual(transport.submissionCount, submissionsWithB, "stale A disconnect/release/recover cannot submit against B")
+
+        // The delayed duplicate callback from A arrives after B owns the helper.
+        // A fixed manager ignores it by neutral-attempt and owner identity.
+        let delayedACompletionIndex = aNeutralIndices.count > 1 ? aNeutralIndices[1] : aNeutralIndices[0]
+        transport.complete(at: delayedACompletionIndex, outcome: .queued)
+        wait(for: [aRecovered], timeout: 2)
+        XCTAssertEqual(aReleaseReply?.outcome, .queued)
+        XCTAssertEqual(aRecoverReply?.outcome, .queued)
+        XCTAssertTrue(manager.hasUnresolvedOwnership, "an old A neutral callback must not clear B's ownership")
+
+        var bReleaseReply: RemoteOrbitHIDHelperReply?
+        let bReleased = expectation(description: "B release acknowledged")
+        let beforeBRelease = transport.submissionCount
+        manager.submit(request(connectionB, id: sessionB, seq: 7, operation: .release)) { reply in
+            bReleaseReply = reply
+            bReleased.fulfill()
+        }
+        guard transport.waitForSubmissionCount(beforeBRelease + 1) else {
+            wait(for: [bReleased], timeout: 2)
+            XCTAssertEqual(bReleaseReply?.outcome, .queued, "B's release must not be rejected after A's delayed callback")
+            return
+        }
+        let bNeutralIndex = transport.submissionCount - 1
+        XCTAssertEqual(transport.bitmap(at: bNeutralIndex), 0)
+        transport.complete(at: bNeutralIndex, outcome: .queued)
+        wait(for: [bReleased], timeout: 2)
+        XCTAssertEqual(bReleaseReply?.outcome, .queued)
+        XCTAssertFalse(manager.hasUnresolvedOwnership)
+    }
+
+    func testConcurrentNeutralUnknownAndRejectedOutcomesKeepOwnerUntilQueuedRecovery() {
+        let transport = ControlledFakeHelperTransport()
+        let manager = RemoteOrbitHIDHelperSessionManager(transport: transport, physicalModifierKeyCodesProvider: { [] })
+        let connection = UUID()
+        let session = UUID()
+
+        let began = expectation(description: "session begin acknowledged")
+        manager.submit(request(connection, id: session, seq: 1, operation: .begin([55, 58]))) { reply in
+            XCTAssertEqual(reply.outcome, .queued)
+            began.fulfill()
+        }
+        guard transport.waitForSubmissionCount(1) else { return XCTFail("begin was not submitted") }
+        transport.complete(at: 0, outcome: .queued)
+        wait(for: [began], timeout: 2)
+
+        var releaseReply: RemoteOrbitHIDHelperReply?
+        var firstRecoveryReply: RemoteOrbitHIDHelperReply?
+        let released = expectation(description: "unknown release result returned")
+        let firstRecovered = expectation(description: "coalesced unknown recovery result returned")
+        manager.submit(request(connection, id: session, seq: 2, operation: .release)) { reply in
+            releaseReply = reply
+            released.fulfill()
+        }
+        guard transport.waitForSubmissionCount(2) else { return XCTFail("release neutral was not submitted") }
+        manager.submit(request(connection, id: session, seq: 3, operation: .recover)) { reply in
+            firstRecoveryReply = reply
+            firstRecovered.fulfill()
+        }
+        XCTAssertTrue(manager.hasUnresolvedOwnership)
+        XCTAssertEqual(transport.indices(for: 0).count, 1, "release and recover share one in-flight neutral")
+        transport.complete(at: 1, outcome: .outcomeUnknown)
+        wait(for: [released, firstRecovered], timeout: 2)
+        XCTAssertEqual(releaseReply?.outcome, .outcomeUnknown)
+        XCTAssertEqual(firstRecoveryReply?.outcome, .outcomeUnknown)
+        XCTAssertTrue(manager.hasUnresolvedOwnership, "unknown neutral outcome must retain ownership")
+
+        var rejectedRecoveryReply: RemoteOrbitHIDHelperReply?
+        let rejectedRecovery = expectation(description: "rejected recovery result returned")
+        manager.submit(request(connection, id: session, seq: 4, operation: .recover)) { reply in
+            rejectedRecoveryReply = reply
+            rejectedRecovery.fulfill()
+        }
+        guard transport.waitForSubmissionCount(3) else { return XCTFail("recovery retry was not submitted") }
+        transport.complete(at: 2, outcome: .rejected)
+        wait(for: [rejectedRecovery], timeout: 2)
+        XCTAssertEqual(rejectedRecoveryReply?.outcome, .rejected)
+        XCTAssertTrue(manager.hasUnresolvedOwnership, "rejected neutral outcome must retain ownership")
+
+        var successfulRecoveryReply: RemoteOrbitHIDHelperReply?
+        let successfulRecovery = expectation(description: "queued recovery result returned")
+        manager.submit(request(connection, id: session, seq: 5, operation: .recover)) { reply in
+            successfulRecoveryReply = reply
+            successfulRecovery.fulfill()
+        }
+        guard transport.waitForSubmissionCount(4) else { return XCTFail("final recovery retry was not submitted") }
+        transport.complete(at: 3, outcome: .queued)
+        wait(for: [successfulRecovery], timeout: 2)
+        XCTAssertEqual(successfulRecoveryReply?.outcome, .queued)
+        XCTAssertFalse(manager.hasUnresolvedOwnership)
+        XCTAssertEqual(transport.indices(for: 0).count, 3)
+    }
+
+    func testLateBeginCallbackForAStillRepliesWithoutChangingBOwnership() {
+        let transport = ControlledFakeHelperTransport()
+        let manager = RemoteOrbitHIDHelperSessionManager(transport: transport, physicalModifierKeyCodesProvider: { [] })
+        let connectionA = UUID(), sessionA = UUID()
+        let connectionB = UUID(), sessionB = UUID()
+        var aBeginReply: RemoteOrbitHIDHelperReply?
+        let aBegan = expectation(description: "late A begin result returned")
+        manager.submit(request(connectionA, id: sessionA, seq: 1, operation: .begin([55, 58]))) { reply in
+            aBeginReply = reply
+            aBegan.fulfill()
+        }
+        guard transport.waitForSubmissionCount(1) else { return XCTFail("A begin was not submitted") }
+
+        let aReleased = expectation(description: "A neutral completed before its begin callback")
+        manager.submit(request(connectionA, id: sessionA, seq: 2, operation: .release)) { reply in
+            XCTAssertEqual(reply.outcome, .queued)
+            aReleased.fulfill()
+        }
+        guard transport.waitForSubmissionCount(2) else { return XCTFail("A release neutral was not submitted") }
+        transport.complete(at: 1, outcome: .queued)
+        wait(for: [aReleased], timeout: 2)
+        XCTAssertFalse(manager.hasUnresolvedOwnership)
+
+        let bBegan = expectation(description: "B begin acknowledged")
+        manager.submit(request(connectionB, id: sessionB, seq: 3, operation: .begin([54, 58]))) { reply in
+            XCTAssertEqual(reply.outcome, .queued)
+            bBegan.fulfill()
+        }
+        guard transport.waitForSubmissionCount(3) else { return XCTFail("B begin was not submitted") }
+        transport.complete(at: 2, outcome: .queued)
+        wait(for: [bBegan], timeout: 2)
+
+        transport.complete(at: 0, outcome: .rejected)
+        wait(for: [aBegan], timeout: 2)
+        XCTAssertEqual(aBeginReply?.outcome, .rejected)
+        XCTAssertTrue(manager.hasUnresolvedOwnership, "A's late begin result must not clear B's owner")
+
+        let bReleased = expectation(description: "B release acknowledged")
+        var bReleaseReply: RemoteOrbitHIDHelperReply?
+        manager.submit(request(connectionB, id: sessionB, seq: 4, operation: .release)) { reply in
+            bReleaseReply = reply
+            bReleased.fulfill()
+        }
+        guard transport.waitForSubmissionCount(4) else { return XCTFail("B release neutral was not submitted") }
+        transport.complete(at: 3, outcome: .queued)
+        wait(for: [bReleased], timeout: 2)
+        XCTAssertEqual(bReleaseReply?.outcome, .queued)
+        XCTAssertFalse(manager.hasUnresolvedOwnership)
+    }
+
     private func request(
         _ connection: UUID,
         id: UUID = UUID(),
@@ -676,5 +876,66 @@ private final class FakeHelperTransport: RemoteOrbitHIDHelperTransport {
         let outcome = plannedOutcomes.isEmpty ? .queued : plannedOutcomes.removeFirst()
         lock.unlock()
         completion(outcome)
+    }
+}
+
+private final class ControlledFakeHelperTransport: RemoteOrbitHIDHelperTransport {
+    private struct Submission {
+        let bitmap: UInt8
+        let completion: (RemoteOrbitHIDHelperOutcome) -> Void
+    }
+
+    private let condition = NSCondition()
+    private var submissions: [Submission] = []
+
+    var state: RemoteOrbitHIDHelperTransportState? {
+        RemoteOrbitHIDHelperTransportState(
+            packageVersion: "8.6.0",
+            clientProtocolVersion: 7,
+            connectionGeneration: 41,
+            keyboardReady: true
+        )
+    }
+
+    var submissionCount: Int {
+        condition.lock(); defer { condition.unlock() }
+        return submissions.count
+    }
+
+    func indices(for bitmap: UInt8) -> [Int] {
+        condition.lock(); defer { condition.unlock() }
+        return submissions.enumerated().compactMap { $0.element.bitmap == bitmap ? $0.offset : nil }
+    }
+
+    func bitmap(at index: Int) -> UInt8? {
+        condition.lock(); defer { condition.unlock() }
+        guard submissions.indices.contains(index) else { return nil }
+        return submissions[index].bitmap
+    }
+
+    func waitForSubmissionCount(_ expected: Int, timeout: TimeInterval = 2) -> Bool {
+        condition.lock(); defer { condition.unlock() }
+        let deadline = Date().addingTimeInterval(timeout)
+        while submissions.count < expected {
+            guard condition.wait(until: deadline) else { return submissions.count >= expected }
+        }
+        return true
+    }
+
+    func submitModifierBitmap(
+        _ modifierBitmap: UInt8,
+        completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void
+    ) {
+        condition.lock()
+        submissions.append(Submission(bitmap: modifierBitmap, completion: completion))
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func complete(at index: Int, outcome: RemoteOrbitHIDHelperOutcome) {
+        condition.lock()
+        let callback = submissions.indices.contains(index) ? submissions[index].completion : nil
+        condition.unlock()
+        callback?(outcome)
     }
 }

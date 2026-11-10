@@ -209,11 +209,25 @@ public struct RemoteOrbitHIDHelperReply: Equatable {
 /// whenever a neutral request was rejected or has an unknown outcome.
 public final class RemoteOrbitHIDHelperSessionManager {
     private struct Owner {
+        let identity: UUID
         var connectionID: UUID
         let sessionID: UUID
         let generation: UInt64
         let modifierKeyCodes: [UInt16]
         var releasePending: Bool
+    }
+
+    private struct NeutralWaiter {
+        let request: RemoteOrbitHIDHelperRequest
+        let completion: (RemoteOrbitHIDHelperReply) -> Void
+    }
+
+    private struct NeutralFlight {
+        let identity: UUID
+        let ownerIdentity: UUID
+        let sessionID: UUID
+        let generation: UInt64
+        var waiters: [NeutralWaiter]
     }
 
     private struct RequestKey: Hashable {
@@ -230,6 +244,7 @@ public final class RemoteOrbitHIDHelperSessionManager {
     private let physicalModifierKeyCodesProvider: () -> Set<UInt16>?
     private let queue = DispatchQueue(label: "com.lost0rz.RemoteOrbitHIDHelper.session-owner")
     private var owner: Owner?
+    private var neutralFlight: NeutralFlight?
     private var lastSequenceByGeneration: [UInt64: UInt64] = [:]
     private var generationOrder: [UInt64] = []
     private var cache: [RequestKey: CachedReply] = [:]
@@ -273,12 +288,7 @@ public final class RemoteOrbitHIDHelperSessionManager {
                   current.connectionID == connectionID else { return }
             current.releasePending = true
             self.owner = current
-            self.submitNeutral(for: current) { outcome in
-                if outcome == .queued {
-                    self.owner = nil
-                    self.rememberReleasedSession(self.releaseKey(current))
-                }
-            }
+            self.submitNeutral(for: current)
         }
     }
 
@@ -354,6 +364,7 @@ public final class RemoteOrbitHIDHelperSessionManager {
                 return
             }
             var candidate = Owner(
+                identity: UUID(),
                 connectionID: request.connectionID,
                 sessionID: request.sessionID,
                 generation: request.connectionGeneration,
@@ -364,13 +375,13 @@ public final class RemoteOrbitHIDHelperSessionManager {
             transport.submitModifierBitmap(bitmap) { [weak self] outcome in
                 guard let self else { return }
                 self.queue.async {
-                    guard self.owner?.connectionID == candidate.connectionID,
-                          self.owner?.sessionID == candidate.sessionID else { return }
-                    if outcome == .rejected {
-                        self.owner = nil
-                    } else if outcome == .outcomeUnknown {
-                        candidate.releasePending = true
-                        self.owner = candidate
+                    if self.owner?.identity == candidate.identity {
+                        if outcome == .rejected {
+                            self.owner = nil
+                        } else if outcome == .outcomeUnknown {
+                            candidate.releasePending = true
+                            self.owner = candidate
+                        }
                     }
                     self.finish(request, outcome, completion)
                 }
@@ -398,23 +409,55 @@ public final class RemoteOrbitHIDHelperSessionManager {
             }
             owner?.connectionID = request.connectionID
             owner?.releasePending = true
-            submitNeutral(for: current) { [weak self] outcome in
-                guard let self else { return }
-                if outcome == .queued {
-                    self.owner = nil
-                    self.rememberReleasedSession(self.releaseKey(current))
-                } else {
-                    self.owner?.releasePending = true
-                }
-                self.finish(request, outcome, completion)
+            guard let reboundOwner = owner else {
+                finish(request, .outcomeUnknown, completion)
+                return
             }
+            submitNeutral(
+                for: reboundOwner,
+                waiter: NeutralWaiter(request: request, completion: completion)
+            )
         }
     }
 
-    private func submitNeutral(for current: Owner, completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void) {
+    private func submitNeutral(for current: Owner, waiter: NeutralWaiter? = nil) {
+        if var currentFlight = neutralFlight {
+            guard currentFlight.ownerIdentity == current.identity else {
+                if let waiter { finish(waiter.request, .outcomeUnknown, waiter.completion) }
+                return
+            }
+            if let waiter { currentFlight.waiters.append(waiter) }
+            neutralFlight = currentFlight
+            return
+        }
+
+        let flight = NeutralFlight(
+            identity: UUID(),
+            ownerIdentity: current.identity,
+            sessionID: current.sessionID,
+            generation: current.generation,
+            waiters: waiter.map { [$0] } ?? []
+        )
+        neutralFlight = flight
         transport.submitModifierBitmap(0) { [weak self] outcome in
             guard let self else { return }
-            self.queue.async { completion(outcome) }
+            self.queue.async {
+                guard let activeFlight = self.neutralFlight,
+                      activeFlight.identity == flight.identity else { return }
+                self.neutralFlight = nil
+
+                let stillOwnsSession = self.owner?.identity == activeFlight.ownerIdentity
+                if outcome == .queued {
+                    self.rememberReleasedSession(self.releaseKey(activeFlight.sessionID, activeFlight.generation))
+                    if stillOwnsSession { self.owner = nil }
+                } else if stillOwnsSession {
+                    self.owner?.releasePending = true
+                }
+
+                for pending in activeFlight.waiters {
+                    self.finish(pending.request, outcome, pending.completion)
+                }
+            }
         }
     }
 
@@ -460,10 +503,6 @@ public final class RemoteOrbitHIDHelperSessionManager {
         case .recover: operation = "recover"
         }
         return "\(request.connectionID.uuidString)|\(request.sessionID.uuidString)|\(request.protocolVersion)|\(operation)"
-    }
-
-    private func releaseKey(_ owner: Owner) -> String {
-        releaseKey(owner.sessionID, owner.generation)
     }
 
     private func releaseKey(_ sessionID: UUID, _ generation: UInt64) -> String {
