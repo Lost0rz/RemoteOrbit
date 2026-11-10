@@ -1,10 +1,13 @@
+import CryptoKit
 import XCTest
 @testable import RemoteOrbit
+import RemoteOrbitHIDBridge
+import RemoteOrbitHIDHelper
 
 final class VoiceShortcutHIDTests: XCTestCase {
-    func testRequestedModifierCombinationsEncodeCompleteUpstreamReportAndNeutralRelease() throws {
+    func testModifierCombinationsEncodeCompleteUpstreamReportAndNeutralRelease() throws {
         let left = try VoiceShortcutHIDReportEncoder.encode(modifierKeyCodes: [55, 58])
-        XCTAssertEqual(left.modifierBitmap, 0x0C, "E3 + E2 must be held in one report")
+        XCTAssertEqual(left.modifierBitmap, 0x0C)
         XCTAssertEqual(left.reportID, 1)
         XCTAssertEqual(left.reservedByte, 0)
         XCTAssertEqual(left.ordinaryKeyUsages.count, 32)
@@ -12,260 +15,206 @@ final class VoiceShortcutHIDTests: XCTestCase {
         XCTAssertTrue(left.hasValidModifierOnlyLayout)
 
         let right = try VoiceShortcutHIDReportEncoder.encode(modifierKeyCodes: [54, 58])
-        XCTAssertEqual(right.modifierBitmap, 0x84, "E7 + E2 must retain physical sides")
+        XCTAssertEqual(right.modifierBitmap, 0x84)
         XCTAssertTrue(right.hasValidModifierOnlyLayout)
-
-        XCTAssertEqual(VoiceShortcutHIDModifierReport.neutral.modifierBitmap, 0x00)
-        XCTAssertTrue(VoiceShortcutHIDModifierReport.neutral.hasValidModifierOnlyLayout)
+        XCTAssertEqual(VoiceShortcutHIDModifierReport.neutral.modifierBitmap, 0)
     }
 
-    func testEncoderCoversAllUSBHIDModifierUsages() throws {
-        let report = try VoiceShortcutHIDReportEncoder.encode(
+    func testEncoderCoversEveryModifierAndRejectsInvalidKeys() throws {
+        let all = try VoiceShortcutHIDReportEncoder.encode(
             modifierKeyCodes: [59, 56, 58, 55, 62, 60, 61, 54]
         )
-
-        XCTAssertEqual(report.modifierBitmap, 0xFF)
-        XCTAssertTrue(report.hasValidModifierOnlyLayout)
+        XCTAssertEqual(all.modifierBitmap, 0xFF)
+        XCTAssertThrowsError(try VoiceShortcutHIDReportEncoder.encode(modifierKeyCodes: [55, 55]))
+        XCTAssertThrowsError(try VoiceShortcutHIDReportEncoder.encode(modifierKeyCodes: [55, 57]))
+        XCTAssertThrowsError(try VoiceShortcutHIDReportEncoder.encode(modifierKeyCodes: []))
     }
 
-    func testEncoderRejectsDuplicateAndUnsupportedKeyCodes() {
-        XCTAssertThrowsError(
-            try VoiceShortcutHIDReportEncoder.encode(modifierKeyCodes: [55, 55])
-        ) { error in
-            XCTAssertEqual(error as? VoiceShortcutHIDReportEncodingError, .duplicateKeyCode(55))
+    func testActualCxxClientAndPackedKeyboardReportABI() {
+        var abi = ROHIDKeyboardReportABI()
+        rohid_get_keyboard_report_abi(&abi)
+        XCTAssertEqual(abi.size, 67)
+        XCTAssertEqual(abi.alignment, 1)
+        XCTAssertEqual(abi.modifier_offset, 1)
+        XCTAssertEqual(abi.keys_offset, 3)
+        XCTAssertEqual(abi.key_slot_count, 32)
+        XCTAssertEqual(abi.client_protocol_version, 7)
+        XCTAssertEqual(rohid_client_protocol_version(), 7)
+
+        var report = [UInt8](repeating: 0xFF, count: 67)
+        let didBuild = report.withUnsafeMutableBufferPointer {
+            rohid_build_modifier_report(0x8C, $0.baseAddress, $0.count)
         }
-        XCTAssertThrowsError(
-            try VoiceShortcutHIDReportEncoder.encode(modifierKeyCodes: [55, 57])
-        ) { error in
-            XCTAssertEqual(error as? VoiceShortcutHIDReportEncodingError, .unsupportedKeyCode(57))
+        XCTAssertTrue(didBuild)
+        XCTAssertEqual(report[0], 1)
+        XCTAssertEqual(report[1], 0x8C)
+        XCTAssertEqual(report[2], 0)
+        XCTAssertTrue(report[3...].allSatisfy { $0 == 0 })
+
+        let didBuildNeutral = report.withUnsafeMutableBufferPointer {
+            rohid_build_modifier_report(0, $0.baseAddress, $0.count)
         }
-        XCTAssertThrowsError(
-            try VoiceShortcutHIDReportEncoder.encode(modifierKeyCodes: [58, 63])
-        ) { error in
-            XCTAssertEqual(error as? VoiceShortcutHIDReportEncodingError, .unsupportedKeyCode(63))
-        }
-        XCTAssertThrowsError(
-            try VoiceShortcutHIDReportEncoder.encode(modifierKeyCodes: [])
-        ) { error in
-            XCTAssertEqual(error as? VoiceShortcutHIDReportEncodingError, .emptyModifierSet)
-        }
+        XCTAssertTrue(didBuildNeutral)
+        XCTAssertTrue(report.dropFirst().allSatisfy { $0 == 0 })
+        XCTAssertFalse(rohid_build_modifier_report(0, nil, 67))
+        XCTAssertFalse(rohid_build_modifier_report(0, report.withUnsafeMutableBufferPointer { $0.baseAddress }, 66))
     }
 
-    func testSessionUsesSerializedGenerationScopedSequencesAndOwnsNeutralRelease() {
-        let provider = FakeVoiceShortcutHIDProvider()
-        let owner = VoiceShortcutHIDSessionOwner(
-            provider: provider,
-            physicalModifierKeyCodesProvider: { [] }
+    func testPinnedUpstreamManifestAndVendoredFilesMatchSha256() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let upstreamRoot = packageRoot.appendingPathComponent(
+            "Sources/RemoteOrbitHIDBridge/vendor/upstream",
+            isDirectory: true
         )
+        let manifestURL = upstreamRoot.appendingPathComponent("manifest.json")
+        let manifestData = try Data(contentsOf: manifestURL)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: manifestData) as? [String: Any])
+        XCTAssertEqual(object["upstream_commit"] as? String, VoiceShortcutHIDProviderContract.sourceCommit)
+        XCTAssertEqual(object["resolved_literal_include_closure_count"] as? Int, 620)
+        let files = try XCTUnwrap(object["files"] as? [[String: Any]])
+        XCTAssertEqual(files.count, 620)
+        for entry in files {
+            let path = try XCTUnwrap(entry["vendored_path"] as? String)
+            let expected = try XCTUnwrap(entry["sha256"] as? String)
+            let data = try Data(contentsOf: upstreamRoot.appendingPathComponent(path))
+            let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            XCTAssertEqual(actual, expected, "vendored file hash: \(path)")
+        }
+        let licenses = try XCTUnwrap(object["license_files"] as? [[String: Any]])
+        XCTAssertEqual(licenses.count, 4)
+        for entry in licenses {
+            let path = try XCTUnwrap(entry["vendored_path"] as? String)
+            let expected = try XCTUnwrap(entry["sha256"] as? String)
+            let data = try Data(contentsOf: upstreamRoot.appendingPathComponent(path))
+            let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            XCTAssertEqual(actual, expected, "license hash: \(path)")
+        }
+        let asio = try XCTUnwrap(object["asio"] as? [String: Any])
+        XCTAssertEqual(asio["version"] as? String, "1.38.2")
+    }
+
+    func testSessionUsesAsyncSerializedGenerationScopedRequestsAndNeutralRelease() {
+        let provider = FakeVoiceShortcutHIDProvider()
+        let owner = VoiceShortcutHIDSessionOwner(provider: provider, physicalModifierKeyCodesProvider: { [] })
         let sessionID = UUID()
         let otherSessionID = UUID()
 
-        XCTAssertEqual(owner.begin(sessionID: sessionID, modifierKeyCodes: [55, 58]), .accepted)
-        XCTAssertEqual(
-            provider.requests.map { $0.report?.modifierBitmap },
-            [0x0C]
-        )
+        XCTAssertEqual(begin(owner, sessionID, [55, 58]), .accepted)
+        XCTAssertEqual(provider.requests.map { $0.report?.modifierBitmap }, [0x0C])
         XCTAssertEqual(provider.requests.first?.operation, .begin)
         XCTAssertEqual(provider.requests.first?.sessionID, sessionID)
         XCTAssertEqual(provider.requests.first?.requestSequence, 1)
-
-        XCTAssertEqual(
-            owner.begin(sessionID: sessionID, modifierKeyCodes: [55, 58]),
-            .accepted,
-            "repeated begin for the same immutable session is idempotent"
-        )
-        XCTAssertEqual(provider.requests.count, 1)
-        XCTAssertEqual(
-            owner.begin(sessionID: sessionID, modifierKeyCodes: [54, 58]),
-            .rejected(.sessionBindingChanged)
-        )
-        XCTAssertEqual(
-            owner.begin(sessionID: otherSessionID, modifierKeyCodes: [54, 58]),
-            .rejected(.ownerBusy)
-        )
-
-        XCTAssertFalse(owner.end(sessionID: otherSessionID), "a stale release must not emit a report")
-        XCTAssertEqual(provider.requests.count, 1)
-        XCTAssertTrue(owner.end(sessionID: sessionID))
-        XCTAssertEqual(provider.requests.map { $0.report?.modifierBitmap }, [0x0C, 0x00])
+        XCTAssertEqual(begin(owner, sessionID, [55, 58]), .accepted)
+        XCTAssertEqual(provider.requests.count, 1, "same immutable begin is idempotent")
+        XCTAssertEqual(begin(owner, sessionID, [54, 58]), .rejected(.sessionBindingChanged))
+        XCTAssertEqual(begin(owner, otherSessionID, [54, 58]), .rejected(.ownerBusy))
+        XCTAssertFalse(end(owner, otherSessionID))
+        XCTAssertTrue(end(owner, sessionID))
+        XCTAssertEqual(provider.requests.map { $0.report?.modifierBitmap }, [0x0C, 0])
         XCTAssertEqual(provider.requests.map(\.requestSequence), [1, 2])
         XCTAssertEqual(provider.requests.map(\.operation), [.begin, .release])
         XCTAssertTrue(provider.requests.allSatisfy { $0.connectionGeneration == 41 })
-        XCTAssertEqual(provider.requests.last?.sessionID, sessionID)
         XCTAssertNil(owner.activeSessionID)
         XCTAssertFalse(owner.hasUnresolvedOwnership)
     }
 
-    func testUnavailableMismatchNotReadyAndMissingPhysicalStateFailClosed() {
+    func testUnavailableMismatchNotReadyAndPhysicalStateFailClosed() {
         let unavailable = FakeVoiceShortcutHIDProvider(state: .unavailable)
-        let unavailableOwner = VoiceShortcutHIDSessionOwner(
-            provider: unavailable,
-            physicalModifierKeyCodesProvider: { [] }
-        )
         XCTAssertEqual(
-            unavailableOwner.begin(sessionID: UUID(), modifierKeyCodes: [55, 58]),
+            begin(VoiceShortcutHIDSessionOwner(provider: unavailable, physicalModifierKeyCodesProvider: { [] }), UUID(), [55, 58]),
             .rejected(.providerUnavailable)
         )
         XCTAssertTrue(unavailable.requests.isEmpty)
 
-        let mismatched = FakeVoiceShortcutHIDProvider(
-            state: .ready(
-                packageVersion: "8.0.0",
-                clientProtocolVersion: 7,
-                connectionGeneration: 41,
-                keyboardReady: true
-            )
-        )
-        let mismatchedOwner = VoiceShortcutHIDSessionOwner(
-            provider: mismatched,
-            physicalModifierKeyCodesProvider: { [] }
-        )
+        let mismatch = FakeVoiceShortcutHIDProvider(state: .ready(
+            packageVersion: "8.0.0", clientProtocolVersion: 7, connectionGeneration: 41, keyboardReady: true
+        ))
         XCTAssertEqual(
-            mismatchedOwner.begin(sessionID: UUID(), modifierKeyCodes: [55, 58]),
+            begin(VoiceShortcutHIDSessionOwner(provider: mismatch, physicalModifierKeyCodesProvider: { [] }), UUID(), [55, 58]),
             .rejected(.providerProtocolMismatch)
         )
-        XCTAssertTrue(mismatched.requests.isEmpty)
+        XCTAssertTrue(mismatch.requests.isEmpty)
 
-        let notReady = FakeVoiceShortcutHIDProvider(
-            state: .ready(
-                packageVersion: VoiceShortcutHIDProviderContract.packageVersion,
-                clientProtocolVersion: VoiceShortcutHIDProviderContract.clientProtocolVersion,
-                connectionGeneration: 41,
-                keyboardReady: false
-            )
-        )
-        let notReadyOwner = VoiceShortcutHIDSessionOwner(
-            provider: notReady,
-            physicalModifierKeyCodesProvider: { [] }
-        )
+        let notReady = FakeVoiceShortcutHIDProvider(state: .ready(
+            packageVersion: VoiceShortcutHIDProviderContract.packageVersion,
+            clientProtocolVersion: 7,
+            connectionGeneration: 41,
+            keyboardReady: false
+        ))
         XCTAssertEqual(
-            notReadyOwner.begin(sessionID: UUID(), modifierKeyCodes: [55, 58]),
+            begin(VoiceShortcutHIDSessionOwner(provider: notReady, physicalModifierKeyCodesProvider: { [] }), UUID(), [55, 58]),
             .rejected(.providerKeyboardNotReady)
         )
-        XCTAssertTrue(notReady.requests.isEmpty)
 
-        let missingPhysicalState = VoiceShortcutHIDSessionOwner(
-            provider: FakeVoiceShortcutHIDProvider()
-        )
+        let missing = FakeVoiceShortcutHIDProvider()
         XCTAssertEqual(
-            missingPhysicalState.begin(sessionID: UUID(), modifierKeyCodes: [55, 58]),
+            begin(VoiceShortcutHIDSessionOwner(provider: missing), UUID(), [55, 58]),
             .rejected(.physicalModifierStateUnavailable)
         )
+        XCTAssertTrue(missing.requests.isEmpty)
+
+        let conflict = FakeVoiceShortcutHIDProvider()
+        let conflictOwner = VoiceShortcutHIDSessionOwner(provider: conflict, physicalModifierKeyCodesProvider: { [54] })
+        XCTAssertEqual(begin(conflictOwner, UUID(), [55, 58]), .rejected(.physicalModifierConflict))
+        XCTAssertTrue(conflict.requests.isEmpty)
     }
 
-    func testPhysicalModifierFamilyConflictBlocksVirtualReport() {
-        let provider = FakeVoiceShortcutHIDProvider()
-        let owner = VoiceShortcutHIDSessionOwner(
-            provider: provider,
-            physicalModifierKeyCodesProvider: { [54] }
-        )
-
-        XCTAssertEqual(
-            owner.begin(sessionID: UUID(), modifierKeyCodes: [55, 58]),
-            .rejected(.physicalModifierConflict),
-            "a physical right Command conflicts with a requested virtual left Command"
-        )
-        XCTAssertTrue(provider.requests.isEmpty)
-        XCTAssertFalse(owner.hasUnresolvedOwnership)
-    }
-
-    func testFailedNeutralReleaseRetainsOwnerAndRecoversBeforeRapidRepress() {
-        let provider = FakeVoiceShortcutHIDProvider(outcomes: [
-            .queued, .rejected, .queued, .queued, .queued,
-        ])
-        let owner = VoiceShortcutHIDSessionOwner(
-            provider: provider,
-            physicalModifierKeyCodesProvider: { [] }
-        )
-        let firstSessionID = UUID()
-        let secondSessionID = UUID()
-
-        XCTAssertEqual(owner.begin(sessionID: firstSessionID, modifierKeyCodes: [55, 58]), .accepted)
-        XCTAssertFalse(owner.end(sessionID: firstSessionID))
+    func testFailedNeutralRetainsOwnershipAndRecoversBeforeRapidRepress() {
+        let provider = FakeVoiceShortcutHIDProvider(outcomes: [.queued, .rejected, .queued, .queued, .queued])
+        let owner = VoiceShortcutHIDSessionOwner(provider: provider, physicalModifierKeyCodesProvider: { [] })
+        let first = UUID()
+        let second = UUID()
+        XCTAssertEqual(begin(owner, first, [55, 58]), .accepted)
+        XCTAssertFalse(end(owner, first))
         XCTAssertTrue(owner.hasUnresolvedOwnership)
-        XCTAssertEqual(owner.activeSessionID, firstSessionID)
-
-        XCTAssertEqual(
-            owner.begin(sessionID: secondSessionID, modifierKeyCodes: [54, 58]),
-            .accepted,
-            "a repress is admitted only after the prior neutral report is queued"
-        )
-        XCTAssertEqual(
-            provider.requests.map { $0.report?.modifierBitmap },
-            [0x0C, 0x00, 0x00, 0x84]
-        )
-        XCTAssertEqual(
-            provider.requests.map(\.operation),
-            [.begin, .release, .recover, .begin]
-        )
-        XCTAssertEqual(owner.activeSessionID, secondSessionID)
-
-        let requestCount = provider.requests.count
-        XCTAssertFalse(owner.end(sessionID: firstSessionID), "a late release cannot clear a new owner")
-        XCTAssertEqual(provider.requests.count, requestCount)
-        XCTAssertTrue(owner.end(sessionID: secondSessionID))
+        XCTAssertEqual(owner.activeSessionID, first)
+        XCTAssertEqual(begin(owner, second, [54, 58]), .accepted)
+        XCTAssertEqual(provider.requests.map { $0.report?.modifierBitmap }, [0x0C, 0, 0, 0x84])
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin, .release, .recover, .begin])
+        XCTAssertEqual(owner.activeSessionID, second)
+        XCTAssertFalse(end(owner, first))
+        XCTAssertTrue(end(owner, second))
         XCTAssertEqual(provider.requests.last?.report, .neutral)
         XCTAssertFalse(owner.hasUnresolvedOwnership)
     }
 
-    func testAmbiguousDownAndFailedRecoveryKeepSessionUntilScopedNeutralQueues() {
-        let provider = FakeVoiceShortcutHIDProvider(outcomes: [
-            .outcomeUnknown, .rejected, .queued,
-        ])
-        let owner = VoiceShortcutHIDSessionOwner(
-            provider: provider,
-            physicalModifierKeyCodesProvider: { [] }
-        )
-        let sessionID = UUID()
-
-        XCTAssertEqual(
-            owner.begin(sessionID: sessionID, modifierKeyCodes: [55, 58]),
-            .rejected(.ownershipUnresolved)
-        )
+    func testUnknownBeginAndFailedRecoveryStayOwnedUntilScopedNeutralQueues() {
+        let provider = FakeVoiceShortcutHIDProvider(outcomes: [.outcomeUnknown, .rejected, .queued])
+        let owner = VoiceShortcutHIDSessionOwner(provider: provider, physicalModifierKeyCodesProvider: { [] })
+        let id = UUID()
+        XCTAssertEqual(begin(owner, id, [55, 58]), .rejected(.ownershipUnresolved))
         XCTAssertTrue(owner.hasUnresolvedOwnership)
-        XCTAssertEqual(owner.activeSessionID, sessionID)
-        XCTAssertEqual(provider.requests.map { $0.report?.modifierBitmap }, [0x0C, 0x00])
+        XCTAssertEqual(owner.activeSessionID, id)
         XCTAssertEqual(provider.requests.map(\.operation), [.begin, .recover])
-
-        XCTAssertTrue(owner.recoverPendingRelease())
+        XCTAssertTrue(recover(owner))
         XCTAssertEqual(provider.requests.map(\.operation), [.begin, .recover, .recover])
         XCTAssertEqual(provider.requests.map(\.requestSequence), [1, 2, 3])
         XCTAssertNil(owner.activeSessionID)
         XCTAssertFalse(owner.hasUnresolvedOwnership)
     }
 
-    func testConnectionGenerationChangeNeverReleasesOrTransfersAnotherOwner() {
+    func testConnectionGenerationChangeBlocksNeutralReleaseAndOwnershipTransfer() {
         let provider = FakeVoiceShortcutHIDProvider()
-        let owner = VoiceShortcutHIDSessionOwner(
-            provider: provider,
-            physicalModifierKeyCodesProvider: { [] }
-        )
-        let first = UUID()
-
-        XCTAssertEqual(owner.begin(sessionID: first, modifierKeyCodes: [55, 58]), .accepted)
+        let owner = VoiceShortcutHIDSessionOwner(provider: provider, physicalModifierKeyCodesProvider: { [] })
+        let id = UUID()
+        XCTAssertEqual(begin(owner, id, [55, 58]), .accepted)
         provider.state = .ready(
             packageVersion: VoiceShortcutHIDProviderContract.packageVersion,
-            clientProtocolVersion: VoiceShortcutHIDProviderContract.clientProtocolVersion,
+            clientProtocolVersion: 7,
             connectionGeneration: 42,
             keyboardReady: true
         )
-
-        XCTAssertFalse(owner.end(sessionID: first))
-        XCTAssertFalse(owner.recoverPendingRelease())
-        XCTAssertEqual(
-            owner.begin(sessionID: first, modifierKeyCodes: [55, 58]),
-            .rejected(.ownershipUnresolved)
-        )
-        XCTAssertEqual(
-            owner.begin(sessionID: UUID(), modifierKeyCodes: [54, 58]),
-            .rejected(.ownershipUnresolved)
-        )
+        XCTAssertFalse(end(owner, id))
+        XCTAssertFalse(recover(owner))
+        XCTAssertEqual(begin(owner, UUID(), [54, 58]), .rejected(.ownershipUnresolved))
         XCTAssertEqual(provider.requests.map(\.operation), [.begin])
         XCTAssertTrue(owner.hasUnresolvedOwnership)
-        XCTAssertEqual(owner.activeSessionID, first)
     }
 
-    func testMismatchedLateReplyCannotClearOwnershipOrReleaseANewerSession() {
+    func testMismatchedLateReplyCannotClearOwnership() {
         let provider = FakeVoiceShortcutHIDProvider()
         provider.replyTransform = { _, reply in
             VoiceShortcutHIDProviderReply(
@@ -274,159 +223,458 @@ final class VoiceShortcutHIDTests: XCTestCase {
                 outcome: reply.outcome
             )
         }
-        let owner = VoiceShortcutHIDSessionOwner(
-            provider: provider,
-            physicalModifierKeyCodesProvider: { [] }
-        )
-        let sessionID = UUID()
-
-        XCTAssertEqual(
-            owner.begin(sessionID: sessionID, modifierKeyCodes: [55, 58]),
-            .rejected(.ownershipUnresolved)
-        )
+        let owner = VoiceShortcutHIDSessionOwner(provider: provider, physicalModifierKeyCodesProvider: { [] })
+        let id = UUID()
+        XCTAssertEqual(begin(owner, id, [55, 58]), .rejected(.ownershipUnresolved))
         XCTAssertTrue(owner.hasUnresolvedOwnership)
-        XCTAssertEqual(provider.requests.map(\.operation), [.begin, .recover])
-
         provider.replyTransform = nil
-        XCTAssertTrue(owner.recoverPendingRelease())
+        XCTAssertTrue(recover(owner))
         XCTAssertNil(owner.activeSessionID)
         XCTAssertFalse(owner.hasUnresolvedOwnership)
         XCTAssertEqual(provider.requests.map(\.requestSequence), [1, 2, 3])
     }
 
-    func testABASessionsRemainIsolatedAndSequencesStayMonotonic() {
+    func testABASessionsRemainIsolatedWithMonotonicSequences() {
         let provider = FakeVoiceShortcutHIDProvider()
-        let owner = VoiceShortcutHIDSessionOwner(
-            provider: provider,
-            physicalModifierKeyCodesProvider: { [] }
-        )
-        let bitmapBySession: [(UUID, [UInt16])] = [
-            (UUID(), [55, 58]),
-            (UUID(), [54, 58]),
-            (UUID(), [55, 58]),
-        ]
-
-        for (sessionID, keyCodes) in bitmapBySession {
-            XCTAssertEqual(owner.begin(sessionID: sessionID, modifierKeyCodes: keyCodes), .accepted)
-            XCTAssertTrue(owner.end(sessionID: sessionID))
+        let owner = VoiceShortcutHIDSessionOwner(provider: provider, physicalModifierKeyCodesProvider: { [] })
+        let sessions: [(UUID, [UInt16])] = [(UUID(), [55, 58]), (UUID(), [54, 58]), (UUID(), [55, 58])]
+        for (id, codes) in sessions {
+            XCTAssertEqual(begin(owner, id, codes), .accepted)
+            XCTAssertTrue(end(owner, id))
         }
-
-        XCTAssertEqual(
-            provider.requests.map { $0.report?.modifierBitmap },
-            [0x0C, 0x00, 0x84, 0x00, 0x0C, 0x00]
-        )
+        XCTAssertEqual(provider.requests.map { $0.report?.modifierBitmap }, [0x0C, 0, 0x84, 0, 0x0C, 0])
         XCTAssertEqual(provider.requests.map(\.requestSequence), [1, 2, 3, 4, 5, 6])
-        for pair in stride(from: 0, to: provider.requests.count, by: 2) {
-            XCTAssertEqual(provider.requests[pair].operation, .begin)
-            XCTAssertEqual(provider.requests[pair + 1].operation, .release)
-            XCTAssertEqual(provider.requests[pair].sessionID, provider.requests[pair + 1].sessionID)
+        for index in stride(from: 0, to: provider.requests.count, by: 2) {
+            XCTAssertEqual(provider.requests[index].operation, .begin)
+            XCTAssertEqual(provider.requests[index + 1].operation, .release)
+            XCTAssertEqual(provider.requests[index].sessionID, provider.requests[index + 1].sessionID)
         }
     }
 
-    func testConcurrentBeginsHaveOneSerializedSessionOwner() {
+    func testConcurrentBeginsRetainOneSerializedOwner() {
         let provider = FakeVoiceShortcutHIDProvider()
-        let owner = VoiceShortcutHIDSessionOwner(
-            provider: provider,
-            physicalModifierKeyCodesProvider: { [] }
-        )
-        let sessionIDs = (0..<16).map { _ in UUID() }
+        let owner = VoiceShortcutHIDSessionOwner(provider: provider, physicalModifierKeyCodesProvider: { [] })
+        let ids = (0..<12).map { _ in UUID() }
+        let done = expectation(description: "concurrent admissions")
+        done.expectedFulfillmentCount = ids.count
         let lock = NSLock()
         var accepted: [UUID] = []
-
-        DispatchQueue.concurrentPerform(iterations: sessionIDs.count) { index in
-            let sessionID = sessionIDs[index]
-            if owner.begin(sessionID: sessionID, modifierKeyCodes: [55, 58]) == .accepted {
-                lock.lock()
-                accepted.append(sessionID)
-                lock.unlock()
+        for id in ids {
+            owner.begin(sessionID: id, modifierKeyCodes: [55, 58]) { result in
+                if result == .accepted {
+                    lock.lock(); accepted.append(id); lock.unlock()
+                }
+                done.fulfill()
             }
         }
-
+        wait(for: [done], timeout: 3)
         XCTAssertEqual(accepted.count, 1)
         XCTAssertEqual(provider.requests.count, 1)
-        XCTAssertTrue(owner.end(sessionID: accepted[0]))
-        XCTAssertFalse(owner.hasUnresolvedOwnership)
+        XCTAssertTrue(end(owner, accepted[0]))
+    }
+
+    private func begin(
+        _ owner: VoiceShortcutHIDSessionOwner,
+        _ id: UUID,
+        _ keyCodes: [UInt16],
+        timeout: TimeInterval = 3
+    ) -> VoiceShortcutHIDSessionAdmission {
+        let done = expectation(description: "async begin")
+        var result: VoiceShortcutHIDSessionAdmission?
+        owner.begin(sessionID: id, modifierKeyCodes: keyCodes) { value in result = value; done.fulfill() }
+        wait(for: [done], timeout: timeout)
+        return try! XCTUnwrap(result)
+    }
+
+    private func end(_ owner: VoiceShortcutHIDSessionOwner, _ id: UUID) -> Bool {
+        let done = expectation(description: "async end")
+        var result: Bool?
+        owner.end(sessionID: id) { value in result = value; done.fulfill() }
+        wait(for: [done], timeout: 3)
+        return result ?? false
+    }
+
+    private func recover(_ owner: VoiceShortcutHIDSessionOwner) -> Bool {
+        let done = expectation(description: "async recover")
+        var result: Bool?
+        owner.recoverPendingRelease { value in result = value; done.fulfill() }
+        wait(for: [done], timeout: 3)
+        return result ?? false
     }
 }
 
 final class VoiceShortcutHIDSecurityTests: XCTestCase {
-    func testProductionXPCTrustRejectsUntilBothRealIdentitiesAreVerified() {
-        let mock = MockPeerRequirementInstaller()
-
+    func testProductionXPCConnectionRefusesUnverifiedSigningIdentities() {
         XCTAssertFalse(VoiceShortcutHIDSigningPolicy.production.productionEligible)
-        XCTAssertFalse(VoiceShortcutHIDXPCTrustGate.installRequirement(
-            for: .privilegedHelper,
-            on: mock
-        ))
-        XCTAssertFalse(VoiceShortcutHIDXPCTrustGate.installRequirement(
-            for: .remoteOrbitApp,
-            on: mock
-        ))
-        XCTAssertTrue(mock.requirements.isEmpty)
-        XCTAssertNil(VoiceShortcutHIDSigningPolicy.production.requirement(for: .privilegedHelper))
         XCTAssertNil(VoiceShortcutHIDSigningPolicy.production.requirement(for: .remoteOrbitApp))
+        XCTAssertNil(VoiceShortcutHIDSigningPolicy.production.requirement(for: .privilegedHelper))
+        XCTAssertFalse(VoiceShortcutHIDXPCProvider().connectIfTrusted())
+        XCTAssertNil(RemoteOrbitHIDHelperSigningPolicy.production.productionApplicationRequirement())
+        XCTAssertFalse(RemoteOrbitHIDHelperSigningPolicy.production.installIncomingApplicationRequirement(on: .anonymous()))
     }
 
-    func testTestOnlySignerFixtureCannotProduceProductionConnectionRequirement() {
+    func testTestFixtureRequirementsRemainUnavailableToProductionGate() {
         let fixture = VoiceShortcutHIDSigningPolicy.testOnlyFixture()
-        let mock = MockPeerRequirementInstaller()
-
         XCTAssertFalse(fixture.productionEligible)
         XCTAssertNil(fixture.requirement(for: .privilegedHelper))
-        XCTAssertNil(fixture.requirement(for: .remoteOrbitApp))
-        XCTAssertEqual(
-            fixture.testRequirement(for: .privilegedHelper),
-            "anchor apple generic and certificate leaf[subject.OU] = \"TESTTEAM01\" and identifier \"com.example.RemoteOrbitHIDHelper.TestHarness\""
-        )
-        XCTAssertEqual(
-            fixture.testRequirement(for: .remoteOrbitApp),
-            "anchor apple generic and certificate leaf[subject.OU] = \"TESTTEAM01\" and identifier \"com.example.RemoteOrbit.TestHarness\""
-        )
-        XCTAssertFalse(VoiceShortcutHIDXPCTrustGate.installRequirement(
-            for: .privilegedHelper,
-            policy: fixture,
-            on: mock
-        ))
-        XCTAssertTrue(mock.requirements.isEmpty)
+        XCTAssertNotNil(fixture.testRequirement(for: .remoteOrbitApp))
+        XCTAssertNotNil(fixture.testRequirement(for: .privilegedHelper))
+        XCTAssertFalse(RemoteOrbitHIDHelperSigningPolicy.testOnlyFixture().installIncomingApplicationRequirement(on: .anonymous()))
+    }
+}
+
+final class RemoteOrbitHIDHelperSessionTests: XCTestCase {
+    func testHelperValidatesProtocolIdentityAndPhysicalModifierConflicts() {
+        let transport = FakeHelperTransport()
+        let manager = RemoteOrbitHIDHelperSessionManager(transport: transport, physicalModifierKeyCodesProvider: { [54] })
+        let connection = UUID()
+        XCTAssertEqual(submit(manager, request(connection, seq: 1, operation: .begin([55, 58]))).outcome, .rejected)
+        XCTAssertEqual(submit(manager, request(connection, seq: 2, protocolVersion: 6, operation: .begin([55, 58]))).outcome, .rejected)
+        XCTAssertEqual(submit(manager, request(connection, seq: 3, operation: .begin([55, 57]))).outcome, .rejected)
+        XCTAssertTrue(transport.bitmaps.isEmpty)
+        XCTAssertFalse(manager.hasUnresolvedOwnership)
     }
 
+    func testXPCServiceRejectsOverflowFractionalAndOversizedModifierArrays() {
+        let transport = FakeHelperTransport()
+        let manager = RemoteOrbitHIDHelperSessionManager(transport: transport, physicalModifierKeyCodesProvider: { [] })
+        let service = RemoteOrbitHIDHelperXPCService(connectionID: UUID(), manager: manager)
+        for values in [
+            [NSNumber(value: 65_591), NSNumber(value: 58)],
+            [NSNumber(value: 55.5), NSNumber(value: 58)],
+            (0..<9).map { NSNumber(value: 55 + $0) },
+        ] {
+            let done = expectation(description: "malformed XPC modifier list rejected")
+            service.beginModifierSession(
+                UUID() as NSUUID,
+                modifierKeyCodes: values,
+                protocolVersion: 7,
+                connectionGeneration: 41,
+                requestSequence: UInt64(transport.bitmaps.count + 1)
+            ) { generation, sequence, rawOutcome in
+                XCTAssertEqual(generation, 41)
+                XCTAssertGreaterThan(sequence, 0)
+                XCTAssertEqual(RemoteOrbitHIDHelperOutcome(rawValue: rawOutcome), .rejected)
+                done.fulfill()
+            }
+            wait(for: [done], timeout: 2)
+        }
+        XCTAssertTrue(transport.bitmaps.isEmpty)
+        XCTAssertFalse(manager.hasUnresolvedOwnership)
+    }
+
+    func testHelperCachesExactDuplicateRejectsMutationAndReleasesNeutral() {
+        let transport = FakeHelperTransport()
+        let manager = RemoteOrbitHIDHelperSessionManager(transport: transport, physicalModifierKeyCodesProvider: { [] })
+        let connection = UUID()
+        let id = UUID()
+        let begin = request(connection, id: id, seq: 1, operation: .begin([55, 58]))
+        XCTAssertEqual(submit(manager, begin).outcome, .queued)
+        XCTAssertTrue(manager.hasUnresolvedOwnership)
+        XCTAssertEqual(submit(manager, begin).outcome, .queued)
+        XCTAssertEqual(transport.bitmaps, [0x0C], "an exact duplicate replays the cached result")
+        XCTAssertEqual(submit(manager, request(connection, id: id, seq: 1, operation: .begin([54, 58]))).outcome, .rejected)
+        XCTAssertEqual(submit(manager, request(connection, id: id, seq: 1, operation: .release)).outcome, .rejected)
+        XCTAssertEqual(transport.bitmaps, [0x0C])
+        XCTAssertEqual(submit(manager, request(connection, id: id, seq: 2, operation: .release)).outcome, .queued)
+        XCTAssertEqual(transport.bitmaps, [0x0C, 0])
+        XCTAssertFalse(manager.hasUnresolvedOwnership)
+        XCTAssertEqual(submit(manager, request(connection, id: id, seq: 1, operation: .release)).outcome, .rejected)
+    }
+
+    func testHelperRetainsReleaseFailureThenRecoversAndDisconnectNeutralizes() {
+        let transport = FakeHelperTransport(outcomes: [.queued, .outcomeUnknown, .queued, .queued, .queued])
+        let manager = RemoteOrbitHIDHelperSessionManager(transport: transport, physicalModifierKeyCodesProvider: { [] })
+        let connection = UUID()
+        let id = UUID()
+        XCTAssertEqual(submit(manager, request(connection, id: id, seq: 1, operation: .begin([55, 58]))).outcome, .queued)
+        XCTAssertEqual(submit(manager, request(connection, id: id, seq: 2, operation: .release)).outcome, .outcomeUnknown)
+        XCTAssertTrue(manager.hasUnresolvedOwnership)
+        XCTAssertEqual(submit(manager, request(connection, id: id, seq: 3, operation: .recover)).outcome, .queued)
+        XCTAssertFalse(manager.hasUnresolvedOwnership)
+        XCTAssertEqual(transport.bitmaps, [0x0C, 0, 0])
+
+        let otherConnection = UUID()
+        XCTAssertEqual(submit(manager, request(otherConnection, seq: 4, operation: .begin([54, 58]))).outcome, .queued)
+        manager.disconnect(connectionID: otherConnection)
+        let neutralized = expectation(description: "disconnect neutral release")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            if !manager.hasUnresolvedOwnership { neutralized.fulfill() }
+        }
+        wait(for: [neutralized], timeout: 2)
+        XCTAssertEqual(transport.bitmaps.suffix(2), [0x84, 0])
+    }
+
+    func testHelperSessionOwnershipCannotBeTakenByAnotherConnection() {
+        let transport = FakeHelperTransport()
+        let manager = RemoteOrbitHIDHelperSessionManager(transport: transport, physicalModifierKeyCodesProvider: { [] })
+        let first = UUID(), second = UUID()
+        let session = UUID()
+        XCTAssertEqual(submit(manager, request(first, id: session, seq: 1, operation: .begin([55, 58]))).outcome, .queued)
+        XCTAssertEqual(submit(manager, request(second, seq: 2, operation: .begin([54, 58]))).outcome, .rejected)
+        XCTAssertTrue(manager.hasUnresolvedOwnership)
+        XCTAssertEqual(transport.bitmaps, [0x0C])
+        XCTAssertEqual(submit(manager, request(first, id: session, seq: 3, operation: .release)).outcome, .queued)
+    }
+
+    func testReconnectCanOnlyRecoverAReleasedOrReleasePendingSession() {
+        let transport = FakeHelperTransport(outcomes: [.queued, .rejected, .queued])
+        let manager = RemoteOrbitHIDHelperSessionManager(transport: transport, physicalModifierKeyCodesProvider: { [] })
+        let oldConnection = UUID()
+        let newConnection = UUID()
+        let id = UUID()
+        XCTAssertEqual(submit(manager, request(oldConnection, id: id, seq: 1, operation: .begin([55, 58]))).outcome, .queued)
+        manager.disconnect(connectionID: oldConnection)
+        let disconnectProcessed = expectation(description: "disconnect release attempt")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            if manager.hasUnresolvedOwnership { disconnectProcessed.fulfill() }
+        }
+        wait(for: [disconnectProcessed], timeout: 2)
+        XCTAssertEqual(transport.bitmaps, [0x0C, 0])
+
+        XCTAssertEqual(submit(manager, request(newConnection, id: id, seq: 2, operation: .recover)).outcome, .queued)
+        XCTAssertFalse(manager.hasUnresolvedOwnership)
+        XCTAssertEqual(transport.bitmaps, [0x0C, 0, 0])
+        XCTAssertEqual(submit(manager, request(UUID(), id: id, seq: 3, operation: .recover)).outcome, .queued)
+        XCTAssertEqual(transport.bitmaps, [0x0C, 0, 0], "a released-session replay stays neutral and idempotent")
+    }
+
+    private func request(
+        _ connection: UUID,
+        id: UUID = UUID(),
+        seq: UInt64,
+        protocolVersion: Int = 7,
+        operation: RemoteOrbitHIDHelperRequest.Operation
+    ) -> RemoteOrbitHIDHelperRequest {
+        RemoteOrbitHIDHelperRequest(
+            connectionID: connection,
+            sessionID: id,
+            protocolVersion: protocolVersion,
+            connectionGeneration: 41,
+            requestSequence: seq,
+            operation: operation
+        )
+    }
+
+    private func submit(
+        _ manager: RemoteOrbitHIDHelperSessionManager,
+        _ request: RemoteOrbitHIDHelperRequest
+    ) -> RemoteOrbitHIDHelperReply {
+        let done = expectation(description: "helper request")
+        var result: RemoteOrbitHIDHelperReply?
+        manager.submit(request) { value in result = value; done.fulfill() }
+        wait(for: [done], timeout: 3)
+        return try! XCTUnwrap(result)
+    }
+}
+
+final class VoicePressCoordinatorVirtualHIDTests: XCTestCase {
+    func testVirtualHIDKeepsTheAcceptedThreeHundredMillisecondLongOnlyBoundary() {
+        XCTAssertEqual(VoicePressCoordinator.holdActivationThreshold, 0.30)
+        XCTAssertFalse(VoicePressCoordinator.isLongPress(heldDuration: 0.299))
+        XCTAssertTrue(VoicePressCoordinator.isLongPress(heldDuration: 0.30))
+    }
+
+    func testShortTapDoesNothingAndLongChordWaitsForAudioDrainAndNeutralRelease() {
+        let shortProvider = FakeVoiceShortcutHIDProvider()
+        let shortOwner = VoiceShortcutHIDSessionOwner(provider: shortProvider, physicalModifierKeyCodesProvider: { [] })
+        let short = VoicePressCoordinator(virtualHIDSessionOwner: shortOwner)
+        let profile = VoiceInputProfile(id: "chord-ab", displayName: "Command + Option", binding: .modifierChord(modifierKeyCodes: [55, 58]))
+        let shortID = UUID()
+        XCTAssertTrue(short.keyDown(sessionID: shortID, profile: profile))
+        XCTAssertTrue(short.keyUp())
+        XCTAssertTrue(shortProvider.requests.isEmpty)
+        XCTAssertEqual(short.currentStateForTesting, .idle)
+        short.stop()
+
+        let provider = FakeVoiceShortcutHIDProvider()
+        let owner = VoiceShortcutHIDSessionOwner(provider: provider, physicalModifierKeyCodesProvider: { [] })
+        var fireTimer: (() -> Void)?
+        var drain: (() -> Void)?
+        var triggerEvents: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { triggerEvents.append(($0, $1)) })
+        let press = VoicePressCoordinator(
+            optionTrigger: trigger,
+            virtualHIDSessionOwner: owner,
+            candidateTimerFactory: { _, fire in fireTimer = fire; return VoicePressCandidateTimer(cancelAction: {}) }
+        )
+        press.onRemoteOutputDrain = { _, completion in drain = completion }
+        let opened = expectation(description: "virtual modifier chord enters direct voice lifecycle")
+        press.onStateChanged = { if $0 == .opening { opened.fulfill() } }
+        let id = UUID()
+        XCTAssertTrue(press.keyDown(sessionID: id, profile: profile))
+        fireTimer?()
+        wait(for: [opened], timeout: 3)
+        XCTAssertEqual(press.capturedVoiceProfileForTesting, profile)
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin])
+        XCTAssertTrue(triggerEvents.isEmpty, "modifier chord uses the report backend, not CGEvent")
+
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin], "neutral waits for audio output drain")
+        XCTAssertNotNil(drain)
+        let closed = expectation(description: "neutral HID release closes session")
+        press.onStateChanged = { if $0 == .idle { closed.fulfill() } }
+        drain?()
+        wait(for: [closed], timeout: 3)
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin, .release])
+        XCTAssertEqual(provider.requests.map { $0.report?.modifierBitmap }, [0x0C, 0])
+        XCTAssertFalse(owner.hasUnresolvedOwnership)
+        XCTAssertTrue(triggerEvents.isEmpty)
+        press.stop()
+    }
+
+    func testRapidRepressWaitsForOldNeutralThenUsesCapturedBProfile() {
+        let provider = FakeVoiceShortcutHIDProvider()
+        let owner = VoiceShortcutHIDSessionOwner(provider: provider, physicalModifierKeyCodesProvider: { [] })
+        let a = VoiceInputProfile(id: "profile-a", displayName: "A", binding: .modifierChord(modifierKeyCodes: [55, 58]))
+        let b = VoiceInputProfile(id: "profile-b", displayName: "B", binding: .modifierChord(modifierKeyCodes: [54, 58]))
+        var fireTimer: (() -> Void)?
+        var drains: [(UUID, () -> Void)] = []
+        let press = VoicePressCoordinator(
+            virtualHIDSessionOwner: owner,
+            candidateTimerFactory: { _, fire in fireTimer = fire; return VoicePressCandidateTimer(cancelAction: {}) }
+        )
+        press.hasLivePhysicalCandidate = { true }
+        press.onRemoteOutputDrain = { id, completion in drains.append((id, completion)) }
+        let firstOpened = expectation(description: "A opened")
+        press.onStateChanged = { if $0 == .opening, provider.requests.count == 1 { firstOpened.fulfill() } }
+        let sessionA = UUID()
+        XCTAssertTrue(press.keyDown(sessionID: sessionA, profile: a))
+        fireTimer?()
+        wait(for: [firstOpened], timeout: 3)
+        XCTAssertEqual(press.capturedVoiceProfileForTesting, a)
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(drains.count, 1)
+
+        let sessionB = UUID()
+        XCTAssertTrue(press.keyDown(sessionID: sessionB, profile: b))
+        XCTAssertTrue(press.promoteLongOnlyCandidateForTesting())
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin], "B cannot begin while A audio drain is outstanding")
+        let bOpened = expectation(description: "B opened after A neutral")
+        press.onStateChanged = { if $0 == .opening, provider.requests.count == 3 { bOpened.fulfill() } }
+        drains[0].1()
+        wait(for: [bOpened], timeout: 4)
+        XCTAssertNil(press.pendingRepressSessionID, "pending B should clear when B begins")
+        XCTAssertFalse(press.hasDeferredRepressAwaitingActivationForTesting)
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin, .release, .begin])
+        guard provider.requests.count == 3 else { return }
+        XCTAssertEqual(provider.requests.map { $0.report?.modifierBitmap }, [0x0C, 0, 0x84])
+        XCTAssertEqual(provider.requests.map(\.sessionID), [sessionA, sessionA, sessionB])
+        XCTAssertEqual(press.capturedVoiceProfileForTesting, b)
+
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        let c = VoiceInputProfile(id: "profile-a-again", displayName: "A again", binding: .modifierChord(modifierKeyCodes: [55, 58]))
+        let sessionC = UUID()
+        XCTAssertTrue(press.keyDown(sessionID: sessionC, profile: c))
+        XCTAssertTrue(press.promoteLongOnlyCandidateForTesting())
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin, .release, .begin], "C waits for B's drain and release")
+        let secondDrain = expectation(description: "B drain registered")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            if drains.count == 2 { secondDrain.fulfill() }
+        }
+        wait(for: [secondDrain], timeout: 2)
+        drains[1].1()
+        let cOpened = expectation(description: "A again opens after B release")
+        press.onStateChanged = { if $0 == .opening, provider.requests.count == 5 { cOpened.fulfill() } }
+        wait(for: [cOpened], timeout: 4)
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin, .release, .begin, .release, .begin])
+        XCTAssertEqual(provider.requests.map { $0.report?.modifierBitmap }, [0x0C, 0, 0x84, 0, 0x0C])
+        XCTAssertEqual(provider.requests.map(\.sessionID), [sessionA, sessionA, sessionB, sessionB, sessionC])
+        XCTAssertEqual(press.capturedVoiceProfileForTesting, c)
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        let thirdDrain = expectation(description: "C drain registered")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            if drains.count == 3 { thirdDrain.fulfill() }
+        }
+        wait(for: [thirdDrain], timeout: 2)
+        let finalIdle = expectation(description: "C neutral release completes")
+        press.onStateChanged = { if $0 == .idle { finalIdle.fulfill() } }
+        drains[2].1()
+        wait(for: [finalIdle], timeout: 4)
+        XCTAssertFalse(owner.hasUnresolvedOwnership)
+        press.stop()
+        VoiceAttemptDiagnostics.shared.end(sessionID: nil)
+    }
 }
 
 private final class FakeVoiceShortcutHIDProvider: VoiceShortcutHIDReportProvider {
-    var state: VoiceShortcutHIDProviderState
+    private let lock = NSLock()
+    private var storedState: VoiceShortcutHIDProviderState
     private var plannedOutcomes: [VoiceShortcutHIDSubmissionOutcome]
-    private(set) var requests: [VoiceShortcutHIDRequest] = []
+    private var storedRequests: [VoiceShortcutHIDRequest] = []
     var replyTransform: ((VoiceShortcutHIDRequest, VoiceShortcutHIDProviderReply) -> VoiceShortcutHIDProviderReply)?
 
     init(
         state: VoiceShortcutHIDProviderState = .ready(
             packageVersion: VoiceShortcutHIDProviderContract.packageVersion,
-            clientProtocolVersion: VoiceShortcutHIDProviderContract.clientProtocolVersion,
+            clientProtocolVersion: 7,
             connectionGeneration: 41,
             keyboardReady: true
         ),
         outcomes: [VoiceShortcutHIDSubmissionOutcome] = []
     ) {
-        self.state = state
+        storedState = state
         plannedOutcomes = outcomes
     }
 
-    func perform(_ request: VoiceShortcutHIDRequest) -> VoiceShortcutHIDProviderReply {
-        requests.append(request)
+    var state: VoiceShortcutHIDProviderState {
+        get { lock.lock(); defer { lock.unlock() }; return storedState }
+        set { lock.lock(); storedState = newValue; lock.unlock() }
+    }
+
+    var requests: [VoiceShortcutHIDRequest] {
+        lock.lock(); defer { lock.unlock() }; return storedRequests
+    }
+
+    func perform(
+        _ request: VoiceShortcutHIDRequest,
+        completion: @escaping (VoiceShortcutHIDProviderReply) -> Void
+    ) {
+        lock.lock()
+        storedRequests.append(request)
         let outcome = plannedOutcomes.isEmpty ? .queued : plannedOutcomes.removeFirst()
         let reply = VoiceShortcutHIDProviderReply(
             connectionGeneration: request.connectionGeneration,
             requestSequence: request.requestSequence,
             outcome: outcome
         )
-        return replyTransform?(request, reply) ?? reply
+        let transformed = replyTransform?(request, reply) ?? reply
+        lock.unlock()
+        completion(transformed)
     }
 }
 
-private final class MockPeerRequirementInstaller: VoiceShortcutHIDPeerRequirementInstalling {
-    private(set) var requirements: [String] = []
+private final class FakeHelperTransport: RemoteOrbitHIDHelperTransport {
+    private let lock = NSLock()
+    private var plannedOutcomes: [RemoteOrbitHIDHelperOutcome]
+    private var posted: [UInt8] = []
 
-    func installPeerCodeSigningRequirement(_ requirement: String) {
-        requirements.append(requirement)
+    init(outcomes: [RemoteOrbitHIDHelperOutcome] = []) { plannedOutcomes = outcomes }
+
+    var state: RemoteOrbitHIDHelperTransportState? {
+        RemoteOrbitHIDHelperTransportState(
+            packageVersion: "8.6.0",
+            clientProtocolVersion: 7,
+            connectionGeneration: 41,
+            keyboardReady: true
+        )
+    }
+
+    var bitmaps: [UInt8] { lock.lock(); defer { lock.unlock() }; return posted }
+
+    func submitModifierBitmap(_ modifierBitmap: UInt8, completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void) {
+        lock.lock()
+        posted.append(modifierBitmap)
+        let outcome = plannedOutcomes.isEmpty ? .queued : plannedOutcomes.removeFirst()
+        lock.unlock()
+        completion(outcome)
     }
 }

@@ -394,6 +394,8 @@ final class VoicePressCoordinator {
         var longConfirmed = false
         var previousVoiceOwnershipReady: Bool
         var triggerOwnershipReady: Bool
+        var virtualHIDBeginPending = false
+        var promotingPendingHardwareRepress = false
     }
 
     var onStateChanged: ((State) -> Void)?
@@ -510,12 +512,15 @@ final class VoicePressCoordinator {
     private var remoteInputLeaseHeld = false
     private let syntheticOptionTrigger: VoiceOptionTrigger
     private let voiceShortcutEmitter: VoiceShortcutEmitter
+    private let virtualHIDSessionOwner: VoiceShortcutHIDSessionOwner?
+    private var directSessionUsesVirtualHID = false
     private let diagnosticLogger: VoiceDiagnosticLogger?
     private var gesturePhysicalDownUptime: TimeInterval?
 
     init(
         optionTrigger: VoiceOptionTrigger = .shared,
         voiceShortcutEmitter: VoiceShortcutEmitter = VoiceShortcutEmitter(),
+        virtualHIDSessionOwner: VoiceShortcutHIDSessionOwner? = nil,
         diagnosticLogger: VoiceDiagnosticLogger? = nil,
         candidateTimerFactory: @escaping
             (TimeInterval, @escaping () -> Void) -> VoicePressCandidateTimer =
@@ -523,6 +528,7 @@ final class VoicePressCoordinator {
     ) {
         syntheticOptionTrigger = optionTrigger
         self.voiceShortcutEmitter = voiceShortcutEmitter
+        self.virtualHIDSessionOwner = virtualHIDSessionOwner
         self.diagnosticLogger = diagnosticLogger
         self.candidateTimerFactory = candidateTimerFactory
         if let diagnosticLogger {
@@ -551,11 +557,26 @@ final class VoicePressCoordinator {
 
     var hasUnresolvedVoiceShortcutOwnership: Bool {
         voiceShortcutEmitter.hasUnresolvedOwnership
+            || virtualHIDSessionOwner?.hasUnresolvedOwnership == true
     }
 
     @discardableResult
     func recoverPendingVoiceShortcutReleaseOwnership() -> Bool {
-        voiceShortcutEmitter.recoverPendingReleases()
+        let emitterRecovered = voiceShortcutEmitter.recoverPendingReleases()
+        guard let virtualHIDSessionOwner,
+              virtualHIDSessionOwner.hasUnresolvedOwnership else {
+            return emitterRecovered
+        }
+        virtualHIDSessionOwner.recoverPendingRelease { [weak self] recovered in
+            guard let self, recovered else { return }
+            DispatchQueue.main.async {
+                guard self.directSessionUsesVirtualHID,
+                      self.directOutputDrained,
+                      let sessionID = self.gestureID else { return }
+                self.completeDirectVoiceSession(sessionID: sessionID)
+            }
+        }
+        return false
     }
 
     var remoteInputLeaseHeldForTesting: Bool {
@@ -651,6 +672,7 @@ final class VoicePressCoordinator {
             || remoteStreaming
             || remoteAudioAvailable
             || deferredRepressAwaitingActivation
+            || virtualHIDSessionOwner?.hasUnresolvedOwnership == true
     }
 
     var hasVoiceKeyHeldForReconfiguration: Bool {
@@ -664,6 +686,7 @@ final class VoicePressCoordinator {
             || remoteStreaming
             || remoteAudioAvailable
             || deferredRepressAwaitingActivation
+            || virtualHIDSessionOwner?.hasUnresolvedOwnership == true
     }
 
     var hasAnyOwnershipForQATapRecreation: Bool {
@@ -690,6 +713,7 @@ final class VoicePressCoordinator {
             || syntheticOptionTrigger.activeSessionID != nil
             || syntheticOptionTrigger.isOptionDown
             || voiceShortcutEmitter.hasUnresolvedOwnership
+            || virtualHIDSessionOwner?.hasUnresolvedOwnership == true
             || livePhysicalCandidateForAdmission
     }
 
@@ -1020,6 +1044,10 @@ final class VoicePressCoordinator {
         guard longOnlyCandidate?.sessionID == candidate.sessionID else { return }
         longOnlyCandidateTimer?.cancel()
         longOnlyCandidateTimer = nil
+        if virtualHIDApplies(to: candidate.profile) {
+            beginVirtualHIDPromotion(candidate)
+            return
+        }
         longOnlyCandidate = nil
         let activated = startDirectVoicePress(
             sessionID: candidate.sessionID,
@@ -1045,6 +1073,102 @@ final class VoicePressCoordinator {
         )
     }
 
+    private func virtualHIDApplies(to profile: VoiceInputProfile) -> Bool {
+        guard virtualHIDSessionOwner != nil else { return false }
+        if case .modifierChord = profile.binding { return true }
+        return false
+    }
+
+    private func beginVirtualHIDPromotion(
+        _ candidate: LongOnlyCandidate,
+        promotingPendingHardwareRepress: Bool = false
+    ) {
+        guard let virtualHIDSessionOwner,
+              var current = longOnlyCandidate,
+              current.sessionID == candidate.sessionID,
+              !current.virtualHIDBeginPending else { return }
+        guard case let .modifierChord(modifierKeyCodes) = candidate.profile.binding else { return }
+        current.virtualHIDBeginPending = true
+        current.promotingPendingHardwareRepress = promotingPendingHardwareRepress
+        longOnlyCandidate = current
+        virtualHIDSessionOwner.begin(
+            sessionID: candidate.sessionID,
+            modifierKeyCodes: modifierKeyCodes,
+            completion: { [weak self] admission in
+                DispatchQueue.main.async {
+                    self?.finishVirtualHIDPromotion(
+                        sessionID: candidate.sessionID,
+                        admission: admission
+                    )
+                }
+            }
+        )
+    }
+
+    private func finishVirtualHIDPromotion(
+        sessionID: UUID,
+        admission: VoiceShortcutHIDSessionAdmission
+    ) {
+        guard let virtualHIDSessionOwner,
+              let candidate = longOnlyCandidate,
+              candidate.sessionID == sessionID,
+              candidate.virtualHIDBeginPending else {
+            if admission == .accepted {
+                virtualHIDSessionOwner?.end(sessionID: sessionID) { _ in }
+            }
+            return
+        }
+        longOnlyCandidate = nil
+        longOnlyCandidateTimer?.cancel()
+        longOnlyCandidateTimer = nil
+
+        guard admission == .accepted else {
+            if candidate.promotingPendingHardwareRepress {
+                pendingRepress = nil
+                deferredRepressAwaitingActivation = false
+                deferredRepressWaitReason = nil
+                clearPendingDirectHardwareRepressState()
+            }
+            finishFailedLongOnlyCandidate(candidate)
+            return
+        }
+
+        let activated = startDirectVoicePress(
+            sessionID: candidate.sessionID,
+            profile: candidate.profile,
+            usesHardwareOption: candidate.triggerStrategy == .hardware
+                ? candidate.usesHardwareOption
+                : false,
+            promotingPendingHardwareRepress: candidate.promotingPendingHardwareRepress,
+            fromLongOnlyCandidate: true,
+            syntheticHandoff: candidate.triggerStrategy == .syntheticHandoff,
+            virtualHIDTriggerAlreadyStarted: true
+        )
+        if candidate.promotingPendingHardwareRepress {
+            pendingRepress = nil
+            deferredRepressAwaitingActivation = false
+            deferredRepressWaitReason = nil
+            clearPendingDirectHardwareRepressState()
+        }
+        guard activated else {
+            virtualHIDSessionOwner.abort(sessionID: sessionID) { _ in }
+            finishFailedLongOnlyCandidate(candidate)
+            return
+        }
+        onLongOnlyCandidatePromoted?(
+            candidate.sessionID,
+            candidate.targetApplicationBundleIdentifier
+        )
+        logAdmissionDecision(
+            sessionID: candidate.sessionID,
+            result: "admitted",
+            reason: "long_hold_confirmed_virtual_hid_queued"
+        )
+        if !candidate.isStillHeld {
+            _ = finishDirectVoicePressRelease()
+        }
+    }
+
     private func finishFailedLongOnlyCandidate(_ candidate: LongOnlyCandidate) {
         defer { releaseRemoteInputLeaseIfUnowned() }
         if candidate.triggerStrategy == .syntheticHandoff {
@@ -1055,6 +1179,8 @@ final class VoicePressCoordinator {
                 _ = onHardwareOptionGateShortDiscard?(candidate.sessionID)
                     ?? false
             }
+        } else if virtualHIDApplies(to: candidate.profile) {
+            virtualHIDSessionOwner?.abort(sessionID: candidate.sessionID) { _ in }
         } else if candidate.triggerStrategy == .voiceShortcutChord {
             _ = voiceShortcutEmitter.abort(sessionID: candidate.sessionID)
         } else {
@@ -1138,7 +1264,8 @@ final class VoicePressCoordinator {
         usesHardwareOption: Bool,
         promotingPendingHardwareRepress: Bool = false,
         fromLongOnlyCandidate: Bool = false,
-        syntheticHandoff: Bool = false
+        syntheticHandoff: Bool = false,
+        virtualHIDTriggerAlreadyStarted: Bool = false
     ) -> Bool {
         let usesHardwareOption = usesHardwareOption && profile.triggerKey != nil
         if directSession,
@@ -1203,7 +1330,7 @@ final class VoicePressCoordinator {
         guard mode == .idle,
               gestureID == nil,
               !directSession,
-              !hasReleaseOrTailOwnershipForReconfiguration,
+              (!hasReleaseOrTailOwnershipForReconfiguration || virtualHIDTriggerAlreadyStarted),
               isVoiceSessionAdmissionBlocked?() != true else {
             if promotingPendingHardwareRepress, usesHardwareOption {
                 onHardwareOptionGatePendingRepressCancel?(
@@ -1238,7 +1365,7 @@ final class VoicePressCoordinator {
             return false
         }
 
-        if profile.binding.usesVoiceShortcutEmitter {
+        if profile.binding.usesVoiceShortcutEmitter, !virtualHIDTriggerAlreadyStarted {
             let beginResult = voiceShortcutEmitter.begin(
                 sessionID: sessionID,
                 entryID: profile.id,
@@ -1265,6 +1392,7 @@ final class VoicePressCoordinator {
         }
 
         directSession = true
+        directSessionUsesVirtualHID = virtualHIDTriggerAlreadyStarted
         capturedVoiceProfile = profile
         directPhysicalUp = false
         directTransportStopObserved = false
@@ -1398,12 +1526,15 @@ final class VoicePressCoordinator {
         )
 
         let drainProfile = capturedVoiceProfile
+        let drainUsesVirtualHID = directSessionUsesVirtualHID
         let completion = { [weak self] in
             guard let self else { return }
             guard self.directSession,
                   self.gestureID == sessionID,
                   !self.directOutputDrained else {
-                if let drainProfile, drainProfile.binding.usesVoiceShortcutEmitter {
+                if !drainUsesVirtualHID,
+                   let drainProfile,
+                   drainProfile.binding.usesVoiceShortcutEmitter {
                     self.voiceShortcutEmitter.recordLateDrainCallback(
                         sessionID: sessionID,
                         entryID: drainProfile.id,
@@ -1431,7 +1562,28 @@ final class VoicePressCoordinator {
                 }
                 _ = self.syntheticOptionTrigger.sendUp(sessionID: sessionID)
             } else if self.capturedVoiceProfile?.binding.usesVoiceShortcutEmitter == true {
-                _ = self.voiceShortcutEmitter.end(sessionID: sessionID)
+                if self.directSessionUsesVirtualHID {
+                    self.virtualHIDSessionOwner?.end(sessionID: sessionID) { [weak self] neutralQueued in
+                        DispatchQueue.main.async {
+                            guard let self,
+                                  self.directSession,
+                                  self.gestureID == sessionID else { return }
+                            if neutralQueued {
+                                self.completeDirectVoiceSession(sessionID: sessionID)
+                            } else {
+                                self.diagnosticLogger?.log(
+                                    category: "voice",
+                                    event: "VIRTUAL_HID_NEUTRAL_RELEASE_UNRESOLVED",
+                                    gestureID: sessionID,
+                                    fields: ["voice_session_state": "draining"]
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    _ = self.voiceShortcutEmitter.end(sessionID: sessionID)
+                    self.completeDirectVoiceSession(sessionID: sessionID)
+                }
             } else {
                 _ = self.syntheticOptionTrigger.abort(sessionID: sessionID)
             }
@@ -1440,7 +1592,9 @@ final class VoicePressCoordinator {
             } else {
                 VoiceTimingLogger.mark("OPTION_UP_REQUESTED", sessionID: sessionID)
             }
-            self.completeDirectVoiceSession(sessionID: sessionID)
+            if !self.directSessionUsesVirtualHID {
+                self.completeDirectVoiceSession(sessionID: sessionID)
+            }
         }
 
         if let onRemoteOutputDrain {
@@ -1462,6 +1616,7 @@ final class VoicePressCoordinator {
         preserveCandidateForDirectTransportStop = false
         directOutputDrainRequested = false
         directOutputDrained = false
+        directSessionUsesVirtualHID = false
         capturedVoiceProfile = nil
         remoteStreaming = false
         remoteAudioAvailable = false
@@ -1573,6 +1728,13 @@ final class VoicePressCoordinator {
                 current.longConfirmed = true
                 longOnlyCandidate = current
                 tryPromoteLongOnlyCandidate(sessionID: current.sessionID)
+            }
+            if var pending = longOnlyCandidate,
+               pending.sessionID == candidate.sessionID,
+               pending.virtualHIDBeginPending {
+                pending.isStillHeld = false
+                longOnlyCandidate = pending
+                return true
             }
             if longOnlyCandidate != nil {
                 _ = cancelLongOnlyCandidate(reason: "physical-up-before-promotion")
@@ -1784,7 +1946,11 @@ final class VoicePressCoordinator {
                 _ = finishDirectVoicePressRelease()
             }
             if !directOutputDrainRequested {
-                completeDirectVoiceSession(sessionID: sessionID)
+                directTransportStopObserved = true
+                finishDirectTransportStop(
+                    sessionID: sessionID,
+                    allowWithoutPhysicalUp: true
+                )
             }
             return
         }
@@ -1903,6 +2069,14 @@ final class VoicePressCoordinator {
            (longOnlyCandidate.sessionID != pendingRepress.sessionID
                 || !longOnlyCandidate.longConfirmed
                 || !longOnlyCandidate.isStillHeld) {
+            return
+        }
+        if let longOnlyCandidate,
+           virtualHIDApplies(to: longOnlyCandidate.profile) {
+            beginVirtualHIDPromotion(
+                longOnlyCandidate,
+                promotingPendingHardwareRepress: true
+            )
             return
         }
         self.pendingRepress = nil
