@@ -4,7 +4,7 @@ Files in this directory are retained because they contain unique incident/forens
 
 Before using one of these files:
 
-1. Read `AGENTS.md` and select the approved GitHub Issue revision that authorizes the current work; verify its repository, task, digest, and approval before any state-changing action.
+1. Use the installed Engineering Governance workflow and `AGENTS.md` to resolve current task authority; incident files themselves grant no write authority.
 2. Verify the current source/runtime identity independently.
 3. Treat branch names, PR states, source heads, runtime PIDs, device state and proposed fixes inside an incident file as facts about that captured window only.
 4. Do not revive Persistent, dual-receiver, Receiver B, local-microphone voice-button or other retired semantics because an older incident mentions them.

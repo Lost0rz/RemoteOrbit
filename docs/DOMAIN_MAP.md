@@ -212,7 +212,7 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 
 ## D8 — Repository governance, CI and evidence lifecycle
 
-**Purpose:** Keep one current project authority, route routine verification, and prevent historical plans/incidents from becoming live task or product authority.
+**Purpose:** Map RemoteOrbit project authorities and evidence locations, and prevent historical plans/incidents from becoming live task or product authority.
 
 **Primary routes**
 
