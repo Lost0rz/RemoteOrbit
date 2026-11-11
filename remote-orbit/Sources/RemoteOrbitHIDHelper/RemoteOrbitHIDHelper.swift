@@ -363,7 +363,7 @@ public final class RemoteOrbitHIDHelperSessionManager {
                 }
                 return
             }
-            var candidate = Owner(
+            let candidate = Owner(
                 identity: UUID(),
                 connectionID: request.connectionID,
                 sessionID: request.sessionID,
@@ -376,11 +376,19 @@ public final class RemoteOrbitHIDHelperSessionManager {
                 guard let self else { return }
                 self.queue.async {
                     if self.owner?.identity == candidate.identity {
-                        if outcome == .rejected {
-                            self.owner = nil
-                        } else if outcome == .outcomeUnknown {
-                            candidate.releasePending = true
-                            self.owner = candidate
+                        switch outcome {
+                        case .rejected:
+                            let neutralIsUnresolved = self.owner?.releasePending == true
+                                || self.neutralFlight?.ownerIdentity == candidate.identity
+                            if neutralIsUnresolved {
+                                self.owner?.releasePending = true
+                            } else {
+                                self.owner = nil
+                            }
+                        case .outcomeUnknown:
+                            self.owner?.releasePending = true
+                        case .queued:
+                            break
                         }
                     }
                     self.finish(request, outcome, completion)

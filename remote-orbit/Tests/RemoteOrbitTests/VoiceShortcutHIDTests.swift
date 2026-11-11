@@ -639,6 +639,115 @@ final class RemoteOrbitHIDHelperSessionTests: XCTestCase {
         XCTAssertFalse(manager.hasUnresolvedOwnership)
     }
 
+    func testRejectedBeginRetainsOwnerUntilItsDisconnectNeutralFlightResolves() {
+        let transport = ControlledFakeHelperTransport()
+        let manager = RemoteOrbitHIDHelperSessionManager(transport: transport, physicalModifierKeyCodesProvider: { [] })
+        let connectionA = UUID(), sessionA = UUID()
+        let connectionB = UUID(), sessionB = UUID()
+        var aBeginReply: RemoteOrbitHIDHelperReply?
+        var aBeginCallbackCount = 0
+        let aBeginCompleted = expectation(description: "A begin rejection returned while disconnect neutral remains pending")
+        manager.submit(request(connectionA, id: sessionA, seq: 1, operation: .begin([55, 58]))) { reply in
+            aBeginReply = reply
+            aBeginCallbackCount += 1
+            aBeginCompleted.fulfill()
+        }
+        guard transport.waitForSubmissionCount(1) else { return XCTFail("A begin was not submitted") }
+
+        manager.disconnect(connectionID: connectionA)
+        guard transport.waitForSubmissionCount(2) else { return XCTFail("A disconnect neutral was not submitted") }
+        XCTAssertEqual(transport.bitmap(at: 1), 0)
+
+        transport.complete(at: 0, outcome: .rejected)
+        wait(for: [aBeginCompleted], timeout: 2)
+        XCTAssertEqual(aBeginReply?.outcome, .rejected)
+        XCTAssertTrue(manager.hasUnresolvedOwnership, "A must remain fenced while its neutral flight is unresolved")
+
+        var earlyBBeginReply: RemoteOrbitHIDHelperReply?
+        var earlyBReleaseReply: RemoteOrbitHIDHelperReply?
+        var earlyBBeginCallbackCount = 0
+        var earlyBReleaseCallbackCount = 0
+        manager.submit(request(connectionB, id: sessionB, seq: 2, operation: .begin([54, 58]))) { reply in
+            earlyBBeginReply = reply
+            earlyBBeginCallbackCount += 1
+        }
+        manager.submit(request(connectionB, id: sessionB, seq: 3, operation: .release)) { reply in
+            earlyBReleaseReply = reply
+            earlyBReleaseCallbackCount += 1
+        }
+        _ = manager.hasUnresolvedOwnership
+        let submissionsWhileANeutralIsPending = transport.submissionCount
+        XCTAssertEqual(submissionsWhileANeutralIsPending, 2, "B begin/release cannot post before A neutral resolves")
+        guard submissionsWhileANeutralIsPending == 2 else {
+            transport.complete(at: 1, outcome: .queued)
+            transport.complete(at: 2, outcome: .queued)
+            _ = manager.hasUnresolvedOwnership
+            XCTAssertEqual(earlyBBeginReply?.outcome, .queued, "the old code accepted B before A neutral resolved")
+            XCTAssertEqual(earlyBReleaseReply?.outcome, .outcomeUnknown)
+            XCTAssertEqual(earlyBBeginCallbackCount, 1)
+            XCTAssertEqual(earlyBReleaseCallbackCount, 1)
+
+            let cleanupRecovery = expectation(description: "cleanup recovery for pre-fix accepted B")
+            manager.submit(request(connectionB, id: sessionB, seq: 4, operation: .recover)) { reply in
+                XCTAssertEqual(reply.outcome, .queued)
+                cleanupRecovery.fulfill()
+            }
+            guard transport.waitForSubmissionCount(4) else { return XCTFail("cleanup neutral was not submitted") }
+            transport.complete(at: 3, outcome: .queued)
+            wait(for: [cleanupRecovery], timeout: 2)
+            XCTAssertFalse(manager.hasUnresolvedOwnership)
+            return
+        }
+        guard manager.hasUnresolvedOwnership else {
+            XCTFail("B begin was submitted before A's neutral flight resolved")
+            return
+        }
+        XCTAssertEqual(earlyBBeginReply?.outcome, .rejected)
+        XCTAssertEqual(earlyBReleaseReply?.outcome, .rejected)
+        XCTAssertEqual(earlyBBeginCallbackCount, 1)
+        XCTAssertEqual(earlyBReleaseCallbackCount, 1)
+        XCTAssertTrue(manager.hasUnresolvedOwnership)
+
+        transport.complete(at: 1, outcome: .queued)
+        XCTAssertFalse(manager.hasUnresolvedOwnership, "queued A neutral resolves the old owner")
+
+        var bBeginReply: RemoteOrbitHIDHelperReply?
+        var bBeginCallbackCount = 0
+        let bBeginCompleted = expectation(description: "B begins after A neutral completes")
+        manager.submit(request(connectionB, id: sessionB, seq: 4, operation: .begin([54, 58]))) { reply in
+            bBeginReply = reply
+            bBeginCallbackCount += 1
+            bBeginCompleted.fulfill()
+        }
+        guard transport.waitForSubmissionCount(3) else { return XCTFail("B retry begin was not submitted") }
+        XCTAssertEqual(transport.bitmap(at: 2), 0x84)
+        transport.complete(at: 2, outcome: .queued)
+        wait(for: [bBeginCompleted], timeout: 2)
+        XCTAssertEqual(bBeginReply?.outcome, .queued)
+        XCTAssertTrue(manager.hasUnresolvedOwnership)
+
+        var bReleaseReply: RemoteOrbitHIDHelperReply?
+        var bReleaseCallbackCount = 0
+        let bReleaseCompleted = expectation(description: "B release completes after begin")
+        manager.submit(request(connectionB, id: sessionB, seq: 5, operation: .release)) { reply in
+            bReleaseReply = reply
+            bReleaseCallbackCount += 1
+            bReleaseCompleted.fulfill()
+        }
+        guard transport.waitForSubmissionCount(4) else { return XCTFail("B neutral release was not submitted") }
+        XCTAssertEqual(transport.bitmap(at: 3), 0)
+        transport.complete(at: 3, outcome: .queued)
+        wait(for: [bReleaseCompleted], timeout: 2)
+        XCTAssertEqual(bReleaseReply?.outcome, .queued)
+        XCTAssertFalse(manager.hasUnresolvedOwnership)
+        XCTAssertEqual(aBeginCallbackCount, 1)
+        XCTAssertEqual(bBeginCallbackCount, 1)
+        XCTAssertEqual(bReleaseCallbackCount, 1)
+        XCTAssertEqual(transport.indices(for: 0x0C).count, 1)
+        XCTAssertEqual(transport.indices(for: 0x84).count, 1)
+        XCTAssertEqual(transport.indices(for: 0).count, 2)
+    }
+
     private func request(
         _ connection: UUID,
         id: UUID = UUID(),
