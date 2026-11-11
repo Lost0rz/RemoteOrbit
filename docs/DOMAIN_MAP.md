@@ -4,15 +4,13 @@ Status: `DERIVED_PROJECTION`
 Last audited: 2026-11-09
 Original source-routing snapshot: `997e51d3aebe65c3942530b10a3b63dbfdcd5476` plus Task 051 worktree observations (historical, not proof of current `main` symbols; revalidate routes against current source before use)
 
-This file is a navigation map derived from current source and tests. It does **not** own product behavior, task authority, release state, or runtime facts. When this map conflicts with accepted RemoteOrbit product rules, current source or fresh runtime evidence, the owning authority wins and this map must be refreshed. Reusable task/approval workflow is external to this navigation map and owned by the installed Engineering Governance plugin.
+This is a derived map of RemoteOrbit product capabilities to source, runtime and tests. Current implementation and accepted product semantics take precedence over stale routes; the map does not define task authorization or engineering workflows.
 
-## Authority and entry points
+## RemoteOrbit source and operational entry points
 
 | Concern | Owner / entry point |
 | --- | --- |
 | RemoteOrbit-specific durable product/runtime rules | `AGENTS.md` |
-| Generic engineering task authorization, approval and verification workflow | Installed Engineering Governance plugin (not this map) |
-| Commit, PR, CI, merge, and release evidence | GitHub records for the corresponding artifact |
 | Product overview | `README.md` |
 | Install / operator troubleshooting | `SETUP_NOTES.md` |
 | App entry / top-level orchestration | `remote-orbit/Sources/RemoteOrbit/main.swift` |
@@ -209,23 +207,6 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 
 **Boundary:** Packaging/install/release are distinct lifecycle actions. A source/doc/diagnostic task does not authorize installation, CoreAudio restart, tag, Release, or publication.
 
-## D8 — Project source, CI and evidence entry points
-
-**Purpose:** Index RemoteOrbit-specific source, CI configuration and historical-evidence entry points without specifying a competing engineering workflow.
-
-**Primary routes**
-
-- `AGENTS.md` — RemoteOrbit-specific durable constraints
-- `.github/workflows/remoteorbit-ci.yml` — project test/build jobs and runner configuration
-- `docs/README.md` — document classification
-- `docs/incidents/README.md` — time-bounded forensic evidence
-
-**Historical evidence routes**
-
-- `docs/incidents/*.md`
-- root `RELEASE_NOTES_v*.md`
-- Git history for completed task plans/designs removed from the active documentation tree.
-
 ## Cross-domain runtime path
 
 ```text
@@ -240,9 +221,5 @@ Meanwhile:
   D6 observes bounded evidence without owning the production state machine
   D5 owns user configuration/product surface
   D7 owns build/install/distribution boundaries
-  D8 indexes local source/CI/document entry points; generic engineering workflow remains plugin-owned
 ```
 
-## Refresh rule
-
-Refresh only the Domain routes materially affected by source/test/ownership changes. Do not rewrite this whole map simply to record that a check occurred. A source move, retired/added capability, changed owner, changed test route, changed runtime entry point, or contradiction with current source is a refresh trigger.

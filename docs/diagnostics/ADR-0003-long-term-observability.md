@@ -14,6 +14,8 @@ When the effective diagnostics gate is enabled, the system can preserve two evid
 - **L1** — one compact `voice.session.summary` for a session, carrying stable correlation fields such as `session_id` and `capture_id`, lifecycle/timing/counter summaries and diagnostic drop/write state.
 - **L2** — bounded high-resolution incident evidence retained/emitted only when the centralized anomaly policy classifies a session as worth preserving.
 
+Here L1/L2 refer only to RemoteOrbit's diagnostic evidence levels, not engineering execution-deviation categories.
+
 L2 rings/chunks are fixed-capacity and producer work must remain bounded. Diagnostic queue/journal failure is evidence loss, not permission to block BLE/CoreAudio/gesture production paths.
 
 ## Runtime gate — Task 045A

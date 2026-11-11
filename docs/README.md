@@ -29,23 +29,15 @@ Release notes describe the behavior of the named historical release. They are in
 
 Published release state lives in GitHub Releases. Current source version metadata lives in `remote-orbit/Packaging/Info.plist`.
 
-## Removed from the active documentation tree on 2026-11-01
+## Retired historical document locations
 
-The following classes were removed because they were completed task artifacts, superseded business designs, duplicated planning surfaces or frozen diagnostic architecture that could be mistaken for current authority:
+Completed or superseded design and investigation materials remain recoverable through Git history, rather than serving as current RemoteOrbit architecture:
 
 - `docs/design/` task 043/045 audit, corrective and retirement plans;
 - `docs/superpowers/` historical plans/specs, including dual-receiver and old voice-pipeline plans;
+- `remote-orbit/docs/superpowers/plans/2026-09-24-post-release-capture-grace.md` — legacy P1-A9 execution plan with a retired external Skill requirement;
 - `docs/incident-diagnostics/PERSISTENT_LONG_DIAGNOSTIC_ARCHITECTURE.md`;
 - `docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`.
 
 Their history remains recoverable from Git. Deletion from the current tree means **“not a current navigation/design authority”**, not “the historical work never existed.”
 
-## Authoring rules
-
-1. Put durable **RemoteOrbit-specific** product, hardware, runtime and data-safety MUST/MUST-NOT rules in `AGENTS.md`; do not copy reusable engineering workflow or permission declarations there.
-2. Do not prescribe generic task authorization, Issue approval, PR lifecycle or audit procedures in repository documentation. Those belong to the installed Engineering Governance plugin; current PR, CI, commit and release facts remain in their GitHub records.
-3. Add a durable design/ADR only when future tasks genuinely need the decision after the current task ends.
-4. Completed task plans, audit diaries, branch/PR progress logs and one-off corrective cards should normally disappear from the active documentation tree after their durable conclusions have moved to the correct owner.
-5. Preserve incident evidence when it has unique forensic value, but label it historical and never let it override current authority.
-6. Keep release notes version-specific; do not rewrite old releases to match current product semantics.
-7. `DOMAIN_MAP.md` is navigation only. Refresh affected routes from current source/tests when ownership or paths change; do not copy task status into it.
