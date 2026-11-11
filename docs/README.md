@@ -13,7 +13,7 @@ This directory contains only documentation that still has a clear current or his
 | `diagnostics/ADR-0002-read-only-diagnostic-cli.md` | Durable read-only CLI boundary | design authority |
 | `diagnostics/ADR-0003-long-term-observability.md` | Durable long-term observability decision | design authority |
 
-`AGENTS.md` owns durable rules and selects the accepted control mode. In `ISSUE_CONTROL`, one explicitly selected, approved GitHub Issue revision owns the active task; its comments hold approval, revocation, and execution receipts. No document in `docs/` replaces those authorities. The legacy root `CURRENT_TASK.md` and `CURRENT_STATUS.md` are retired from active authority; their prior contents remain in Git history.
+`AGENTS.md` contains RemoteOrbit-specific product behavior and runtime safety notes. The documents listed here describe the product, its architecture, operation and historical evidence.
 
 ## Historical evidence
 
@@ -29,23 +29,15 @@ Release notes describe the behavior of the named historical release. They are in
 
 Published release state lives in GitHub Releases. Current source version metadata lives in `remote-orbit/Packaging/Info.plist`.
 
-## Removed from the active documentation tree on 2026-11-01
+## Retired historical document locations
 
-The following classes were removed because they were completed task artifacts, superseded business designs, duplicated planning surfaces or frozen diagnostic architecture that could be mistaken for current authority:
+Completed or superseded design and investigation materials remain recoverable through Git history, rather than serving as current RemoteOrbit architecture:
 
 - `docs/design/` task 043/045 audit, corrective and retirement plans;
 - `docs/superpowers/` historical plans/specs, including dual-receiver and old voice-pipeline plans;
+- `remote-orbit/docs/superpowers/plans/2026-09-24-post-release-capture-grace.md` — legacy P1-A9 execution plan with a retired external Skill requirement;
 - `docs/incident-diagnostics/PERSISTENT_LONG_DIAGNOSTIC_ARCHITECTURE.md`;
 - `docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`.
 
 Their history remains recoverable from Git. Deletion from the current tree means **“not a current navigation/design authority”**, not “the historical work never existed.”
 
-## Authoring rules
-
-1. Put durable MUST/MUST-NOT engineering rules in `AGENTS.md`, not a fourth control document.
-2. Keep the approved task scope in the selected Issue and its progress/decision receipts in comments on that same Issue; keep PR, CI, commit, and release facts in their GitHub records.
-3. Add a durable design/ADR only when future tasks genuinely need the decision after the current task ends.
-4. Completed task plans, audit diaries, branch/PR progress logs and one-off corrective cards should normally disappear from the active documentation tree after their durable conclusions have moved to the correct owner.
-5. Preserve incident evidence when it has unique forensic value, but label it historical and never let it override current authority.
-6. Keep release notes version-specific; do not rewrite old releases to match current product semantics.
-7. `DOMAIN_MAP.md` is navigation only. Refresh affected routes from current source/tests when ownership or paths change; do not copy task status into it.

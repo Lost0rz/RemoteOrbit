@@ -6,7 +6,7 @@ RemoteOrbit 把 Xiaomi Bluetooth Voice Remote 2 Pro 的蓝牙 ATVV 语音链路�
 
 - `main` 源码版本元数据：`0.2.15` / Build `44`。
 - 版本元数据来自 `remote-orbit/Packaging/Info.plist`；已发布版本以 GitHub Releases 为准，不在本文件复制“最新 Release”状态。
-- `AGENTS.md` 保存长期工程规则；当前执行范围由被批准的 GitHub Issue 及其准确 Revision / SHA-256 指定。PR、CI 与交付状态以 GitHub 实时记录为准。
+- `AGENTS.md` 记录 RemoteOrbit 专属的产品行为、硬件边界与运行安全约束。
 - 项目结构与源码/测试入口见 [`docs/DOMAIN_MAP.md`](docs/DOMAIN_MAP.md)。
 
 ## 语音键合同
@@ -61,7 +61,7 @@ sudo ./remote-orbit-audio-driver/install-driver.sh
 open /Applications/RemoteOrbit.app
 ```
 
-驱动安装、CoreAudio 重载和系统权限均属于有副作用操作；自动化 Agent 不应绕过管理员授权或 macOS 隐私控制。
+驱动安装、CoreAudio 重载和系统权限更改都会影响实际运行环境，需在 macOS 管理员权限与隐私控制允许的条件下操作。
 
 ## 测试与 CI
 
@@ -86,17 +86,14 @@ open /Applications/RemoteOrbit.app
 
 诊断关闭不能关闭语音正确性所需要的 ownership、release/drain、suppression、watchdog 或 transport 机制。
 
-## 文档权威
+## 项目资料
 
-[`docs/README.md`](docs/README.md) 定义当前文档分类。简要规则：
+[`docs/README.md`](docs/README.md) 列出当前项目资料：
 
 - `README.md`：当前产品/仓库入口。
-- `AGENTS.md`：长期工程规则与已接受的控制模式。
-- `ISSUE_CONTROL`：被批准的 Issue 及准确 Revision / SHA-256 是当前任务授权；同一 Issue 的评论记录审批、撤销和执行回执，PR / CI 仍由 GitHub 记录。
+- `AGENTS.md`：RemoteOrbit 产品和运行时技术约束。
 - `SETUP_NOTES.md`：当前安装与排障入口。
 - `docs/DOMAIN_MAP.md`：从源码和测试派生的导航地图，不拥有业务合同。
 - `docs/diagnostics/ADR-*.md`：仍有效的长期诊断设计决策。
 - `docs/incidents/`：历史事故证据，不是当前产品或设计权威。
 - 根目录 `RELEASE_NOTES_v*.md`：对应版本的历史发布记录；旧版本中的业务语义不得被当成当前合同。
-- 旧根目录 `CURRENT_TASK.md` / `CURRENT_STATUS.md` 已从活动控制面退役；历史内容可从 Git 历史追溯，不再作为当前任务状态或授权。
-- 已完成的任务计划、corrective/audit 设计和已退役业务方案由 Git 历史保存，不继续留在当前文档树充当现行指导。
