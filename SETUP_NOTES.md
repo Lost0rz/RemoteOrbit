@@ -189,8 +189,8 @@ RemoteOrbit 的本地探针只能证明本地边界，不能从本地日志单�
 ## 10. 文档入口
 
 - 产品/仓库入口：`README.md`
-- 工程规则及已接受控制模式：`AGENTS.md`
-- 当前授权任务：从 GitHub 读取被批准的 Issue，并核对仓库、Issue、`TASK_ID`、`SPEC_REVISION` 与规范 SHA-256；审批和执行回执保存在同一 Issue 的评论中。
+- RemoteOrbit 专属工程与运行安全规则：`AGENTS.md`
+- 通用任务授权、审批及执行流程：由当前安装的 Engineering Governance 插件统一管理；本安装文档不指定或覆盖工作流。
 - PR、CI、提交与发布状态：以 GitHub 对应记录为准。
 - Domain 导航：`docs/DOMAIN_MAP.md`
 - 文档分类：`docs/README.md`

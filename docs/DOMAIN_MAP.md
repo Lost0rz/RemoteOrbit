@@ -2,17 +2,16 @@
 
 Status: `DERIVED_PROJECTION`
 Last audited: 2026-11-09
-Source snapshot used for route verification: `997e51d3aebe65c3942530b10a3b63dbfdcd5476` plus the Task 051 working-tree paths listed below
+Original source-routing snapshot: `997e51d3aebe65c3942530b10a3b63dbfdcd5476` plus Task 051 worktree observations (historical, not proof of current `main` symbols; revalidate routes against current source before use)
 
-This file is a navigation map derived from current source and tests. It does **not** own product behavior, task authority, release state, or runtime facts. When this map conflicts with `AGENTS.md`, the selected approved GitHub Issue, current implementation authority, or fresh runtime evidence, the owning authority wins and this map must be refreshed.
+This file is a navigation map derived from current source and tests. It does **not** own product behavior, task authority, release state, or runtime facts. When this map conflicts with accepted RemoteOrbit product rules, current source or fresh runtime evidence, the owning authority wins and this map must be refreshed. Reusable task/approval workflow is external to this navigation map and owned by the installed Engineering Governance plugin.
 
 ## Authority and entry points
 
 | Concern | Owner / entry point |
 | --- | --- |
-| Durable product and engineering rules | `AGENTS.md` |
-| Active execution authorization and Work Packages | One selected, approved GitHub Issue revision and canonical digest |
-| Approval, revocation, and execution receipts | Comments on that same Issue |
+| RemoteOrbit-specific durable product/runtime rules | `AGENTS.md` |
+| Generic engineering task authorization, approval and verification workflow | Installed Engineering Governance plugin (not this map) |
 | Commit, PR, CI, merge, and release evidence | GitHub records for the corresponding artifact |
 | Product overview | `README.md` |
 | Install / operator troubleshooting | `SETUP_NOTES.md` |
@@ -210,17 +209,16 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 
 **Boundary:** Packaging/install/release are distinct lifecycle actions. A source/doc/diagnostic task does not authorize installation, CoreAudio restart, tag, Release, or publication.
 
-## D8 — Repository governance, CI and evidence lifecycle
+## D8 — Project source, CI and evidence entry points
 
-**Purpose:** Keep one current project authority, route routine verification, and prevent historical plans/incidents from becoming live task or product authority.
+**Purpose:** Index RemoteOrbit-specific source, CI configuration and historical-evidence entry points without specifying a competing engineering workflow.
 
 **Primary routes**
 
-- `AGENTS.md`
-- The selected approved GitHub Issue and its revision-bound approval/execution comments
-- `.github/workflows/remoteorbit-ci.yml`
-- `docs/README.md`
-- `docs/incidents/README.md`
+- `AGENTS.md` — RemoteOrbit-specific durable constraints
+- `.github/workflows/remoteorbit-ci.yml` — project test/build jobs and runner configuration
+- `docs/README.md` — document classification
+- `docs/incidents/README.md` — time-bounded forensic evidence
 
 **Historical evidence routes**
 
@@ -242,7 +240,7 @@ Meanwhile:
   D6 observes bounded evidence without owning the production state machine
   D5 owns user configuration/product surface
   D7 owns build/install/distribution boundaries
-  D8 owns project/task/document authority boundaries
+  D8 indexes local source/CI/document entry points; generic engineering workflow remains plugin-owned
 ```
 
 ## Refresh rule

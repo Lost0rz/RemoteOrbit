@@ -6,7 +6,7 @@ RemoteOrbit 把 Xiaomi Bluetooth Voice Remote 2 Pro 的蓝牙 ATVV 语音链路�
 
 - `main` 源码版本元数据：`0.2.15` / Build `44`。
 - 版本元数据来自 `remote-orbit/Packaging/Info.plist`；已发布版本以 GitHub Releases 为准，不在本文件复制“最新 Release”状态。
-- `AGENTS.md` 保存长期工程规则；当前执行范围由被批准的 GitHub Issue 及其准确 Revision / SHA-256 指定。PR、CI 与交付状态以 GitHub 实时记录为准。
+- `AGENTS.md` 只保存 RemoteOrbit 专属的产品、技术和运行时约束。通用工程授权、Skill 路由、审计与交付流程由当前安装的 Engineering Governance 插件管理；PR、CI 与交付状态以 GitHub 实时记录为准。
 - 项目结构与源码/测试入口见 [`docs/DOMAIN_MAP.md`](docs/DOMAIN_MAP.md)。
 
 ## 语音键合同
@@ -91,8 +91,8 @@ open /Applications/RemoteOrbit.app
 [`docs/README.md`](docs/README.md) 定义当前文档分类。简要规则：
 
 - `README.md`：当前产品/仓库入口。
-- `AGENTS.md`：长期工程规则与已接受的控制模式。
-- `ISSUE_CONTROL`：被批准的 Issue 及准确 Revision / SHA-256 是当前任务授权；同一 Issue 的评论记录审批、撤销和执行回执，PR / CI 仍由 GitHub 记录。
+- `AGENTS.md`：仅保存 RemoteOrbit 专属的技术与运行安全边界，不选择治理模式或配置审批权限。
+- 已安装的 Engineering Governance 插件：统一管理任务授权、审批、Skill 路由、验证和交付工作流；GitHub 记录实际 Issue、PR、CI 和合并状态。
 - `SETUP_NOTES.md`：当前安装与排障入口。
 - `docs/DOMAIN_MAP.md`：从源码和测试派生的导航地图，不拥有业务合同。
 - `docs/diagnostics/ADR-*.md`：仍有效的长期诊断设计决策。

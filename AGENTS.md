@@ -1,13 +1,8 @@
-# RemoteOrbit Agent Instructions
-
-CONTROL_MODE: ISSUE_CONTROL
-ISSUE_APPROVERS: Lost0rz
-ISSUE_DELEGATED_APPROVAL: ENABLED
-ISSUE_WEB_SPEC_AUTHORING: ENABLED
+# RemoteOrbit Project-Specific Engineering Rules
 
 ## Project authority and references
 
-- The actually installed Engineering Governance plugin is the sole owner of reusable engineering routing, authorization/approval procedures, Issue authoring, task lifecycle, audit, verification, workspace, delivery and closeout workflows. This file defines only RemoteOrbit-specific policies and the four declarations above: it must not duplicate, pin or override plugin procedures. A later plugin revision governs its reusable workflow without requiring edits here; plugin updates do not silently broaden repository permissions. Any approver or opt-in policy change requires its own approved authority. If required governance capability is unavailable or incompatible, stop the affected write rather than improvising a competing workflow.
+- This file owns only RemoteOrbit-specific product, hardware, macOS runtime, diagnostics and evidence constraints. The installed Engineering Governance plugin and its versioned global policy own reusable engineering routing, task authorization, approvals, Issue authoring, audits, verification selection, workspace/PR lifecycle, delivery and closeout. This project file cannot select or override those mechanisms or grant permissions.
 - `README.md` owns the current product overview and voice contract; `SETUP_NOTES.md` owns installation and real-device validation; `docs/diagnostics/ADR-*.md` owns accepted diagnostic architecture. `docs/DOMAIN_MAP.md` is derived navigation, not an independent product/task authority. Historical releases and incident records do not revive retired voice behaviors. Do not silently redesign accepted product behavior.
 - GitHub/cloud source evidence does not prove local app, driver, LaunchAgent, macOS permission, worktree, or running-process state.
 
