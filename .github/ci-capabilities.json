@@ -1,0 +1,229 @@
+{
+  "contract": "EG_CI_CAPABILITIES_V1",
+  "documentation_paths": [
+    "AGENTS.md",
+    "README.md",
+    "SETUP_NOTES.md",
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSE",
+    "docs/**",
+    "remote-orbit/docs/**",
+    "remote-orbit-audio-driver/README.md",
+    "installer/DMG-README.txt",
+    "RELEASE_NOTES_v0.2.5.md",
+    "RELEASE_NOTES_v0.2.7.md",
+    "RELEASE_NOTES_v0.2.8.md",
+    "RELEASE_NOTES_v0.2.10.md",
+    "RELEASE_NOTES_v0.2.11.md",
+    "RELEASE_NOTES_v0.2.12.md",
+    "RELEASE_NOTES_v0.2.13.md",
+    "RELEASE_NOTES_v0.2.14.md",
+    "RELEASE_NOTES_v0.2.15.md"
+  ],
+  "fallback_tests": [
+    "swift-full"
+  ],
+  "fallback_satisfies_ready": false,
+  "tests": [
+    {
+      "id": "swift-build",
+      "tier": "V1",
+      "paths": [
+        "remote-orbit/Sources/**",
+        "remote-orbit/Tests/**",
+        "remote-orbit/Package.swift"
+      ],
+      "runner": [
+        "self-hosted",
+        "macOS",
+        "ARM64",
+        "remoteorbit"
+      ],
+      "cwd": "remote-orbit",
+      "command": [
+        "swift",
+        "build"
+      ],
+      "timeout_minutes": 25
+    },
+    {
+      "id": "protocol-self-tests",
+      "tier": "V1",
+      "paths": [
+        "remote-orbit/Sources/RemoteOrbit/ATVV/**",
+        "remote-orbit/Sources/RemoteOrbit/BLEBridge.swift",
+        "remote-orbit/run-self-tests.sh"
+      ],
+      "runner": [
+        "self-hosted",
+        "macOS",
+        "ARM64",
+        "remoteorbit"
+      ],
+      "cwd": ".",
+      "command": [
+        "./remote-orbit/run-self-tests.sh"
+      ],
+      "timeout_minutes": 15
+    },
+    {
+      "id": "keymapping-focused",
+      "tier": "V1",
+      "paths": [
+        "remote-orbit/Sources/RemoteOrbit/KeyMapping/**",
+        "remote-orbit/Sources/RemoteOrbit/VoiceShortcut*.swift",
+        "remote-orbit/Sources/RemoteOrbit/VoiceOptionTrigger.swift",
+        "remote-orbit/Sources/RemoteOrbit/VoiceTriggerKey.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/*Key*.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/*Button*.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/*Mapping*.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/*Shortcut*.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/*Settings*.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/EventSuppressorTests.swift"
+      ],
+      "runner": [
+        "self-hosted",
+        "macOS",
+        "ARM64",
+        "remoteorbit"
+      ],
+      "cwd": "remote-orbit",
+      "command": [
+        "swift",
+        "test",
+        "--filter",
+        "(VoiceShortcut|VoiceOption|VoiceTrigger|Key|Button|Settings|Mapping|EventSuppressor|HID)"
+      ],
+      "timeout_minutes": 30
+    },
+    {
+      "id": "voice-focused",
+      "tier": "V2",
+      "paths": [
+        "remote-orbit/Sources/RemoteOrbit/Voice*.swift",
+        "remote-orbit/Sources/RemoteOrbit/PostReleaseCaptureGrace.swift",
+        "remote-orbit/Sources/RemoteOrbit/RemoteActionHUD.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/Voice*.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/PrimaryVoiceRuntimeTests.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/RemoteVoiceInputLeaseTests.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/RemoteVoiceKeyMappingTests.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/PostReleaseCaptureGraceTests.swift"
+      ],
+      "runner": [
+        "self-hosted",
+        "macOS",
+        "ARM64",
+        "remoteorbit"
+      ],
+      "cwd": "remote-orbit",
+      "command": [
+        "swift",
+        "test",
+        "--filter",
+        "(Voice|PostReleaseCaptureGrace|PrimaryVoice|RemoteVoice)"
+      ],
+      "timeout_minutes": 35,
+      "requires": [
+        "keymapping-focused"
+      ]
+    },
+    {
+      "id": "audio-focused",
+      "tier": "V2",
+      "paths": [
+        "remote-orbit/Sources/RemoteOrbit/ATVV/**",
+        "remote-orbit/Sources/RemoteOrbit/BLEBridge.swift",
+        "remote-orbit/Sources/RemoteOrbit/Audio*.swift",
+        "remote-orbit/Sources/RemoteOrbit/Diagnostics/**",
+        "remote-orbit/Sources/RemoteOrbit/Diagnostic*.swift",
+        "remote-orbit/Sources/RemoteOrbit/Log.swift",
+        "remote-orbit/Sources/RemoteOrbit/WavRecorder.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/Audio*.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/Diagnostic*.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/ATVV*.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/LongTerm*.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/WavRecorderDiagnosticsTests.swift",
+        "remote-orbit/run-audio-p0-diagnostic.sh",
+        "remote-orbit/verify-audio-p0-diagnostic-build.sh"
+      ],
+      "runner": [
+        "self-hosted",
+        "macOS",
+        "ARM64",
+        "remoteorbit"
+      ],
+      "cwd": "remote-orbit",
+      "command": [
+        "swift",
+        "test",
+        "--filter",
+        "(Audio|ATVV|BLEBridge|Diagnostic|LongTerm|WavRecorder)"
+      ],
+      "timeout_minutes": 35,
+      "requires": [
+        "protocol-self-tests"
+      ]
+    },
+    {
+      "id": "swift-full",
+      "tier": "V3",
+      "paths": [
+        "remote-orbit/Package.swift",
+        "remote-orbit/Sources/RemoteOrbit/main.swift",
+        "remote-orbit/Sources/RemoteOrbit/AppStorage.swift",
+        "remote-orbit/Sources/RemoteOrbit/InstallationSupport.swift",
+        "remote-orbit/Sources/RemoteOrbit/LaunchAtLogin.swift",
+        "remote-orbit/Sources/RemoteOrbit/ProductBranding.swift",
+        "remote-orbit/Sources/RemoteOrbit/P1A4MonotonicClock.swift",
+        "remote-orbit/Packaging/**",
+        "remote-orbit/package-app.sh",
+        "remote-orbit/install-app.sh",
+        "remote-orbit-audio-driver/*.sh",
+        "installer/pkg-scripts/**",
+        "package-dmg.sh",
+        "LaunchRemoteOrbit.command",
+        ".github/workflows/**"
+      ],
+      "runner": [
+        "self-hosted",
+        "macOS",
+        "ARM64",
+        "remoteorbit"
+      ],
+      "cwd": "remote-orbit",
+      "command": [
+        "swift",
+        "test"
+      ],
+      "timeout_minutes": 45
+    },
+    {
+      "id": "package-smoke",
+      "tier": "V3",
+      "paths": [
+        "remote-orbit/Packaging/**",
+        "remote-orbit/package-app.sh",
+        "remote-orbit/install-app.sh",
+        "remote-orbit-audio-driver/*.sh",
+        "installer/pkg-scripts/**",
+        "package-dmg.sh",
+        "LaunchRemoteOrbit.command",
+        ".github/workflows/**"
+      ],
+      "runner": [
+        "self-hosted",
+        "macOS",
+        "ARM64",
+        "remoteorbit"
+      ],
+      "cwd": ".",
+      "command": [
+        "bash",
+        "-c",
+        "set -euo pipefail; ./remote-orbit/package-app.sh; app=remote-orbit/dist/RemoteOrbit.app; test -x \"$app/Contents/MacOS/RemoteOrbit\"; test -f \"$app/Contents/Info.plist\"; test -f \"$app/Contents/Resources/RemoteOrbit.icns\"; archs=\"$(lipo -archs \"$app/Contents/MacOS/RemoteOrbit\")\"; [[ \"$archs\" == \"arm64 x86_64\" || \"$archs\" == \"x86_64 arm64\" ]]"
+      ],
+      "timeout_minutes": 45
+    }
+  ]
+}
