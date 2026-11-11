@@ -26,7 +26,7 @@
   "fallback_satisfies_ready": false,
   "tests": [
     {
-      "id": "swift-build",
+      "id": "swift-core-smoke",
       "tier": "V1",
       "paths": [
         "remote-orbit/Sources/**",
@@ -42,9 +42,11 @@
       "cwd": "remote-orbit",
       "command": [
         "swift",
-        "build"
+        "test",
+        "--filter",
+        "(LegacyVoice|LocalMicrophoneCaptureRetirement|PrimaryVoiceRuntime|VoicePressCoordinator)"
       ],
-      "timeout_minutes": 25
+      "timeout_minutes": 30
     },
     {
       "id": "protocol-self-tests",
@@ -169,6 +171,7 @@
       "id": "swift-full",
       "tier": "V3",
       "paths": [
+        "remote-orbit/Tests/**",
         "remote-orbit/Package.swift",
         "remote-orbit/Sources/RemoteOrbit/main.swift",
         "remote-orbit/Sources/RemoteOrbit/AppStorage.swift",
