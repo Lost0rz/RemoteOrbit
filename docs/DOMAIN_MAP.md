@@ -4,7 +4,7 @@ Status: `DERIVED_PROJECTION`
 Last audited: 2026-11-09
 Original source-routing snapshot: `997e51d3aebe65c3942530b10a3b63dbfdcd5476` plus Task 051 worktree observations (historical, not proof of current `main` symbols; revalidate routes against current source before use)
 
-This is a derived map of RemoteOrbit product capabilities to source, runtime and tests. Current implementation and accepted product semantics take precedence over stale routes; the map does not define task authorization or engineering workflows.
+This is a derived map of RemoteOrbit product capabilities to source, runtime and tests. Current implementation and product behavior take precedence over stale routes.
 
 ## RemoteOrbit source and operational entry points
 
@@ -205,7 +205,7 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 - `package-dmg.sh`
 - `InstallationSupport.swift`
 
-**Boundary:** Packaging/install/release are distinct lifecycle actions. A source/doc/diagnostic task does not authorize installation, CoreAudio restart, tag, Release, or publication.
+**Boundary:** Packaging and installation can replace the installed app or HAL driver and restart CoreAudio; these observable runtime effects are separate from building or inspecting source.
 
 ## Cross-domain runtime path
 

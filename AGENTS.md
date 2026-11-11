@@ -1,17 +1,16 @@
 # RemoteOrbit Project-Specific Engineering Rules
 
-## Project authority and references
+## Product and technical references
 
-- This file defines only RemoteOrbit-specific product, hardware, macOS runtime, diagnostics and evidence constraints. Reusable engineering workflows and authorization belong to the installed Engineering Governance plugin, not to project files.
-- `README.md` owns the current product overview and voice contract; `SETUP_NOTES.md` owns installation and real-device validation; `docs/diagnostics/ADR-*.md` owns accepted diagnostic architecture. `docs/DOMAIN_MAP.md` is derived navigation, not an independent product/task authority. Historical releases and incident records do not revive retired voice behaviors. Do not silently redesign accepted product behavior.
-- GitHub/cloud source evidence does not prove local app, driver, LaunchAgent, macOS permission, worktree, or running-process state.
+- `README.md` describes the current RemoteOrbit voice behavior; `SETUP_NOTES.md` describes installation and real-device validation; `docs/diagnostics/ADR-*.md` records diagnostic architecture; `docs/DOMAIN_MAP.md` maps product subsystems to source and tests. Historical releases and incident records describe their captured versions, not current RC003 behavior.
+- Source code and a completed build do not establish the identity or condition of the installed app, audio driver, LaunchAgent, macOS permissions or running process.
 
 ## CI and machine-side safety
 
-- `.github/workflows/remoteorbit-ci.yml` is the routine source/test/build CI entry point, with expected runner labels `[self-hosted, macOS, ARM64, remoteorbit]` unless explicitly changed by authorized project policy. Runner unavailability does not permit unapproved paid hosted-macOS fallback or mutation of the runner's product runtime.
+- `.github/workflows/remoteorbit-ci.yml` builds and tests RemoteOrbit on `[self-hosted, macOS, ARM64, remoteorbit]`; the build environment is not a substitute for the macOS machine where the actual audio device and remote are installed.
 - Routine CI is software build/test-only. It must not install/replace `/Applications/RemoteOrbit.app` or `RemoteOrbitAudio.driver`, restart `coreaudiod`, modify TCC/default audio devices, or claim scripted RC003/Doubao checks are human product acceptance.
-- App installation/replacement, HAL or audio-driver changes, CoreAudio restart, TCC/Accessibility/Input Monitoring changes, LaunchAgent changes, device reassignment and running-product mutation are distinct authorized runtime side effects, not implied by source, test or documentation scope.
-- During incident/forensic capture, preserve the observed app, driver, processes, permissions, LaunchAgents and diagnostic behavior. Runtime intervention changes the evidence and is a separate, explicitly scoped action; do not stack speculative production changes on unresolved diagnostic or frozen experimental evidence.
+- App replacement, HAL/audio-driver installation, CoreAudio restart, TCC/Accessibility/Input Monitoring changes, LaunchAgent changes, audio-device reassignment and running-process modification can alter the observed product runtime; source builds, documentation reads and tests must not silently perform those operations.
+- During incident/forensic capture, preserve the observed app, driver, processes, permissions, LaunchAgents and diagnostic behavior before intervention. Avoid stacking speculative production changes on unresolved diagnostic or frozen experimental evidence.
 
 ## Runtime and hardware evidence
 
@@ -21,6 +20,6 @@
 ## Durable RC003 voice and diagnostics invariants
 
 - The RC003 microphone button has one user-visible voice mode: release before the accepted 300 ms hold boundary (`SHORT`) is a no-op. It must not replay/emit an IME shortcut or synthetic tap, toggle/open/close Persistent sessions, use local-microphone fallback, or show voice/readiness HUD.
-- Holding across 300 ms (`LONG`) starts direct RC003 BLE/ATVV remote voice, with release following established remote capture, output-drain and close behavior. Persistent and dual-receiver microphone-button semantics are retired; neither historical symbols nor configuration can reactivate them without an authorized product-contract change.
-- Retire obsolete voice modes by actual production authority, not symbol names. Remove their user-visible behavior, live configuration/runtime entry points and tests that assert retired semantics; retain shared mechanisms needed for correct LONG-only ownership, release, suppression, watchdog and transport until equivalently replaced with verification.
+- Holding across 300 ms (`LONG`) starts direct RC003 BLE/ATVV remote voice, with release following established remote capture, output-drain and close behavior. Persistent and dual-receiver microphone-button semantics are retired; neither historical symbols nor configuration can reactivate them without a deliberate change to the RemoteOrbit product contract.
+- Retired voice modes must have no live user-visible behavior, configuration/runtime entry points or tests asserting obsolete semantics; shared mechanisms still needed for LONG-only ownership, release, suppression, watchdog and transport remain necessary until their replacement is verified.
 - Diagnostics-off optimization must not disable ownership, output-drain/release, suppression, watchdog or transport correctness. The accepted diagnostic ADR implementation remains the machine-readable evidence authority; raw audio recording is a separately controlled explicit opt-in.

@@ -80,7 +80,7 @@ sudo ./remote-orbit-audio-driver/install-driver.sh
 open /Applications/RemoteOrbit.app
 ```
 
-驱动安装会触及 `/Library/Audio/Plug-Ins/HAL` 并可能重载 `coreaudiod`。只有明确授权的安装/修复任务才能执行这些动作。普通源码审计、文档任务、诊断读取或 CI 都不授权修改 HAL、TCC、默认设备或运行中的 App。
+驱动安装会触及 `/Library/Audio/Plug-Ins/HAL` 并可能重载 `coreaudiod`。这些操作需要 macOS 管理员权限，且可能中断当前音频设备与 RemoteOrbit 进程；只读诊断或软件构建不会自动执行安装、权限更改或设备切换。
 
 ## 5. 基本验收
 
@@ -107,7 +107,7 @@ RemoteOrbit 可以协调默认输入/输出设备。当前远程语音目标是 
 
 1. 先确认 `RemoteOrbit Mic 2ch` 是否存在；
 2. 再确认 App/driver/运行进程身份是否与预期版本一致；
-3. 必要时在授权任务中重装驱动并重载 CoreAudio；
+3. 确认驱动需要修复后，在具备管理员权限的本机操作环境中重装驱动并重载 CoreAudio；
 4. 只有驱动重载后设备仍不可见时，才把重启 macOS 作为最后恢复手段。
 
 ## 7. 权限排查
@@ -190,11 +190,8 @@ RemoteOrbit 的本地探针只能证明本地边界，不能从本地日志单�
 
 - 产品/仓库入口：`README.md`
 - RemoteOrbit 专属工程与运行安全规则：`AGENTS.md`
-- 通用任务授权、审批及执行流程：由当前安装的 Engineering Governance 插件统一管理；本安装文档不指定或覆盖工作流。
-- PR、CI、提交与发布状态：以 GitHub 对应记录为准。
 - Domain 导航：`docs/DOMAIN_MAP.md`
 - 文档分类：`docs/README.md`
 - 诊断 ADR：`docs/diagnostics/`
 - 历史事故证据：`docs/incidents/`
 
-旧任务计划、旧 corrective/audit 设计以及已退役 Persistent / dual-receiver 等业务方案不再作为当前文档保留；如需追溯，使用 Git 历史。

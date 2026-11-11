@@ -13,7 +13,7 @@ This directory contains only documentation that still has a clear current or his
 | `diagnostics/ADR-0002-read-only-diagnostic-cli.md` | Durable read-only CLI boundary | design authority |
 | `diagnostics/ADR-0003-long-term-observability.md` | Durable long-term observability decision | design authority |
 
-`AGENTS.md` owns only durable RemoteOrbit-specific product and runtime constraints. The installed Engineering Governance plugin and its global policy own reusable control-mode selection, task authorization, approvals, Issue handling, audit, verification and delivery. No document in `docs/` defines an alternative workflow. The legacy root `CURRENT_TASK.md` and `CURRENT_STATUS.md` remain retired from active authority; their prior contents remain in Git history.
+`AGENTS.md` contains RemoteOrbit-specific product behavior and runtime safety notes. The documents listed here describe the product, its architecture, operation and historical evidence.
 
 ## Historical evidence
 

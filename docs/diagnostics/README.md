@@ -7,5 +7,3 @@ The ADRs in this directory are the retained durable design authority for RemoteO
 - `ADR-0003-long-term-observability.md` — gated L1/L2 voice observability, retention and export boundaries.
 
 Current implementation routes are indexed in `../DOMAIN_MAP.md`.
-
-Task-specific diagnostic closeouts, audit diaries and corrective plans are not retained here after their durable conclusions have been incorporated into ADRs/source/tests. Use Git history for those artifacts.
