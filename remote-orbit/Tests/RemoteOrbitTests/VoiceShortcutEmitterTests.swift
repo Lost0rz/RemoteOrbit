@@ -184,6 +184,11 @@ final class VoiceShortcutEmitterTests: XCTestCase {
                 expectedDownKeyCodes + Array(expectedDownKeyCodes.reversed())
             )
             XCTAssertEqual(events.map(\.kind), Array(repeating: .flagsChanged, count: 4))
+            XCTAssertEqual(
+                events.map(\.modifierEdge),
+                [.down, .down, .up, .up],
+                "flagsChanged type does not encode modifier edge direction"
+            )
             XCTAssertEqual(events.map(\.flags), expectedFlags)
 
             for event in events {
@@ -192,6 +197,11 @@ final class VoiceShortcutEmitterTests: XCTestCase {
                     construction.constructorType,
                     CGEventType.flagsChanged,
                     "CoreGraphics constructs a modifier keycode as flagsChanged"
+                )
+                XCTAssertEqual(
+                    construction.constructorKeyDown,
+                    event.modifierEdge == .down,
+                    "the constructor direction must follow the explicit modifier edge"
                 )
                 XCTAssertEqual(construction.event.type, CGEventType.flagsChanged)
                 XCTAssertEqual(
@@ -230,6 +240,7 @@ final class VoiceShortcutEmitterTests: XCTestCase {
         for event in releaseEvents {
             let construction = try XCTUnwrap(CGEventVoiceShortcutSink.makeEvent(event))
             XCTAssertEqual(construction.constructorType, CGEventType.flagsChanged)
+            XCTAssertFalse(construction.constructorKeyDown)
             XCTAssertEqual(construction.event.flags.rawValue, event.flags)
         }
         XCTAssertTrue(emitter.ownedSessionIDs.isEmpty)
@@ -241,8 +252,10 @@ final class VoiceShortcutEmitterTests: XCTestCase {
             VoiceShortcutSyntheticEvent(kind: .keyUp, keyCode: 3, flags: command)
         ))
         XCTAssertEqual(primaryDown.constructorType, CGEventType.keyDown)
+        XCTAssertTrue(primaryDown.constructorKeyDown)
         XCTAssertEqual(primaryDown.event.type, CGEventType.keyDown)
         XCTAssertEqual(primaryUp.constructorType, CGEventType.keyUp)
+        XCTAssertFalse(primaryUp.constructorKeyDown)
         XCTAssertEqual(primaryUp.event.type, CGEventType.keyUp)
     }
 

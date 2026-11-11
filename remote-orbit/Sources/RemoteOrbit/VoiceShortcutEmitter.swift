@@ -8,10 +8,28 @@ enum VoiceShortcutEventKind: Equatable, Hashable {
     case keyUp
 }
 
+enum VoiceShortcutModifierEdge: Equatable, Hashable {
+    case down
+    case up
+}
+
 struct VoiceShortcutSyntheticEvent: Equatable {
     let kind: VoiceShortcutEventKind
     let keyCode: UInt16
     let flags: UInt64
+    let modifierEdge: VoiceShortcutModifierEdge?
+
+    init(
+        kind: VoiceShortcutEventKind,
+        keyCode: UInt16,
+        flags: UInt64,
+        modifierEdge: VoiceShortcutModifierEdge? = nil
+    ) {
+        self.kind = kind
+        self.keyCode = keyCode
+        self.flags = flags
+        self.modifierEdge = modifierEdge
+    }
 }
 
 protocol VoiceShortcutEventSink {
@@ -55,11 +73,24 @@ struct CGEventVoiceShortcutSink: VoiceShortcutEventSink {
 
     static func makeEvent(
         _ event: VoiceShortcutSyntheticEvent
-    ) -> (event: CGEvent, constructorType: CGEventType)? {
+    ) -> (event: CGEvent, constructorType: CGEventType, constructorKeyDown: Bool)? {
+        // CGEventCreateKeyboardEvent's keyDown argument describes key position,
+        // not the final event type. Modifier edges both become flagsChanged,
+        // so their direction must come from the separate modifierEdge value.
+        let constructorKeyDown: Bool
+        switch event.kind {
+        case .flagsChanged:
+            guard let modifierEdge = event.modifierEdge else { return nil }
+            constructorKeyDown = modifierEdge == .down
+        case .keyDown:
+            constructorKeyDown = true
+        case .keyUp:
+            constructorKeyDown = false
+        }
         guard let cgEvent = CGEvent(
             keyboardEventSource: nil,
             virtualKey: CGKeyCode(event.keyCode),
-            keyDown: event.kind != .keyUp
+            keyDown: constructorKeyDown
         ) else { return nil }
         let constructorType = cgEvent.type
         switch event.kind {
@@ -69,7 +100,7 @@ struct CGEventVoiceShortcutSink: VoiceShortcutEventSink {
         }
         cgEvent.flags = CGEventFlags(rawValue: event.flags)
         cgEvent.setIntegerValueField(.eventSourceUserData, value: Key.syntheticMarker)
-        return (cgEvent, constructorType)
+        return (cgEvent, constructorType, constructorKeyDown)
     }
 }
 
@@ -289,7 +320,8 @@ final class VoiceShortcutEmitter {
             let event = VoiceShortcutSyntheticEvent(
                 kind: .flagsChanged,
                 keyCode: keyCode,
-                flags: nextFlags
+                flags: nextFlags,
+                modifierEdge: .down
             )
             switch sink.post(event) {
             case .posted:
@@ -528,7 +560,8 @@ final class VoiceShortcutEmitter {
             let event = VoiceShortcutSyntheticEvent(
                 kind: .flagsChanged,
                 keyCode: keyCode,
-                flags: nextFlags
+                flags: nextFlags,
+                modifierEdge: .up
             )
             switch sink.post(event) {
             case .posted:
