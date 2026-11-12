@@ -44,7 +44,7 @@ Persistent、双 Receiver、Receiver B、本地麦克风短按以及旧 generic-
 
 ### 语音快捷键配置
 
-Control Center 的“按键映射”中选中麦克风键，可新增、录制、重命名、修改或删除具名语音快捷键。菜单栏“语音输入”列出当前配置，每次只选择一个 Active。首次使用会保留左右 Option、Control、Command 六种原有纯修饰键配置；录制的组合键会保存左右修饰键侧别，并支持两个或更多不同类型的修饰键直接组成快捷键，无需普通主键。Fn/Globe 尚未通过目标硬件验证，当前不可录制。
+Control Center 的“按键映射”中选中麦克风键，可新增、录制、重命名、修改或删除具名语音快捷键。菜单栏“语音输入”列出当前配置，每次只选择一个 Active。首次使用会保留左右 Option、Control、Command 六种原有纯修饰键配置；录制的组合键会保存左右修饰键侧别，配置模型支持两个或更多不同类型修饰键组成的组合（无需普通主键），但实际热切换是否被目标输入法接收仍需实机验证。Fn/Globe 尚未通过目标硬件验证，当前不可录制。
 
 修改 Active 需要先完成运行时配置，再保存单一配置快照。如果当前语音键仍按住、语音输出仍在收尾、运行时被锁定或保存回读失败，操作会拒绝并保留原 Active；等待收尾结束后重试。无效或不支持的本地配置会保留原始数据并进入只读兼容模式，不会被自动重置。
 
@@ -80,7 +80,7 @@ sudo ./remote-orbit-audio-driver/install-driver.sh
 open /Applications/RemoteOrbit.app
 ```
 
-驱动安装会触及 `/Library/Audio/Plug-Ins/HAL` 并可能重载 `coreaudiod`。只有明确授权的安装/修复任务才能执行这些动作。普通源码审计、文档任务、诊断读取或 CI 都不授权修改 HAL、TCC、默认设备或运行中的 App。
+驱动安装会触及 `/Library/Audio/Plug-Ins/HAL` 并可能重载 `coreaudiod`。这些操作需要 macOS 管理员权限，且可能中断当前音频设备与 RemoteOrbit 进程；只读诊断或软件构建不会自动执行安装、权限更改或设备切换。
 
 ## 5. 基本验收
 
@@ -107,7 +107,7 @@ RemoteOrbit 可以协调默认输入/输出设备。当前远程语音目标是 
 
 1. 先确认 `RemoteOrbit Mic 2ch` 是否存在；
 2. 再确认 App/driver/运行进程身份是否与预期版本一致；
-3. 必要时在授权任务中重装驱动并重载 CoreAudio；
+3. 确认驱动需要修复后，在具备管理员权限的本机操作环境中重装驱动并重载 CoreAudio；
 4. 只有驱动重载后设备仍不可见时，才把重启 macOS 作为最后恢复手段。
 
 ## 7. 权限排查
@@ -189,12 +189,9 @@ RemoteOrbit 的本地探针只能证明本地边界，不能从本地日志单�
 ## 10. 文档入口
 
 - 产品/仓库入口：`README.md`
-- 工程规则及已接受控制模式：`AGENTS.md`
-- 当前授权任务：从 GitHub 读取被批准的 Issue，并核对仓库、Issue、`TASK_ID`、`SPEC_REVISION` 与规范 SHA-256；审批和执行回执保存在同一 Issue 的评论中。
-- PR、CI、提交与发布状态：以 GitHub 对应记录为准。
+- RemoteOrbit 专属工程与运行安全规则：`AGENTS.md`
 - Domain 导航：`docs/DOMAIN_MAP.md`
 - 文档分类：`docs/README.md`
 - 诊断 ADR：`docs/diagnostics/`
 - 历史事故证据：`docs/incidents/`
 
-旧任务计划、旧 corrective/audit 设计以及已退役 Persistent / dual-receiver 等业务方案不再作为当前文档保留；如需追溯，使用 Git 历史。

@@ -6,7 +6,7 @@ RemoteOrbit 把 Xiaomi Bluetooth Voice Remote 2 Pro 的蓝牙 ATVV 语音链路�
 
 - `main` 源码版本元数据：`0.2.15` / Build `44`。
 - 版本元数据来自 `remote-orbit/Packaging/Info.plist`；已发布版本以 GitHub Releases 为准，不在本文件复制“最新 Release”状态。
-- `AGENTS.md` 保存长期工程规则；当前执行范围由被批准的 GitHub Issue 及其准确 Revision / SHA-256 指定。PR、CI 与交付状态以 GitHub 实时记录为准。
+- `AGENTS.md` 记录 RemoteOrbit 专属的产品行为、硬件边界与运行安全约束。
 - 项目结构与源码/测试入口见 [`docs/DOMAIN_MAP.md`](docs/DOMAIN_MAP.md)。
 
 ## 语音键合同
@@ -17,7 +17,7 @@ RC003 麦克风键只有一种用户可见语音模式：
 - **LONG**：按住达到约 300 ms 后进入直接远程语音生命周期；RemoteOrbit 使用遥控器 ATVV 音频并向 `RemoteOrbit Mic 2ch` 供给 PCM，松开后等待输出收尾，再释放语音快捷键。
 - Persistent、双 Receiver、Receiver B、本地麦克风短按等旧业务语义均不是当前产品合同。
 
-在 Control Center 的麦克风设置中可以管理具名语音快捷键，并为其中一个配置选择 Active；菜单栏“语音输入”也可以切换 Active。首次配置保留原有六种左右 Option、Control、Command 纯修饰键。自定义组合会保留左右修饰键侧别，也可以由两个或更多不同类型的修饰键组成，不要求普通主键。Fn/Globe 当前尚未通过目标硬件验证，因此不可录制。活动语音会话或输出收尾期间，切换 Active 或更改/删除当前 Active 会被拒绝，完成后可重试。
+在 Control Center 的麦克风设置中可以管理具名语音快捷键，并为其中一个配置选择 Active；菜单栏“语音输入”也可以切换 Active。首次配置保留原有六种左右 Option、Control、Command 纯修饰键。自定义组合会保留左右修饰键侧别；配置模型还支持两个或更多不同类型修饰键构成的组合，无需普通主键。Fn/Globe 尚未通过目标硬件验证，当前不可录制。实际热切换是否被第三方输入法接收仍需实机验收。活动语音会话或输出收尾期间，切换 Active 或更改/删除当前 Active 会被拒绝，完成后可重试。
 
 语音快捷键不会自动切换 macOS 输入法。组合键通过系统键盘事件发送，具体输入法是否接受该事件取决于输入法自身；软件测试不能证明输入法接收或语音文本完成。
 
@@ -61,7 +61,7 @@ sudo ./remote-orbit-audio-driver/install-driver.sh
 open /Applications/RemoteOrbit.app
 ```
 
-驱动安装、CoreAudio 重载和系统权限均属于有副作用操作；自动化 Agent 不应绕过管理员授权或 macOS 隐私控制。
+驱动安装、CoreAudio 重载和系统权限更改都会影响实际运行环境，需在 macOS 管理员权限与隐私控制允许的条件下操作。
 
 ## 测试与 CI
 
@@ -86,17 +86,14 @@ open /Applications/RemoteOrbit.app
 
 诊断关闭不能关闭语音正确性所需要的 ownership、release/drain、suppression、watchdog 或 transport 机制。
 
-## 文档权威
+## 项目资料
 
-[`docs/README.md`](docs/README.md) 定义当前文档分类。简要规则：
+[`docs/README.md`](docs/README.md) 列出当前项目资料：
 
 - `README.md`：当前产品/仓库入口。
-- `AGENTS.md`：长期工程规则与已接受的控制模式。
-- `ISSUE_CONTROL`：被批准的 Issue 及准确 Revision / SHA-256 是当前任务授权；同一 Issue 的评论记录审批、撤销和执行回执，PR / CI 仍由 GitHub 记录。
+- `AGENTS.md`：RemoteOrbit 产品和运行时技术约束。
 - `SETUP_NOTES.md`：当前安装与排障入口。
 - `docs/DOMAIN_MAP.md`：从源码和测试派生的导航地图，不拥有业务合同。
 - `docs/diagnostics/ADR-*.md`：仍有效的长期诊断设计决策。
 - `docs/incidents/`：历史事故证据，不是当前产品或设计权威。
 - 根目录 `RELEASE_NOTES_v*.md`：对应版本的历史发布记录；旧版本中的业务语义不得被当成当前合同。
-- 旧根目录 `CURRENT_TASK.md` / `CURRENT_STATUS.md` 已从活动控制面退役；历史内容可从 Git 历史追溯，不再作为当前任务状态或授权。
-- 已完成的任务计划、corrective/audit 设计和已退役业务方案由 Git 历史保存，不继续留在当前文档树充当现行指导。

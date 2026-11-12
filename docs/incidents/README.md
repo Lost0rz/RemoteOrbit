@@ -1,14 +1,7 @@
 # Incident Evidence — Historical Only
 
-Files in this directory are retained because they contain unique incident/forensic evidence. They are **HISTORICAL**, not current product, architecture, task or runtime authority.
+This directory retains time-bounded forensic evidence of RemoteOrbit faults. Historical branches, task approvals, PR states, source heads, process IDs, device states and proposed remedies describe the captured period only; they do not establish current app or device behavior.
 
-Before using one of these files:
+Older records may reference retired Persistent, dual-Receiver, Receiver B or local-microphone voice-button behavior. Those references do not change the current LONG-only RC003 contract. Incident records are not a substitute for current source/runtime evidence or for a verified root cause.
 
-1. Use the installed Engineering Governance workflow and `AGENTS.md` to resolve current task authority; incident files themselves grant no write authority.
-2. Verify the current source/runtime identity independently.
-3. Treat branch names, PR states, source heads, runtime PIDs, device state and proposed fixes inside an incident file as facts about that captured window only.
-4. Do not revive Persistent, dual-receiver, Receiver B, local-microphone voice-button or other retired semantics because an older incident mentions them.
-5. Do not execute an old remediation step unless the selected approved Issue separately authorizes that side effect.
-6. Use current source/tests and `docs/DOMAIN_MAP.md` to locate the present implementation before drawing a causal conclusion.
-
-Incident evidence can establish what was observed at the time. It does not automatically establish current behavior or root cause.
+Product-specific runtime boundary: changing the installed app, `RemoteOrbitAudio.driver`, `coreaudiod`, TCC/Input Monitoring, device pairing or active diagnostic state can invalidate a forensic comparison. Current implementation and diagnostics entry points are indexed in `docs/DOMAIN_MAP.md`.

@@ -13,7 +13,7 @@ This directory contains only documentation that still has a clear current or his
 | `diagnostics/ADR-0002-read-only-diagnostic-cli.md` | Durable read-only CLI boundary | design authority |
 | `diagnostics/ADR-0003-long-term-observability.md` | Durable long-term observability decision | design authority |
 
-The accepted root `AGENTS.md` declares RemoteOrbit's control mode and project-specific rules. The installed Engineering Governance plugin owns general task authorization, approval, receipt, and artifact lifecycle procedures. Documents under `docs/` describe RemoteOrbit sources, designs, and evidence; they are not task authorization. The retired root `CURRENT_TASK.md` and `CURRENT_STATUS.md` remain available in Git history but have no live authority.
+`AGENTS.md` contains RemoteOrbit-specific product behavior and runtime safety notes. The documents listed here describe the product, its architecture, operation and historical evidence.
 
 ## Historical evidence
 
@@ -29,24 +29,15 @@ Release notes describe the behavior of the named historical release. They are in
 
 Published release state lives in GitHub Releases. Current source version metadata lives in `remote-orbit/Packaging/Info.plist`.
 
-## Removed from the active documentation tree on 2026-11-01
+## Retired historical document locations
 
-The following classes were removed because they were completed task artifacts, superseded business designs, duplicated planning surfaces or frozen diagnostic architecture that could be mistaken for current authority:
+Completed or superseded design and investigation materials remain recoverable through Git history, rather than serving as current RemoteOrbit architecture:
 
 - `docs/design/` task 043/045 audit, corrective and retirement plans;
 - `docs/superpowers/` historical plans/specs, including dual-receiver and old voice-pipeline plans;
+- `remote-orbit/docs/superpowers/plans/2026-09-24-post-release-capture-grace.md` — legacy P1-A9 execution plan with a retired external Skill requirement;
 - `docs/incident-diagnostics/PERSISTENT_LONG_DIAGNOSTIC_ARCHITECTURE.md`;
 - `docs/diagnostics/2026-10-28-task-038-b-audio-continuity-closeout.md`.
 
 Their history remains recoverable from Git. Deletion from the current tree means **“not a current navigation/design authority”**, not “the historical work never existed.”
 
-## RemoteOrbit documentation boundaries
-
-This map identifies project-owned documents and historical evidence. It does not define task approval, verification, delivery, or documentation-maintenance workflows; those procedures belong to the installed Engineering Governance plugin.
-
-- `AGENTS.md` contains RemoteOrbit-specific durable rules and accepted control declarations; it is not a duplicate task workflow.
-- `diagnostics/ADR-*.md` retains accepted RemoteOrbit diagnostic architecture. Current implementation locations are indexed by `DOMAIN_MAP.md`.
-- `incidents/` retains time-bounded forensic records. Incident evidence does not authorize current writes or revive retired RC003 voice behaviors.
-- Root `RELEASE_NOTES_v*.md` describes historical releases only; published release state is in GitHub Releases.
-- `DOMAIN_MAP.md` is a derived navigation aid for source, runtime, and tests, not an independent task controller or live task-status store.
-- Completed one-off task plans, audits, and superseded designs are recoverable in Git history and are not treated as current project instructions.
