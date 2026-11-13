@@ -332,6 +332,24 @@
       "timeout_minutes": 40
     },
     {
+      "id": "driver-build",
+      "tier": "V2",
+      "paths": [
+        "remote-orbit-audio-driver/build-driver.sh"
+      ],
+      "runner": [
+        "self-hosted",
+        "macOS",
+        "ARM64",
+        "remoteorbit"
+      ],
+      "cwd": ".",
+      "command": [
+        "./remote-orbit-audio-driver/build-driver.sh"
+      ],
+      "timeout_minutes": 45
+    },
+    {
       "id": "package-contracts",
       "tier": "V1",
       "paths": [

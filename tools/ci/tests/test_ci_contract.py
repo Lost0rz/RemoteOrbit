@@ -106,6 +106,8 @@ class RemoteOrbitCIRoutingContractTests(unittest.TestCase):
         self.assertIn(native, selected(
             "remote-orbit/Sources/RemoteOrbit/VoiceShortcutHID.swift"))
         self.assertIn("swift-full", selected("remote-orbit/Package.swift"))
+        self.assertIn("driver-build", selected("remote-orbit-audio-driver/build-driver.sh"))
+        self.assertNotIn("driver-build", selected("remote-orbit-audio-driver/install-driver.sh"))
         self.assertEqual(selected("remote-orbit/new-unknown-executable.bin"), [])
 
     def test_each_test_file_selects_a_lane_that_runs_its_xctest_class(self):
@@ -143,6 +145,15 @@ class RemoteOrbitCIRoutingContractTests(unittest.TestCase):
             if lane.get("fork_safe"):
                 self.assertNotIn("self-hosted", lane["runner"])
         self.assertFalse(CAPABILITIES["tests"][0].get("cwd") == "remote-orbit")
+
+    def test_driver_build_is_isolated_from_installation(self):
+        driver = next(lane for lane in CAPABILITIES["tests"]
+                      if lane["id"] == "driver-build")
+        self.assertEqual(driver["command"],
+                         ["./remote-orbit-audio-driver/build-driver.sh"])
+        self.assertEqual(driver["paths"],
+                         ["remote-orbit-audio-driver/build-driver.sh"])
+        self.assertFalse(driver.get("fork_safe", False))
 
     def test_workflow_trust_and_milestone_main_push(self):
         self.assertIn("ci-router-reusable.yml@v0.10.1", WORKFLOW)
