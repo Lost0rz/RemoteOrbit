@@ -3114,7 +3114,7 @@ private struct VoiceShortcutEditorSheet: View {
                     .buttonStyle(.bordered)
             }
 
-            Text("录制支持左右 Option、Control、Command、Shift 及其组合。Fn 与 Escape 用于取消录制。")
+            Text("录制支持左右 Option、Control、Command 纯修饰键、两个或更多不同类型的修饰键，以及修饰键加普通按键。Fn/Globe 尚未验证，按 Fn 会取消录制。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -3166,7 +3166,7 @@ private struct VoiceShortcutRecorderSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("录制语音快捷键")
                 .font(.title3.weight(.semibold))
-            Text("按住一个纯修饰键，或按住修饰键再按主键；等全部相关按键释放后完成录制。")
+            Text("按住一个可用的纯修饰键、两个或更多不同类型的修饰键，或修饰键和普通按键；等全部相关按键释放后完成录制。")
                 .foregroundStyle(.secondary)
 
             HStack {
@@ -3186,7 +3186,7 @@ private struct VoiceShortcutRecorderSheet: View {
                     .foregroundStyle(.red)
             }
 
-            Text("录制会独占并抑制本次按键边沿；Escape 或 Fn 可取消。")
+            Text("录制会独占并抑制本次按键边沿。Fn/Globe 尚未验证，当前不可作为快捷键；按 Fn、Escape 或点击取消均可结束录制。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 

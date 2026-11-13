@@ -119,6 +119,89 @@ final class VoiceShortcutBindingTests: XCTestCase {
         )))
     }
 
+    func testModifierOnlyChordsPreserveSidesAndSerializeCanonicalCodes() throws {
+        let optionCommand = VoiceShortcutBinding.modifierChord(modifierKeyCodes: [58, 54])
+        let commandOption = VoiceShortcutBinding.modifierChord(modifierKeyCodes: [55, 58])
+        let reversedOptionCommand = VoiceShortcutBinding.modifierChord(modifierKeyCodes: [54, 58])
+        XCTAssertEqual(optionCommand.physicalIdentity, reversedOptionCommand.physicalIdentity)
+        XCTAssertNotEqual(optionCommand.physicalIdentity, commandOption.physicalIdentity)
+        XCTAssertEqual(optionCommand.sideDescription, "左 Option + 右 Command")
+        XCTAssertEqual(commandOption.sideDescription, "左 Option + 左 Command")
+
+        var snapshot = VoiceShortcutSnapshot.seeded()
+        snapshot.entries.append(contentsOf: [
+            VoiceShortcutEntry(id: "option-right-command", displayName: "Option + Command", binding: optionCommand),
+            VoiceShortcutEntry(id: "left-command-option", displayName: "Left Command + Option", binding: commandOption),
+        ])
+        XCTAssertNoThrow(try VoiceShortcutStore.validate(snapshot))
+
+        var duplicate = snapshot
+        duplicate.entries.append(VoiceShortcutEntry(
+            id: "reversed-option-right-command",
+            displayName: "Reversed order",
+            binding: reversedOptionCommand
+        ))
+        XCTAssertThrowsError(try VoiceShortcutStore.validate(duplicate)) {
+            XCTAssertEqual($0 as? VoiceShortcutValidationError, .duplicateBinding)
+        }
+
+        let bytes = try encoded(snapshot)
+        let decoded = try JSONDecoder().decode(VoiceShortcutSnapshot.self, from: bytes)
+        XCTAssertEqual(
+            decoded.entries.first { $0.id == "option-right-command" }?.binding.physicalIdentity,
+            optionCommand.physicalIdentity
+        )
+
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+        let entries = try XCTUnwrap(object["entries"] as? [[String: Any]])
+        let storedEntry = try XCTUnwrap(entries.first { $0["id"] as? String == "option-right-command" })
+        let storedBinding = try XCTUnwrap(storedEntry["binding"] as? [String: Any])
+        XCTAssertEqual(storedBinding["kind"] as? String, "modifierChord")
+        XCTAssertEqual(storedBinding["modifierKeyCodes"] as? [Int], [54, 58])
+        XCTAssertNil(storedBinding["primaryKeyCode"])
+        XCTAssertNil(storedBinding["triggerKey"])
+
+        defaults.set(bytes, forKey: VoiceShortcutStore.snapshotKey)
+        let loaded = VoiceShortcutStore.load(from: defaults)
+        XCTAssertTrue(loaded.isWritable)
+        XCTAssertEqual(defaults.data(forKey: VoiceShortcutStore.snapshotKey), bytes)
+    }
+
+    func testModifierOnlyChordRejectsSinglesDuplicatesSameFamilyAndUnverifiedFn() {
+        for codes: [UInt16] in [[55], [55, 55], [55, 54], [58, 63], [63, 54]] {
+            XCTAssertThrowsError(
+                try VoiceShortcutStore.validate(binding: .modifierChord(modifierKeyCodes: codes)),
+                "modifier-only key codes \(codes) should be rejected"
+            )
+        }
+        XCTAssertThrowsError(try VoiceShortcutStore.validate(binding: .chord(
+            primaryKeyCode: 3,
+            preview: "Fn + F",
+            modifierKeyCodes: [63]
+        )))
+    }
+
+    func testLegacySnapshotLoadsWithoutRewritingItsBytes() throws {
+        var snapshot = VoiceShortcutSnapshot.seeded()
+        snapshot.entries.append(VoiceShortcutEntry(
+            id: "legacy-command-f",
+            displayName: "Command F",
+            binding: .chord(primaryKeyCode: 3, preview: "⌘F", modifierKeyCodes: [55])
+        ))
+        let oldBytes = try encoded(snapshot)
+        defaults.set(oldBytes, forKey: VoiceShortcutStore.snapshotKey)
+
+        let loaded = VoiceShortcutStore.load(from: defaults)
+
+        XCTAssertTrue(loaded.isWritable)
+        XCTAssertEqual(loaded.snapshot.entries.last?.binding, .chord(
+            primaryKeyCode: 3,
+            preview: "⌘F",
+            modifierKeyCodes: [55]
+        ))
+        XCTAssertEqual(defaults.data(forKey: VoiceShortcutStore.snapshotKey), oldBytes)
+    }
+
     func testNamesAllow64UnicodeCharactersAndReject65() throws {
         var snapshot = VoiceShortcutSnapshot.seeded()
         snapshot.entries[0].displayName = String(repeating: "界", count: 64)
@@ -180,6 +263,19 @@ final class VoiceShortcutBindingTests: XCTestCase {
         XCTAssertNil(fields["preview"])
         XCTAssertNil(fields["typed_text"])
         XCTAssertNil(fields["transcription"])
+    }
+
+    func testModifierOnlyDiagnosticHasNoFictitiousPrimaryKey() {
+        let entry = VoiceShortcutEntry(
+            id: "modifier-only-entry",
+            displayName: "private label",
+            binding: .modifierChord(modifierKeyCodes: [58, 54])
+        )
+
+        XCTAssertEqual(entry.diagnosticFields["binding_kind"] as? String, "modifier_chord")
+        XCTAssertEqual(entry.diagnosticFields["modifier_key_codes"] as? [Int], [54, 58])
+        XCTAssertNil(entry.diagnosticFields["primary_key_code"])
+        XCTAssertNil(entry.diagnosticFields["display_name"])
     }
 
     func testDeletionCannotRemoveLastEntry() throws {

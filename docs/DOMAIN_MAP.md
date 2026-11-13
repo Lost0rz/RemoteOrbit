@@ -2,7 +2,7 @@
 
 Status: `DERIVED_PROJECTION`
 Last audited: 2026-11-09
-Original source-routing snapshot: `997e51d3aebe65c3942530b10a3b63dbfdcd5476` plus Task 051 worktree observations (historical, not proof of current `main` symbols; revalidate routes against current source before use)
+Source routing baseline: `997e51d3aebe65c3942530b10a3b63dbfdcd5476` (historical); additional HID/chord routes below are from Task 053 PR #52 candidate source, not verified production runtime behavior.
 
 This is a derived map of RemoteOrbit product capabilities to source, runtime and tests. Current implementation and product behavior take precedence over stale routes.
 
@@ -28,8 +28,10 @@ This is a derived map of RemoteOrbit product capabilities to source, runtime and
 - `remote-orbit/Sources/RemoteOrbit/main.swift` — orchestration and runtime seams.
 - `VoiceOptionTrigger.swift` — trigger synthesis/ownership helper used by the current runtime.
 - `VoiceTriggerKey.swift` / `VoiceInputProfile.swift` — current selected trigger/profile model.
-- `VoiceShortcutBinding.swift` — typed side-preserving binding, validated single snapshot, seed migration and settings projection.
+- `VoiceShortcutBinding.swift` — side-preserving pure modifiers and modifier-only chord model, validated single snapshot, seed migration and settings projection.
 - `VoiceShortcutEmitter.swift` — session-owned chord edges released after the existing output-drain callback.
+- `VoiceShortcutHID.swift` / `VoiceShortcutHIDSecurity.swift` — Task 053 candidate HID report encoding, helper interactions and peer identity checks; real helper availability and input-method acceptance remain independently verifiable.
+- `remote-orbit/Sources/RemoteOrbitHIDBridge/` — candidate native virtual-HID report bridge and pinned third-party headers.
 - `VoiceReceiverReadiness.swift` — receiver/readiness coordination.
 - `VoiceFocusTransactionTracker.swift` — bounded focus transaction tracking.
 - `PostReleaseCaptureGrace.swift` — post-release/repress grace mechanism.
@@ -101,7 +103,7 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 **Primary source routes**
 
 - `KeyMapping/HIDMonitor.swift`
-- `KeyMapping/ShortcutCaptureMonitor.swift` — exclusive physical recording and voice-only capture result.
+- `KeyMapping/ShortcutCaptureMonitor.swift` — physical recording and voice-only modifier-only combination capture result.
 - `KeyMapping/ButtonDefinitions.swift`
 - `KeyMapping/ButtonGestureRecognizer.swift`
 - `KeyMapping/ButtonEdgeDebouncer.swift`
@@ -133,7 +135,7 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 
 - `AppStorage.swift`
 - `VoiceTriggerKey.swift` / `VoiceInputProfile.swift` — legacy seed adapter and active profile projection.
-- `VoiceShortcutBinding.swift` — the versioned voice-only snapshot and read-only invalid-data fallback.
+- `VoiceShortcutBinding.swift` — the versioned voice-only snapshot, modifier-only chord configuration and read-only invalid-data fallback.
 - `ProductBranding.swift`
 - `LaunchAtLogin.swift`
 - `KeyMapping/SettingsView.swift`
