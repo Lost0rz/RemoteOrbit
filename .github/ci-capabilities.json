@@ -61,8 +61,7 @@
         "remote-orbit/SelfTests/**",
         "remote-orbit/run-self-tests.sh",
         "remote-orbit/Tests/RemoteOrbitTests/ATVVKeepAliveTelemetryTests.swift",
-        "remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift",
-        "remote-orbit/Sources/RemoteOrbit/main.swift"
+        "remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift"
       ],
       "runner": [
         "self-hosted",
@@ -89,7 +88,6 @@
         "remote-orbit/Tests/RemoteOrbitTests/AudioPipePlayoutReserveTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/AudioPipeRealtimeTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/AudioPipeTests.swift",
-        "remote-orbit/Sources/RemoteOrbit/main.swift",
         "remote-orbit/Sources/RemoteOrbit/BLEBridge.swift"
       ],
       "runner": [
@@ -126,8 +124,7 @@
         "remote-orbit/Tests/RemoteOrbitTests/HIDMonitorDiagnosticsTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/MappingStoreRoutingTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/RemoteVoiceKeyMappingTests.swift",
-        "remote-orbit/Tests/RemoteOrbitTests/VoiceKeyFilterTests.swift",
-        "remote-orbit/Sources/RemoteOrbit/main.swift"
+        "remote-orbit/Tests/RemoteOrbitTests/VoiceKeyFilterTests.swift"
       ],
       "runner": [
         "self-hosted",
@@ -154,7 +151,6 @@
         "remote-orbit/Sources/RemoteOrbit/PostReleaseCaptureGrace.swift",
         "remote-orbit/Sources/RemoteOrbit/RemoteActionHUD.swift",
         "remote-orbit/Sources/RemoteOrbit/VoiceOptionTrigger.swift",
-        "remote-orbit/Sources/RemoteOrbit/main.swift",
         "remote-orbit/Sources/RemoteOrbit/P1A4MonotonicClock.swift",
         "remote-orbit/Tests/RemoteOrbitTests/LegacyVoiceProductSurfaceContractTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/LocalMicrophoneCaptureRetirementContractTests.swift",
@@ -295,7 +291,6 @@
       "id": "swift-build",
       "tier": "V2",
       "paths": [
-        "remote-orbit/Sources/RemoteOrbit/main.swift",
         "remote-orbit/Sources/RemoteOrbit/AppStorage.swift",
         "remote-orbit/Sources/RemoteOrbit/InstallationSupport.swift",
         "remote-orbit/Sources/RemoteOrbit/LaunchAtLogin.swift",
@@ -419,7 +414,8 @@
       "id": "swift-full",
       "tier": "V3",
       "paths": [
-        "remote-orbit/Package.swift"
+        "remote-orbit/Package.swift",
+        "remote-orbit/Sources/RemoteOrbit/main.swift"
       ],
       "runner": [
         "self-hosted",

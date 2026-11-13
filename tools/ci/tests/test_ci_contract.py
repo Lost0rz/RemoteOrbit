@@ -95,7 +95,7 @@ class RemoteOrbitCIRoutingContractTests(unittest.TestCase):
         self.assertEqual(selected("remote-orbit/Package.swift"),
                          ["package-smoke", "swift-full"])
         self.assertEqual(selected("remote-orbit/Sources/RemoteOrbit/main.swift"),
-                         ["protocol-focused", "audio-focused", "hid-focused", "voice-focused", "swift-build"])
+                         ["swift-full"])
         self.assertIn("package-contracts",
                       selected("tools/ci/tests/test_package_contract.py"))
         self.assertEqual(selected("remote-orbit/Tests/RemoteOrbitTests/VoiceShortcutEmitterTests.swift"),
@@ -155,6 +155,17 @@ class RemoteOrbitCIRoutingContractTests(unittest.TestCase):
                                     f"{classname} is mapped but not actually selected")
                 suites.add(classname)
         self.assertGreaterEqual(len(suites), 45)
+
+    def test_only_high_impact_package_and_app_entry_select_full_suite(self):
+        full = next(lane for lane in CAPABILITIES["tests"]
+                    if lane["id"] == "swift-full")
+        self.assertEqual(set(full["paths"]), {
+            "remote-orbit/Package.swift",
+            "remote-orbit/Sources/RemoteOrbit/main.swift",
+        })
+        self.assertEqual(full["command"], ["swift", "test"])
+        self.assertEqual(selected("remote-orbit/Sources/RemoteOrbit/main.swift"),
+                         ["swift-full"])
 
     def test_no_normal_test_file_triggers_entire_swift_suite(self):
         for test in SUITE_DIR.glob("*.swift"):
