@@ -18,8 +18,7 @@
     "RELEASE_NOTES_v0.2.12.md",
     "RELEASE_NOTES_v0.2.13.md",
     "RELEASE_NOTES_v0.2.14.md",
-    "RELEASE_NOTES_v0.2.15.md",
-    "RELEASE_NOTES_v*.md"
+    "RELEASE_NOTES_v0.2.15.md"
   ],
   "fallback_tests": [
     "ci-contracts"

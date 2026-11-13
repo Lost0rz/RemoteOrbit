@@ -46,6 +46,17 @@ def selected(path):
 
 
 class RemoteOrbitCIRoutingContractTests(unittest.TestCase):
+    def test_catalog_rejects_overbroad_root_documentation_wildcards(self):
+        # Mirror the v0.10.1 Governance contract: root patterns must be explicit,
+        # whereas scoped docs/** is permitted. Do not duplicate routing policy.
+        for pattern in CAPABILITIES["documentation_paths"]:
+            with self.subTest(pattern=pattern):
+                self.assertNotIn(pattern, ("**", "*"))
+                self.assertFalse(pattern.startswith("**/"))
+                if "/" not in pattern:
+                    self.assertNotIn("*", pattern)
+                    self.assertNotIn("?", pattern)
+
     def test_known_sources_and_tests_have_a_lane(self):
         for directory in ("remote-orbit/Sources", "remote-orbit/Tests"):
             for path in (ROOT / directory).rglob("*"):
