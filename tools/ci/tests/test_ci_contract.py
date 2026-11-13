@@ -95,6 +95,22 @@ class RemoteOrbitCIRoutingContractTests(unittest.TestCase):
                          ["package-contracts", "package-smoke"])
         self.assertNotIn("swift-full", selected("remote-orbit/Tests/RemoteOrbitTests/VoicePressCoordinatorTests.swift"))
 
+    def test_key_cross_domain_boundaries_do_not_drop_regression_evidence(self):
+        self.assertEqual(
+            selected("remote-orbit/Sources/RemoteOrbit/VoiceShortcutEmitter.swift"),
+            ["voice-focused", "shortcuts-focused"])
+        self.assertEqual(
+            selected("remote-orbit/Sources/RemoteOrbit/KeyMapping/HIDMonitor.swift"),
+            ["hid-focused", "voice-focused"])
+        self.assertEqual(
+            selected("remote-orbit/Sources/RemoteOrbit/BLEBridge.swift"),
+            ["protocol-focused", "audio-focused", "voice-focused"])
+        self.assertEqual(
+            selected("remote-orbit/Sources/RemoteOrbit/AudioPipePlayoutReserve.swift"),
+            ["audio-focused", "voice-focused"])
+        self.assertNotIn("swift-full",
+                         selected("remote-orbit/Sources/RemoteOrbit/VoiceShortcutEmitter.swift"))
+
     def test_native_hid_and_dependency_changes_expand_safely(self):
         native = "native-hid-build"
         self.assertIn(native, selected(

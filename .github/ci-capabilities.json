@@ -90,7 +90,8 @@
         "remote-orbit/Tests/RemoteOrbitTests/AudioPipePlayoutReserveTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/AudioPipeRealtimeTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/AudioPipeTests.swift",
-        "remote-orbit/Sources/RemoteOrbit/main.swift"
+        "remote-orbit/Sources/RemoteOrbit/main.swift",
+        "remote-orbit/Sources/RemoteOrbit/BLEBridge.swift"
       ],
       "runner": [
         "self-hosted",
@@ -165,7 +166,14 @@
         "remote-orbit/Tests/RemoteOrbitTests/VoiceFocusTransactionTrackerTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/VoicePipelineSimplificationTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/VoicePressCoordinatorTests.swift",
-        "remote-orbit/Tests/RemoteOrbitTests/VoiceReceiverReadinessTests.swift"
+        "remote-orbit/Tests/RemoteOrbitTests/VoiceReceiverReadinessTests.swift",
+        "remote-orbit/Sources/RemoteOrbit/VoiceShortcutEmitter.swift",
+        "remote-orbit/Sources/RemoteOrbit/VoiceShortcutBinding.swift",
+        "remote-orbit/Sources/RemoteOrbit/VoiceShortcutHID*.swift",
+        "remote-orbit/Sources/RemoteOrbit/KeyMapping/HIDMonitor.swift",
+        "remote-orbit/Sources/RemoteOrbit/AudioPipeActivationTransition.swift",
+        "remote-orbit/Sources/RemoteOrbit/AudioPipePlayoutReserve.swift",
+        "remote-orbit/Sources/RemoteOrbit/BLEBridge.swift"
       ],
       "runner": [
         "self-hosted",
