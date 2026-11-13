@@ -312,12 +312,13 @@
       "timeout_minutes": 40
     },
     {
-      "id": "native-hid-build",
+      "id": "native-hid-focused",
       "tier": "V3",
       "paths": [
         "remote-orbit/Sources/RemoteOrbitHIDBridge/**",
         "remote-orbit/Sources/RemoteOrbitHIDHelper/**",
-        "remote-orbit/Sources/RemoteOrbit/VoiceShortcutHID*.swift"
+        "remote-orbit/Sources/RemoteOrbit/VoiceShortcutHID*.swift",
+        "remote-orbit/Tests/RemoteOrbitTests/VoiceShortcutHIDTests.swift"
       ],
       "runner": [
         "self-hosted",
@@ -328,8 +329,9 @@
       "cwd": "remote-orbit",
       "command": [
         "swift",
-        "build",
-        "--build-tests"
+        "test",
+        "--filter",
+        "(VoiceShortcutHIDTests|VoiceShortcutHIDSecurityTests|RemoteOrbitHIDHelperSessionTests|VoicePressCoordinatorVirtualHIDTests|HIDButtonDownPolicyTests|VoiceShortcutEmitterTests)"
       ],
       "timeout_minutes": 40
     },

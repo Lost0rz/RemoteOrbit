@@ -123,7 +123,7 @@ class RemoteOrbitCIRoutingContractTests(unittest.TestCase):
                          selected("remote-orbit/Sources/RemoteOrbit/VoiceShortcutEmitter.swift"))
 
     def test_native_hid_and_dependency_changes_expand_safely(self):
-        native = "native-hid-build"
+        native = "native-hid-focused"
         self.assertIn(native, selected(
             "remote-orbit/Sources/RemoteOrbitHIDBridge/RemoteOrbitHIDBridge.cpp"))
         self.assertIn(native, selected(
@@ -132,6 +132,13 @@ class RemoteOrbitCIRoutingContractTests(unittest.TestCase):
             "remote-orbit/Sources/RemoteOrbitHIDHelper/RemoteOrbitHIDHelper.swift"))
         self.assertIn(native, selected(
             "remote-orbit/Sources/RemoteOrbit/VoiceShortcutHID.swift"))
+        self.assertIn(native, selected("remote-orbit/Tests/RemoteOrbitTests/VoiceShortcutHIDTests.swift"))
+        command = next(lane["command"] for lane in CAPABILITIES["tests"]
+                       if lane["id"] == native)
+        self.assertEqual(command[0:3], ["swift", "test", "--filter"])
+        for klass in ("VoiceShortcutHIDTests", "VoiceShortcutHIDSecurityTests",
+                      "RemoteOrbitHIDHelperSessionTests", "VoicePressCoordinatorVirtualHIDTests"):
+            self.assertIn(klass, command[3])
         self.assertIn("swift-full", selected("remote-orbit/Package.swift"))
         self.assertIn("driver-build", selected("remote-orbit-audio-driver/build-driver.sh"))
         self.assertNotIn("driver-build", selected("remote-orbit-audio-driver/install-driver.sh"))
