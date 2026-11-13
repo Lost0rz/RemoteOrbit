@@ -62,7 +62,8 @@
         "remote-orbit/SelfTests/**",
         "remote-orbit/run-self-tests.sh",
         "remote-orbit/Tests/RemoteOrbitTests/ATVVKeepAliveTelemetryTests.swift",
-        "remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift"
+        "remote-orbit/Tests/RemoteOrbitTests/BLEBridgeTests.swift",
+        "remote-orbit/Sources/RemoteOrbit/main.swift"
       ],
       "runner": [
         "self-hosted",
@@ -88,7 +89,8 @@
         "remote-orbit/Tests/RemoteOrbitTests/AudioDeviceManagerTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/AudioPipePlayoutReserveTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/AudioPipeRealtimeTests.swift",
-        "remote-orbit/Tests/RemoteOrbitTests/AudioPipeTests.swift"
+        "remote-orbit/Tests/RemoteOrbitTests/AudioPipeTests.swift",
+        "remote-orbit/Sources/RemoteOrbit/main.swift"
       ],
       "runner": [
         "self-hosted",
@@ -109,7 +111,13 @@
       "id": "hid-focused",
       "tier": "V2",
       "paths": [
-        "remote-orbit/Sources/RemoteOrbit/KeyMapping/**",
+        "remote-orbit/Sources/RemoteOrbit/KeyMapping/Button*.swift",
+        "remote-orbit/Sources/RemoteOrbit/KeyMapping/HIDMonitor.swift",
+        "remote-orbit/Sources/RemoteOrbit/KeyMapping/EventSuppressor.swift",
+        "remote-orbit/Sources/RemoteOrbit/KeyMapping/KeyInjector.swift",
+        "remote-orbit/Sources/RemoteOrbit/KeyMapping/MappingStore.swift",
+        "remote-orbit/Sources/RemoteOrbit/KeyMapping/*Command*.swift",
+        "remote-orbit/Sources/RemoteOrbit/KeyMapping/AppTemplatePresets.swift",
         "remote-orbit/Sources/RemoteOrbit/VoiceTriggerKey.swift",
         "remote-orbit/Tests/RemoteOrbitTests/ButtonActionTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/ButtonGestureRecognizerTests.swift",
@@ -118,7 +126,8 @@
         "remote-orbit/Tests/RemoteOrbitTests/HIDMonitorDiagnosticsTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/MappingStoreRoutingTests.swift",
         "remote-orbit/Tests/RemoteOrbitTests/RemoteVoiceKeyMappingTests.swift",
-        "remote-orbit/Tests/RemoteOrbitTests/VoiceKeyFilterTests.swift"
+        "remote-orbit/Tests/RemoteOrbitTests/VoiceKeyFilterTests.swift",
+        "remote-orbit/Sources/RemoteOrbit/main.swift"
       ],
       "runner": [
         "self-hosted",
@@ -279,7 +288,6 @@
       "id": "swift-build",
       "tier": "V2",
       "paths": [
-        "remote-orbit/Package.swift",
         "remote-orbit/Sources/RemoteOrbit/main.swift",
         "remote-orbit/Sources/RemoteOrbit/AppStorage.swift",
         "remote-orbit/Sources/RemoteOrbit/InstallationSupport.swift",
@@ -307,8 +315,7 @@
       "paths": [
         "remote-orbit/Sources/RemoteOrbitHIDBridge/**",
         "remote-orbit/Sources/RemoteOrbitHIDHelper/**",
-        "remote-orbit/Sources/RemoteOrbit/VoiceShortcutHID*.swift",
-        "remote-orbit/Package.swift"
+        "remote-orbit/Sources/RemoteOrbit/VoiceShortcutHID*.swift"
       ],
       "runner": [
         "self-hosted",
@@ -332,15 +339,15 @@
         "remote-orbit/Brand/**",
         "remote-orbit/package-app.sh",
         "remote-orbit/install-app.sh",
-        "remote-orbit-audio-driver/**",
         "installer/pkg-scripts/**",
         "installer/DMG-README.txt",
         "package-dmg.sh",
         "LaunchRemoteOrbit.command",
-        "remote-orbit/Package.swift",
         "remote-orbit/Sources/RemoteOrbit/InstallationSupport.swift",
         "remote-orbit/run-audio-p0-diagnostic.sh",
-        "remote-orbit/verify-audio-p0-diagnostic-build.sh"
+        "remote-orbit/verify-audio-p0-diagnostic-build.sh",
+        "tools/ci/tests/test_package_contract.py",
+        "remote-orbit-audio-driver/*.sh"
       ],
       "runner": [
         "macos-26"

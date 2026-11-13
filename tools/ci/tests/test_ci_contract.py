@@ -79,6 +79,14 @@ class RemoteOrbitCIRoutingContractTests(unittest.TestCase):
                          ["voice-focused"])
         self.assertEqual(selected("remote-orbit/Sources/RemoteOrbit/AudioPipe.swift"),
                          ["audio-focused"])
+        self.assertEqual(selected("remote-orbit/Sources/RemoteOrbit/KeyMapping/SettingsView.swift"),
+                         ["shortcuts-focused", "settings-focused"])
+        self.assertEqual(selected("remote-orbit/Package.swift"),
+                         ["package-smoke", "swift-full"])
+        self.assertEqual(selected("remote-orbit/Sources/RemoteOrbit/main.swift"),
+                         ["protocol-focused", "audio-focused", "hid-focused", "voice-focused", "swift-build"])
+        self.assertIn("package-contracts",
+                      selected("tools/ci/tests/test_package_contract.py"))
         self.assertEqual(selected("remote-orbit/Tests/RemoteOrbitTests/VoiceShortcutEmitterTests.swift"),
                          ["shortcuts-focused"])
         self.assertEqual(selected("remote-orbit/Sources/RemoteOrbit/Diagnostics/DiagnosticCLI.swift"),
