@@ -417,6 +417,36 @@ final class DiagnosticHardeningTests: XCTestCase {
             XCTAssertFalse(json.contains("pcm"))
         }
     }
+
+    func testRollingTextLogWriterTracksUncachedSizeAndRotatesToSegmentOne() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RemoteOrbitRollingLogTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let logURL = directory.appendingPathComponent("RemoteOrbit.log")
+        let writer = RollingTextLogWriter(
+            fileURL: logURL,
+            maximumBytes: 120,
+            queueLabel: "com.remoteorbit.test.rolling-log.\(UUID().uuidString)"
+        )
+
+        writer.write(String(repeating: "A", count: 60))
+        writer.flush()
+        let firstSize = writer.byteSize
+        XCTAssertGreaterThan(firstSize, 60)
+
+        writer.write(String(repeating: "B", count: 80))
+        writer.flush()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: writer.rotatedFileURL.path))
+        let totalSize = writer.byteSize
+        XCTAssertGreaterThan(totalSize, firstSize)
+
+        writer.clear { false }
+        XCTAssertEqual(writer.byteSize, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: logURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: writer.rotatedFileURL.path))
+    }
 }
 
 private final class HardeningCapturingAuthority: DiagnosticAuthority {

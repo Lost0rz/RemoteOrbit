@@ -61,9 +61,26 @@ enum InstallationDiagnostics {
         isDirectory: true
     )
 
+    enum AppInstallLocationStatus: Equatable {
+        case installedInApplications
+        case runningOutsideApplications(String)
+        case developmentBinary
+    }
+
+    static var appInstallLocationStatus: AppInstallLocationStatus {
+        guard Bundle.main.bundlePath.hasSuffix(".app"),
+              Bundle.main.bundleIdentifier == ProductIdentity.bundleIdentifier else {
+            return .developmentBinary
+        }
+        let path = Bundle.main.bundleURL.standardizedFileURL.path
+        if path.hasPrefix("/Applications/") {
+            return .installedInApplications
+        }
+        return .runningOutsideApplications(path)
+    }
+
     static var appInstalled: Bool {
-        Bundle.main.bundlePath.hasSuffix(".app") &&
-            Bundle.main.bundleIdentifier == ProductIdentity.bundleIdentifier
+        appInstallLocationStatus == .installedInApplications
     }
 
     static var audioDriverInstalled: Bool {

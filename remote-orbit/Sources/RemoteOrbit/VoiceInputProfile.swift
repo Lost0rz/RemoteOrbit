@@ -72,32 +72,8 @@ enum VoiceInputProfileStore {
         return loaded.snapshot.activeEntry?.profile ?? .defaultProfile
     }
 
-    static func writeSelectedProfile(
-        _ profile: VoiceInputProfile,
-        to defaults: UserDefaults
-    ) {
-        let loaded = VoiceShortcutStore.load(from: defaults)
-        guard loaded.isWritable else { return }
-        var snapshot = loaded.snapshot
-        guard snapshot.entries.contains(where: { $0.id == profile.id }) else { return }
-        snapshot.activeEntryID = profile.id
-        do {
-            try VoiceShortcutStore.persist(snapshot, to: defaults)
-            defaults.set(profile.id, forKey: selectedProfileIDKey)
-            if let key = profile.triggerKey {
-                AppStorage.writeMomentaryVoiceTriggerKey(key, to: defaults)
-            }
-        } catch {
-            return
-        }
-    }
-
     static func migrate(from defaults: UserDefaults) {
         VoiceShortcutStore.migrate(from: defaults)
-    }
-
-    static func persistedProfile(from defaults: UserDefaults) -> VoiceInputProfile? {
-        VoiceShortcutStore.load(from: defaults).snapshot.activeEntry?.profile
     }
 
     static func profile(for triggerKey: VoiceTriggerKey) -> VoiceInputProfile {

@@ -1,6 +1,6 @@
 // SettingsView.swift — RemoteOrbit Control Center
 //
-// 产品级设置工作区：概览、按键映射、设置与诊断和关于。
+// 产品级设置工作区：通用设置、按键映射与关于。
 // Shortcut recording remains in this file so the recorder shares the mapping
 // model and uses the same product-specific window flow.
 
@@ -11,8 +11,10 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @ObservedObject var store: MappingStore
     @ObservedObject var voiceShortcutPresentation: VoiceShortcutPresentation
+    @ObservedObject var navigation: SettingsNavigationModel
     var onRecordingChanged: (Bool) -> Void = { _ in }
-    @State private var selectedSection: WorkspaceSection = .overview
+
+    @State private var selectedSection: WorkspaceSection = .general
     @State private var selectedButton: RemoteButton = .microphone
     @State private var mappingScope: MappingScope = .global
     @State private var selectedTemplateTarget: TemplateTarget = .none
@@ -21,44 +23,40 @@ struct SettingsView: View {
     @State private var voiceShortcutEditorRequest: VoiceShortcutEditorRequest?
     @State private var voiceShortcutStatus: String?
     @State private var showResetConfirm = false
-    @State private var showTemplateCreator = false
+    @State private var templateCreatorRequest: TemplateCreatorRequest?
     @State private var showTemplatePresetImporter = false
     @State private var showDeleteTemplateConfirm = false
     @State private var templateToDelete: UUID?
+
     @State private var launchAtLoginEnabled = LaunchAtLogin.isEnabled
+    @State private var launchAtLoginError: String?
     @State private var loggingEnabled = Log.isEnabled
     @State private var recordingEnabled = AppStorage.recordingEnabled
     @State private var isRepairingInstallation = false
     @State private var isInstallingVirtualHID = false
     @State private var installationMessage: String?
     @State private var installationRefreshID = UUID()
+    @State private var storageRefreshID = UUID()
     @State private var configurationMessage: String?
+    @State private var isExportingDiagnostics = false
+    @State private var diagnosticExportMessage: String?
+    @State private var exportedArchiveURL: URL?
 
     init(
         store: MappingStore,
         voiceShortcutPresentation: VoiceShortcutPresentation = .shared,
+        navigation: SettingsNavigationModel = SettingsNavigationModel(),
         onRecordingChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self.store = store
         self.voiceShortcutPresentation = voiceShortcutPresentation
+        self.navigation = navigation
         self.onRecordingChanged = onRecordingChanged
     }
 
     enum MappingScope: Hashable {
         case global
         case app(String)
-    }
-
-    private enum MappingScopeKind: Hashable {
-        case global
-        case app
-    }
-
-    private struct ButtonGroup: Identifiable {
-        let title: String
-        let buttons: [RemoteButton]
-
-        var id: String { title }
     }
 
     private struct GestureRecorderTarget: Identifiable {
@@ -73,37 +71,47 @@ struct SettingsView: View {
         case template(UUID)
     }
 
+    enum TemplateCreatorRequest: Identifiable {
+        case addApplication
+        case newTemplateForApp(bundleIdentifier: String, appName: String)
+
+        var id: String {
+            switch self {
+            case .addApplication:
+                return "add-application"
+            case let .newTemplateForApp(bundleID, _):
+                return "new-template-\(bundleID)"
+            }
+        }
+    }
+
     private enum WorkspaceSection: String, CaseIterable, Identifiable {
-        case overview
+        case general
         case mappings
-        case diagnostics
         case about
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .overview: return "概览"
+            case .general: return "通用设置"
             case .mappings: return "按键映射"
-            case .diagnostics: return "设置与诊断"
             case .about: return "关于"
             }
         }
 
         var subtitle: String {
             switch self {
-            case .overview: return "连接与运行状态"
-            case .mappings: return "定义每个按钮的行为"
-            case .diagnostics: return "启动、日志、录音与权限"
+            case .general: return "运行状态、启动、组件与日志"
+            case .mappings: return "通用与程序专属快捷键"
             case .about: return "版本与产品信息"
             }
         }
 
         var symbolName: String {
             switch self {
-            case .overview: return "rectangle.grid.2x2"
+            case .general: return "gearshape.2"
             case .mappings: return "slider.horizontal.3"
-            case .diagnostics: return "stethoscope"
             case .about: return "info.circle"
             }
         }
@@ -111,114 +119,147 @@ struct SettingsView: View {
 
     var body: some View {
         workspace
-        .frame(minWidth: 1_020, minHeight: 660)
-        // 用 sheet(item:) 直接以按钮作为展示状态，避免第一次点击时
-        // showRecorder 已变成 true、recorderButton 仍是 nil，导致空 sheet。
-        .sheet(item: $recorderButton) { button in
-            ShortcutRecorderSheet(
-                button: button,
-                initialTriggerMode: currentBinding(for: button).shortcutTriggerMode ?? .single,
-                onCancel: { recorderButton = nil },
-                onClear: {
-                    setCurrentBinding(.preset(.disabled), for: button)
-                    recorderButton = nil
-                },
-                onRecord: { chord, trigger in
-                    setCurrentBinding(.shortcut(chord, trigger: trigger), for: button)
-                    recorderButton = nil
-                }
-            )
-        }
-        .sheet(item: $gestureRecorderTarget) { target in
-            ShortcutRecorderSheet(
-                button: target.button,
-                title: "设置 \(target.button.displayName) 的 \(target.slot.displayName) 快捷键",
-                showsTriggerMode: false,
-                clearButtonTitle: "清除这个手势",
-                initialTriggerMode: .single,
-                onCancel: { gestureRecorderTarget = nil },
-                onClear: {
-                    setCurrentGestureBinding(nil, for: target.button, slot: target.slot)
-                    setCurrentGestureEnabled(false, for: target.slot)
-                    gestureRecorderTarget = nil
-                },
-                onRecord: { chord, _ in
-                    setCurrentGestureBinding(
-                        .shortcut(chord, trigger: .single),
-                        for: target.button,
-                        slot: target.slot
-                    )
-                    setCurrentGestureEnabled(true, for: target.slot)
-                    gestureRecorderTarget = nil
-                }
-            )
-        }
-        .sheet(item: $voiceShortcutEditorRequest) { request in
-            VoiceShortcutEditorSheet(
-                request: request,
-                onCancel: { voiceShortcutEditorRequest = nil },
-                onSave: { entry, completion in
-                    saveVoiceShortcutEntry(entry, completion: completion)
-                }
-            )
-        }
-        .sheet(isPresented: $showTemplateCreator) {
-            AppTemplateCreatorSheet(
-                apps: templateCreatorApps,
-                onCancel: { showTemplateCreator = false },
-                onCreate: { app, templateName in
-                    let id = store.addTemplate(
-                        appBundleIdentifier: app.bundleIdentifier,
-                        appName: app.displayName,
-                        templateName: templateName
-                    )
-                    mappingScope = .app(app.bundleIdentifier)
-                    selectedTemplateTarget = .template(id)
-                    showTemplateCreator = false
-                }
-            )
-        }
-        .sheet(isPresented: $showTemplatePresetImporter) {
-            if case let .app(bundleID) = mappingScope {
-                AppTemplatePresetSheet(
-                    appName: mappingScopeDisplayName,
-                    bundleID: bundleID,
-                    presets: store.templatePresets(for: bundleID),
-                    onCancel: { showTemplatePresetImporter = false },
-                    onImport: { preset in
-                        if let id = store.importTemplatePreset(
-                            preset.id,
-                            for: bundleID,
-                            appName: mappingScopeDisplayName
-                        ) {
-                            selectedTemplateTarget = .template(id)
-                        }
-                        showTemplatePresetImporter = false
+            .frame(minWidth: 1_020, minHeight: 660)
+            .onAppear {
+                applyNavigationRoute(navigation.routeRequest.route)
+            }
+            .onChange(of: navigation.routeRequest) { request in
+                applyNavigationRoute(request.route)
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: NSApplication.didBecomeActiveNotification
+                )
+            ) { _ in
+                refreshLiveState()
+            }
+            // 用 sheet(item:) 直接以按钮作为展示状态，避免第一次点击时
+            // showRecorder 已变成 true、recorderButton 仍是 nil，导致空 sheet。
+            .sheet(item: $recorderButton) { button in
+                ShortcutRecorderSheet(
+                    button: button,
+                    initialTriggerMode: currentBinding(for: button).shortcutTriggerMode ?? .single,
+                    onCancel: { recorderButton = nil },
+                    onClear: {
+                        setCurrentBinding(.preset(.disabled), for: button)
+                        recorderButton = nil
+                    },
+                    onRecord: { chord, trigger in
+                        let effectiveTrigger: ShortcutTriggerMode =
+                            currentGestureProfile(for: button).usesAdvancedGestures
+                            ? .single
+                            : trigger
+                        setCurrentBinding(
+                            .shortcut(chord, trigger: effectiveTrigger),
+                            for: button
+                        )
+                        recorderButton = nil
                     }
                 )
-            } else {
-                EmptyView()
             }
-        }
-        .alert("确认删除 App 模板", isPresented: $showDeleteTemplateConfirm) {
-            Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive) {
-                if let templateToDelete {
-                    let bundleID = store.template(withID: templateToDelete)?.appBundleIdentifier
-                    store.deleteTemplate(templateToDelete)
-                    if let bundleID, let active = store.activeTemplate(for: bundleID) {
-                        mappingScope = .app(bundleID)
-                        selectedTemplateTarget = .template(active.id)
-                    } else {
-                        mappingScope = .global
-                        selectedTemplateTarget = .none
+            .sheet(item: $gestureRecorderTarget) { target in
+                ShortcutRecorderSheet(
+                    button: target.button,
+                    title: "设置 \(target.button.displayName) 的 \(target.slot.displayName) 快捷键",
+                    showsTriggerMode: false,
+                    clearButtonTitle: "清除这个手势",
+                    initialTriggerMode: .single,
+                    onCancel: { gestureRecorderTarget = nil },
+                    onClear: {
+                        setCurrentGestureBinding(nil, for: target.button, slot: target.slot)
+                        setCurrentGestureEnabled(false, for: target.slot)
+                        gestureRecorderTarget = nil
+                    },
+                    onRecord: { chord, _ in
+                        setCurrentGestureBinding(
+                            .shortcut(chord, trigger: .single),
+                            for: target.button,
+                            slot: target.slot
+                        )
+                        setCurrentGestureEnabled(true, for: target.slot)
+                        gestureRecorderTarget = nil
                     }
-                }
-                self.templateToDelete = nil
+                )
             }
-        } message: {
-            Text("删除后该 App 将使用通用映射，其他模板不受影响。")
-        }
+            .sheet(item: $voiceShortcutEditorRequest) { request in
+                VoiceShortcutEditorSheet(
+                    request: request,
+                    onCancel: { voiceShortcutEditorRequest = nil },
+                    onSave: { entry, completion in
+                        saveVoiceShortcutEntry(entry, completion: completion)
+                    }
+                )
+            }
+            .sheet(item: $templateCreatorRequest) { request in
+                AppTemplateCreatorSheet(
+                    request: request,
+                    installedApps: Self.installedApplicationsChoices(),
+                    configuredBundleIDs: Set(configuredAppChoices.map(\.bundleIdentifier)),
+                    onCancel: { templateCreatorRequest = nil },
+                    onCreateBlank: { app, templateName in
+                        let id = store.addTemplate(
+                            appBundleIdentifier: app.bundleIdentifier,
+                            appName: app.displayName,
+                            templateName: templateName
+                        )
+                        mappingScope = .app(app.bundleIdentifier)
+                        selectedTemplateTarget = .template(id)
+                        templateCreatorRequest = nil
+                    },
+                    onImportPreset: { app, preset in
+                        if let id = store.applyTemplatePreset(
+                            preset.id,
+                            for: app.bundleIdentifier,
+                            appName: app.displayName
+                        ) {
+                            mappingScope = .app(app.bundleIdentifier)
+                            selectedTemplateTarget = .template(id)
+                        }
+                        templateCreatorRequest = nil
+                    }
+                )
+            }
+            .sheet(isPresented: $showTemplatePresetImporter) {
+                if case let .app(bundleID) = mappingScope {
+                    AppTemplatePresetSheet(
+                        appName: mappingScopeDisplayName,
+                        bundleID: bundleID,
+                        presets: store.templatePresets(for: bundleID),
+                        onCancel: { showTemplatePresetImporter = false },
+                        onImport: { preset in
+                            if let id = store.applyTemplatePreset(
+                                preset.id,
+                                for: bundleID,
+                                appName: mappingScopeDisplayName
+                            ) {
+                                selectedTemplateTarget = .template(id)
+                            }
+                            showTemplatePresetImporter = false
+                        }
+                    )
+                } else {
+                    EmptyView()
+                }
+            }
+            .alert("确认删除 App 模板", isPresented: $showDeleteTemplateConfirm) {
+                Button("取消", role: .cancel) {}
+                Button("删除", role: .destructive) {
+                    if let templateToDelete {
+                        let bundleID = store.template(withID: templateToDelete)?.appBundleIdentifier
+                        store.deleteTemplate(templateToDelete)
+                        if let bundleID, let active = store.activeTemplate(for: bundleID) {
+                            mappingScope = .app(bundleID)
+                            selectedTemplateTarget = .template(active.id)
+                        } else {
+                            mappingScope = .global
+                            selectedTemplateTarget = .none
+                        }
+                    }
+                    self.templateToDelete = nil
+                }
+            } message: {
+                Text("删除后该 App 将使用通用映射，其他模板不受影响。")
+            }
     }
 
     // MARK: - Product workspace
@@ -239,7 +280,7 @@ struct SettingsView: View {
 
     private var navigationRail: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("WORKSPACE")
+            Text("功能导航")
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 12)
@@ -300,73 +341,285 @@ struct SettingsView: View {
     @ViewBuilder
     private var pageContent: some View {
         switch selectedSection {
-        case .overview:
-            overviewPage
+        case .general:
+            generalPage
         case .mappings:
             mappingsPage
-        case .diagnostics:
-            diagnosticsPage
         case .about:
             aboutPage
         }
     }
 
-    private var overviewPage: some View {
+    // MARK: - 通用设置
+
+    private var generalPage: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                HStack(spacing: 12) {
-                    metricCard(
-                        title: "遥控器按钮",
-                        value: "\(RemoteButton.allCases.count)",
-                        detail: "可配置按键",
-                        symbolName: "remote"
-                    )
-                    metricCard(
-                        title: "程序模板",
-                        value: "\(store.appTemplates.count)",
-                        detail: "独立程序模板",
-                        symbolName: "square.stack.3d.up"
-                    )
-                    metricCard(
-                        title: "滚动速度",
-                        value: "\(store.scrollLinesPerStep)",
-                        detail: "行 / 次",
-                        symbolName: "arrow.up.and.down"
-                    )
-                }
-
-                workspaceCard(title: "生效逻辑", symbolName: "arrow.triangle.branch") {
-                    VStack(alignment: .leading, spacing: 14) {
-                        logicRow(
-                            index: "01",
-                            title: "默认映射",
-                            description: "所有程序都有一套基础行为，没有独立模板时直接使用。"
-                        )
-                        logicRow(
-                            index: "02",
-                            title: "程序模板",
-                            description: "当前程序有 Active 模板时，只对该程序使用专属按钮方案。"
-                        )
-                        logicRow(
-                            index: "03",
-                            title: "始终使用默认",
-                            description: "单个按钮开启后会跳过程序模板，适合音量、Home 等固定操作。"
-                        )
-                    }
-                }
-
-                workspaceCard(title: "首次使用建议", symbolName: "sparkles") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("先在“按键映射”顶部选择通用或程序范围；选择程序后，在顶部直接选择 Active 模板并管理模板。")
-                        Text("修改会立即保存到本机；按键按下后会锁定当时的目标 App，避免切换窗口时误发到别的程序。")
-                    }
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: 20) {
+                runtimeStatusCard
+                preferencesCard
+                installationCard
+                mappingConfigurationCard
+                logsAndDiagnosticsSection
             }
             .padding(28)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
+
+    private var runtimeStatusCard: some View {
+        let health = DiagnosticRuntimeHealthRegistry.shared.snapshot()
+        let hidActive = health["hid_device_active"] == .bool(true)
+        let bleConnected = health["ble_connected"] == .bool(true)
+        let streaming = health["atvv_streaming"] == .bool(true)
+        let audioOutputReady = AudioPipe.shared.isOutputReady
+        let activeEntry = voiceShortcutPresentation.snapshot.activeEntry
+
+        let hidDisplay: (String, Color) = {
+            guard hidActive else { return ("未连接（请按任意按键唤醒或检查蓝牙配对）", .red) }
+            if SecureEventInputDiagnostics.isSecureEventInputEnabled {
+                return ("已连接（系统安全输入激活，语音旁路可用）", .orange)
+            }
+            return ("已连接", .green)
+        }()
+
+        let voiceLinkDisplay: (String, Color) = {
+            if streaming {
+                return ("正在采集遥控器语音", .green)
+            }
+            if bleConnected {
+                return ("BLE 已连接 · 待命", .green)
+            }
+            if hidActive {
+                return ("待命（按住语音键约 300ms 启动）", .green)
+            }
+            return ("等待遥控器连接", .secondary)
+        }()
+
+        let audioOutputDisplay: (String, Color) = audioOutputReady
+            ? ("RemoteOrbit Mic 2ch · 已就绪", .green)
+            : ("未就绪", .orange)
+
+        return workspaceCard(title: "运行与连接状态", symbolName: "waveform.path.ecg") {
+            VStack(alignment: .leading, spacing: 11) {
+                installationStatusRow(label: "遥控器 HID", value: hidDisplay.0, color: hidDisplay.1)
+                installationStatusRow(label: "蓝牙语音链路", value: voiceLinkDisplay.0, color: voiceLinkDisplay.1)
+                installationStatusRow(label: "虚拟音频输出", value: audioOutputDisplay.0, color: audioOutputDisplay.1)
+
+                Divider()
+
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("当前语音快捷键")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(
+                            activeEntry.map { "\($0.displayName)（\($0.binding.sideDescription)）" }
+                                ?? "未配置"
+                        )
+                        .font(.callout.weight(.medium))
+                    }
+                    Spacer()
+                    Button("管理语音快捷键…") {
+                        navigation.navigate(to: .voiceShortcuts)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .id(installationRefreshID)
+    }
+
+    private var preferencesCard: some View {
+        workspaceCard(title: "通用偏好", symbolName: "gearshape") {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 18) {
+                    Toggle("登录时自动启动", isOn: Binding(
+                        get: { launchAtLoginEnabled },
+                        set: { value in
+                            do {
+                                try LaunchAtLogin.setEnabled(value)
+                                launchAtLoginEnabled = LaunchAtLogin.isEnabled
+                                launchAtLoginError = nil
+                            } catch {
+                                launchAtLoginEnabled = LaunchAtLogin.isEnabled
+                                launchAtLoginError = error.localizedDescription
+                                print("[SETTINGS] 登录启动设置失败: \(error.localizedDescription)")
+                            }
+                        }
+                    ))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Toggle("记录运行日志", isOn: Binding(
+                        get: { loggingEnabled },
+                        set: { value in
+                            Log.setEnabled(value)
+                            loggingEnabled = Log.isEnabled
+                            if loggingEnabled {
+                                print("[APP] 日志已由用户开启")
+                            }
+                            storageRefreshID = UUID()
+                        }
+                    ))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Toggle("保存调试录音", isOn: Binding(
+                        get: { recordingEnabled },
+                        set: { value in
+                            AppStorage.recordingEnabled = value
+                            recordingEnabled = AppStorage.recordingEnabled
+                            onRecordingChanged(recordingEnabled)
+                            storageRefreshID = UUID()
+                        }
+                    ))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.checkbox)
+
+                if LaunchAtLogin.needsPathUpdate {
+                    Label(
+                        "当前登录启动项指向的旧路径与本次运行位置不同，建议取消勾选后重新开启以更新启动路径。",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                }
+
+                if let launchAtLoginError {
+                    Label(launchAtLoginError, systemImage: "xmark.octagon.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                if DiagnosticsRuntimeGate.shared.isEnvironmentOverrideEnabled {
+                    Label(
+                        "当前检测到环境变量 REMOTE_ORBIT_DIAGNOSTICS=1，结构化诊断收集正由环境变量强制开启。",
+                        systemImage: "info.circle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                }
+
+                Text("日志与调试录音只在此处管理，不占用菜单栏。调试录音会保存遥控器语音的 WAV 与原始数据。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+                scrollSpeedControl
+            }
+        }
+    }
+
+    private var logsAndDiagnosticsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                diagnosticCard(
+                    title: "运行日志与诊断记录",
+                    detail: AppStorage.formattedSize(AppStorage.logsTotalByteSize()),
+                    symbolName: "doc.text.magnifyingglass",
+                    openAction: {
+                        AppStorage.ensureDirectory(AppStorage.logsDirectory)
+                        NSWorkspace.shared.open(AppStorage.logsDirectory)
+                    },
+                    clearAction: {
+                        AppStorage.clearAllLogs()
+                        storageRefreshID = UUID()
+                    }
+                )
+                diagnosticCard(
+                    title: "调试录音",
+                    detail: AppStorage.formattedSize(
+                        AppStorage.byteSize(of: AppStorage.recordingsDirectory)
+                    ),
+                    symbolName: "waveform",
+                    openAction: {
+                        AppStorage.ensureDirectory(AppStorage.recordingsDirectory)
+                        NSWorkspace.shared.open(AppStorage.recordingsDirectory)
+                    },
+                    clearAction: {
+                        AppStorage.clearFiles(in: AppStorage.recordingsDirectory)
+                        storageRefreshID = UUID()
+                    }
+                )
+            }
+            .id(storageRefreshID)
+
+            workspaceCard(title: "诊断包导出", symbolName: "shippingbox.and.arrow.backward") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("打包当前运行健康快照、结构化 JSONL 诊断日志与文本日志（含校验和），用于问题排查。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            exportDiagnosticBundle()
+                        } label: {
+                            if isExportingDiagnostics {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("正在导出…")
+                            } else {
+                                Label("导出诊断包…", systemImage: "square.and.arrow.up")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isExportingDiagnostics)
+
+                        if let exportedArchiveURL {
+                            Button("在访达中显示") {
+                                NSWorkspace.shared.activateFileViewerSelecting([exportedArchiveURL])
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+
+                    if let diagnosticExportMessage {
+                        Text(diagnosticExportMessage)
+                            .font(.caption)
+                            .foregroundStyle(
+                                diagnosticExportMessage.contains("失败") ? .red : .green
+                            )
+                    }
+                }
+            }
+        }
+    }
+
+    private func exportDiagnosticBundle() {
+        guard !isExportingDiagnostics else { return }
+        let panel = NSOpenPanel()
+        panel.title = "选择诊断包导出目录"
+        panel.prompt = "导出到此目录"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let outputDirectory = panel.url else { return }
+
+        isExportingDiagnostics = true
+        diagnosticExportMessage = nil
+        exportedArchiveURL = nil
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let archiveURL = try DiagnosticExporter().export(
+                    options: DiagnosticExportOptions(outputDirectory: outputDirectory)
+                )
+                DispatchQueue.main.async {
+                    isExportingDiagnostics = false
+                    exportedArchiveURL = archiveURL
+                    diagnosticExportMessage = "诊断包已导出：\(archiveURL.lastPathComponent)"
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    isExportingDiagnostics = false
+                    diagnosticExportMessage = "导出诊断包失败：\(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    // MARK: - 按键映射
 
     private var mappingsPage: some View {
         visualMappingEditor
@@ -395,7 +648,7 @@ struct SettingsView: View {
 
             Divider()
             Button {
-                showTemplateCreator = true
+                templateCreatorRequest = .addApplication
             } label: {
                 Label("添加程序…", systemImage: "plus.circle")
             }
@@ -416,7 +669,7 @@ struct SettingsView: View {
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .menuStyle(.borderlessButton)
-        .help("切换通用映射或已配置的程序模板；也可以在菜单底部添加程序")
+        .help("切换通用映射或已配置的程序模板；也可以在菜单底部添加 /Applications 中的应用程序")
     }
 
     private var visualMappingEditor: some View {
@@ -427,7 +680,7 @@ struct SettingsView: View {
                 if case .app = mappingScope, !hasEditableScope {
                     workspaceCard(title: "先创建一个程序模板", symbolName: "square.stack.3d.up.badge.plus") {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("这个程序还没有可编辑的模板。可以直接套用内置预设，或者新建一个空模板。")
+                            Text("这个程序还没有可编辑的模板。可以直接套用内置预设，或者新建一个模板。")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                             HStack(spacing: 8) {
@@ -436,8 +689,13 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .disabled(templatePresetChoicesForCurrentScope.isEmpty)
-                                Button("新建空模板") {
-                                    showTemplateCreator = true
+                                Button("新建模板…") {
+                                    if case let .app(bundleID) = mappingScope {
+                                        templateCreatorRequest = .newTemplateForApp(
+                                            bundleIdentifier: bundleID,
+                                            appName: mappingScopeDisplayName
+                                        )
+                                    }
                                 }
                                 .buttonStyle(.bordered)
                             }
@@ -449,6 +707,9 @@ struct SettingsView: View {
                             selectedButton: selectedButton,
                             bindingFor: { currentBinding(for: $0) },
                             profileFor: { currentGestureProfile(for: $0) },
+                            isGloballyOverridden: { button in
+                                mappingScope != .global && isButtonGloballyOverridden(button)
+                            },
                             onSelect: { selectedButton = $0 }
                         )
                         .frame(width: 270)
@@ -462,6 +723,11 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func isButtonGloballyOverridden(_ button: RemoteButton) -> Bool {
+        button != .microphone
+            && GlobalMappingSlot.allCases.contains { store.isGloballyPinned(button, slot: $0) }
     }
 
     private var visualMappingScopeBar: some View {
@@ -493,8 +759,25 @@ struct SettingsView: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(maxWidth: 210)
+                    .frame(maxWidth: 190)
                 }
+
+                if !store.templatePresets(for: bundleID).isEmpty {
+                    Button("套用预设…") {
+                        showTemplatePresetImporter = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                Button("新建模板…") {
+                    templateCreatorRequest = .newTemplateForApp(
+                        bundleIdentifier: bundleID,
+                        appName: mappingScopeDisplayName
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
 
                 if selectedEditorTemplate != nil {
                     Button("删除", role: .destructive) {
@@ -505,9 +788,10 @@ struct SettingsView: View {
                     .controlSize(.small)
                 }
             } else {
-                Text("通用映射会作为未配置程序的基础行为")
+                Text("通用映射会作为未配置程序的基础行为；如需为具体软件单独配键，请在左侧菜单添加程序")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
         }
         .padding(.horizontal, 14)
@@ -531,11 +815,13 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-                Button("恢复默认") {
-                    resetSelectedButtonToDefault()
+                if selectedButton != .microphone {
+                    Button("恢复默认") {
+                        resetSelectedButtonToDefault()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
 
             if selectedButton == .microphone {
@@ -572,8 +858,8 @@ struct SettingsView: View {
                 }
             } message: {
                 Text(mappingScope == .global
-                     ? "这将恢复通用映射中的所有按钮。"
-                     : "这将恢复当前程序模板中的所有按钮。")
+                     ? "这将恢复通用映射中的所有按钮并重置默认全局锁定。"
+                     : "这将恢复当前程序模板中的所有按钮与默认手势。")
             }
         }
     }
@@ -583,6 +869,7 @@ struct SettingsView: View {
         let isEnabled = !binding.isDisabled
         let isGloballyPinned = mappingScope != .global &&
             store.isGloballyPinned(selectedButton, slot: .single)
+        let advancedActive = currentGestureProfile(for: selectedButton).usesAdvancedGestures
 
         return workspaceCard(title: "单击", symbolName: "1.circle.fill") {
             VStack(alignment: .leading, spacing: 11) {
@@ -600,8 +887,9 @@ struct SettingsView: View {
                     Spacer(minLength: 12)
                     visualGlobalScopeControl(for: .single)
                 }
-                Picker(
-                    "单击功能",
+
+                actionPicker(
+                    title: "单击功能",
                     selection: Binding(
                         get: {
                             if case let .preset(action) = currentBinding(for: selectedButton) {
@@ -611,37 +899,43 @@ struct SettingsView: View {
                         },
                         set: { setCurrentBinding(.preset($0), for: selectedButton) }
                     )
-                ) {
-                    ForEach(availableActionCategories) { category in
-                        actionPickerSections(for: category)
-                    }
-                }
+                )
                 .labelsHidden()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .disabled(!isEnabled || isGloballyPinned)
 
                 if case let .shortcut(chord, trigger) = binding {
-                    HStack(spacing: 9) {
-                        Label("自定义快捷键", systemImage: "command")
-                            .font(.caption.weight(.medium))
-                        Text(chord.displayName)
-                            .font(.system(.caption, design: .monospaced).weight(.semibold))
-                        Picker("触发方式", selection: Binding(
-                            get: { trigger },
-                            set: { setCurrentBinding(.shortcut(chord, trigger: $0), for: selectedButton) }
-                        )) {
-                            ForEach(ShortcutTriggerMode.allCases) { mode in
-                                Text(mode.shortLabel).tag(mode)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 9) {
+                            Label("自定义快捷键", systemImage: "command")
+                                .font(.caption.weight(.medium))
+                            Text(chord.displayName)
+                                .font(.system(.caption, design: .monospaced).weight(.semibold))
+                            Picker("触发方式", selection: Binding(
+                                get: { advancedActive ? .single : trigger },
+                                set: { setCurrentBinding(.shortcut(chord, trigger: $0), for: selectedButton) }
+                            )) {
+                                ForEach(ShortcutTriggerMode.allCases) { mode in
+                                    Text(mode.shortLabel).tag(mode)
+                                }
                             }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .frame(width: 125)
+                            .disabled(advancedActive)
+
+                            Button("重新录制") { recorderButton = selectedButton }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
                         }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .frame(width: 125)
-                        Button("重新录制") { recorderButton = selectedButton }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                        .disabled(isGloballyPinned)
+
+                        if advancedActive {
+                            Text("启用双击或长按后，单击固定按单次执行；长按连发请在下方“长按重复”中配置。")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .disabled(isGloballyPinned)
                 } else {
                     Button("录制自定义快捷键…") { recorderButton = selectedButton }
                         .buttonStyle(.bordered)
@@ -854,6 +1148,10 @@ struct SettingsView: View {
         let globalSlot: GlobalMappingSlot = slot == .doubleTap ? .doubleTap : .longPress
         let isGloballyPinned = mappingScope != .global &&
             store.isGloballyPinned(selectedButton, slot: globalSlot)
+        let currentActionBinding = profile.binding(for: slot)
+        let isEffective = slot == .doubleTap
+            ? (enabled && currentActionBinding?.isUsableGestureAction == true)
+            : (enabled && currentActionBinding?.isUsableGestureAction == true && profile.longPressBehavior != .none)
 
         return VStack(alignment: .leading, spacing: 9) {
             HStack {
@@ -877,8 +1175,11 @@ struct SettingsView: View {
                         .font(.caption.weight(.medium))
                     Picker(
                         "长按执行方式",
-                        selection: Binding(
-                            get: { currentGestureProfile(for: selectedButton).longPressBehavior },
+                        selection: Binding<ButtonLongPressBehavior>(
+                            get: {
+                                let behavior = currentGestureProfile(for: selectedButton).longPressBehavior
+                                return behavior == .repeatWhileHeld ? .repeatWhileHeld : .triggerOnce
+                            },
                             set: { behavior in
                                 var updated = currentGestureProfile(for: selectedButton)
                                 updated.longPressBehavior = behavior
@@ -896,8 +1197,8 @@ struct SettingsView: View {
                 .disabled(!enabled || isGloballyPinned)
             }
 
-            Picker(
-                "\(slot.displayName)功能",
+            actionPicker(
+                title: "\(slot.displayName)功能",
                 selection: Binding(
                     get: {
                         guard case let .preset(action) = currentGestureProfile(
@@ -913,27 +1214,21 @@ struct SettingsView: View {
                         )
                     }
                 )
-            ) {
-                ForEach(availableGestureActionCategories) { category in
-                    actionPickerSections(for: category)
-                }
-            }
+            )
             .labelsHidden()
             .frame(maxWidth: .infinity, alignment: .leading)
             .disabled(!enabled || isGloballyPinned)
 
             HStack(spacing: 9) {
-                if let binding = profile.binding(for: slot) {
+                if let binding = currentActionBinding, !binding.isDisabled {
                     Label(
-                        enabled && !binding.isDisabled
+                        isEffective
                             ? "当前：\(binding.displayName)"
-                            : "未启用",
-                        systemImage: enabled && !binding.isDisabled
-                            ? "checkmark.circle"
-                            : "circle"
+                            : "已配置（未启用）：\(binding.displayName)",
+                        systemImage: isEffective ? "checkmark.circle" : "circle"
                     )
                     .font(.caption)
-                    .foregroundStyle(enabled && !binding.isDisabled ? .primary : .secondary)
+                    .foregroundStyle(isEffective ? .primary : .secondary)
                 } else {
                     Text("未设置功能")
                         .font(.caption)
@@ -968,7 +1263,7 @@ struct SettingsView: View {
         .toggleStyle(.checkbox)
         .font(.caption.weight(.medium))
         .tint(.orange)
-        .help("勾选后，这个行为使用通用映射，不被当前程序模板覆盖")
+        .help("勾选后全局统一使用通用映射，覆盖具体程序的模板差异")
     }
 
     private func mappingBehaviorStatus(
@@ -991,680 +1286,7 @@ struct SettingsView: View {
         }
     }
 
-    private var mappingToolbar: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 16) {
-                pageHeader(
-                    title: "按键映射",
-                    description: "选择范围与模板",
-                    symbolName: "slider.horizontal.3"
-                )
-
-                Spacer(minLength: 16)
-
-                VStack(alignment: .trailing, spacing: 7) {
-                    Text("映射范围")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker("映射范围", selection: Binding(
-                        get: { mappingScopeKind },
-                        set: { selectMappingScopeKind($0) }
-                    )) {
-                        Text("通用").tag(MappingScopeKind.global)
-                        Text("程序").tag(MappingScopeKind.app)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 150)
-                }
-            }
-
-            if case let .app(bundleID) = mappingScope {
-                HStack(spacing: 10) {
-                    Label("程序", systemImage: "app.badge")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    programScopeMenu(bundleID: bundleID)
-                    Divider()
-                        .frame(height: 20)
-                    templateControlPanel
-                    Spacer(minLength: 0)
-                }
-            } else {
-                Label("通用映射", systemImage: "globe")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 18)
-    }
-
-    private var mappingScopeKind: MappingScopeKind {
-        if case .app = mappingScope {
-            return .app
-        }
-        return .global
-    }
-
-    private func selectMappingScopeKind(_ kind: MappingScopeKind) {
-        switch kind {
-        case .global:
-            selectMappingScope(.global)
-        case .app:
-            guard case .global = mappingScope else { return }
-            if let app = configuredAppChoices.first ?? moreAppChoices.first {
-                selectMappingScope(.app(app.bundleIdentifier))
-            } else {
-                showTemplateCreator = true
-            }
-        }
-    }
-
-    private func programScopeMenu(bundleID: String) -> some View {
-        Menu {
-            Button("通用映射") {
-                selectMappingScope(.global)
-            }
-
-            if !configuredAppChoices.isEmpty {
-                Divider()
-                Section("已配置程序") {
-                    ForEach(configuredAppChoices) { app in
-                        Button(app.displayName) {
-                            selectMappingScope(.app(app.bundleIdentifier))
-                        }
-                    }
-                }
-            }
-
-            if !moreAppChoices.isEmpty {
-                Menu("更多程序") {
-                    ForEach(moreAppChoices) { app in
-                        Button(app.displayName) {
-                            selectMappingScope(.app(app.bundleIdentifier))
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 7) {
-                Text(mappingScopeDisplayName)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.accentColor.opacity(0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        }
-        .menuStyle(.borderlessButton)
-        .help("切换当前程序映射范围")
-    }
-
-    private var mappingButtonRail: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("REMOTE BUTTONS")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("\(RemoteButton.allCases.count)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 8)
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    ForEach(buttonGroups) { group in
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(group.title)
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 8)
-                            ForEach(group.buttons) { button in
-                                buttonRow(button)
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 4)
-            }
-        }
-        .padding(14)
-        .frame(width: 270, alignment: .topLeading)
-        .frame(maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.62))
-    }
-
-    private func buttonRow(_ button: RemoteButton) -> some View {
-        Button { selectedButton = button } label: {
-            HStack(spacing: 10) {
-                Image(systemName: buttonSymbol(for: button))
-                    .frame(width: 20)
-                    .foregroundStyle(selectedButton == button ? Color.accentColor : .secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(button.displayName)
-                        .font(.subheadline.weight(selectedButton == button ? .semibold : .regular))
-                    Text(bindingSummary(for: button))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                if store.isGloballyPinned(button) && mappingScope != .global {
-                    Image(systemName: "pin.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(selectedButton == button ? Color.accentColor.opacity(0.13) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var mappingEditor: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(selectedButton.displayName)
-                            .font(.title2.weight(.semibold))
-                        Text("HID 0x\(String(selectedButton.hidUsage, radix: 16, uppercase: true)) · \(selectedButton == .microphone ? "语音键特殊逻辑" : "遥控器按钮")")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button("恢复此按钮默认") { resetSelectedButtonToDefault() }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
-
-                if selectedButton == .microphone {
-                    microphoneVoiceControlCard
-                } else {
-                    bindingActionCard(currentBinding(for: selectedButton))
-                }
-
-                if case .global = mappingScope {
-                    globalBehaviorCard
-                } else if isSelectedButtonGloballyPinned {
-                    pinnedBehaviorCard
-                }
-
-                if hasEditableScope {
-                    VStack(alignment: .leading, spacing: 14) {
-                        if selectedButton != .microphone {
-                            advancedGestureCard
-                        }
-                    }
-                    .disabled(isAppMappingLocked)
-                    .opacity(isAppMappingLocked ? 0.55 : 1)
-                } else {
-                    workspaceCard(title: "等待选择模板", symbolName: "square.stack.3d.up") {
-                        Text("这是程序范围。请先在顶部的“当前模板”中选择、导入或新建模板后，再编辑按键。")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if isScrollAction(currentBinding(for: selectedButton)) {
-                    workspaceCard(title: "滚动速度", symbolName: "arrow.up.and.down") {
-                        scrollSpeedControl
-                    }
-                }
-
-                Spacer(minLength: 20)
-                HStack {
-                    Button(role: .destructive) {
-                        showResetConfirm = true
-                    } label: {
-                        Label("重置当前范围", systemImage: "arrow.counterclockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(.red)
-                    .alert("确认重置当前范围", isPresented: $showResetConfirm) {
-                        Button("取消", role: .cancel) {}
-                        Button("重置", role: .destructive) {
-                            resetCurrentMapping()
-                        }
-                    } message: {
-                        Text(mappingScope == .global
-                             ? "这将恢复通用映射中的所有按钮。"
-                             : "这将恢复当前程序模板中的所有按钮。")
-                    }
-                    Spacer()
-                    Label("修改会自动保存", systemImage: "checkmark.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(28)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func bindingActionCard(_ binding: ButtonBinding) -> some View {
-        workspaceCard(title: "当前生效", symbolName: "checkmark.circle.fill") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .center, spacing: 10) {
-                    Image(systemName: binding.isDisabled ? "minus.circle" : "checkmark.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(binding.isDisabled ? Color.secondary : Color.green)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(currentBindingLabel(for: binding))
-                            .font(.body.weight(.semibold))
-                            .lineLimit(2)
-                    }
-                    Spacer(minLength: 8)
-                    Picker("切换为预设动作", selection: Binding(
-                        get: {
-                            if case let .preset(action) = currentBinding(for: selectedButton) {
-                                return action
-                            }
-                            return ButtonAction.disabled
-                        },
-                        set: { setCurrentBinding(.preset($0), for: selectedButton) }
-                    )) {
-                        ForEach(availableActionCategories) { category in
-                            actionPickerSections(for: category)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 360)
-                }
-
-                Divider()
-
-                if case let .shortcut(chord, trigger) = binding {
-                    HStack(spacing: 10) {
-                        Label("自定义快捷键", systemImage: "command")
-                            .font(.subheadline.weight(.medium))
-                        Text(chord.displayName)
-                            .font(.system(.body, design: .monospaced).weight(.semibold))
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background(Color.accentColor.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        Picker("触发方式", selection: Binding(
-                            get: { trigger },
-                            set: { setCurrentBinding(.shortcut(chord, trigger: $0), for: selectedButton) }
-                        )) {
-                            ForEach(ShortcutTriggerMode.allCases) { mode in
-                                Text(mode.displayName).tag(mode)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .frame(width: 170)
-                        Spacer(minLength: 0)
-                        Button("重新录制") { recorderButton = selectedButton }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                    }
-                    Text(trigger.helpText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    HStack(spacing: 10) {
-                        Label("自定义快捷键", systemImage: "command")
-                            .font(.subheadline.weight(.medium))
-                        Spacer()
-                        Button("录制快捷键…") { recorderButton = selectedButton }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                    }
-                    Text("录制后会替换当前预设动作；如需恢复预设，直接从上方选择即可。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private var advancedGestureCard: some View {
-        let profile = currentGestureProfile(for: selectedButton)
-        return workspaceCard(title: "复杂操作", symbolName: "hand.tap") {
-            VStack(alignment: .leading, spacing: 12) {
-                Toggle(
-                    "使用复杂操作（双击 / 长按）",
-                    isOn: Binding(
-                        get: { currentGestureProfile(for: selectedButton).isEnabled },
-                        set: {
-                            var updated = currentGestureProfile(for: selectedButton)
-                            updated.isEnabled = $0
-                            setCurrentGestureProfile(updated, for: selectedButton)
-                            if $0,
-                               case let .shortcut(chord, trigger) = currentBinding(
-                                   for: selectedButton
-                               ),
-                               trigger == .repeatWhileHeld {
-                                // Once the advanced profile is enabled,
-                                // repetition is controlled by the long-press
-                                // selector below. Keep the base action atomic.
-                                setCurrentBinding(
-                                    .shortcut(chord, trigger: .single),
-                                    for: selectedButton
-                                )
-                            }
-                        }
-                    )
-                )
-                Text("关闭时只使用单击映射；打开后，单击保留基础动作，并可分别设置双击与长按动作。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if profile.isEnabled {
-                    Divider()
-                    gestureBindingRow(
-                        slot: .doubleTap,
-                        profile: profile
-                    )
-
-                    HStack {
-                        Text("长按行为")
-                            .font(.subheadline.weight(.medium))
-                        Spacer()
-                        Picker(
-                            "长按行为",
-                            selection: Binding(
-                                get: { currentGestureProfile(for: selectedButton).longPressBehavior },
-                                set: {
-                                    var updated = currentGestureProfile(for: selectedButton)
-                                    updated.longPressBehavior = $0
-                                    setCurrentGestureProfile(updated, for: selectedButton)
-                                }
-                            )
-                        ) {
-                            ForEach(ButtonLongPressBehavior.allCases) { behavior in
-                                Text(behavior.displayName).tag(behavior)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                    }
-
-                    if profile.longPressBehavior != .none {
-                        gestureBindingRow(
-                            slot: .longPress,
-                            profile: profile
-                        )
-                    }
-
-                    Text(
-                        profile.longPressBehavior == .repeatWhileHeld
-                            ? "达到长按阈值后每约 100 ms 发送一次；适合滚动、方向移动、删除等可重复动作。"
-                            : "短按会执行基础动作；超过长按阈值后只执行一次长按动作。"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private func gestureBindingRow(
-        slot: ButtonGestureSlot,
-        profile: ButtonGestureProfile
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(slot.displayName)
-                    .font(.subheadline.weight(.medium))
-                Spacer()
-                Button("录制快捷键…") {
-                    gestureRecorderTarget = GestureRecorderTarget(
-                        button: selectedButton,
-                        slot: slot
-                    )
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                if profile.binding(for: slot) != nil {
-                    Button("清除") {
-                        setCurrentGestureBinding(
-                            nil,
-                            for: selectedButton,
-                            slot: slot
-                        )
-                    }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                }
-            }
-
-            Picker(
-                "\(slot.displayName)预设动作",
-                selection: Binding(
-                    get: {
-                        guard case let .preset(action) = currentGestureProfile(
-                            for: selectedButton
-                        ).binding(for: slot)
-                        else { return ButtonAction.disabled }
-                        return action
-                    },
-                    set: { action in
-                        setCurrentGestureBinding(
-                            action == .disabled ? nil : .preset(action),
-                            for: selectedButton,
-                            slot: slot
-                        )
-                    }
-                )
-            ) {
-                ForEach(availableGestureActionCategories) { category in
-                    actionPickerSections(for: category)
-                }
-            }
-            .labelsHidden()
-            .frame(maxWidth: 520)
-
-            if let binding = profile.binding(for: slot) {
-                Label(
-                    "当前：\(binding.displayName)",
-                    systemImage: binding.isDisabled ? "circle" : "checkmark.circle"
-                )
-                .font(.caption)
-                .foregroundStyle(binding.isDisabled ? .secondary : .primary)
-            } else {
-                Text("未设置额外动作")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private var templateControlPanel: some View {
-        if case let .app(bundleID) = mappingScope {
-            let templates = store.templates(for: bundleID)
-            return AnyView(
-                HStack(spacing: 8) {
-                    Text("模板")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    Image(systemName: selectedEditorTemplate == nil
-                          ? "circle.dashed"
-                          : "checkmark.circle.fill")
-                        .foregroundStyle(selectedEditorTemplate == nil ? Color.secondary : Color.green)
-                        .help("绿色对勾表示 Active 模板")
-
-                    if templates.isEmpty {
-                        Text("无")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Picker("Active 模板", selection: Binding(
-                            get: { selectedTemplateTarget },
-                            set: { selectTemplate($0, for: bundleID) }
-                        )) {
-                            ForEach(templates) { template in
-                                Text(template.templateName)
-                                    .tag(TemplateTarget.template(template.id))
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(maxWidth: 260)
-                    }
-
-                    Button("套用") {
-                        showTemplatePresetImporter = true
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(store.templatePresets(for: bundleID).isEmpty)
-
-                    Button("新建") {
-                        showTemplateCreator = true
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                    if selectedEditorTemplate != nil {
-                        Button("删除", role: .destructive) {
-                            templateToDelete = selectedEditorTemplate?.id
-                            showDeleteTemplateConfirm = true
-                        }
-                        .buttonStyle(.borderless)
-                        .controlSize(.small)
-                    }
-                }
-            )
-        }
-        return AnyView(EmptyView())
-    }
-
-    private var globalBehaviorCard: some View {
-        workspaceCard(title: "默认行为", symbolName: "globe") {
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle(
-                    "始终使用默认映射",
-                    isOn: Binding(
-                        get: { store.isGloballyPinned(selectedButton) },
-                        set: { store.setGlobalPinning($0, for: selectedButton) }
-                    )
-                )
-                Text("开启后，这个按钮不会被任何程序模板覆盖，适合系统音量、Home 或你希望保持一致的操作。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var pinnedBehaviorCard: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "pin.fill")
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("此按钮被默认映射锁定")
-                    .font(.subheadline.weight(.semibold))
-                Text("当前程序模板不会覆盖它；切回“通用”范围即可修改实际行为。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(14)
-        .background(Color.orange.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
-    private var diagnosticsPage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                installationCard
-
-                mappingConfigurationCard
-
-                workspaceCard(title: "应用设置", symbolName: "gearshape") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(alignment: .top, spacing: 18) {
-                            Toggle("登录时自动启动", isOn: Binding(
-                                get: { launchAtLoginEnabled },
-                                set: { value in
-                                    do {
-                                        try LaunchAtLogin.setEnabled(value)
-                                        launchAtLoginEnabled = LaunchAtLogin.isEnabled
-                                    } catch {
-                                        launchAtLoginEnabled = LaunchAtLogin.isEnabled
-                                        print("[SETTINGS] 登录启动设置失败: \(error.localizedDescription)")
-                                    }
-                                }
-                            ))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                            Toggle("记录运行日志", isOn: Binding(
-                                get: { loggingEnabled },
-                                set: { value in
-                                    Log.setEnabled(value)
-                                    loggingEnabled = Log.isEnabled
-                                    if loggingEnabled {
-                                        print("[APP] 日志已由用户开启")
-                                    }
-                                }
-                            ))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                            Toggle("保存调试录音", isOn: Binding(
-                                get: { recordingEnabled },
-                                set: { value in
-                                    AppStorage.recordingEnabled = value
-                                    recordingEnabled = AppStorage.recordingEnabled
-                                    onRecordingChanged(recordingEnabled)
-                                }
-                            ))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .toggleStyle(.checkbox)
-
-                        Text("日志和调试录音只在这里管理，不再出现在菜单栏。调试录音会保存遥控器语音的 WAV 与原始数据。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                HStack(spacing: 12) {
-                    diagnosticCard(
-                        title: "运行日志",
-                        detail: AppStorage.formattedSize(Log.byteSize),
-                        symbolName: "doc.text.magnifyingglass",
-                        openAction: {
-                            AppStorage.ensureDirectory(AppStorage.logsDirectory)
-                            NSWorkspace.shared.open(AppStorage.logsDirectory)
-                        },
-                        clearAction: {
-                            Log.clear()
-                        }
-                    )
-                    diagnosticCard(
-                        title: "调试录音",
-                        detail: AppStorage.formattedSize(AppStorage.byteSize(of: AppStorage.recordingsDirectory)),
-                        symbolName: "waveform",
-                        openAction: {
-                            AppStorage.ensureDirectory(AppStorage.recordingsDirectory)
-                            NSWorkspace.shared.open(AppStorage.recordingsDirectory)
-                        },
-                        clearAction: {
-                            AppStorage.clearFiles(in: AppStorage.recordingsDirectory)
-                        }
-                    )
-                }
-
-            }
-            .padding(28)
-        }
-    }
+    // MARK: - 配置与安装检查卡片
 
     private var mappingConfigurationCard: some View {
         workspaceCard(title: "配置导入与导出", symbolName: "arrow.up.arrow.down") {
@@ -1693,7 +1315,6 @@ struct SettingsView: View {
                             configurationMessage.contains("失败") ? .red : .green
                         )
                 }
-
             }
         }
     }
@@ -1723,6 +1344,17 @@ struct SettingsView: View {
 
         do {
             try store.importConfiguration(from: url)
+            if case let .app(bundleID) = mappingScope {
+                if let active = store.activeTemplate(for: bundleID) {
+                    selectedTemplateTarget = .template(active.id)
+                } else if let first = store.templates(for: bundleID).first {
+                    selectedTemplateTarget = .template(first.id)
+                    store.setActiveTemplate(first.id)
+                } else {
+                    mappingScope = .global
+                    selectedTemplateTarget = .none
+                }
+            }
             configurationMessage = "配置已导入：\(url.lastPathComponent)"
         } catch {
             configurationMessage = "导入失败：\(error.localizedDescription)"
@@ -1752,6 +1384,16 @@ struct SettingsView: View {
     }
 
     private var installationCard: some View {
+        let appDisplay: (String, Color) = {
+            switch InstallationDiagnostics.appInstallLocationStatus {
+            case .installedInApplications:
+                return ("已安装（/Applications）", .green)
+            case let .runningOutsideApplications(path):
+                return ("从外部位置运行：\(path)（建议移入 /Applications）", .orange)
+            case .developmentBinary:
+                return ("未检测到 .app 安装", .red)
+            }
+        }()
         let driverStatus: (String, Color) = {
             if let deviceName = InstallationDiagnostics.audioDeviceName {
                 return ("已安装 · \(deviceName)", .green)
@@ -1777,12 +1419,12 @@ struct SettingsView: View {
             }
         }()
 
-        return workspaceCard(title: "安装与设备检查", symbolName: "shippingbox") {
+        return workspaceCard(title: "安装与权限检查", symbolName: "shippingbox") {
             VStack(alignment: .leading, spacing: 12) {
                 installationStatusRow(
                     label: "应用本体",
-                    value: InstallationDiagnostics.appInstalled ? "已安装" : "未检测到",
-                    color: InstallationDiagnostics.appInstalled ? .green : .red
+                    value: appDisplay.0,
+                    color: appDisplay.1
                 )
                 installationStatusRow(
                     label: "虚拟音频组件",
@@ -1887,8 +1529,10 @@ struct SettingsView: View {
 
                     Button("重新检测") {
                         installationMessage = nil
-                        VoiceShortcutHIDUnixSocketProvider.shared.refreshStatusNow()
-                        installationRefreshID = UUID()
+                        if !RuntimeEnvironment.isRunningTests {
+                            VoiceShortcutHIDUnixSocketProvider.shared.refreshStatusNow()
+                        }
+                        refreshLiveState()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                             installationRefreshID = UUID()
                         }
@@ -1944,6 +1588,7 @@ struct SettingsView: View {
             Text(value)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(color)
+                .multilineTextAlignment(.trailing)
         }
     }
 
@@ -2004,13 +1649,17 @@ struct SettingsView: View {
         installationRefreshID = UUID()
         for delay in [0.6, 1.2] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                VoiceShortcutHIDUnixSocketProvider.shared.refreshStatusNow()
+                if !RuntimeEnvironment.isRunningTests {
+                    VoiceShortcutHIDUnixSocketProvider.shared.refreshStatusNow()
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     installationRefreshID = UUID()
                 }
             }
         }
     }
+
+    // MARK: - 关于
 
     private var aboutPage: some View {
         ScrollView {
@@ -2024,10 +1673,10 @@ struct SettingsView: View {
                     }
                 }
 
-                workspaceCard(title: "独立项目边界", symbolName: "checkmark.shield") {
+                workspaceCard(title: "本地隐私与作用域", symbolName: "checkmark.shield") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("这是 RemoteOrbit 自己的产品界面、配置空间和安装身份。按键模板、日志和录音都使用独立的本地路径。")
-                        Text("当前版本不需要连接其他项目的运行时或配置；适配器只在你主动启用对应程序模板时参与。")
+                        Text("RemoteOrbit 所有快捷键模板、语音快捷键、运行日志与调试录音均只保存在本机目录中。")
+                        Text("程序专属映射仅在对应应用程序位于前台（或存在对应焦点）时生效，并在按下遥控器按键的瞬间锁定目标，避免切窗误触发。")
                     }
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -2041,44 +1690,7 @@ struct SettingsView: View {
         }
     }
 
-    private func pageHeader(title: String, description: String, symbolName: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: symbolName)
-                .font(.title2)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.title2.weight(.semibold))
-                Text(description)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private func metricCard(title: String, value: String, detail: String, symbolName: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: symbolName)
-                    .foregroundStyle(Color.accentColor)
-                Spacer()
-                Text(detail)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Text(value)
-                .font(.system(size: 28, weight: .semibold, design: .rounded))
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
+    // MARK: - Shared UI components
 
     private func workspaceCard<Content: View>(
         title: String,
@@ -2096,29 +1708,6 @@ struct SettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private func logicRow(index: String, title: String, description: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(index)
-                .font(.caption.monospacedDigit().weight(.bold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 26, alignment: .leading)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.subheadline.weight(.medium))
-                Text(description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func diagnosticLine(label: String, value: String) -> some View {
-        HStack {
-            Text(label).foregroundStyle(.secondary)
-            Spacer()
-            Text(value).font(.body.monospacedDigit().weight(.medium))
-        }
-    }
-
     private func aboutLine(label: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(label)
@@ -2128,23 +1717,6 @@ struct SettingsView: View {
                 .font(.body.monospaced())
             Spacer()
         }
-    }
-
-    private var buttonGroups: [ButtonGroup] {
-        [
-            ButtonGroup(
-                title: "语音与系统",
-                buttons: [.microphone, .power, .home, .menu, .tv]
-            ),
-            ButtonGroup(
-                title: "方向与确认",
-                buttons: [.up, .left, .ok, .right, .down, .back]
-            ),
-            ButtonGroup(
-                title: "音量",
-                buttons: [.volumeUp, .volumeDown]
-            ),
-        ]
     }
 
     private func openSystemPrivacySettings(anchor: String) {
@@ -2174,17 +1746,18 @@ struct SettingsView: View {
 
     private func resetSelectedButtonToDefault() {
         if case let .template(id) = selectedTemplateTarget,
-           selectedEditorTemplate != nil,
+           let template = selectedEditorTemplate,
            !store.isGloballyPinned(selectedButton, slot: .single) {
-            let template = selectedEditorTemplate
-            let defaultBinding = AppTemplatePresetLibrary.all.first(where: {
-                $0.appBundleIdentifier == template?.appBundleIdentifier &&
-                $0.templateName == template?.templateName
-            })?.bindings[selectedButton]
+            let matchingPreset = AppTemplatePresetLibrary.all.first(where: {
+                $0.appBundleIdentifier == template.appBundleIdentifier &&
+                $0.templateName == template.templateName
+            })
+            let defaultBinding = matchingPreset?.bindings[selectedButton]
                 ?? DefaultBindings.all[selectedButton]
                 ?? .preset(.disabled)
+            let defaultProfile = matchingPreset?.gestureProfiles?[selectedButton] ?? .disabled
             store.setBinding(defaultBinding, for: selectedButton, templateID: id)
-            store.setGestureProfile(.disabled, for: selectedButton, templateID: id)
+            store.setGestureProfile(defaultProfile, for: selectedButton, templateID: id)
         } else {
             let defaultBinding = DefaultBindings.all[selectedButton] ?? .preset(.disabled)
             store.setBinding(defaultBinding, for: selectedButton)
@@ -2192,22 +1765,7 @@ struct SettingsView: View {
         }
     }
 
-    private func bindingSummary(for button: RemoteButton) -> String {
-        let binding = currentBinding(for: button)
-        switch binding {
-        case .preset(.disabled):
-            if button == .menu,
-               selectedEditorTemplate?.appBundleIdentifier == MappingStore.chatGPTBundleIdentifier {
-                return "自定义（留空）"
-            }
-            return "禁用"
-        case .preset: return binding.displayName
-        case let .shortcut(chord, trigger): return "\(chord.displayName) · \(trigger.shortLabel)"
-        case .voiceKeyDefault: return "默认"
-        }
-    }
-
-    // MARK: - Footer
+    // MARK: - Footer & scroll speed
 
     private var scrollSpeedControl: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -2266,75 +1824,125 @@ struct SettingsView: View {
         }
     }
 
-    private var isSelectedButtonGloballyPinned: Bool {
-        store.isGloballyPinned(selectedButton)
-    }
+    // MARK: - Action picker structure (generic + strictly app-exclusive)
 
-    private var isAppMappingLocked: Bool {
-        if case .app = mappingScope {
-            return isSelectedButtonGloballyPinned
-        }
-        return false
-    }
-
-    private var availableActionCategories: [ButtonActionCategory] {
-        var allowed: Set<ButtonActionCategory> = [
-            .system,
+    static func orderedActionCategories(for scope: MappingScope) -> [ButtonActionCategory] {
+        let generic: [ButtonActionCategory] = [
             .navigation,
             .editing,
             .selection,
             .media,
-        ]
-        if case .global = mappingScope {
-            allowed.insert(.applications)
-        }
-        if case let .app(bundleID) = mappingScope {
-            allowed.formUnion(AppTemplatePresetLibrary.categories(for: bundleID))
-        }
-        return ButtonActionCategory.allCases.filter { allowed.contains($0) }
-    }
-
-    private var availableGestureActionCategories: [ButtonActionCategory] {
-        var allowed: Set<ButtonActionCategory> = [
             .system,
-            .navigation,
-            .editing,
-            .selection,
-            .media,
         ]
-        switch mappingScope {
+        switch scope {
         case .global:
-            // Application launchers are global-only actions. An app-specific
-            // action must never leak into the global gesture picker.
-            allowed.insert(.applications)
+            return generic + [.applications]
         case let .app(bundleID):
-            // The selected app contributes only its own preset categories.
-            // Do not add categories from the current gesture profile: an old
-            // or migrated binding can otherwise make FloatTabs/Codex actions
-            // appear while editing another app.
-            allowed.formUnion(AppTemplatePresetLibrary.categories(for: bundleID))
+            return AppTemplatePresetLibrary.exclusiveCategories(for: bundleID) + generic
         }
-        return ButtonActionCategory.allCases.filter { allowed.contains($0) }
+    }
+
+    private func actionPicker(
+        title: String,
+        selection: Binding<ButtonAction>
+    ) -> some View {
+        let categories = Self.orderedActionCategories(for: mappingScope)
+        let allowedActions = Set(
+            ButtonAction.allCases.filter { action in
+                action != .disabled && categories.contains(action.category)
+            }
+        )
+        let currentSelection = selection.wrappedValue
+
+        return Picker(title, selection: selection) {
+            Text(ButtonAction.disabled.displayName).tag(ButtonAction.disabled)
+
+            ForEach(categories) { category in
+                actionPickerSections(for: category)
+            }
+
+            if currentSelection != .disabled && !allowedActions.contains(currentSelection) {
+                Section("已保存动作") {
+                    Text(currentSelection.displayName).tag(currentSelection)
+                }
+            }
+        }
     }
 
     private func actions(in category: ButtonActionCategory) -> [ButtonAction] {
-        ButtonAction.allCases.filter { $0.category == category }
+        ButtonAction.allCases.filter { action in
+            action.category == category && action != .disabled
+        }
     }
 
-    /// Obsidian 的动作数量较多：保留一个 App 作用域，并在选择器里按
-    /// 工作区、标签、笔记、命令和视图继续分组，避免和其他程序的动作混在一起。
     @ViewBuilder
     private func actionPickerSections(for category: ButtonActionCategory) -> some View {
-        if category == .obsidian {
-            ForEach(ObsidianActionGroup.allCases) { group in
+        switch category {
+        case .navigation:
+            ForEach(NavigationActionGroup.allCases) { group in
                 Section(group.displayName) {
-                    ForEach(actions(in: category).filter { $0.obsidianGroup == group }) {
-                        action in
+                    ForEach(actions(in: category).filter { $0.navigationGroup == group }) { action in
                         Text(action.displayName).tag(action)
                     }
                 }
             }
-        } else {
+        case .selection:
+            ForEach(SelectionActionGroup.allCases) { group in
+                Section(group.displayName) {
+                    ForEach(actions(in: category).filter { $0.selectionGroup == group }) { action in
+                        Text(action.displayName).tag(action)
+                    }
+                }
+            }
+        case .ghostty:
+            ForEach(GhosttyActionGroup.allCases) { group in
+                Section(group.displayName) {
+                    ForEach(actions(in: category).filter { $0.ghosttyGroup == group }) { action in
+                        Text(action.displayName).tag(action)
+                    }
+                }
+            }
+        case .browser:
+            ForEach(BrowserActionGroup.allCases) { group in
+                Section(group.displayName) {
+                    ForEach(actions(in: category).filter { $0.browserGroup == group }) { action in
+                        Text(action.displayName).tag(action)
+                    }
+                }
+            }
+        case .iina:
+            ForEach(IINAActionGroup.allCases) { group in
+                Section(group.displayName) {
+                    ForEach(actions(in: category).filter { $0.iinaGroup == group }) { action in
+                        Text(action.displayName).tag(action)
+                    }
+                }
+            }
+        case .codeWorkspace:
+            ForEach(CodeWorkspaceActionGroup.allCases) { group in
+                Section(group.displayName) {
+                    ForEach(actions(in: category).filter { $0.codeWorkspaceGroup == group }) { action in
+                        Text(action.displayName).tag(action)
+                    }
+                }
+            }
+        case .t3Code:
+            ForEach(T3CodeActionGroup.allCases) { group in
+                Section(group.displayName) {
+                    ForEach(actions(in: category).filter { $0.t3CodeGroup == group }) { action in
+                        Text(action.displayName).tag(action)
+                    }
+                }
+            }
+        case .obsidian:
+            ForEach(ObsidianActionGroup.allCases) { group in
+                Section(group.displayName) {
+                    ForEach(actions(in: category).filter { $0.obsidianGroup == group }) { action in
+                        Text(action.displayName).tag(action)
+                    }
+                }
+            }
+        default:
             Section(category.displayName) {
                 ForEach(actions(in: category)) { action in
                     Text(action.displayName).tag(action)
@@ -2352,18 +1960,35 @@ struct SettingsView: View {
         switch bundleIdentifier {
         case MappingStore.codexBundleIdentifier:
             return "sparkles.rectangle.stack"
+        case "com.t3tools.t3code":
+            return "sparkles.square.filled.on.square"
+        case "com.google.GeminiMacOS":
+            return "sparkles"
+        case "com.google.antigravity":
+            return "chevron.left.forwardslash.chevron.right"
         case "md.obsidian":
             return "note.text"
         case MappingStore.floatTabsBundleIdentifier:
             return "rectangle.on.rectangle.angled"
+        case "com.mitchellh.ghostty":
+            return "terminal"
+        case "com.colliderli.iina":
+            return "play.rectangle"
+        case "com.google.Chrome", "com.apple.Safari", "company.thebrowser.Browser":
+            return "safari"
+        case "com.tencent.xinWeChat":
+            return "message"
+        case "com.netease.163music":
+            return "music.note"
+        case "com.apple.dt.Xcode":
+            return "hammer"
         default:
             return "app"
         }
     }
 
     private var configuredAppChoices: [AppTemplateChoice] {
-        // 已经建过模板的 App 固定显示在主菜单顶部；即使当前没有运行，
-        // 也保留在这里，方便继续编辑已有模板。
+        // 已经建过模板的 App 固定显示在主菜单顶部，方便随时切换编辑。
         var choices: [String: AppTemplateChoice] = [:]
         for template in store.appTemplates {
             let displayName = AppTemplatePresetLibrary.knownApps.first {
@@ -2379,34 +2004,6 @@ struct SettingsView: View {
         }
     }
 
-    private var moreAppChoices: [AppTemplateChoice] {
-        let configuredBundleIDs = Set(configuredAppChoices.map(\.bundleIdentifier))
-        var choices: [String: AppTemplateChoice] = [:]
-        for app in Self.runningAppChoices() {
-            choices[app.bundleIdentifier] = app
-        }
-        for app in installedPresetAppChoices where choices[app.bundleIdentifier] == nil {
-            choices[app.bundleIdentifier] = app
-        }
-        return choices.values
-            .filter { !configuredBundleIDs.contains($0.bundleIdentifier) }
-            .sorted { lhs, rhs in
-                lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-            }
-    }
-
-    private var installedPresetAppChoices: [AppTemplateChoice] {
-        AppTemplatePresetLibrary.knownApps.compactMap { app in
-            guard NSWorkspace.shared.urlForApplication(
-                withBundleIdentifier: app.bundleIdentifier
-            ) != nil else { return nil }
-            return AppTemplateChoice(
-                bundleIdentifier: app.bundleIdentifier,
-                displayName: app.displayName
-            )
-        }
-    }
-
     private var mappingScopeDisplayName: String {
         switch mappingScope {
         case .global:
@@ -2415,20 +2012,132 @@ struct SettingsView: View {
             if let app = configuredAppChoices.first(where: { $0.bundleIdentifier == bundleID }) {
                 return app.displayName
             }
-            if let app = moreAppChoices.first(where: { $0.bundleIdentifier == bundleID }) {
+            if let app = Self.installedApplicationsChoices().first(where: {
+                $0.bundleIdentifier == bundleID
+            }) {
                 return app.displayName
             }
             return bundleID
         }
     }
 
-    private var templateCreatorApps: [AppTemplateChoice] {
-        if case let .app(bundleID) = mappingScope,
-           let app = (configuredAppChoices + moreAppChoices)
-                .first(where: { $0.bundleIdentifier == bundleID }) {
-            return [app]
+    // MARK: - /Applications-only app discovery
+
+    static func installedApplicationsChoices(
+        applicationsDirectoryURL: URL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+    ) -> [AppTemplateChoice] {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: applicationsDirectoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
         }
-        return mergedAppChoices(Self.runningAppChoices() + installedPresetAppChoices)
+
+        var byBundleID: [String: AppTemplateChoice] = [:]
+        for url in entries {
+            guard url.pathExtension.lowercased() == "app" else { continue }
+            guard let info = infoDictionary(forAppAt: url),
+                  let rawBundleID = info["CFBundleIdentifier"] as? String else {
+                continue
+            }
+            let bundleID = rawBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !bundleID.isEmpty else { continue }
+            guard bundleID != ProductIdentity.canonicalBundleIdentifier,
+                  !bundleID.hasPrefix(ProductIdentity.canonicalBundleIdentifier + ".") else {
+                continue
+            }
+            if isBackgroundOnlyApp(info: info) || isUninstallerApp(url: url, bundleID: bundleID) {
+                continue
+            }
+
+            let displayName = resolvedApplicationDisplayName(
+                bundleID: bundleID,
+                info: info,
+                appURL: url
+            )
+            byBundleID[bundleID] = AppTemplateChoice(
+                bundleIdentifier: bundleID,
+                displayName: displayName
+            )
+        }
+
+        return byBundleID.values.sorted { lhs, rhs in
+            lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
+    }
+
+    private static func infoDictionary(forAppAt appURL: URL) -> [String: Any]? {
+        if let bundle = Bundle(url: appURL), let info = bundle.infoDictionary {
+            return info
+        }
+        let plistURL = appURL.appendingPathComponent("Contents/Info.plist")
+        return NSDictionary(contentsOf: plistURL) as? [String: Any]
+    }
+
+    private static func isBackgroundOnlyApp(info: [String: Any]) -> Bool {
+        if let flag = info["LSBackgroundOnly"] as? Bool, flag {
+            return true
+        }
+        if let str = info["LSBackgroundOnly"] as? String,
+           str == "1" || str.lowercased() == "true" {
+            return true
+        }
+        return false
+    }
+
+    private static func isUninstallerApp(url: URL, bundleID: String) -> Bool {
+        let name = url.deletingPathExtension().lastPathComponent
+        return bundleID.localizedCaseInsensitiveContains("uninstaller")
+            || name.localizedCaseInsensitiveContains("uninstaller")
+    }
+
+    private static func resolvedApplicationDisplayName(
+        bundleID: String,
+        info: [String: Any],
+        appURL: URL
+    ) -> String {
+        if let known = AppTemplatePresetLibrary.knownApps.first(where: {
+            $0.bundleIdentifier == bundleID
+        }) {
+            return known.displayName
+        }
+        if let localized = Bundle(url: appURL)?.localizedInfoDictionary,
+           let display = localized["CFBundleDisplayName"] as? String ?? localized["CFBundleName"] as? String,
+           !display.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return display
+        }
+        if let display = info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String,
+           !display.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return display
+        }
+        return appURL.deletingPathExtension().lastPathComponent
+    }
+
+    // MARK: - Navigation & scope state helpers
+
+    private func applyNavigationRoute(_ route: SettingsEntryRoute) {
+        switch route {
+        case .general:
+            selectedSection = .general
+        case .voiceShortcuts:
+            Self.resetMappingEditorEntry(
+                scope: &mappingScope,
+                selectedButton: &selectedButton,
+                selectedTemplateTarget: &selectedTemplateTarget
+            )
+            selectedSection = .mappings
+        }
+        refreshLiveState()
+    }
+
+    private func refreshLiveState() {
+        launchAtLoginEnabled = LaunchAtLogin.isEnabled
+        loggingEnabled = Log.isEnabled
+        recordingEnabled = AppStorage.recordingEnabled
+        installationRefreshID = UUID()
+        storageRefreshID = UUID()
     }
 
     private func selectMappingScope(_ scope: MappingScope) {
@@ -2539,14 +2248,11 @@ struct SettingsView: View {
         } else {
             templateID = nil
         }
-        let persistBinding = {
-            if let templateID {
-                store.setBinding(binding, for: button, templateID: templateID)
-            } else {
-                store.setBinding(binding, for: button)
-            }
+        if let templateID {
+            store.setBinding(binding, for: button, templateID: templateID)
+        } else {
+            store.setBinding(binding, for: button)
         }
-        persistBinding()
     }
 
     private func setCurrentGestureProfile(
@@ -2609,7 +2315,31 @@ struct SettingsView: View {
            profile.longPressBehavior == .none {
             profile.longPressBehavior = .triggerOnce
         }
+        if enabled,
+           let chordBinding = currentBinding(for: selectedButton) as ButtonBinding?,
+           case let .shortcut(chord, trigger) = chordBinding,
+           trigger == .repeatWhileHeld,
+           profile.usesAdvancedGestures {
+            setCurrentBinding(.shortcut(chord, trigger: .single), for: selectedButton)
+        }
         setCurrentGestureProfile(profile, for: selectedButton)
+    }
+
+    static func updatedGestureProfile(
+        _ profile: ButtonGestureProfile,
+        setting binding: ButtonBinding?,
+        for slot: ButtonGestureSlot
+    ) -> ButtonGestureProfile {
+        var updated = profile
+        updated.setBinding(binding, for: slot)
+        if slot == .longPress {
+            if binding == nil {
+                updated.longPressBehavior = .none
+            } else if updated.longPressBehavior == .none {
+                updated.longPressBehavior = .triggerOnce
+            }
+        }
+        return updated
     }
 
     private func setCurrentGestureBinding(
@@ -2617,10 +2347,15 @@ struct SettingsView: View {
         for button: RemoteButton,
         slot: ButtonGestureSlot
     ) {
-        var profile = currentGestureProfile(for: button)
-        profile.setBinding(binding, for: slot)
-        if slot == .longPress, binding == nil {
-            profile.longPressBehavior = .none
+        let profile = Self.updatedGestureProfile(
+            currentGestureProfile(for: button),
+            setting: binding,
+            for: slot
+        )
+        if profile.usesAdvancedGestures,
+           case let .shortcut(chord, trigger) = currentBinding(for: button),
+           trigger == .repeatWhileHeld {
+            setCurrentBinding(.shortcut(chord, trigger: .single), for: button)
         }
         setCurrentGestureProfile(profile, for: button)
     }
@@ -2634,41 +2369,13 @@ struct SettingsView: View {
         }
         store.resetTemplate(id)
     }
-
-    private static func runningAppChoices() -> [AppTemplateChoice] {
-        let ownBundleID = Bundle.main.bundleIdentifier
-        return NSWorkspace.shared.runningApplications
-            .compactMap { app -> AppTemplateChoice? in
-                guard app.activationPolicy == .regular ||
-                      app.activationPolicy == .accessory,
-                      let bundleID = app.bundleIdentifier,
-                      bundleID != ownBundleID
-                else { return nil }
-                return AppTemplateChoice(
-                    bundleIdentifier: bundleID,
-                    displayName: app.localizedName ?? bundleID
-                )
-            }
-            .sorted { lhs, rhs in
-                lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-            }
-    }
-
-    private func mergedAppChoices(_ choices: [AppTemplateChoice]) -> [AppTemplateChoice] {
-        var byBundleID: [String: AppTemplateChoice] = [:]
-        for choice in choices {
-            byBundleID[choice.bundleIdentifier] = choice
-        }
-        return byBundleID.values.sorted { lhs, rhs in
-            lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-        }
-    }
 }
 
 private struct SettingsRemotePreview: View {
     let selectedButton: RemoteButton
     let bindingFor: (RemoteButton) -> ButtonBinding
     let profileFor: (RemoteButton) -> ButtonGestureProfile
+    var isGloballyOverridden: (RemoteButton) -> Bool = { _ in false }
     let onSelect: (RemoteButton) -> Void
 
     private let canvasSize = CGSize(width: 228, height: 555)
@@ -2827,6 +2534,15 @@ private struct SettingsRemotePreview: View {
             .frame(width: size, height: size)
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.52), radius: 1.5, y: 1)
+            .overlay {
+                if isGloballyOverridden(button) {
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 7, height: 7)
+                        .overlay(Circle().stroke(Color.white, lineWidth: 1))
+                        .offset(x: size * 0.34, y: -size * 0.34)
+                }
+            }
         }
         .buttonStyle(.plain)
         .help(actionSummary(for: button))
@@ -2906,7 +2622,7 @@ private struct SettingsRemotePreview: View {
     }
 }
 
-private struct AppTemplateChoice: Identifiable, Hashable {
+struct AppTemplateChoice: Identifiable, Hashable {
     let bundleIdentifier: String
     let displayName: String
 
@@ -2924,12 +2640,12 @@ private struct AppTemplatePresetSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("导入 \(appName) 预设模板")
                 .font(.title3.weight(.semibold))
-            Text("模板只会添加到当前程序（\(bundleID)），并立即设为 Active。已经导入过的同名模板会保留你的修改。")
+            Text("模板只会应用到当前程序（\(bundleID)），更新为最新推荐按键与手势并立即设为 Active。")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
             if presets.isEmpty {
-                Text("当前程序暂无内置预设，请使用“新增模板”或录制快捷键。")
+                Text("当前程序暂无内置预设，请使用“新建模板”或录制快捷键。")
                     .foregroundColor(.orange)
             } else {
                 ScrollView {
@@ -2975,46 +2691,159 @@ private struct AppTemplatePresetSheet: View {
 }
 
 private struct AppTemplateCreatorSheet: View {
-    let apps: [AppTemplateChoice]
-    let onCancel: () -> Void
-    let onCreate: (AppTemplateChoice, String) -> Void
+    enum CreationMode: Hashable {
+        case recommendedPreset
+        case blankFromGlobal
+    }
 
+    enum SheetTarget {
+        case pickApp([AppTemplateChoice], Set<String>)
+        case fixedApp(AppTemplateChoice)
+    }
+
+    let target: SheetTarget
+    let onCancel: () -> Void
+    let onCreateBlank: (AppTemplateChoice, String) -> Void
+    let onImportPreset: (AppTemplateChoice, AppTemplatePreset) -> Void
+
+    @State private var searchText = ""
     @State private var selectedBundleIdentifier = ""
     @State private var templateName = "默认模板"
+    @State private var creationMode: CreationMode = .recommendedPreset
+    @State private var selectedPresetID = ""
+
+    init(
+        request: SettingsView.TemplateCreatorRequest,
+        installedApps: [AppTemplateChoice],
+        configuredBundleIDs: Set<String>,
+        onCancel: @escaping () -> Void,
+        onCreateBlank: @escaping (AppTemplateChoice, String) -> Void,
+        onImportPreset: @escaping (AppTemplateChoice, AppTemplatePreset) -> Void
+    ) {
+        switch request {
+        case .addApplication:
+            self.target = .pickApp(installedApps, configuredBundleIDs)
+        case let .newTemplateForApp(bundleIdentifier, appName):
+            self.target = .fixedApp(
+                AppTemplateChoice(bundleIdentifier: bundleIdentifier, displayName: appName)
+            )
+        }
+        self.onCancel = onCancel
+        self.onCreateBlank = onCreateBlank
+        self.onImportPreset = onImportPreset
+    }
+
+    private var availableApps: [AppTemplateChoice] {
+        switch target {
+        case let .pickApp(apps, _):
+            let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return apps }
+            return apps.filter {
+                $0.displayName.localizedCaseInsensitiveContains(trimmed)
+                    || $0.bundleIdentifier.localizedCaseInsensitiveContains(trimmed)
+            }
+        case let .fixedApp(app):
+            return [app]
+        }
+    }
+
+    private var configuredBundleIDs: Set<String> {
+        switch target {
+        case let .pickApp(_, ids): return ids
+        case .fixedApp: return []
+        }
+    }
 
     private var selectedApp: AppTemplateChoice? {
-        apps.first { $0.bundleIdentifier == selectedBundleIdentifier }
+        switch target {
+        case let .fixedApp(app):
+            return app
+        case let .pickApp(apps, _):
+            return apps.first { $0.bundleIdentifier == selectedBundleIdentifier }
+                ?? availableApps.first
+        }
+    }
+
+    private var availablePresets: [AppTemplatePreset] {
+        guard let selectedApp else { return [] }
+        return AppTemplatePresetLibrary.presets(for: selectedApp.bundleIdentifier)
+    }
+
+    private var selectedPreset: AppTemplatePreset? {
+        availablePresets.first { $0.id == selectedPresetID } ?? availablePresets.first
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("新增 App 按键模板")
+            Text(isFixedApp ? "为 \(selectedApp?.displayName ?? "程序") 新建模板" : "添加 /Applications 中的应用程序")
                 .font(.title3.weight(.semibold))
-            Text("选择一个当前正在运行的 App。之后只有该 App 位于前台时，这个模板才会参与映射选择。")
-                .foregroundColor(.secondary)
+            Text(
+                isFixedApp
+                    ? "新建该程序的专属按键模板；之后只有该程序位于前台时才会自动生效。"
+                    : "仅列出 /Applications 中已安装的核心应用。添加后会自动拥有该程序的专属快捷选项。"
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
 
-            if apps.isEmpty {
-                Text("当前没有可选择的普通 App，请先打开目标 App 后再试。")
+            if !isFixedApp {
+                TextField("搜索应用程序名称或 Bundle ID…", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            if availableApps.isEmpty {
+                Text("未找到符合条件的 /Applications 应用程序。")
                     .foregroundColor(.orange)
             } else {
-                Picker("目标 App", selection: $selectedBundleIdentifier) {
-                    ForEach(apps) { app in
-                        Text("\(app.displayName)（\(app.bundleIdentifier)）")
-                            .tag(app.bundleIdentifier)
+                if !isFixedApp {
+                    Picker("目标程序", selection: $selectedBundleIdentifier) {
+                        ForEach(availableApps) { app in
+                            let suffix = configuredBundleIDs.contains(app.bundleIdentifier) ? " · 已配置" : ""
+                            Text("\(app.displayName)\(suffix)（\(app.bundleIdentifier)）")
+                                .tag(app.bundleIdentifier)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                if !availablePresets.isEmpty {
+                    Picker("创建方式", selection: $creationMode) {
+                        Text("使用推荐预设").tag(CreationMode.recommendedPreset)
+                        Text("从通用映射新建").tag(CreationMode.blankFromGlobal)
+                    }
+                    .pickerStyle(.segmented)
+
+                    if creationMode == .recommendedPreset {
+                        if availablePresets.count > 1 {
+                            Picker("推荐预设", selection: $selectedPresetID) {
+                                ForEach(availablePresets) { preset in
+                                    Text(preset.templateName).tag(preset.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+                        if let preset = selectedPreset {
+                            Text(preset.summary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
-                .pickerStyle(.menu)
 
-                TextField("模板名称，例如：浏览 / 编辑 / 交易", text: $templateName)
-                    .textFieldStyle(.roundedBorder)
+                if availablePresets.isEmpty || creationMode == .blankFromGlobal {
+                    TextField("模板名称，例如：浏览 / 编辑 / 调试", text: $templateName)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
 
             HStack {
                 Spacer()
                 Button("取消", action: onCancel)
-                Button("创建") {
-                    if let selectedApp {
-                        onCreate(selectedApp, templateName)
+                Button(canImportSelectedPreset ? "导入并设为 Active" : "创建") {
+                    guard let app = selectedApp else { return }
+                    if canImportSelectedPreset, let preset = selectedPreset {
+                        onImportPreset(app, preset)
+                    } else {
+                        onCreateBlank(app, templateName)
                     }
                 }
                 .keyboardShortcut(.defaultAction)
@@ -3022,11 +2851,45 @@ private struct AppTemplateCreatorSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 520)
+        .frame(width: 540)
         .onAppear {
+            syncInitialSelection()
+        }
+        .onChange(of: selectedBundleIdentifier) { _ in
+            syncPresetSelectionForCurrentApp()
+        }
+    }
+
+    private var isFixedApp: Bool {
+        if case .fixedApp = target { return true }
+        return false
+    }
+
+    private var canImportSelectedPreset: Bool {
+        !availablePresets.isEmpty && creationMode == .recommendedPreset
+    }
+
+    private func syncInitialSelection() {
+        switch target {
+        case let .fixedApp(app):
+            selectedBundleIdentifier = app.bundleIdentifier
+        case let .pickApp(apps, configured):
             if selectedBundleIdentifier.isEmpty {
-                selectedBundleIdentifier = apps.first?.bundleIdentifier ?? ""
+                let firstUnconfigured = apps.first { !configured.contains($0.bundleIdentifier) }
+                selectedBundleIdentifier = (firstUnconfigured ?? apps.first)?.bundleIdentifier ?? ""
             }
+        }
+        syncPresetSelectionForCurrentApp()
+    }
+
+    private func syncPresetSelectionForCurrentApp() {
+        let presets = availablePresets
+        if presets.isEmpty {
+            creationMode = .blankFromGlobal
+            selectedPresetID = ""
+        } else {
+            creationMode = .recommendedPreset
+            selectedPresetID = presets.first?.id ?? ""
         }
     }
 }
@@ -3043,7 +2906,6 @@ struct ShortcutRecorderSheet: View {
     let onRecord: (KeyChord, ShortcutTriggerMode) -> Void
 
     @State private var triggerMode: ShortcutTriggerMode
-
     @State private var captureMonitor: ShortcutCaptureMonitor?
     @State private var pendingTermination: RecorderTermination?
     @State private var preview = "请按下快捷键"

@@ -224,4 +224,74 @@ final class MappingStoreRoutingTests: XCTestCase {
         XCTAssertEqual(merged.longPress, .preset(.deleteBackward))
         XCTAssertEqual(merged.longPressBehavior, .repeatWhileHeld)
     }
+
+    func testResetAllClearsGlobalPinningAndRestoresDefaultVolume() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RemoteOrbitResetAllTests-\(UUID().uuidString)", isDirectory: true)
+        let configurationURL = directory.appendingPathComponent("mapping-v3.json")
+        let suiteName = "RemoteOrbitResetAllTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let store = MappingStore(configurationFileURL: configurationURL, userDefaults: defaults)
+        XCTAssertFalse(store.isGloballyPinned(.home))
+        store.setGlobalPinning(true, for: .home)
+        XCTAssertTrue(store.isGloballyPinned(.home))
+
+        store.resetAll()
+        XCTAssertFalse(store.isGloballyPinned(.home))
+        XCTAssertEqual(store.binding(for: .volumeUp), .preset(.volumeUp))
+        XCTAssertEqual(store.binding(for: .volumeDown), .preset(.volumeDown))
+    }
+
+    func testApplyTemplatePresetUpdatesExistingNamedPresetAndPreservesCodexGestures() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RemoteOrbitApplyPresetTests-\(UUID().uuidString)", isDirectory: true)
+        let configurationURL = directory.appendingPathComponent("mapping-v3.json")
+        let suiteName = "RemoteOrbitApplyPresetTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let store = MappingStore(configurationFileURL: configurationURL, userDefaults: defaults)
+        let codexTemplate = try XCTUnwrap(
+            store.templates(for: MappingStore.codexBundleIdentifier).first {
+                $0.templateName == "Codex 默认"
+            }
+        )
+        XCTAssertEqual(codexTemplate.gestureProfiles?[.ok]?.longPress, .preset(.paste))
+
+        let importedID = try XCTUnwrap(
+            store.importTemplatePreset(
+                "t3code.default",
+                for: "com.t3tools.t3code",
+                appName: "T3 Code"
+            )
+        )
+        store.setBinding(.preset(.disabled), for: .home, templateID: importedID)
+        XCTAssertEqual(
+            store.importTemplatePreset("t3code.default", for: "com.t3tools.t3code", appName: "T3 Code"),
+            importedID
+        )
+        XCTAssertEqual(store.binding(for: .home, templateID: importedID), .preset(.disabled))
+
+        let appliedID = try XCTUnwrap(
+            store.applyTemplatePreset(
+                "t3code.default",
+                for: "com.t3tools.t3code",
+                appName: "T3 Code"
+            )
+        )
+        XCTAssertEqual(appliedID, importedID)
+        XCTAssertEqual(store.binding(for: .home, templateID: appliedID), .preset(.t3NewChat))
+        XCTAssertEqual(
+            store.gestureProfile(for: .menu, templateID: appliedID).longPress,
+            .preset(.t3ToggleSidebar)
+        )
+    }
 }

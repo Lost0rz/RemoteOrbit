@@ -435,4 +435,80 @@ final class ButtonActionTests: XCTestCase {
         }
         XCTAssertEqual(actual, expected, "Unexpected \(button.rawValue) in \(preset.id)", file: file, line: line)
     }
+
+    func testGlobalDefaultVolumeButtonsUseSystemVolume() {
+        XCTAssertEqual(DefaultBindings.all[.volumeUp], .preset(.volumeUp))
+        XCTAssertEqual(DefaultBindings.all[.volumeDown], .preset(.volumeDown))
+    }
+
+    func testGhosttyPresetScrollDirectionMatchesNaturalDirectionAndHasRichCatalog() throws {
+        let ghostty = try XCTUnwrap(AppTemplatePresetLibrary.preset(id: "ghostty.default"))
+        assertPreset(ghostty, button: .up, equals: .pageUp)
+        assertPreset(ghostty, button: .down, equals: .pageDown)
+        assertPreset(ghostty, button: .left, equals: .ghosttyPreviousSplit)
+        assertPreset(ghostty, button: .right, equals: .ghosttyNextSplit)
+        assertPreset(ghostty, button: .volumeUp, equals: .ghosttyPreviousTab)
+        assertPreset(ghostty, button: .volumeDown, equals: .ghosttyNextTab)
+
+        let ghosttyActions = ButtonAction.allCases.filter { $0.category == .ghostty }
+        XCTAssertGreaterThanOrEqual(ghosttyActions.count, 35)
+        XCTAssertTrue(ghosttyActions.allSatisfy { $0.ghosttyGroup != nil })
+        XCTAssertEqual(
+            Set(ghosttyActions.compactMap(\.ghosttyGroup)),
+            Set(GhosttyActionGroup.allCases)
+        )
+    }
+
+    func testAppExclusiveCategoriesAndPresetsAreScopedToTargetApps() throws {
+        XCTAssertNotNil(AppTemplatePresetLibrary.preset(id: "chrome.default"))
+        XCTAssertNotNil(AppTemplatePresetLibrary.preset(id: "iina.default"))
+        XCTAssertNotNil(AppTemplatePresetLibrary.preset(id: "t3code.default"))
+        XCTAssertNotNil(AppTemplatePresetLibrary.preset(id: "gemini.default"))
+        XCTAssertNotNil(AppTemplatePresetLibrary.preset(id: "xcode.default"))
+        XCTAssertNotNil(AppTemplatePresetLibrary.preset(id: "wechat.default"))
+
+        XCTAssertEqual(AppTemplatePresetLibrary.exclusiveCategories(for: "com.google.Chrome"), [.browser])
+        XCTAssertEqual(AppTemplatePresetLibrary.exclusiveCategories(for: "com.colliderli.iina"), [.iina])
+        XCTAssertEqual(AppTemplatePresetLibrary.exclusiveCategories(for: "com.t3tools.t3code"), [.t3Code])
+        XCTAssertEqual(AppTemplatePresetLibrary.exclusiveCategories(for: "com.google.antigravity"), [.codeWorkspace])
+        XCTAssertEqual(AppTemplatePresetLibrary.exclusiveCategories(for: "com.google.GeminiMacOS"), [.gemini])
+        XCTAssertEqual(AppTemplatePresetLibrary.exclusiveCategories(for: "com.apple.dt.Xcode"), [.xcode])
+        XCTAssertEqual(AppTemplatePresetLibrary.exclusiveCategories(for: "com.tencent.xinWeChat"), [.wechat])
+
+        XCTAssertEqual(
+            Set(AppTemplatePresetLibrary.defaultPresetIDs),
+            Set([
+                "codex.default",
+                "t3code.default",
+                "antigravity.default",
+                "gemini.default",
+                "ghostty.default",
+                "obsidian.default",
+                "chrome.default",
+                "safari.default",
+                "wechat.default",
+                "floatTabs.default",
+                "iina.default",
+                "netease.default",
+                "xcode.default",
+            ])
+        )
+
+        let t3Code = try XCTUnwrap(AppTemplatePresetLibrary.preset(id: "t3code.default"))
+        XCTAssertEqual(Set(t3Code.bindings.keys), Set(RemoteButton.allCases))
+        assertPreset(t3Code, button: .volumeUp, equals: .t3PreviousThread)
+        assertPreset(t3Code, button: .volumeDown, equals: .t3NextThread)
+        assertPreset(t3Code, button: .home, equals: .t3NewChat)
+        assertPreset(t3Code, button: .menu, equals: .t3CommandPalette)
+        assertPreset(t3Code, button: .tv, equals: .t3ToggleDiff)
+
+        let gemini = try XCTUnwrap(AppTemplatePresetLibrary.preset(id: "gemini.default"))
+        XCTAssertEqual(Set(gemini.bindings.keys), Set(RemoteButton.allCases))
+        assertPreset(gemini, button: .home, equals: .geminiNewChat)
+        assertPreset(gemini, button: .menu, equals: .geminiSwitchAntigravity)
+        assertPreset(gemini, button: .up, equals: .pageUp)
+        assertPreset(gemini, button: .down, equals: .pageDown)
+        XCTAssertFalse(KeyInjector.isAsynchronous(.preset(.geminiInsertNewline)))
+        XCTAssertFalse(KeyInjector.isAsynchronous(.preset(.geminiStopOrDeny)))
+    }
 }

@@ -39,14 +39,44 @@ enum GhosttyCommandAdapter {
             return ["Next Tab", "Show Next Tab", "下一个标签", "下一个标签页"]
         case .ghosttyCloseSurface:
             return ["Close Surface", "Close Tab", "Close Window", "Close", "关闭当前 surface", "关闭标签"]
+        case .ghosttyCloseTab:
+            return ["Close Tab", "关闭标签", "关闭标签页"]
+        case .ghosttyCloseWindow:
+            return ["Close Window", "关闭窗口"]
         case .ghosttyNewSplitRight:
             return ["New Split Right", "Split Right", "向右新建分屏", "向右分屏"]
         case .ghosttyNewSplitDown:
             return ["New Split Down", "Split Down", "向下新建分屏", "向下分屏"]
+        case .ghosttyPreviousSplit:
+            return ["Select Previous Split", "Previous Split", "上一个分屏"]
+        case .ghosttyNextSplit:
+            return ["Select Next Split", "Next Split", "下一个分屏"]
+        case .ghosttyToggleSplitZoom:
+            return ["Zoom Split", "Toggle Split Zoom", "缩放分屏"]
+        case .ghosttyEqualizeSplits:
+            return ["Equalize Splits", "均分分屏"]
+        case .ghosttyClearScreen:
+            return ["Clear", "Clear Screen", "清屏"]
         case .ghosttyCommandPalette:
-            return ["Command Palette", "命令面板"]
+            return ["Command Palette", "Command Palette…", "命令面板"]
         case .ghosttySearch:
-            return ["Search", "Find", "搜索"]
+            return ["Search", "Find", "Find…", "搜索", "查找"]
+        case .ghosttyFindNext:
+            return ["Find Next", "查找下一个"]
+        case .ghosttyFindPrevious:
+            return ["Find Previous", "查找上一个"]
+        case .ghosttyIncreaseFontSize:
+            return ["Increase Font Size", "Bigger", "增大字体", "放大"]
+        case .ghosttyDecreaseFontSize:
+            return ["Decrease Font Size", "Smaller", "减小字体", "缩小"]
+        case .ghosttyResetFontSize:
+            return ["Reset Font Size", "Actual Size", "重置字体"]
+        case .ghosttyToggleFullScreen:
+            return ["Enter Full Screen", "Exit Full Screen", "Toggle Full Screen", "进入全屏", "退出全屏"]
+        case .ghosttyOpenConfig:
+            return ["Settings…", "Open Configuration", "设置…", "打开配置"]
+        case .ghosttyReloadConfig:
+            return ["Reload Configuration", "重新加载配置"]
         default:
             return nil
         }

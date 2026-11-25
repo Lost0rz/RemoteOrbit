@@ -7,8 +7,8 @@ enum ProductIdentity {
     static let canonicalName = "RemoteOrbit"
     static let shortName = "RemoteOrbit"
     static let tagline = "Your remote. Your actions. Your Mac."
-    static let defaultVersion = "0.2.10"
-    static let defaultBuild = "36"
+    static let defaultVersion = "0.2.16"
+    static let defaultBuild = "45"
     static let canonicalBundleIdentifier = "com.lost0rz.RemoteOrbit"
 
     static var isRecognizedAppBundle: Bool {
@@ -144,7 +144,7 @@ struct ProductTitleBar: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 2) {
-                Text("Independent control center")
+                Text("独立控制中心")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.primary)
                 Text(ProductIdentity.versionLabel)

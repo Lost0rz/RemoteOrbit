@@ -139,6 +139,8 @@ final class VoiceDiagnosticLogger {
     static let shared = VoiceDiagnosticLogger(fileURL: currentLogURL)
 
     private let fileURL: URL
+    private let rotatedFileURL: URL
+    private let maxSegmentBytes: UInt64
     private let writerQueue = DispatchQueue(
         label: "com.remoteorbit.voice-diagnostic-writer",
         qos: .utility
@@ -152,6 +154,7 @@ final class VoiceDiagnosticLogger {
 
     private var fileHandle: FileHandle?
     private var isActive = false
+    private var currentFileBytes: UInt64 = 0
     private var timestampFormatter: ISO8601DateFormatter?
     private var sequenceNumber: UInt64 = 0
     private var queuedRecordCount = 0
@@ -164,6 +167,7 @@ final class VoiceDiagnosticLogger {
 
     init(
         fileURL: URL,
+        maxSegmentBytes: UInt64 = 10 * 1_024 * 1_024,
         dateProvider: @escaping () -> Date = { Date() },
         uptimeProvider: @escaping () -> TimeInterval = {
             ProcessInfo.processInfo.systemUptime
@@ -177,6 +181,8 @@ final class VoiceDiagnosticLogger {
         beforeQueuedEventWriteForTesting: (() -> Void)? = nil
     ) {
         self.fileURL = fileURL
+        self.rotatedFileURL = fileURL.appendingPathExtension("1")
+        self.maxSegmentBytes = max(1, maxSegmentBytes)
         self.dateProvider = dateProvider
         self.uptimeProvider = uptimeProvider
         self.processIdentifierProvider = processIdentifierProvider
@@ -201,32 +207,42 @@ final class VoiceDiagnosticLogger {
         runFields["binary_path"] = binaryPathProvider()
 
         writerQueue.sync {
-            coalescedSyncWorkItem?.cancel()
-            coalescedSyncWorkItem = nil
-            pendingUnsynchronizedWrites = false
-            do {
-                try FileManager.default.createDirectory(
-                    at: fileURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                if !FileManager.default.fileExists(atPath: fileURL.path) {
-                    FileManager.default.createFile(atPath: fileURL.path, contents: nil)
-                }
-                let handle = try FileHandle(forWritingTo: fileURL)
-                try handle.truncate(atOffset: 0)
-                try handle.seekToEnd()
-                try fileHandle?.close()
-                fileHandle = handle
-                isActive = true
-                sequenceNumber = 0
-                queuedRecordCount = 0
-                append(category: "app", event: "RUN_START", fields: runFields,
-                       timestamp: timestamp, uptime: uptime)
-            } catch {
-                try? fileHandle?.close()
-                fileHandle = nil
-                isActive = false
+            startRunLocked(fields: runFields, timestamp: timestamp, uptime: uptime)
+        }
+    }
+
+    private func startRunLocked(
+        fields: [String: Any],
+        timestamp: Date,
+        uptime: TimeInterval
+    ) {
+        coalescedSyncWorkItem?.cancel()
+        coalescedSyncWorkItem = nil
+        pendingUnsynchronizedWrites = false
+        do {
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if !FileManager.default.fileExists(atPath: fileURL.path) {
+                FileManager.default.createFile(atPath: fileURL.path, contents: nil)
             }
+            let handle = try FileHandle(forWritingTo: fileURL)
+            try handle.truncate(atOffset: 0)
+            try handle.seekToEnd()
+            try fileHandle?.close()
+            fileHandle = handle
+            currentFileBytes = 0
+            isActive = true
+            sequenceNumber = 0
+            queuedRecordCount = 0
+            append(category: "app", event: "RUN_START", fields: fields,
+                   timestamp: timestamp, uptime: uptime)
+        } catch {
+            try? fileHandle?.close()
+            fileHandle = nil
+            currentFileBytes = 0
+            isActive = false
         }
     }
 
@@ -309,18 +325,44 @@ final class VoiceDiagnosticLogger {
     /// Waits for queued records, makes them durable, and closes the log file.
     func close() {
         writerQueue.sync {
-            coalescedSyncWorkItem?.cancel()
-            coalescedSyncWorkItem = nil
-            if pendingUnsynchronizedWrites, fileHandle != nil {
-                synchronizeCount += 1
-            }
-            try? fileHandle?.synchronize()
-            pendingUnsynchronizedWrites = false
-            try? fileHandle?.close()
-            fileHandle = nil
-            isActive = false
-            queuedRecordCount = 0
+            closeLocked()
         }
+    }
+
+    /// Removes active and rotated voice diagnostic logs, reopening a fresh run log
+    /// if runtime diagnostics remain enabled.
+    func clear() {
+        let timestamp = dateProvider()
+        let uptime = uptimeProvider()
+        let runFields: [String: Any] = [
+            "pid": Int(processIdentifierProvider()),
+            "binary_path": binaryPathProvider(),
+        ]
+        writerQueue.sync {
+            closeLocked()
+            let fm = FileManager.default
+            try? fm.removeItem(at: fileURL)
+            try? fm.removeItem(at: rotatedFileURL)
+            currentFileBytes = 0
+            if DiagnosticsRuntimeGate.shared.isEnabled {
+                startRunLocked(fields: runFields, timestamp: timestamp, uptime: uptime)
+            }
+        }
+    }
+
+    private func closeLocked() {
+        coalescedSyncWorkItem?.cancel()
+        coalescedSyncWorkItem = nil
+        if pendingUnsynchronizedWrites, fileHandle != nil {
+            synchronizeCount += 1
+        }
+        try? fileHandle?.synchronize()
+        pendingUnsynchronizedWrites = false
+        try? fileHandle?.close()
+        fileHandle = nil
+        currentFileBytes = 0
+        isActive = false
+        queuedRecordCount = 0
     }
 
     static func keyFields(for key: VoiceTriggerKey, prefix: String? = nil) -> [String: Any] {
@@ -343,7 +385,7 @@ final class VoiceDiagnosticLogger {
         timestamp: Date,
         uptime: TimeInterval
     ) {
-        guard let fileHandle else { return }
+        guard fileHandle != nil else { return }
         sequenceNumber += 1
         var record: [String: Any] = [
             "seq": sequenceNumber,
@@ -360,13 +402,19 @@ final class VoiceDiagnosticLogger {
             jsonSerializationCount += 1
             var data = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
             data.append(0x0A)
-            try fileHandle.write(contentsOf: data)
+            let incomingBytes = UInt64(data.count)
+            if currentFileBytes > 0, currentFileBytes &+ incomingBytes > maxSegmentBytes {
+                rotateLocked()
+            }
+            guard let activeHandle = self.fileHandle else { return }
+            try activeHandle.write(contentsOf: data)
+            currentFileBytes &+= incomingBytes
             writeCount += 1
             if event == "RUN_START" {
                 coalescedSyncWorkItem?.cancel()
                 coalescedSyncWorkItem = nil
                 synchronizeCount += 1
-                try fileHandle.synchronize()
+                try activeHandle.synchronize()
                 pendingUnsynchronizedWrites = false
             } else {
                 pendingUnsynchronizedWrites = true
@@ -380,6 +428,38 @@ final class VoiceDiagnosticLogger {
             }
         } catch {
             // Diagnostics are best-effort and must never alter input behavior.
+        }
+    }
+
+    private func rotateLocked() {
+        coalescedSyncWorkItem?.cancel()
+        coalescedSyncWorkItem = nil
+        if pendingUnsynchronizedWrites, fileHandle != nil {
+            synchronizeCount += 1
+        }
+        try? fileHandle?.synchronize()
+        pendingUnsynchronizedWrites = false
+        try? fileHandle?.close()
+        fileHandle = nil
+        currentFileBytes = 0
+
+        let fm = FileManager.default
+        try? fm.removeItem(at: rotatedFileURL)
+        if fm.fileExists(atPath: fileURL.path) {
+            do {
+                try fm.moveItem(at: fileURL, to: rotatedFileURL)
+            } catch {
+                try? Data().write(to: fileURL)
+            }
+        }
+        if !fm.fileExists(atPath: fileURL.path) {
+            fm.createFile(atPath: fileURL.path, contents: nil)
+        }
+        if let reopened = try? FileHandle(forWritingTo: fileURL) {
+            _ = try? reopened.seekToEnd()
+            fileHandle = reopened
+        } else {
+            isActive = false
         }
     }
 

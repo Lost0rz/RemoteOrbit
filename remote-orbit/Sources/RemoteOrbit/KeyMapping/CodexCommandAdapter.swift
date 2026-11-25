@@ -105,74 +105,6 @@ enum CodexCommandAdapter {
         return true
     }
 
-    private static func attemptFocus(
-        in axApplication: AXUIElement,
-        allowShallowSearch: Bool
-    ) -> Bool {
-        if let focused = attributeElement(
-            axApplication,
-            kAXFocusedUIElementAttribute as CFString
-        ), isTextInput(focused) {
-            let alreadyFocused = attributeValue(
-                focused,
-                kAXFocusedAttribute as CFString
-            ) as? Bool ?? false
-            if alreadyFocused || focus(focused) {
-                return true
-            }
-        }
-
-        // Codex can expose a very large accessibility tree. A deep scan on
-        // every retry previously blocked the first voice edge for almost a
-        // second when its custom editor exposed no AX text element. Search a
-        // small window subtree once, then fail open promptly.
-        guard allowShallowSearch else { return false }
-
-        var roots: [AXUIElement] = []
-        if let focusedWindow = attributeElement(
-            axApplication,
-            kAXFocusedWindowAttribute as CFString
-        ) {
-            roots.append(focusedWindow)
-        }
-        if let mainWindow = attributeElement(
-            axApplication,
-            kAXMainWindowAttribute as CFString
-        ), !roots.contains(where: { CFEqual($0, mainWindow) }) {
-            roots.append(mainWindow)
-        }
-        if roots.isEmpty {
-            roots = attributeValue(
-                axApplication,
-                kAXWindowsAttribute as CFString
-            ) as? [AXUIElement] ?? []
-        }
-
-        guard let candidate = roots
-            .compactMap({ bestInput(in: $0, depth: 4) })
-            .filter({ $0.score >= 400 })
-            .max(by: { $0.score < $1.score })
-        else { return false }
-        return focus(candidate.element)
-    }
-
-    private static func verifyInputFocus(
-        in axApplication: AXUIElement,
-        application: NSRunningApplication
-    ) -> Bool {
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier
-                == application.processIdentifier,
-              let focused = attributeElement(
-                  axApplication,
-                  kAXFocusedUIElementAttribute as CFString
-              ),
-              isTextInput(focused),
-              let candidate = inputCandidate(for: focused),
-              candidate.score >= 400
-        else { return false }
-        return true
-    }
-
     /// Returns a stable Quartz point inside Codex's main content pane.
     ///
     /// A synthetic scroll event is hit-tested by its global location. Using
@@ -182,7 +114,7 @@ enum CodexCommandAdapter {
     /// be used directly by CGEvent without changing focus or sending a second
     /// synthetic click.
     static func conversationScrollLocation() -> CGPoint? {
-        guard let window = mainWindowBounds() else { return nil }
+        guard let window = mainWindowBounds(for: bundleIdentifier) else { return nil }
 
         // Codex normally reserves the left side for navigation. A point in
         // the right-hand content area remains valid whether the sidebar is
@@ -199,9 +131,49 @@ enum CodexCommandAdapter {
         )
     }
 
+    /// Resolves a safe Quartz scroll point inside apps that arrange a left
+    /// navigation rail alongside one or more main content/diff/preview panes.
+    /// If the physical pointer is already inside the app's right-side content
+    /// area, keep it there so the user scrolls whichever sub-pane they are
+    /// hovering; otherwise aim at the main content pane.
+    static func sidebarAppScrollLocation(
+        for bundleIdentifier: String,
+        currentPointer: CGPoint
+    ) -> CGPoint? {
+        guard let window = mainWindowBounds(for: bundleIdentifier) else { return nil }
+
+        let sidebarInset = min(260, window.width * 0.28)
+        let contentRect = CGRect(
+            x: window.minX + sidebarInset,
+            y: window.minY + 52,
+            width: max(40, window.width - sidebarInset - 16),
+            height: max(40, window.height - 68)
+        )
+        if contentRect.contains(currentPointer) {
+            return currentPointer
+        }
+
+        let xFraction: CGFloat = window.width >= 900 ? 0.62 : 0.55
+        let point = CGPoint(
+            x: window.minX + window.width * xFraction,
+            y: window.minY + window.height * 0.55
+        )
+        let inset: CGFloat = 20
+        return CGPoint(
+            x: min(max(point.x, window.minX + inset), window.maxX - inset),
+            y: min(max(point.y, window.minY + inset), window.maxY - inset)
+        )
+    }
+
     // MARK: - Focus fallback
 
     private static func runningApplication() -> NSRunningApplication? {
+        runningApplication(for: bundleIdentifier)
+    }
+
+    private static func runningApplication(
+        for bundleIdentifier: String
+    ) -> NSRunningApplication? {
         NSWorkspace.shared.runningApplications.first {
             $0.bundleIdentifier == bundleIdentifier
         }
@@ -225,7 +197,7 @@ enum CodexCommandAdapter {
     /// main window and the conversation pane on the right. Keep the point
     /// window-relative so this works across displays and window sizes.
     private static func conversationInputLocation() -> CGPoint? {
-        guard let window = mainWindowBounds() else { return nil }
+        guard let window = mainWindowBounds(for: bundleIdentifier) else { return nil }
         let xFraction: CGFloat = window.width >= 900 ? 0.70 : 0.55
         let point = CGPoint(
             x: window.minX + window.width * xFraction,
@@ -260,8 +232,8 @@ enum CodexCommandAdapter {
         return true
     }
 
-    private static func mainWindowBounds() -> CGRect? {
-        guard let application = runningApplication() else { return nil }
+    static func mainWindowBounds(for bundleIdentifier: String) -> CGRect? {
+        guard let application = runningApplication(for: bundleIdentifier) else { return nil }
         let windowInfo = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
@@ -318,84 +290,11 @@ enum CodexCommandAdapter {
         return unsafeBitCast(value, to: AXUIElement.self)
     }
 
-    private struct InputCandidate {
-        let element: AXUIElement
-        let role: String
-        let score: Int
-    }
-
     private static func isTextInput(_ element: AXUIElement) -> Bool {
         guard let role = attributeValue(element, kAXRoleAttribute as CFString) as? String else {
             return false
         }
         return ["AXTextArea", "AXTextField", "AXComboBox", "AXSearchField"].contains(role)
-    }
-
-    private static func focus(_ element: AXUIElement) -> Bool {
-        AXUIElementSetAttributeValue(
-            element,
-            kAXFocusedAttribute as CFString,
-            kCFBooleanTrue
-        ) == .success
-    }
-
-    private static func bestInput(
-        in element: AXUIElement,
-        depth: Int
-    ) -> InputCandidate? {
-        var best = inputCandidate(for: element)
-        guard depth > 0 else { return best }
-
-        for child in children(of: element) {
-            guard let candidate = bestInput(in: child, depth: depth - 1) else { continue }
-            if best == nil || candidate.score > best!.score {
-                best = candidate
-            }
-        }
-        return best
-    }
-
-    private static func inputCandidate(for element: AXUIElement) -> InputCandidate? {
-        guard let role = attributeValue(element, kAXRoleAttribute as CFString) as? String else {
-            return nil
-        }
-
-        let baseScore: Int
-        switch role {
-        case "AXTextArea": baseScore = 700
-        case "AXTextField": baseScore = 450
-        case "AXComboBox": baseScore = 300
-        case "AXSearchField": baseScore = 180
-        default: return nil
-        }
-
-        if let enabled = attributeValue(element, kAXEnabledAttribute as CFString) as? Bool,
-           !enabled {
-            return nil
-        }
-
-        let labels = [
-            kAXTitleAttribute,
-            kAXDescriptionAttribute,
-            kAXHelpAttribute,
-            kAXRoleDescriptionAttribute
-        ]
-            .compactMap { attributeValue(element, $0 as CFString) as? String }
-            .joined(separator: " ")
-            .lowercased()
-
-        var score = baseScore
-        if labels.range(of: "message|prompt|ask|compose|reply|chat|input", options: .regularExpression) != nil {
-            score += 160
-        }
-        if labels.range(of: "search|find", options: .regularExpression) != nil {
-            score -= 220
-        }
-        if labels.range(of: "sidebar|navigation|subject", options: .regularExpression) != nil {
-            score -= 120
-        }
-
-        return InputCandidate(element: element, role: role, score: score)
     }
 
     private static func children(of element: AXUIElement) -> [AXUIElement] {

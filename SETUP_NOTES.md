@@ -4,7 +4,7 @@
 
 ## 1. 基线与设备边界
 
-当前 `main` 的源码版本元数据为 `0.2.15 (Build 44)`，以 `remote-orbit/Packaging/Info.plist` 为准。该值描述当前源码，不等同于“本机已安装版本”或“最新已发布 Release”；安装/运行身份必须在对应机器上单独验证。
+当前 `main` 的源码版本元数据为 `0.2.16 (Build 45)`，以 `remote-orbit/Packaging/Info.plist` 为准。该值描述当前源码，不等同于“本机已安装版本”或“最新已发布 Release”；安装/运行身份必须在对应机器上单独验证。
 
 已接受的主要设备路径是：
 
@@ -129,7 +129,7 @@ RemoteOrbit 的产品进程权限必须用产品进程自身身份判断。Termi
 
 ## 8. 日志、录音和长期诊断
 
-普通日志与调试录音由用户显式控制。长期 machine-readable 诊断由 `DiagnosticAuthority` 统一拥有；当前有效架构见 `docs/diagnostics/ADR-0001..0003`。
+普通日志与调试录音由用户显式控制。运行日志与语音诊断日志默认启用有界轮转（分别按 `5 MB` 与 `10 MB` 自动轮转清理），并可在 Control Center 的“通用设置”中查看占用体积或一键清空日志与诊断记录。长期 machine-readable 诊断由 `DiagnosticAuthority` 统一拥有；当前有效架构见 `docs/diagnostics/ADR-0001..0003`。
 
 常用只读命令：
 

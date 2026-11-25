@@ -29,14 +29,6 @@ enum KeyInjector {
         AXIsProcessTrusted()
     }
 
-    @discardableResult
-    static func requestAccessibilityAccess() -> Bool {
-        let options = [
-            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
-        ] as CFDictionary
-        return AXIsProcessTrustedWithOptions(options)
-    }
-
     // MARK: - 统一入口
 
     @discardableResult
@@ -109,7 +101,9 @@ enum KeyInjector {
                 || chord.modifiers.contains(.control)
         case let .preset(action):
             switch action {
-            case .openFloatTabs, .openCodex,
+            case .openFloatTabs, .openCodex, .openT3Code, .openGemini,
+                 .openGhostty, .openChrome, .openObsidian,
+                 .openAntigravity, .openWeChat,
                  .floatTabsSelectSlot1, .floatTabsSelectSlot2,
                  .floatTabsSelectSlot3, .floatTabsSelectSlot4,
                  .floatTabsSelectSlot5, .floatTabsSelectSlot6,
@@ -133,6 +127,91 @@ enum KeyInjector {
                 // FloatTabs handles this through its distributed command;
                 // every other target falls back to Command-R, which uses the
                 // asynchronous System Events path.
+                return true
+            case .navigateBack, .navigateForward, .newTab, .closeTabOrWindow,
+                 .reopenClosedTab, .previousTab, .nextTab,
+                 .pastePlainText, .find, .findNext, .findPrevious,
+                 .cycleAppWindows, .missionControl, .toggleFullScreen,
+                 .chatGPTInterruptTerminal, .chatGPTQuickCommandSearch,
+                 .chatGPTScrollToTop, .chatGPTScrollToBottom,
+                 .chatGPTPastePlainText,
+                 .ghosttyGoToTab1, .ghosttyGoToTab2, .ghosttyGoToTab3,
+                 .ghosttyGoToTab4, .ghosttyGoToTab5, .ghosttyGoToTab6,
+                 .ghosttyGoToTab7, .ghosttyGoToTab8, .ghosttyLastTab,
+                 .ghosttyCloseTab, .ghosttyCloseWindow,
+                 .ghosttyPreviousSplit, .ghosttyNextSplit,
+                 .ghosttyFocusSplitUp, .ghosttyFocusSplitDown,
+                 .ghosttyFocusSplitLeft, .ghosttyFocusSplitRight,
+                 .ghosttyToggleSplitZoom, .ghosttyEqualizeSplits,
+                 .ghosttyPreviousPrompt, .ghosttyNextPrompt,
+                 .ghosttyClearScreen, .ghosttyInterrupt,
+                 .ghosttyScrollToTop, .ghosttyScrollToBottom,
+                 .ghosttyScrollToSelection,
+                 .ghosttyFindNext, .ghosttyFindPrevious,
+                 .ghosttyIncreaseFontSize, .ghosttyDecreaseFontSize,
+                 .ghosttyResetFontSize, .ghosttyToggleFullScreen,
+                 .ghosttyOpenConfig, .ghosttyReloadConfig,
+                 .ghosttyToggleInspector,
+                 .browserAddressBar, .browserNewTab, .browserNewPrivateWindow,
+                 .browserCloseTab, .browserReopenClosedTab,
+                 .browserPreviousTab, .browserNextTab,
+                 .browserGoToTab1, .browserGoToTab2, .browserGoToTab3,
+                 .browserGoToTab4, .browserGoToTab5, .browserGoToTab6,
+                 .browserGoToTab7, .browserGoToTab8, .browserLastTab,
+                 .browserBack, .browserForward,
+                 .browserReload, .browserReloadNoCache,
+                 .browserBookmarkPage, .browserHistory,
+                 .browserDownloads, .browserDeveloperTools,
+                 .browserZoomIn, .browserZoomOut, .browserResetZoom,
+                 .iinaSpeedDown, .iinaSpeedUp, .iinaResetSpeed,
+                 .iinaToggleMute, .iinaPreviousFile, .iinaNextFile,
+                 .iinaToggleFullScreen, .iinaPictureInPicture,
+                 .iinaToggleOnTop, .iinaCycleSubtitles, .iinaCycleAudio,
+                 .iinaShowPlaylist, .iinaScreenshot,
+                 .workspaceCommandPalette, .workspaceQuickOpen,
+                 .workspaceGlobalSearch, .workspaceFindInFile,
+                 .workspaceNavigateBack, .workspaceNavigateForward,
+                 .workspaceToggleSidebar, .workspaceToggleBottomPanel,
+                 .workspaceToggleTerminal, .workspaceNewChatOrWindow,
+                 .workspaceSplitEditor, .workspaceCloseTab,
+                 .workspacePreviousTab, .workspaceNextTab,
+                 .workspaceOpenSettings,
+                 .t3NewChat, .t3NewLocalChat, .t3NewQuickChat,
+                 .t3PreviousThread, .t3NextThread,
+                 .t3GoToThread1, .t3GoToThread2, .t3GoToThread3,
+                 .t3GoToThread4, .t3GoToThread5, .t3GoToThread6,
+                 .t3GoToThread7, .t3GoToThread8, .t3GoToThread9,
+                 .t3SettleThread, .t3PinThread,
+                 .t3SendAndNewThread, .t3SteerQueuedMessage,
+                 .t3StashDraft, .t3Dictation,
+                 .t3CopyThreadRef, .t3CopyPRNumber,
+                 .t3ToggleSidebar, .t3ToggleTerminal,
+                 .t3ToggleDiff, .t3TogglePreview,
+                 .t3ToggleRightPanel, .t3ToggleThreadPanel,
+                 .t3NavigateBack, .t3NavigateForward,
+                 .t3ClosePanel, .t3ReopenClosed, .t3PreviewRefresh,
+                 .t3CommandPalette, .t3FilePicker,
+                 .t3ProjectSearch, .t3FindInChat,
+                 .t3ModelPicker, .t3SwitchMode,
+                 .t3SwitchEffort, .t3SwitchWorkspace,
+                 .t3SwitchBranch, .t3OpenInEditor,
+                 .t3OpenUsage, .t3OpenSettings,
+                 .geminiNewChat, .geminiNewTemporaryChat,
+                 .geminiSendOrApproveOnce, .geminiApproveForThread,
+                 .geminiApproveAlways, .geminiSwitchAntigravity,
+                 .geminiAreaScreenshot, .geminiReloadChats,
+                 .geminiFindInChat, .geminiFindNext, .geminiFindPrevious,
+                 .geminiIncreaseTextSize, .geminiDecreaseTextSize,
+                 .geminiResetTextSize, .geminiCloseWindow,
+                 .geminiOpenSettings,
+                 .xcodeRun, .xcodeStop, .xcodeBuild, .xcodeTest,
+                 .xcodeOpenQuickly, .xcodeFindInProject,
+                 .xcodeToggleNavigator, .xcodeToggleDebugArea,
+                 .xcodeToggleInspector, .xcodeClearConsole,
+                 .xcodePreviousHistory, .xcodeNextHistory, .xcodeCloseTab,
+                 .wechatSearch, .wechatNewGroupChat,
+                 .wechatScreenshot, .wechatLock,
+                 .wechatCloseWindow, .wechatOpenSettings:
                 return true
             case .obsidianToggleLeftSidebar, .obsidianToggleRightSidebar,
                  .obsidianFocusEditor, .obsidianFocusTabGroupLeft,
@@ -176,6 +255,12 @@ enum KeyInjector {
         switch action {
         case .disabled:
             return true
+        case .spaceKey:
+            postKey(code: 49)
+        case .tabKey:
+            postKey(code: 48)
+        case .shiftTabKey:
+            postKey(code: 48, flags: .maskShift)
         case .escape:
             postKey(code: 53)
         case .returnKey:
@@ -200,26 +285,68 @@ enum KeyInjector {
                 scrollLinesPerStep: scrollLinesPerStep,
                 targetApplicationBundleIdentifier: targetApplicationBundleIdentifier
             )
+        case .keyboardPageUp:
+            postKey(code: 116)
+        case .keyboardPageDown:
+            postKey(code: 121)
+        case .navigateBack:
+            return sendPresetShortcut(keyCode: 33, keyLabel: "[", modifiers: .command)
+        case .navigateForward:
+            return sendPresetShortcut(keyCode: 30, keyLabel: "]", modifiers: .command)
         case .reloadPage:
             return sendPresetShortcut(keyCode: 15, keyLabel: "R", modifiers: .command)
+        case .newTab:
+            return sendPresetShortcut(keyCode: 17, keyLabel: "T", modifiers: .command)
+        case .closeTabOrWindow:
+            return sendPresetShortcut(keyCode: 13, keyLabel: "W", modifiers: .command)
+        case .reopenClosedTab:
+            return sendPresetShortcut(keyCode: 17, keyLabel: "T", modifiers: [.command, .shift])
+        case .previousTab:
+            return sendPresetShortcut(keyCode: 48, keyLabel: "Tab", modifiers: [.control, .shift])
+        case .nextTab:
+            return sendPresetShortcut(keyCode: 48, keyLabel: "Tab", modifiers: .control)
         case .deleteBackward:
             postKey(code: 51)
+        case .forwardDelete:
+            postKey(code: 117)
         case .showDesktop:
             postKey(code: 103, flags: .maskSecondaryFn)
         case .contextMenu:
             postKey(code: 109, flags: .maskShift)
         case .appSwitcher:
             postKey(code: 48, flags: .maskCommand)
+        case .cycleAppWindows:
+            return sendPresetShortcut(keyCode: 50, keyLabel: "`", modifiers: .command)
+        case .missionControl:
+            return sendPresetShortcut(keyCode: 126, keyLabel: "↑", modifiers: .control)
+        case .toggleFullScreen:
+            return sendPresetShortcut(keyCode: 3, keyLabel: "F", modifiers: [.command, .control])
         case .inspectCurrentKeymap:
             return false // handled by AppController's contextual overlay
         case .openFloatTabs:
             return FloatTabsCommandClient.show()
         case .openCodex:
             return ApplicationLauncher.activate(bundleIdentifier: "com.openai.codex")
+        case .openT3Code:
+            return ApplicationLauncher.activate(bundleIdentifier: "com.t3tools.t3code")
+        case .openGemini:
+            return ApplicationLauncher.activate(bundleIdentifier: "com.google.GeminiMacOS")
+        case .openGhostty:
+            return ApplicationLauncher.activate(bundleIdentifier: "com.mitchellh.ghostty")
+        case .openChrome:
+            return ApplicationLauncher.activate(bundleIdentifier: "com.google.Chrome")
+        case .openObsidian:
+            return ApplicationLauncher.activate(bundleIdentifier: "md.obsidian")
+        case .openAntigravity:
+            return ApplicationLauncher.activate(bundleIdentifier: "com.google.antigravity")
+        case .openWeChat:
+            return ApplicationLauncher.activate(bundleIdentifier: "com.tencent.xinWeChat")
         case .copy:
             return sendPresetShortcut(keyCode: 8, keyLabel: "C", modifiers: .command)
         case .paste:
             return sendPresetShortcut(keyCode: 9, keyLabel: "V", modifiers: .command)
+        case .pastePlainText:
+            return sendPresetShortcut(keyCode: 9, keyLabel: "V", modifiers: [.command, .shift])
         case .cut:
             return sendPresetShortcut(keyCode: 7, keyLabel: "X", modifiers: .command)
         case .selectAll:
@@ -232,6 +359,12 @@ enum KeyInjector {
                 keyLabel: "Z",
                 modifiers: [.command, .shift]
             )
+        case .find:
+            return sendPresetShortcut(keyCode: 3, keyLabel: "F", modifiers: .command)
+        case .findNext:
+            return sendPresetShortcut(keyCode: 5, keyLabel: "G", modifiers: .command)
+        case .findPrevious:
+            return sendPresetShortcut(keyCode: 5, keyLabel: "G", modifiers: [.command, .shift])
         case .moveToLineStart:
             return sendPresetShortcut(keyCode: 123, keyLabel: "←", modifiers: .command)
         case .moveToLineEnd:
@@ -339,6 +472,8 @@ enum KeyInjector {
             return sendPresetShortcut(keyCode: 50, keyLabel: "`", modifiers: .control)
         case .chatGPTClearTerminal:
             return sendPresetShortcut(keyCode: 37, keyLabel: "L", modifiers: .control)
+        case .chatGPTInterruptTerminal:
+            return sendPresetShortcut(keyCode: 8, keyLabel: "C", modifiers: .control)
         case .chatGPTClearUnread:
             return sendPresetShortcut(keyCode: 53, keyLabel: "Esc", modifiers: .shift)
         case .chatGPTUndo:
@@ -379,6 +514,8 @@ enum KeyInjector {
                 keyLabel: "N",
                 modifiers: [.command, .shift]
             )
+        case .chatGPTQuickCommandSearch:
+            return sendPresetShortcut(keyCode: 40, keyLabel: "K", modifiers: .command)
         case .chatGPTArchiveChat:
             return sendPresetShortcut(
                 keyCode: 0,
@@ -439,6 +576,10 @@ enum KeyInjector {
                 keyLabel: "A",
                 modifiers: [.command, .option]
             )
+        case .chatGPTScrollToTop:
+            return sendPresetShortcut(keyCode: 126, keyLabel: "↑", modifiers: .command)
+        case .chatGPTScrollToBottom:
+            return sendPresetShortcut(keyCode: 125, keyLabel: "↓", modifiers: .command)
         case .chatGPTOpenRecentChat1:
             return sendPresetShortcut(keyCode: 18, keyLabel: "1", modifiers: [.command, .option])
         case .chatGPTOpenRecentChat2:
@@ -495,6 +636,12 @@ enum KeyInjector {
             )
         case .chatGPTRestorePreviousPrompt:
             postKey(code: 126)
+        case .chatGPTInsertNewline:
+            postKey(code: 36, flags: .maskShift)
+        case .chatGPTStopGeneration:
+            postKey(code: 53)
+        case .chatGPTPastePlainText:
+            return sendPresetShortcut(keyCode: 9, keyLabel: "V", modifiers: [.command, .shift])
         case .chatGPTApproveRequest:
             postKey(code: 36)
         case .chatGPTDeclineRequest:
@@ -605,8 +752,30 @@ enum KeyInjector {
             )
         case .ghosttyNextTab:
             return sendPresetShortcut(keyCode: 48, keyLabel: "Tab", modifiers: .control)
+        case .ghosttyGoToTab1:
+            return sendPresetShortcut(keyCode: 18, keyLabel: "1", modifiers: .command)
+        case .ghosttyGoToTab2:
+            return sendPresetShortcut(keyCode: 19, keyLabel: "2", modifiers: .command)
+        case .ghosttyGoToTab3:
+            return sendPresetShortcut(keyCode: 20, keyLabel: "3", modifiers: .command)
+        case .ghosttyGoToTab4:
+            return sendPresetShortcut(keyCode: 21, keyLabel: "4", modifiers: .command)
+        case .ghosttyGoToTab5:
+            return sendPresetShortcut(keyCode: 23, keyLabel: "5", modifiers: .command)
+        case .ghosttyGoToTab6:
+            return sendPresetShortcut(keyCode: 22, keyLabel: "6", modifiers: .command)
+        case .ghosttyGoToTab7:
+            return sendPresetShortcut(keyCode: 26, keyLabel: "7", modifiers: .command)
+        case .ghosttyGoToTab8:
+            return sendPresetShortcut(keyCode: 28, keyLabel: "8", modifiers: .command)
+        case .ghosttyLastTab:
+            return sendPresetShortcut(keyCode: 25, keyLabel: "9", modifiers: .command)
         case .ghosttyCloseSurface:
             return sendPresetShortcut(keyCode: 13, keyLabel: "W", modifiers: .command)
+        case .ghosttyCloseTab:
+            return sendPresetShortcut(keyCode: 13, keyLabel: "W", modifiers: [.command, .option])
+        case .ghosttyCloseWindow:
+            return sendPresetShortcut(keyCode: 13, keyLabel: "W", modifiers: [.command, .shift])
         case .ghosttyNewSplitRight:
             return sendPresetShortcut(keyCode: 2, keyLabel: "D", modifiers: .command)
         case .ghosttyNewSplitDown:
@@ -615,6 +784,36 @@ enum KeyInjector {
                 keyLabel: "D",
                 modifiers: [.command, .shift]
             )
+        case .ghosttyPreviousSplit:
+            return sendPresetShortcut(keyCode: 33, keyLabel: "[", modifiers: .command)
+        case .ghosttyNextSplit:
+            return sendPresetShortcut(keyCode: 30, keyLabel: "]", modifiers: .command)
+        case .ghosttyFocusSplitUp:
+            return sendPresetShortcut(keyCode: 126, keyLabel: "↑", modifiers: [.command, .option])
+        case .ghosttyFocusSplitDown:
+            return sendPresetShortcut(keyCode: 125, keyLabel: "↓", modifiers: [.command, .option])
+        case .ghosttyFocusSplitLeft:
+            return sendPresetShortcut(keyCode: 123, keyLabel: "←", modifiers: [.command, .option])
+        case .ghosttyFocusSplitRight:
+            return sendPresetShortcut(keyCode: 124, keyLabel: "→", modifiers: [.command, .option])
+        case .ghosttyToggleSplitZoom:
+            return sendPresetShortcut(keyCode: 36, keyLabel: "Return", modifiers: [.command, .shift])
+        case .ghosttyEqualizeSplits:
+            return sendPresetShortcut(keyCode: 24, keyLabel: "=", modifiers: [.command, .control])
+        case .ghosttyPreviousPrompt:
+            return sendPresetShortcut(keyCode: 126, keyLabel: "↑", modifiers: .command)
+        case .ghosttyNextPrompt:
+            return sendPresetShortcut(keyCode: 125, keyLabel: "↓", modifiers: .command)
+        case .ghosttyClearScreen:
+            return sendPresetShortcut(keyCode: 40, keyLabel: "K", modifiers: .command)
+        case .ghosttyInterrupt:
+            return sendPresetShortcut(keyCode: 8, keyLabel: "C", modifiers: .control)
+        case .ghosttyScrollToTop:
+            return sendPresetShortcut(keyCode: 115, keyLabel: "Home", modifiers: .command)
+        case .ghosttyScrollToBottom:
+            return sendPresetShortcut(keyCode: 119, keyLabel: "End", modifiers: .command)
+        case .ghosttyScrollToSelection:
+            return sendPresetShortcut(keyCode: 38, keyLabel: "J", modifiers: .command)
         case .ghosttyCommandPalette:
             return sendPresetShortcut(
                 keyCode: 35,
@@ -623,6 +822,24 @@ enum KeyInjector {
             )
         case .ghosttySearch:
             return sendPresetShortcut(keyCode: 3, keyLabel: "F", modifiers: .command)
+        case .ghosttyFindNext:
+            return sendPresetShortcut(keyCode: 5, keyLabel: "G", modifiers: .command)
+        case .ghosttyFindPrevious:
+            return sendPresetShortcut(keyCode: 5, keyLabel: "G", modifiers: [.command, .shift])
+        case .ghosttyIncreaseFontSize:
+            return sendPresetShortcut(keyCode: 24, keyLabel: "+", modifiers: [.command, .shift])
+        case .ghosttyDecreaseFontSize:
+            return sendPresetShortcut(keyCode: 27, keyLabel: "-", modifiers: .command)
+        case .ghosttyResetFontSize:
+            return sendPresetShortcut(keyCode: 29, keyLabel: "0", modifiers: .command)
+        case .ghosttyToggleFullScreen:
+            return sendPresetShortcut(keyCode: 36, keyLabel: "Return", modifiers: .command)
+        case .ghosttyOpenConfig:
+            return sendPresetShortcut(keyCode: 43, keyLabel: ",", modifiers: .command)
+        case .ghosttyReloadConfig:
+            return sendPresetShortcut(keyCode: 43, keyLabel: ",", modifiers: [.command, .shift])
+        case .ghosttyToggleInspector:
+            return sendPresetShortcut(keyCode: 34, keyLabel: "I", modifiers: [.command, .option])
         case .obsidianCommandPalette:
             return sendPresetShortcut(keyCode: 35, keyLabel: "P", modifiers: .command)
         case .obsidianQuickSwitcher:
@@ -707,6 +924,300 @@ enum KeyInjector {
              .obsidianMoveTabToNewWindow, .obsidianOpenTabInNewWindow,
              .obsidianCreateNewCanvas:
             return false // handled by ObsidianCommandAdapter above
+        case .neteasePreviousTrack:
+            postSystemKey(type: 18)
+        case .neteaseNextTrack:
+            postSystemKey(type: 17)
+        case .browserAddressBar:
+            return sendPresetShortcut(keyCode: 37, keyLabel: "L", modifiers: .command)
+        case .browserNewTab:
+            return sendPresetShortcut(keyCode: 17, keyLabel: "T", modifiers: .command)
+        case .browserNewPrivateWindow:
+            return sendPresetShortcut(keyCode: 45, keyLabel: "N", modifiers: [.command, .shift])
+        case .browserCloseTab:
+            return sendPresetShortcut(keyCode: 13, keyLabel: "W", modifiers: .command)
+        case .browserReopenClosedTab:
+            return sendPresetShortcut(keyCode: 17, keyLabel: "T", modifiers: [.command, .shift])
+        case .browserPreviousTab:
+            return sendPresetShortcut(keyCode: 48, keyLabel: "Tab", modifiers: [.control, .shift])
+        case .browserNextTab:
+            return sendPresetShortcut(keyCode: 48, keyLabel: "Tab", modifiers: .control)
+        case .browserGoToTab1:
+            return sendPresetShortcut(keyCode: 18, keyLabel: "1", modifiers: .command)
+        case .browserGoToTab2:
+            return sendPresetShortcut(keyCode: 19, keyLabel: "2", modifiers: .command)
+        case .browserGoToTab3:
+            return sendPresetShortcut(keyCode: 20, keyLabel: "3", modifiers: .command)
+        case .browserGoToTab4:
+            return sendPresetShortcut(keyCode: 21, keyLabel: "4", modifiers: .command)
+        case .browserGoToTab5:
+            return sendPresetShortcut(keyCode: 23, keyLabel: "5", modifiers: .command)
+        case .browserGoToTab6:
+            return sendPresetShortcut(keyCode: 22, keyLabel: "6", modifiers: .command)
+        case .browserGoToTab7:
+            return sendPresetShortcut(keyCode: 26, keyLabel: "7", modifiers: .command)
+        case .browserGoToTab8:
+            return sendPresetShortcut(keyCode: 28, keyLabel: "8", modifiers: .command)
+        case .browserLastTab:
+            return sendPresetShortcut(keyCode: 25, keyLabel: "9", modifiers: .command)
+        case .browserBack:
+            return sendPresetShortcut(keyCode: 33, keyLabel: "[", modifiers: .command)
+        case .browserForward:
+            return sendPresetShortcut(keyCode: 30, keyLabel: "]", modifiers: .command)
+        case .browserReload:
+            return sendPresetShortcut(keyCode: 15, keyLabel: "R", modifiers: .command)
+        case .browserReloadNoCache:
+            return sendPresetShortcut(keyCode: 15, keyLabel: "R", modifiers: [.command, .shift])
+        case .browserBookmarkPage:
+            return sendPresetShortcut(keyCode: 2, keyLabel: "D", modifiers: .command)
+        case .browserHistory:
+            return sendPresetShortcut(keyCode: 16, keyLabel: "Y", modifiers: .command)
+        case .browserDownloads:
+            return sendPresetShortcut(keyCode: 37, keyLabel: "L", modifiers: [.command, .option])
+        case .browserDeveloperTools:
+            return sendPresetShortcut(keyCode: 34, keyLabel: "I", modifiers: [.command, .option])
+        case .browserZoomIn:
+            return sendPresetShortcut(keyCode: 24, keyLabel: "+", modifiers: [.command, .shift])
+        case .browserZoomOut:
+            return sendPresetShortcut(keyCode: 27, keyLabel: "-", modifiers: .command)
+        case .browserResetZoom:
+            return sendPresetShortcut(keyCode: 29, keyLabel: "0", modifiers: .command)
+        case .iinaPlayPause:
+            postKey(code: 49)
+        case .iinaSeekBackward:
+            postKey(code: 123)
+        case .iinaSeekForward:
+            postKey(code: 124)
+        case .iinaPreviousFrame:
+            postKey(code: 43)
+        case .iinaNextFrame:
+            postKey(code: 47)
+        case .iinaSpeedDown:
+            return sendPresetShortcut(keyCode: 33, keyLabel: "[", modifiers: .command)
+        case .iinaSpeedUp:
+            return sendPresetShortcut(keyCode: 30, keyLabel: "]", modifiers: .command)
+        case .iinaResetSpeed:
+            return sendPresetShortcut(keyCode: 42, keyLabel: "\\", modifiers: .command)
+        case .iinaVolumeUp:
+            postKey(code: 126)
+        case .iinaVolumeDown:
+            postKey(code: 125)
+        case .iinaToggleMute:
+            return sendPresetShortcut(keyCode: 44, keyLabel: "/", modifiers: .command)
+        case .iinaPreviousFile:
+            return sendPresetShortcut(keyCode: 123, keyLabel: "←", modifiers: .command)
+        case .iinaNextFile:
+            return sendPresetShortcut(keyCode: 124, keyLabel: "→", modifiers: .command)
+        case .iinaToggleFullScreen:
+            return sendPresetShortcut(keyCode: 3, keyLabel: "F", modifiers: [.command, .control])
+        case .iinaPictureInPicture:
+            return sendPresetShortcut(keyCode: 35, keyLabel: "P", modifiers: [.command, .control])
+        case .iinaToggleOnTop:
+            return sendPresetShortcut(keyCode: 17, keyLabel: "T", modifiers: [.command, .control])
+        case .iinaCycleSubtitles:
+            return sendPresetShortcut(keyCode: 1, keyLabel: "S", modifiers: [.command, .control])
+        case .iinaCycleAudio:
+            return sendPresetShortcut(keyCode: 0, keyLabel: "A", modifiers: [.command, .control])
+        case .iinaShowPlaylist:
+            return sendPresetShortcut(keyCode: 35, keyLabel: "P", modifiers: [.command, .shift])
+        case .iinaScreenshot:
+            return sendPresetShortcut(keyCode: 1, keyLabel: "S", modifiers: .command)
+        case .workspaceCommandPalette:
+            return sendPresetShortcut(keyCode: 35, keyLabel: "P", modifiers: [.command, .shift])
+        case .workspaceQuickOpen:
+            return sendPresetShortcut(keyCode: 35, keyLabel: "P", modifiers: .command)
+        case .workspaceGlobalSearch:
+            return sendPresetShortcut(keyCode: 3, keyLabel: "F", modifiers: [.command, .shift])
+        case .workspaceFindInFile:
+            return sendPresetShortcut(keyCode: 3, keyLabel: "F", modifiers: .command)
+        case .workspaceNavigateBack:
+            return sendPresetShortcut(keyCode: 27, keyLabel: "-", modifiers: .control)
+        case .workspaceNavigateForward:
+            return sendPresetShortcut(keyCode: 27, keyLabel: "-", modifiers: [.control, .shift])
+        case .workspaceToggleSidebar:
+            return sendPresetShortcut(keyCode: 11, keyLabel: "B", modifiers: .command)
+        case .workspaceToggleBottomPanel:
+            return sendPresetShortcut(keyCode: 38, keyLabel: "J", modifiers: .command)
+        case .workspaceToggleTerminal:
+            return sendPresetShortcut(keyCode: 50, keyLabel: "`", modifiers: .control)
+        case .workspaceNewChatOrWindow:
+            return sendPresetShortcut(keyCode: 45, keyLabel: "N", modifiers: .command)
+        case .workspaceSplitEditor:
+            return sendPresetShortcut(keyCode: 42, keyLabel: "\\", modifiers: .command)
+        case .workspaceCloseTab:
+            return sendPresetShortcut(keyCode: 13, keyLabel: "W", modifiers: .command)
+        case .workspacePreviousTab:
+            return sendPresetShortcut(keyCode: 48, keyLabel: "Tab", modifiers: [.control, .shift])
+        case .workspaceNextTab:
+            return sendPresetShortcut(keyCode: 48, keyLabel: "Tab", modifiers: .control)
+        case .workspaceOpenSettings:
+            return sendPresetShortcut(keyCode: 43, keyLabel: ",", modifiers: .command)
+        case .xcodeRun:
+            return sendPresetShortcut(keyCode: 15, keyLabel: "R", modifiers: .command)
+        case .xcodeStop:
+            return sendPresetShortcut(keyCode: 47, keyLabel: ".", modifiers: .command)
+        case .xcodeBuild:
+            return sendPresetShortcut(keyCode: 11, keyLabel: "B", modifiers: .command)
+        case .xcodeTest:
+            return sendPresetShortcut(keyCode: 32, keyLabel: "U", modifiers: .command)
+        case .xcodeOpenQuickly:
+            return sendPresetShortcut(keyCode: 31, keyLabel: "O", modifiers: [.command, .shift])
+        case .xcodeFindInProject:
+            return sendPresetShortcut(keyCode: 3, keyLabel: "F", modifiers: [.command, .shift])
+        case .xcodeToggleNavigator:
+            return sendPresetShortcut(keyCode: 29, keyLabel: "0", modifiers: .command)
+        case .xcodeToggleDebugArea:
+            return sendPresetShortcut(keyCode: 16, keyLabel: "Y", modifiers: [.command, .shift])
+        case .xcodeToggleInspector:
+            return sendPresetShortcut(keyCode: 29, keyLabel: "0", modifiers: [.command, .option])
+        case .xcodeClearConsole:
+            return sendPresetShortcut(keyCode: 40, keyLabel: "K", modifiers: .command)
+        case .xcodePreviousHistory:
+            return sendPresetShortcut(keyCode: 123, keyLabel: "←", modifiers: [.command, .control])
+        case .xcodeNextHistory:
+            return sendPresetShortcut(keyCode: 124, keyLabel: "→", modifiers: [.command, .control])
+        case .xcodeCloseTab:
+            return sendPresetShortcut(keyCode: 13, keyLabel: "W", modifiers: .command)
+        case .t3NewChat:
+            return sendPresetShortcut(keyCode: 31, keyLabel: "O", modifiers: [.command, .shift])
+        case .t3NewLocalChat:
+            return sendPresetShortcut(keyCode: 45, keyLabel: "N", modifiers: [.command, .shift])
+        case .t3NewQuickChat:
+            return sendPresetShortcut(keyCode: 45, keyLabel: "N", modifiers: [.command, .option])
+        case .t3PreviousThread:
+            return sendPresetShortcut(keyCode: 33, keyLabel: "[", modifiers: [.command, .shift])
+        case .t3NextThread:
+            return sendPresetShortcut(keyCode: 30, keyLabel: "]", modifiers: [.command, .shift])
+        case .t3GoToThread1:
+            return sendPresetShortcut(keyCode: 18, keyLabel: "1", modifiers: .command)
+        case .t3GoToThread2:
+            return sendPresetShortcut(keyCode: 19, keyLabel: "2", modifiers: .command)
+        case .t3GoToThread3:
+            return sendPresetShortcut(keyCode: 20, keyLabel: "3", modifiers: .command)
+        case .t3GoToThread4:
+            return sendPresetShortcut(keyCode: 21, keyLabel: "4", modifiers: .command)
+        case .t3GoToThread5:
+            return sendPresetShortcut(keyCode: 23, keyLabel: "5", modifiers: .command)
+        case .t3GoToThread6:
+            return sendPresetShortcut(keyCode: 22, keyLabel: "6", modifiers: .command)
+        case .t3GoToThread7:
+            return sendPresetShortcut(keyCode: 26, keyLabel: "7", modifiers: .command)
+        case .t3GoToThread8:
+            return sendPresetShortcut(keyCode: 28, keyLabel: "8", modifiers: .command)
+        case .t3GoToThread9:
+            return sendPresetShortcut(keyCode: 25, keyLabel: "9", modifiers: .command)
+        case .t3SettleThread:
+            return sendPresetShortcut(keyCode: 1, keyLabel: "S", modifiers: [.command, .shift])
+        case .t3PinThread:
+            return sendPresetShortcut(keyCode: 35, keyLabel: "P", modifiers: [.command, .shift])
+        case .t3SendAndNewThread:
+            return sendPresetShortcut(keyCode: 36, keyLabel: "Return", modifiers: [.command, .option])
+        case .t3SteerQueuedMessage:
+            return sendPresetShortcut(keyCode: 36, keyLabel: "Return", modifiers: [.command, .shift])
+        case .t3StashDraft:
+            return sendPresetShortcut(keyCode: 1, keyLabel: "S", modifiers: .command)
+        case .t3Dictation:
+            return sendPresetShortcut(keyCode: 2, keyLabel: "D", modifiers: [.command, .shift])
+        case .t3CopyThreadRef:
+            return sendPresetShortcut(keyCode: 8, keyLabel: "C", modifiers: [.command, .shift])
+        case .t3CopyPRNumber:
+            return sendPresetShortcut(keyCode: 40, keyLabel: "K", modifiers: [.command, .shift])
+        case .t3ToggleSidebar:
+            return sendPresetShortcut(keyCode: 11, keyLabel: "B", modifiers: .command)
+        case .t3ToggleTerminal:
+            return sendPresetShortcut(keyCode: 38, keyLabel: "J", modifiers: .command)
+        case .t3ToggleDiff:
+            return sendPresetShortcut(keyCode: 2, keyLabel: "D", modifiers: .command)
+        case .t3TogglePreview:
+            return sendPresetShortcut(keyCode: 38, keyLabel: "J", modifiers: [.command, .shift])
+        case .t3ToggleRightPanel:
+            return sendPresetShortcut(keyCode: 11, keyLabel: "B", modifiers: [.command, .option])
+        case .t3ToggleThreadPanel:
+            return sendPresetShortcut(keyCode: 11, keyLabel: "B", modifiers: [.command, .shift])
+        case .t3NavigateBack:
+            return sendPresetShortcut(keyCode: 33, keyLabel: "[", modifiers: .command)
+        case .t3NavigateForward:
+            return sendPresetShortcut(keyCode: 30, keyLabel: "]", modifiers: .command)
+        case .t3ClosePanel:
+            return sendPresetShortcut(keyCode: 13, keyLabel: "W", modifiers: .command)
+        case .t3ReopenClosed:
+            return sendPresetShortcut(keyCode: 17, keyLabel: "T", modifiers: [.command, .shift])
+        case .t3PreviewRefresh:
+            return sendPresetShortcut(keyCode: 15, keyLabel: "R", modifiers: .command)
+        case .t3CommandPalette:
+            return sendPresetShortcut(keyCode: 40, keyLabel: "K", modifiers: .command)
+        case .t3FilePicker:
+            return sendPresetShortcut(keyCode: 35, keyLabel: "P", modifiers: .command)
+        case .t3ProjectSearch:
+            return sendPresetShortcut(keyCode: 3, keyLabel: "F", modifiers: [.command, .shift])
+        case .t3FindInChat:
+            return sendPresetShortcut(keyCode: 3, keyLabel: "F", modifiers: .command)
+        case .t3ModelPicker:
+            return sendPresetShortcut(keyCode: 46, keyLabel: "M", modifiers: [.command, .shift])
+        case .t3SwitchMode:
+            return sendPresetShortcut(keyCode: 0, keyLabel: "A", modifiers: [.command, .shift])
+        case .t3SwitchEffort:
+            return sendPresetShortcut(keyCode: 14, keyLabel: "E", modifiers: [.command, .shift])
+        case .t3SwitchWorkspace:
+            return sendPresetShortcut(keyCode: 7, keyLabel: "X", modifiers: [.command, .shift])
+        case .t3SwitchBranch:
+            return sendPresetShortcut(keyCode: 5, keyLabel: "G", modifiers: [.command, .shift])
+        case .t3OpenInEditor:
+            return sendPresetShortcut(keyCode: 31, keyLabel: "O", modifiers: .command)
+        case .t3OpenUsage:
+            return sendPresetShortcut(keyCode: 32, keyLabel: "U", modifiers: .command)
+        case .t3OpenSettings:
+            return sendPresetShortcut(keyCode: 43, keyLabel: ",", modifiers: .command)
+        case .geminiNewChat:
+            return sendPresetShortcut(keyCode: 45, keyLabel: "N", modifiers: .command)
+        case .geminiNewTemporaryChat:
+            return sendPresetShortcut(keyCode: 45, keyLabel: "N", modifiers: [.command, .shift])
+        case .geminiSendOrApproveOnce:
+            return sendPresetShortcut(keyCode: 36, keyLabel: "Return", modifiers: .command)
+        case .geminiApproveForThread:
+            return sendPresetShortcut(keyCode: 36, keyLabel: "Return", modifiers: [.command, .option])
+        case .geminiApproveAlways:
+            return sendPresetShortcut(keyCode: 36, keyLabel: "Return", modifiers: [.command, .shift])
+        case .geminiInsertNewline:
+            postKey(code: 36, flags: .maskShift)
+        case .geminiStopOrDeny:
+            postKey(code: 53)
+        case .geminiSwitchAntigravity:
+            return sendPresetShortcut(keyCode: 0, keyLabel: "A", modifiers: [.command, .shift])
+        case .geminiAreaScreenshot:
+            return sendPresetShortcut(keyCode: 22, keyLabel: "6", modifiers: [.command, .shift])
+        case .geminiReloadChats:
+            return sendPresetShortcut(keyCode: 15, keyLabel: "R", modifiers: .command)
+        case .geminiFindInChat:
+            return sendPresetShortcut(keyCode: 3, keyLabel: "F", modifiers: .command)
+        case .geminiFindNext:
+            return sendPresetShortcut(keyCode: 5, keyLabel: "G", modifiers: .command)
+        case .geminiFindPrevious:
+            return sendPresetShortcut(keyCode: 5, keyLabel: "G", modifiers: [.command, .shift])
+        case .geminiIncreaseTextSize:
+            return sendPresetShortcut(keyCode: 24, keyLabel: "+", modifiers: [.command, .shift])
+        case .geminiDecreaseTextSize:
+            return sendPresetShortcut(keyCode: 27, keyLabel: "-", modifiers: .command)
+        case .geminiResetTextSize:
+            return sendPresetShortcut(keyCode: 29, keyLabel: "0", modifiers: .command)
+        case .geminiCloseWindow:
+            return sendPresetShortcut(keyCode: 13, keyLabel: "W", modifiers: .command)
+        case .geminiOpenSettings:
+            return sendPresetShortcut(keyCode: 43, keyLabel: ",", modifiers: .command)
+        case .wechatSearch:
+            return sendPresetShortcut(keyCode: 3, keyLabel: "F", modifiers: .command)
+        case .wechatNewGroupChat:
+            return sendPresetShortcut(keyCode: 45, keyLabel: "N", modifiers: .command)
+        case .wechatLineBreak:
+            postKey(code: 36, flags: .maskShift)
+        case .wechatScreenshot:
+            return sendPresetShortcut(keyCode: 0, keyLabel: "A", modifiers: [.command, .control])
+        case .wechatLock:
+            return sendPresetShortcut(keyCode: 37, keyLabel: "L", modifiers: [.command, .control])
+        case .wechatCloseWindow:
+            return sendPresetShortcut(keyCode: 13, keyLabel: "W", modifiers: .command)
+        case .wechatOpenSettings:
+            return sendPresetShortcut(keyCode: 43, keyLabel: ",", modifiers: .command)
         case .mouseRightClick:
             return postRightClick()
         case .volumeUp:
@@ -717,9 +1228,9 @@ enum KeyInjector {
             postSystemKey(type: 7)
         case .playPause:
             postSystemKey(type: 16)
-        case .neteasePreviousTrack:
+        case .mediaPreviousTrack:
             postSystemKey(type: 18)
-        case .neteaseNextTrack:
+        case .mediaNextTrack:
             postSystemKey(type: 17)
         }
         return true
@@ -1106,6 +1617,20 @@ enum KeyInjector {
             return FloatTabsCommandClient.toggleOrShow()
         case .openCodex:
             return ApplicationLauncher.toggle(bundleIdentifier: "com.openai.codex")
+        case .openT3Code:
+            return ApplicationLauncher.toggle(bundleIdentifier: "com.t3tools.t3code")
+        case .openGemini:
+            return ApplicationLauncher.toggle(bundleIdentifier: "com.google.GeminiMacOS")
+        case .openGhostty:
+            return ApplicationLauncher.toggle(bundleIdentifier: "com.mitchellh.ghostty")
+        case .openChrome:
+            return ApplicationLauncher.toggle(bundleIdentifier: "com.google.Chrome")
+        case .openObsidian:
+            return ApplicationLauncher.toggle(bundleIdentifier: "md.obsidian")
+        case .openAntigravity:
+            return ApplicationLauncher.toggle(bundleIdentifier: "com.google.antigravity")
+        case .openWeChat:
+            return ApplicationLauncher.toggle(bundleIdentifier: "com.tencent.xinWeChat")
         case .reloadPage:
             guard targetApplicationBundleIdentifier == FloatTabsCommandClient.bundleIdentifier
             else { return nil }
@@ -1118,8 +1643,15 @@ enum KeyInjector {
             else { return false }
             return CodexCommandAdapter.focusConversationInput()
         case .ghosttyNewTab, .ghosttyNewWindow, .ghosttyPreviousTab,
-             .ghosttyNextTab, .ghosttyCloseSurface, .ghosttyNewSplitRight,
-             .ghosttyNewSplitDown, .ghosttyCommandPalette, .ghosttySearch:
+             .ghosttyNextTab, .ghosttyCloseSurface, .ghosttyCloseTab,
+             .ghosttyCloseWindow, .ghosttyNewSplitRight, .ghosttyNewSplitDown,
+             .ghosttyPreviousSplit, .ghosttyNextSplit,
+             .ghosttyToggleSplitZoom, .ghosttyEqualizeSplits,
+             .ghosttyClearScreen, .ghosttyCommandPalette, .ghosttySearch,
+             .ghosttyFindNext, .ghosttyFindPrevious,
+             .ghosttyIncreaseFontSize, .ghosttyDecreaseFontSize,
+             .ghosttyResetFontSize, .ghosttyToggleFullScreen,
+             .ghosttyOpenConfig, .ghosttyReloadConfig:
             return GhosttyCommandAdapter.execute(action) ? true : nil
         case .obsidianToggleLeftSidebar, .obsidianToggleRightSidebar,
              .obsidianFocusEditor, .obsidianFocusTabGroupLeft,
@@ -1202,6 +1734,17 @@ enum KeyInjector {
         direction == .up ? .scrollDown : .scrollUp
     }
 
+    private static let chromiumScrollBundleIdentifiers: Set<String> = [
+        "com.openai.codex",
+        "com.t3tools.t3code",
+        "com.google.antigravity",
+        "com.google.Chrome",
+        "company.thebrowser.Browser",
+        "com.microsoft.edgemac",
+        "com.microsoft.VSCode",
+        "com.todesktop.230313mzl4w4u92",
+    ]
+
     /// 将滚动送到正确的目标。
     ///
     /// 普通滚轮事件由鼠标位置决定目标窗口。FloatTabs 是跨应用显示的
@@ -1230,6 +1773,13 @@ enum KeyInjector {
         let location: CGPoint?
         if targetBundleIdentifier == CodexCommandAdapter.bundleIdentifier {
             location = CodexCommandAdapter.conversationScrollLocation()
+        } else if targetBundleIdentifier == "com.t3tools.t3code"
+            || targetBundleIdentifier == "com.google.GeminiMacOS",
+            let resolvedBundle = targetBundleIdentifier {
+            location = CodexCommandAdapter.sidebarAppScrollLocation(
+                for: resolvedBundle,
+                currentPointer: quartzMouseLocation()
+            )
         } else if targetBundleIdentifier == ObsidianCommandAdapter.bundleIdentifier {
             // Obsidian can keep multiple editable files in the main pane and
             // the right sidebar. Follow the current AX editor focus so a
@@ -1253,15 +1803,16 @@ enum KeyInjector {
         location: CGPoint? = nil,
         targetBundleIdentifier: String? = nil
     ) -> Bool {
-        let isCodex = targetBundleIdentifier == CodexCommandAdapter.bundleIdentifier
+        let usesSessionChromiumScroll = targetBundleIdentifier.map {
+            chromiumScrollBundleIdentifiers.contains($0)
+        } ?? false
 
-        // Codex is a Chromium surface. Its renderer can ignore a scroll event
-        // that still carries the HID source used for ordinary system input.
-        // FloatTabs already uses this source-free construction successfully;
-        // use the same event shape for Codex, while keeping the HID-source
-        // path for ordinary native applications unchanged.
+        // Codex / Electron / Chromium surfaces can ignore scroll events that
+        // still carry an HID event source. FloatTabs already uses this
+        // source-free construction successfully; use the same event shape
+        // across Chromium targets while keeping the HID-source path for native apps.
         let event: CGEvent?
-        if isCodex {
+        if usesSessionChromiumScroll {
             event = CGEvent(
                 scrollWheelEvent2Source: nil,
                 units: .line,
@@ -1294,13 +1845,13 @@ enum KeyInjector {
         let resolvedLocation = location ?? quartzMouseLocation()
         event.location = resolvedLocation
         event.setIntegerValueField(.eventSourceUserData, value: syntheticMarker)
-        // Chromium/Codex receives application-session events more reliably
-        // than events re-entered at the HID tap. The target app is activated
-        // by prepareTargetApplication before this method is reached.
-        event.post(tap: isCodex ? .cgSessionEventTap : .cghidEventTap)
+        // Chromium/Electron targets receive application-session events more
+        // reliably than events re-entered at the HID tap. The target app is
+        // activated by prepareTargetApplication before this method is reached.
+        event.post(tap: usesSessionChromiumScroll ? .cgSessionEventTap : .cghidEventTap)
         let mode: String
-        if isCodex {
-            mode = "codex-session"
+        if usesSessionChromiumScroll {
+            mode = "chromium-session"
         } else if location == nil {
             mode = "pointer"
         } else {

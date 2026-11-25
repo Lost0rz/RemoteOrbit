@@ -133,6 +133,23 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
         )
     }
 
+    func clear() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        flushPendingSynchronizeLocked()
+        try? fileHandle?.close()
+        fileHandle = nil
+        currentFileBytes = 0
+
+        let fileManager = FileManager.default
+        if retentionPolicy.maxSegmentCount > 1 {
+            for index in 1..<retentionPolicy.maxSegmentCount {
+                try? fileManager.removeItem(at: segmentURL(index: index))
+            }
+        }
+        try? fileManager.removeItem(at: fileURL)
+    }
+
     func segmentURLs() -> [URL] {
         let fileManager = FileManager.default
         var urls: [URL] = []

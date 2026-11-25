@@ -146,18 +146,50 @@ enum AppStorage {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: url,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else { return 0 }
 
         var total: UInt64 = 0
         for case let fileURL as URL in enumerator {
-            guard let values = try? fileURL.resourceValues(
-                forKeys: [.isRegularFileKey, .fileSizeKey]
-            ), values.isRegularFile == true else { continue }
-            total += UInt64(values.fileSize ?? 0)
+            guard let attributes = try? fm.attributesOfItem(atPath: fileURL.path),
+                  (attributes[.type] as? FileAttributeType) == .typeRegular,
+                  let size = attributes[.size] as? NSNumber else {
+                continue
+            }
+            total &+= size.uint64Value
         }
         return total
+    }
+
+    static func logsTotalByteSize() -> UInt64 {
+        Log.flush()
+        VoiceDiagnosticLogger.shared.flush()
+        return byteSize(of: logsDirectory)
+    }
+
+    static func clearAllLogs() {
+        Log.clear()
+        VoiceDiagnosticLogger.shared.clear()
+        DiagnosticAuthorityService.shared.clear()
+
+        let activeNames: Set<String> = [
+            logFile.lastPathComponent,
+            logFile.appendingPathExtension("1").lastPathComponent,
+            VoiceDiagnosticLogger.currentLogURL.lastPathComponent,
+            VoiceDiagnosticLogger.currentLogURL.appendingPathExtension("1").lastPathComponent,
+            DiagnosticStorage.defaultJournalURL.lastPathComponent,
+        ]
+        let fm = FileManager.default
+        if let files = try? fm.contentsOfDirectory(
+            at: logsDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) {
+            for file in files where !activeNames.contains(file.lastPathComponent) {
+                try? fm.removeItem(at: file)
+            }
+        }
     }
 
     static func clearFiles(in directory: URL) {

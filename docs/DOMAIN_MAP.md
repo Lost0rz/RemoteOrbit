@@ -2,7 +2,7 @@
 
 Status: `DERIVED_PROJECTION`
 Last audited: 2026-11-25
-Source routing baseline: merged Task 053 VirtualHID any-key voice shortcut architecture and current `main` governance.
+Source routing baseline: `v0.2.16` baseline (Task 053 VirtualHID any-key voice shortcuts + Control Center, App-preset catalog, multi-gesture & bounded logging).
 
 This is a derived map of RemoteOrbit product capabilities to source, runtime and tests. Current implementation and product behavior take precedence over stale routes.
 
