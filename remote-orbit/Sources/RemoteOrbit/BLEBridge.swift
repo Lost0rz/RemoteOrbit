@@ -1097,16 +1097,6 @@ final class BLEBridge: NSObject {
         }
     }
 
-    func clearRecordings() {
-        performOnBLEQueueSynchronously {
-            if let recorder = self.wavRecorder {
-                recorder.close()
-                self.wavRecorder = nil
-            }
-            AppStorage.clearFiles(in: AppStorage.recordingsDirectory)
-        }
-    }
-
     /// If we have a saved UUID from a previous scan, ask CoreBluetooth for
     /// the peripheral directly. This works even when the device is HID-paired
     /// (advertisement scan returns nothing in that case).

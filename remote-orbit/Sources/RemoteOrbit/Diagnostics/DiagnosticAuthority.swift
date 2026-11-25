@@ -115,6 +115,11 @@ struct DiagnosticQueryPage: Codable, Equatable, Sendable {
 protocol DiagnosticJournal: Sendable {
     func append(_ event: DiagnosticEvent) throws
     func query(_ filter: DiagnosticQueryFilter) throws -> DiagnosticQueryPage
+    func clear() throws
+}
+
+extension DiagnosticJournal {
+    func clear() throws {}
 }
 
 /// The only supported event boundary for new machine-readable diagnostics.
@@ -126,10 +131,12 @@ protocol DiagnosticAuthority: AnyObject {
     func emit(_ input: DiagnosticEventInput)
     func query(_ filter: DiagnosticQueryFilter) throws -> DiagnosticQueryPage
     func snapshot(_ filter: DiagnosticQueryFilter) throws -> Data
+    func clear()
 }
 
 extension DiagnosticAuthority {
     var writeFailureCount: UInt64 { 0 }
+    func clear() {}
 }
 
 enum DiagnosticStorage {
@@ -242,6 +249,12 @@ final class DiagnosticAuthorityService: DiagnosticAuthority, @unchecked Sendable
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return try encoder.encode(page)
+    }
+
+    func clear() {
+        writerQueue.sync {
+            try? journal.clear()
+        }
     }
 
     private func takeSequenceNumber() -> UInt64 {

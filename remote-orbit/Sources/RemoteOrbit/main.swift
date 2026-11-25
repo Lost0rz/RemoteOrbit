@@ -4455,6 +4455,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The contextual mapping overlay is a press-and-hold surface. Keep the
     /// originating button so its release can dismiss only its own overlay.
     private var contextualOverlayButton: RemoteButton?
+    private var contextualOverlayAutoDismissWorkItem: DispatchWorkItem?
     /// Buttons that were physically held when HID disappeared. Their next
     /// report is a transport re-announcement, not a new click; keep the
     /// marker until the matching release arrives.
@@ -5943,7 +5944,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let controlCenter = NSMenuItem(
             title: "打开设置…",
-            action: #selector(openKeyMapping),
+            action: #selector(openGeneralSettings),
             keyEquivalent: ","
         )
         controlCenter.target = self
@@ -6200,13 +6201,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         // moment of removal, it is safe to close it. This is
                         // the only disconnect path that dismisses the panel;
                         // a held long press remains tied to release.
-                        self.keymapOverlayController.close()
+                        self.closeTransientContextualOverlay()
                         self.contextualOverlayButton = nil
                         print(
                             "[KEYMAP] HID 断开且 \(button.displayName) 未按下，"
                                 + "隐藏当前快捷映射浮层"
                         )
                     }
+                } else {
+                    self.closeTransientContextualOverlay()
                 }
             } else if !self.reconnectHeldButtons.isEmpty {
                 print("[HID] reconnected; waiting for held-button release")
@@ -6278,6 +6281,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let binding: ButtonBinding
             let targetApplicationBundleIdentifier: String?
             if isDown {
+                if self.contextualOverlayAutoDismissWorkItem != nil,
+                   self.contextualOverlayButton == nil {
+                    self.closeTransientContextualOverlay()
+                }
                 binding = self.mappingStore.beginPress(for: button)
                 targetApplicationBundleIdentifier = self.mappingStore
                     .activePressApplicationBundleIdentifier(for: button)
@@ -6350,7 +6357,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if self.handleContextualAction(
                     binding,
                     button: button,
-                    gesture: "按下"
+                    gesture: "按下",
+                    holdBound: true
                 ) {
                     return
                 }
@@ -6558,7 +6566,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if handleContextualAction(
             binding,
             button: event.button,
-            gesture: event.kind.displayName
+            gesture: event.kind.displayName,
+            holdBound: hidMonitor.isButtonDown(event.button)
         ) {
             return
         }
@@ -6603,19 +6612,45 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func handleContextualAction(
         _ binding: ButtonBinding,
         button: RemoteButton,
-        gesture: String
+        gesture: String,
+        holdBound: Bool
     ) -> Bool {
         guard case .preset(.inspectCurrentKeymap) = binding else { return false }
         actionHUD.dismiss()
+        contextualOverlayAutoDismissWorkItem?.cancel()
+        contextualOverlayAutoDismissWorkItem = nil
+
+        if !holdBound && keymapOverlayController.isVisible {
+            keymapOverlayController.close()
+            contextualOverlayButton = nil
+            print("[KEYMAP] \(button.displayName) \(gesture) → 隐藏当前快捷映射")
+            return true
+        }
+
         keymapOverlayController.show(store: mappingStore)
-        contextualOverlayButton = button
+        if holdBound {
+            contextualOverlayButton = button
+        } else {
+            contextualOverlayButton = nil
+            let work = DispatchWorkItem { [weak self] in
+                self?.closeTransientContextualOverlay()
+            }
+            contextualOverlayAutoDismissWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: work)
+        }
         print("[KEYMAP] \(button.displayName) \(gesture) → 显示当前快捷映射")
         return true
     }
 
+    private func closeTransientContextualOverlay() {
+        contextualOverlayAutoDismissWorkItem?.cancel()
+        contextualOverlayAutoDismissWorkItem = nil
+        keymapOverlayController.close()
+    }
+
     private func dismissContextualOverlay(for button: RemoteButton) {
         guard contextualOverlayButton == button else { return }
-        keymapOverlayController.close()
+        closeTransientContextualOverlay()
         contextualOverlayButton = nil
         print("[KEYMAP] \(button.displayName) 松开 → 隐藏当前快捷映射")
     }
@@ -6686,7 +6721,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         let manage = NSMenuItem(
             title: "管理语音快捷键…",
-            action: #selector(openKeyMapping),
+            action: #selector(openVoiceShortcutSettings),
             keyEquivalent: ""
         )
         manage.target = self
@@ -6882,7 +6917,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         voiceFocusSafetyWorkItem?.cancel()
         voiceFocusSafetyWorkItem = nil
         voiceFocusTransactions.cancelAll()
-        keymapOverlayController.close()
+        closeTransientContextualOverlay()
         contextualOverlayButton = nil
         reconnectHeldButtons.removeAll()
         voicePress.stop()
@@ -6906,13 +6941,22 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         diagnosticLogger.close()
     }
 
-    @objc private func openKeyMapping() {
+    @objc private func openGeneralSettings() {
+        openSettingsWindow(route: .general)
+    }
+
+    @objc private func openVoiceShortcutSettings() {
+        openSettingsWindow(route: .voiceShortcuts)
+    }
+
+    private func openSettingsWindow(route: SettingsEntryRoute) {
         voiceShortcutPresentation.updateSnapshot = { [weak self] snapshot, completion in
             self?.updateVoiceShortcutSnapshot(snapshot, completion: completion)
                 ?? completion(.locked)
         }
         SettingsWindow.open(
             store: mappingStore,
+            route: route,
             onRecordingChanged: { [weak self] enabled in
                 self?.ble.setRecordingEnabled(enabled)
             }

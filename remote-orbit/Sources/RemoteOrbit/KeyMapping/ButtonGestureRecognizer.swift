@@ -43,6 +43,7 @@ struct ButtonGestureEvent {
 final class ButtonGestureRecognizer {
     static let longPressThreshold: TimeInterval = 0.35
     static let doubleTapWindow: TimeInterval = 0.25
+    static let minimumBounceInterval: TimeInterval = 0.035
     static let repeatInterval: TimeInterval = 0.10
 
     var onEvent: ((ButtonGestureEvent) -> Void)?
@@ -100,6 +101,8 @@ final class ButtonGestureRecognizer {
 
     private var activePresses: [RemoteButton: PressState] = [:]
     private var pendingTaps: [RemoteButton: PendingTap] = [:]
+    private var lastReleaseAt: [RemoteButton: TimeInterval] = [:]
+    private var suppressedBounceButtons = Set<RemoteButton>()
 
     /// Consume an accepted HID down edge for a profile-enabled button.
     func handleDown(
@@ -108,6 +111,13 @@ final class ButtonGestureRecognizer {
         at now: TimeInterval
     ) {
         guard context.profile.usesAdvancedGestures else { return }
+
+        if let lastRelease = lastReleaseAt[button],
+           now >= lastRelease,
+           now - lastRelease < Self.minimumBounceInterval {
+            suppressedBounceButtons.insert(button)
+            return
+        }
 
         // Recover cleanly from a missed release. A new physical down edge
         // never inherits a previous hold timer or creates a second repeat
@@ -160,7 +170,11 @@ final class ButtonGestureRecognizer {
     /// Consume an accepted HID up edge. Single clicks are delayed only when
     /// a double-click action is configured; otherwise they remain immediate.
     func handleUp(button: RemoteButton, at now: TimeInterval) {
+        if suppressedBounceButtons.remove(button) != nil {
+            return
+        }
         guard let state = activePresses.removeValue(forKey: button) else { return }
+        lastReleaseAt[button] = now
         state.cancelTimers()
 
         let duration = max(0, now - state.downAt)
@@ -220,7 +234,7 @@ final class ButtonGestureRecognizer {
                 self.emit(
                     button: button,
                     kind: .singleTap,
-                    duration: max(0, pending.upAt - state.downAt),
+                    duration: max(0, pending.upAt - pending.downAt),
                     clickCount: 1,
                     context: pending.context
                 )
@@ -250,6 +264,8 @@ final class ButtonGestureRecognizer {
         activePresses.removeAll()
         pendingTaps.values.forEach { $0.cancel() }
         pendingTaps.removeAll()
+        lastReleaseAt.removeAll()
+        suppressedBounceButtons.removeAll()
     }
 
     private func scheduleLongPressIfNeeded(_ state: PressState) {

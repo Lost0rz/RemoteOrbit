@@ -4,7 +4,7 @@ RemoteOrbit 把 Xiaomi Bluetooth Voice Remote 2 Pro 的蓝牙 ATVV 语音链路�
 
 ## 当前源码基线
 
-- `main` 源码版本元数据：`0.2.15` / Build `44`。
+- `main` 源码版本元数据：`0.2.16` / Build `45`。
 - 版本元数据来自 `remote-orbit/Packaging/Info.plist`；已发布版本以 GitHub Releases 为准，不在本文件复制“最新 Release”状态。
 - `AGENTS.md` 记录 RemoteOrbit 专属的产品行为、硬件边界与运行安全约束。
 - 项目结构与源码/测试入口见 [`docs/DOMAIN_MAP.md`](docs/DOMAIN_MAP.md)。
@@ -28,7 +28,7 @@ RC003 麦克风键只有一种用户可见语音模式：
 - Xiaomi RC003 BLE / ATVV 连接、握手、音频帧解析与重连。
 - RemoteOrbit 虚拟音频输出链路、实时 playout、drain 与默认输入设备协调。
 - 遥控器 HID 按键、单击/双击/长按识别、事件压制与快捷键注入。
-- Codex、FloatTabs、Ghostty、Obsidian 等 App Profile / 语义命令适配。
+- Codex、T3 Code、Antigravity、Gemini、Ghostty、Obsidian、Chrome、Safari、微信、FloatTabs、IINA、网易云音乐、Xcode 等 App Profile / 语义命令适配。
 - Control Center、映射设置、登录启动、安装/组件状态。
 - 单一 machine-readable diagnostic authority、只读 CLI、长期语音可观测与显式导出。
 

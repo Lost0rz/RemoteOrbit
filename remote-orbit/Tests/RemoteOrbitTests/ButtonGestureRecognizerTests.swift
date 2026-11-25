@@ -186,4 +186,54 @@ final class ButtonGestureRecognizerTests: XCTestCase {
                 .contains(.navigation)
         )
     }
+
+    func testFastHardwareBounceAfterReleaseDoesNotTriggerDoubleTap() {
+        let recognizer = ButtonGestureRecognizer()
+        let singleTapExpectation = expectation(description: "single tap emitted despite fast bounce")
+        var received: [ButtonGestureEventKind] = []
+        recognizer.onEvent = { event in
+            received.append(event.kind)
+            if event.kind == .singleTap {
+                singleTapExpectation.fulfill()
+            }
+        }
+
+        let profile = ButtonGestureProfile(
+            isEnabled: true,
+            doubleTap: .preset(.copy)
+        )
+        let ctx = context(profile: profile)
+
+        recognizer.handleDown(button: .ok, context: ctx, at: 10.0)
+        recognizer.handleUp(button: .ok, at: 10.05)
+        // 15ms mechanical bounce (< 35ms bounce floor) must be suppressed
+        recognizer.handleDown(button: .ok, context: ctx, at: 10.065)
+        recognizer.handleUp(button: .ok, at: 10.075)
+
+        wait(for: [singleTapExpectation], timeout: 0.5)
+        XCTAssertEqual(received, [.singleTap])
+    }
+
+    func testReselectingLongPressBindingRestoresTriggerOnceFromNoneBehavior() {
+        let cleared = SettingsView.updatedGestureProfile(
+            ButtonGestureProfile(
+                isEnabled: true,
+                longPress: .preset(.paste),
+                longPressBehavior: .triggerOnce
+            ),
+            setting: nil,
+            for: .longPress
+        )
+        XCTAssertEqual(cleared.longPressBehavior, .none)
+        XCTAssertTrue(cleared.longPressEnabled)
+
+        let reselected = SettingsView.updatedGestureProfile(
+            cleared,
+            setting: .preset(.copy),
+            for: .longPress
+        )
+        XCTAssertEqual(reselected.longPressBehavior, .triggerOnce)
+        XCTAssertEqual(reselected.longPress, .preset(.copy))
+        XCTAssertTrue(reselected.usesAdvancedGestures)
+    }
 }

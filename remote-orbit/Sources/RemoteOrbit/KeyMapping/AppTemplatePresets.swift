@@ -75,15 +75,55 @@ enum AppTemplatePresetLibrary {
             bundleIdentifier: "md.obsidian",
             displayName: "Obsidian"
         ),
+        PresetApplication(
+            bundleIdentifier: "com.google.Chrome",
+            displayName: "Google Chrome"
+        ),
+        PresetApplication(
+            bundleIdentifier: "com.apple.Safari",
+            displayName: "Safari"
+        ),
+        PresetApplication(
+            bundleIdentifier: "com.colliderli.iina",
+            displayName: "IINA"
+        ),
+        PresetApplication(
+            bundleIdentifier: "com.t3tools.t3code",
+            displayName: "T3 Code"
+        ),
+        PresetApplication(
+            bundleIdentifier: "com.google.antigravity",
+            displayName: "Antigravity"
+        ),
+        PresetApplication(
+            bundleIdentifier: "com.apple.dt.Xcode",
+            displayName: "Xcode"
+        ),
+        PresetApplication(
+            bundleIdentifier: "com.tencent.xinWeChat",
+            displayName: "微信"
+        ),
+        PresetApplication(
+            bundleIdentifier: "com.google.GeminiMacOS",
+            displayName: "Gemini"
+        ),
     ]
 
-    /// 首次启动时，只对本机已安装且尚未配置模板的 App 自动添加这些默认模板。
+    /// 首次启动时，为本机已安装且尚未配置模板的常用 App 自动添加默认模板。
     static let defaultPresetIDs = [
         "codex.default",
-        "floatTabs.default",
+        "t3code.default",
+        "antigravity.default",
+        "gemini.default",
         "ghostty.default",
-        "netease.default",
         "obsidian.default",
+        "chrome.default",
+        "safari.default",
+        "wechat.default",
+        "floatTabs.default",
+        "iina.default",
+        "netease.default",
+        "xcode.default",
     ]
 
     static let all: [AppTemplatePreset] = [
@@ -119,9 +159,9 @@ enum AppTemplatePresetLibrary {
             appBundleIdentifier: "com.mitchellh.ghostty",
             appName: "Ghostty",
             templateName: "Ghostty 默认",
-            summary: "新标签、新窗口、标签切换、分屏、搜索、命令面板和关闭当前 surface。",
+            summary: "上下滚屏、标签切换、分屏切换、命令面板、关闭 surface 与新建标签/窗口。",
             bindings: ghosttyBindings,
-            gestureProfiles: defaultKeymapGestureProfiles
+            gestureProfiles: ghosttyGestureProfiles
         ),
         AppTemplatePreset(
             id: "netease.default",
@@ -141,6 +181,78 @@ enum AppTemplatePresetLibrary {
             bindings: obsidianBindings,
             gestureProfiles: defaultKeymapGestureProfiles
         ),
+        AppTemplatePreset(
+            id: "chrome.default",
+            appBundleIdentifier: "com.google.Chrome",
+            appName: "Google Chrome",
+            templateName: "Chrome 默认",
+            summary: "网页滚屏、前进/后退、标签切换、关闭/恢复标签、刷新页面与地址栏定位。",
+            bindings: browserBindings,
+            gestureProfiles: browserGestureProfiles
+        ),
+        AppTemplatePreset(
+            id: "safari.default",
+            appBundleIdentifier: "com.apple.Safari",
+            appName: "Safari",
+            templateName: "Safari 默认",
+            summary: "网页滚屏、前进/后退、标签切换、关闭/恢复标签、刷新页面与地址栏定位。",
+            bindings: browserBindings,
+            gestureProfiles: browserGestureProfiles
+        ),
+        AppTemplatePreset(
+            id: "iina.default",
+            appBundleIdentifier: "com.colliderli.iina",
+            appName: "IINA",
+            templateName: "IINA 默认",
+            summary: "空格播放/暂停、左右快进快退 5 秒、上下/音量调节、倍速切换与全屏。",
+            bindings: iinaBindings,
+            gestureProfiles: iinaGestureProfiles
+        ),
+        AppTemplatePreset(
+            id: "t3code.default",
+            appBundleIdentifier: "com.t3tools.t3code",
+            appName: "T3 Code",
+            templateName: "T3 Code 默认",
+            summary: "对话与代码滚屏、Cmd-Shift-O 新建线程、Cmd-Shift-[/] 切换线程、Cmd-K 命令面板与 Diff / 侧栏 / 终端切换。",
+            bindings: t3CodeBindings,
+            gestureProfiles: t3CodeGestureProfiles
+        ),
+        AppTemplatePreset(
+            id: "antigravity.default",
+            appBundleIdentifier: "com.google.antigravity",
+            appName: "Antigravity",
+            templateName: "Antigravity 默认",
+            summary: "代码滚屏、文件导航、侧边栏/终端切换、命令面板与标签切换。",
+            bindings: codeWorkspaceBindings,
+            gestureProfiles: codeWorkspaceGestureProfiles
+        ),
+        AppTemplatePreset(
+            id: "gemini.default",
+            appBundleIdentifier: "com.google.GeminiMacOS",
+            appName: "Gemini",
+            templateName: "Gemini 默认",
+            summary: "对话滚屏、Cmd-N 发起新对话、Cmd-Shift-N 临时对话与 Antigravity 模式切换。",
+            bindings: geminiBindings,
+            gestureProfiles: geminiGestureProfiles
+        ),
+        AppTemplatePreset(
+            id: "xcode.default",
+            appBundleIdentifier: "com.apple.dt.Xcode",
+            appName: "Xcode",
+            templateName: "Xcode 默认",
+            summary: "代码滚屏、文件历史前进/后退、运行与停止、快速打开、导航栏与调试区开关。",
+            bindings: xcodeBindings,
+            gestureProfiles: xcodeGestureProfiles
+        ),
+        AppTemplatePreset(
+            id: "wechat.default",
+            appBundleIdentifier: "com.tencent.xinWeChat",
+            appName: "微信",
+            templateName: "微信 默认",
+            summary: "聊天记录滚屏、搜索联系人/消息、截屏、锁定微信、确定发送与长按换行。",
+            bindings: wechatBindings,
+            gestureProfiles: wechatGestureProfiles
+        ),
     ]
 
     static func presets(for bundleIdentifier: String) -> [AppTemplatePreset] {
@@ -151,29 +263,60 @@ enum AppTemplatePresetLibrary {
         all.first { $0.id == id }
     }
 
+    /// Strictly exclusive categories owned by `bundleIdentifier` alone.
+    /// Never mixes another app's exclusive shortcuts into the selected app.
+    static func exclusiveCategories(for bundleIdentifier: String) -> [ButtonActionCategory] {
+        switch bundleIdentifier {
+        case "com.openai.codex":
+            return [
+                .chatGPTGeneral,
+                .chatGPTChats,
+                .chatGPTInputModes,
+                .chatGPTWorkspaceBrowser,
+            ]
+        case "com.lost0rz.FloatTabs":
+            return [.floatTabs]
+        case "com.mitchellh.ghostty":
+            return [.ghostty]
+        case "md.obsidian":
+            return [.obsidian]
+        case "com.netease.163music":
+            return [.netease]
+        case "com.google.Chrome",
+             "com.apple.Safari",
+             "company.thebrowser.Browser",
+             "com.microsoft.edgemac",
+             "org.mozilla.firefox":
+            return [.browser]
+        case "com.colliderli.iina":
+            return [.iina]
+        case "com.t3tools.t3code":
+            return [.t3Code]
+        case "com.google.antigravity",
+             "com.microsoft.VSCode",
+             "com.todesktop.230313mzl4w4u92":
+            return [.codeWorkspace]
+        case "com.google.GeminiMacOS":
+            return [.gemini]
+        case "com.apple.dt.Xcode":
+            return [.xcode]
+        case "com.tencent.xinWeChat":
+            return [.wechat]
+        default:
+            return []
+        }
+    }
+
     /// 通用动作始终可用；只有当前 App 对应的专属分类才会出现在设置选择器中。
     static func categories(for bundleIdentifier: String) -> [ButtonActionCategory] {
         var allowed: Set<ButtonActionCategory> = [
-            .system,
             .navigation,
             .editing,
             .selection,
             .media,
+            .system,
         ]
-        for preset in presets(for: bundleIdentifier) {
-            for action in preset.bindings.values {
-                if case let .preset(action) = action {
-                    allowed.insert(action.category)
-                }
-            }
-        }
-        if bundleIdentifier == "com.openai.codex" {
-            // The official command catalog is larger than the actions assigned
-            // to the 13 physical buttons in a default template. Keep all four
-            // app categories available so every command can be selected from
-            // the per-button preset picker.
-            allowed.formUnion(ButtonActionCategory.codexCategories)
-        }
+        allowed.formUnion(exclusiveCategories(for: bundleIdentifier))
         return ButtonActionCategory.allCases.filter { allowed.contains($0) }
     }
 
@@ -276,18 +419,37 @@ enum AppTemplatePresetLibrary {
 
     private static let ghosttyBindings = overlay([
         .power: .preset(.disabled),
-        .up: .preset(.pageDown),
-        .down: .preset(.pageUp),
-        .left: .preset(.ghosttyPreviousTab),
-        .right: .preset(.ghosttyNextTab),
+        .up: .preset(.pageUp),
+        .down: .preset(.pageDown),
+        .left: .preset(.ghosttyPreviousSplit),
+        .right: .preset(.ghosttyNextSplit),
         .ok: .preset(.returnKey),
         .back: .preset(.ghosttyCloseSurface),
         .home: .preset(.ghosttyNewTab),
         .menu: .preset(.ghosttyCommandPalette),
         .tv: .preset(.ghosttyNewWindow),
-        .volumeUp: .preset(.ghosttyNextTab),
-        .volumeDown: .preset(.ghosttyPreviousTab),
+        .volumeUp: .preset(.ghosttyPreviousTab),
+        .volumeDown: .preset(.ghosttyNextTab),
     ])
+
+    private static let ghosttyGestureProfiles: [RemoteButton: ButtonGestureProfile] = [
+        .ok: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.paste),
+            longPressBehavior: .triggerOnce
+        ),
+        .back: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.ghosttyInterrupt),
+            longPressBehavior: .triggerOnce
+        ),
+        .menu: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.ghosttyClearScreen),
+            longPressBehavior: .triggerOnce
+        ),
+        .tv: defaultKeymapInspectionProfile,
+    ]
 
     private static let neteaseBindings = overlay([
         .power: .preset(.disabled),
@@ -321,4 +483,233 @@ enum AppTemplatePresetLibrary {
         .volumeUp: .preset(.obsidianPreviousTab),
         .volumeDown: .preset(.obsidianNextTab),
     ])
+
+    private static let browserBindings = overlay([
+        .power: .preset(.disabled),
+        .up: .preset(.pageUp),
+        .down: .preset(.pageDown),
+        .left: .preset(.browserBack),
+        .right: .preset(.browserForward),
+        .ok: .preset(.returnKey),
+        .back: .preset(.browserCloseTab),
+        .home: .preset(.browserAddressBar),
+        .menu: .preset(.browserReload),
+        .tv: .preset(.appSwitcher),
+        .volumeUp: .preset(.browserPreviousTab),
+        .volumeDown: .preset(.browserNextTab),
+    ])
+
+    private static let browserGestureProfiles: [RemoteButton: ButtonGestureProfile] = [
+        .back: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.browserReopenClosedTab),
+            longPressBehavior: .triggerOnce
+        ),
+        .menu: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.browserReloadNoCache),
+            longPressBehavior: .triggerOnce
+        ),
+        .tv: defaultKeymapInspectionProfile,
+    ]
+
+    private static let iinaBindings = overlay([
+        .power: .preset(.disabled),
+        .up: .preset(.iinaVolumeUp),
+        .down: .preset(.iinaVolumeDown),
+        .left: .preset(.iinaSeekBackward),
+        .right: .preset(.iinaSeekForward),
+        .ok: .preset(.iinaPlayPause),
+        .back: .preset(.escape),
+        .home: .preset(.iinaShowPlaylist),
+        .menu: .preset(.iinaCycleSubtitles),
+        .tv: .preset(.iinaToggleFullScreen),
+        .volumeUp: .preset(.iinaVolumeUp),
+        .volumeDown: .preset(.iinaVolumeDown),
+    ])
+
+    private static let iinaGestureProfiles: [RemoteButton: ButtonGestureProfile] = [
+        .left: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.iinaSpeedDown),
+            longPressBehavior: .triggerOnce
+        ),
+        .right: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.iinaSpeedUp),
+            longPressBehavior: .triggerOnce
+        ),
+        .ok: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.iinaResetSpeed),
+            longPressBehavior: .triggerOnce
+        ),
+        .tv: defaultKeymapInspectionProfile,
+    ]
+
+    private static let codeWorkspaceBindings = overlay([
+        .power: .preset(.disabled),
+        .up: .preset(.pageUp),
+        .down: .preset(.pageDown),
+        .left: .preset(.workspaceNavigateBack),
+        .right: .preset(.workspaceNavigateForward),
+        .ok: .preset(.returnKey),
+        .back: .preset(.workspaceCloseTab),
+        .home: .preset(.workspaceQuickOpen),
+        .menu: .preset(.workspaceCommandPalette),
+        .tv: .preset(.appSwitcher),
+        .volumeUp: .preset(.workspacePreviousTab),
+        .volumeDown: .preset(.workspaceNextTab),
+    ])
+
+    private static let codeWorkspaceGestureProfiles: [RemoteButton: ButtonGestureProfile] = [
+        .menu: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.workspaceToggleSidebar),
+            longPressBehavior: .triggerOnce
+        ),
+        .ok: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.paste),
+            longPressBehavior: .triggerOnce
+        ),
+        .tv: defaultKeymapInspectionProfile,
+    ]
+
+    private static let xcodeBindings = overlay([
+        .power: .preset(.disabled),
+        .up: .preset(.pageUp),
+        .down: .preset(.pageDown),
+        .left: .preset(.xcodePreviousHistory),
+        .right: .preset(.xcodeNextHistory),
+        .ok: .preset(.xcodeRun),
+        .back: .preset(.xcodeStop),
+        .home: .preset(.xcodeOpenQuickly),
+        .menu: .preset(.xcodeToggleNavigator),
+        .tv: .preset(.appSwitcher),
+        .volumeUp: .preset(.volumeUp),
+        .volumeDown: .preset(.volumeDown),
+    ])
+
+    private static let xcodeGestureProfiles: [RemoteButton: ButtonGestureProfile] = [
+        .ok: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.xcodeBuild),
+            longPressBehavior: .triggerOnce
+        ),
+        .menu: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.xcodeToggleDebugArea),
+            longPressBehavior: .triggerOnce
+        ),
+        .tv: defaultKeymapInspectionProfile,
+    ]
+
+    private static let t3CodeBindings = overlay([
+        .power: .preset(.disabled),
+        .up: .preset(.pageUp),
+        .down: .preset(.pageDown),
+        .left: .preset(.arrowLeft),
+        .right: .preset(.arrowRight),
+        .ok: .preset(.returnKey),
+        .back: .preset(.deleteBackward),
+        .volumeUp: .preset(.t3PreviousThread),
+        .volumeDown: .preset(.t3NextThread),
+        .home: .preset(.t3NewChat),
+        .menu: .preset(.t3CommandPalette),
+        .tv: .preset(.t3ToggleDiff),
+    ])
+
+    private static let t3CodeGestureProfiles: [RemoteButton: ButtonGestureProfile] = [
+        .ok: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.paste),
+            longPressBehavior: .triggerOnce
+        ),
+        .back: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.deleteBackward),
+            longPressBehavior: .repeatWhileHeld
+        ),
+        .menu: ButtonGestureProfile(
+            isEnabled: true,
+            doubleTap: .preset(.t3SwitchMode),
+            longPress: .preset(.t3ToggleSidebar),
+            longPressBehavior: .triggerOnce
+        ),
+        .tv: ButtonGestureProfile(
+            isEnabled: true,
+            doubleTap: .preset(.t3ToggleTerminal),
+            longPress: .preset(.inspectCurrentKeymap),
+            longPressBehavior: .triggerOnce
+        ),
+    ]
+
+    private static let geminiBindings = overlay([
+        .power: .preset(.disabled),
+        .up: .preset(.pageUp),
+        .down: .preset(.pageDown),
+        .left: .preset(.arrowLeft),
+        .right: .preset(.arrowRight),
+        .ok: .preset(.returnKey),
+        .back: .preset(.deleteBackward),
+        .home: .preset(.geminiNewChat),
+        .menu: .preset(.geminiSwitchAntigravity),
+        .tv: .preset(.appSwitcher),
+        .volumeUp: .preset(.volumeUp),
+        .volumeDown: .preset(.volumeDown),
+    ])
+
+    private static let geminiGestureProfiles: [RemoteButton: ButtonGestureProfile] = [
+        .ok: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.paste),
+            longPressBehavior: .triggerOnce
+        ),
+        .back: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.deleteBackward),
+            longPressBehavior: .repeatWhileHeld
+        ),
+        .menu: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.geminiNewTemporaryChat),
+            longPressBehavior: .triggerOnce
+        ),
+        .tv: defaultKeymapInspectionProfile,
+    ]
+
+    private static let wechatBindings = overlay([
+        .power: .preset(.disabled),
+        .up: .preset(.pageUp),
+        .down: .preset(.pageDown),
+        .left: .preset(.arrowLeft),
+        .right: .preset(.arrowRight),
+        .ok: .preset(.returnKey),
+        .back: .preset(.deleteBackward),
+        .home: .preset(.wechatSearch),
+        .menu: .preset(.wechatScreenshot),
+        .tv: .preset(.appSwitcher),
+        .volumeUp: .preset(.volumeUp),
+        .volumeDown: .preset(.volumeDown),
+    ])
+
+    private static let wechatGestureProfiles: [RemoteButton: ButtonGestureProfile] = [
+        .ok: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.wechatLineBreak),
+            longPressBehavior: .triggerOnce
+        ),
+        .back: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.deleteBackward),
+            longPressBehavior: .repeatWhileHeld
+        ),
+        .menu: ButtonGestureProfile(
+            isEnabled: true,
+            longPress: .preset(.wechatLock),
+            longPressBehavior: .triggerOnce
+        ),
+        .tv: defaultKeymapInspectionProfile,
+    ]
 }

@@ -108,11 +108,11 @@ struct KeymapPresentation: Equatable {
                 KeymapActionLine(
                     id: "\(button.rawValue)-single-voice",
                     gesture: "单击",
-                    action: "输入法持续会话"
+                    action: "禁用"
                 )
             )
         } else {
-            let trigger = binding.shortcutTriggerMode == .repeatWhileHeld
+            let trigger = (!profile.usesAdvancedGestures && binding.shortcutTriggerMode == .repeatWhileHeld)
                 ? "单击 · 重复"
                 : "单击"
             lines.append(
@@ -175,6 +175,10 @@ private enum KeymapOverlayLayout {
 final class KeymapOverlayController {
     private var panel: NSPanel?
     private var hostingView: NSHostingView<KeymapOverlayView>?
+
+    var isVisible: Bool {
+        panel?.isVisible == true
+    }
 
     func show(store: MappingStore) {
         guard Thread.isMainThread else {

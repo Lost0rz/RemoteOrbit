@@ -1,21 +1,52 @@
 // SettingsWindow.swift — RemoteOrbit Control Center window
 //
 // 从菜单栏打开一个 NSWindow，内嵌 SwiftUI SettingsView。
-// 保持窗口单例，避免重复创建。
+// 保持窗口单例并维护明确的入口路由，避免重复创建或起始页漂移。
 
 import AppKit
+import Combine
 import SwiftUI
 
-final class SettingsWindow {
-    /// 单例窗口实例。
-    private static var window: NSWindow?
+enum SettingsEntryRoute: Equatable {
+    case general
+    case voiceShortcuts
+}
 
-    /// 打开设置窗口（如果已打开则前置）。
+struct SettingsRouteRequest: Equatable {
+    let id: UUID
+    let route: SettingsEntryRoute
+
+    init(id: UUID = UUID(), route: SettingsEntryRoute) {
+        self.id = id
+        self.route = route
+    }
+}
+
+final class SettingsNavigationModel: ObservableObject {
+    @Published private(set) var routeRequest = SettingsRouteRequest(route: .general)
+
+    func navigate(to route: SettingsEntryRoute) {
+        routeRequest = SettingsRouteRequest(route: route)
+    }
+}
+
+final class SettingsWindow {
+    /// 单例窗口实例与路由模型。
+    private static var window: NSWindow?
+    private static let navigationModel = SettingsNavigationModel()
+
+    /// 打开设置窗口（如果已存在则前置，并按请求切换到对应起始页）。
     static func open(
         store: MappingStore,
+        route: SettingsEntryRoute = .general,
         onRecordingChanged: @escaping (Bool) -> Void = { _ in }
     ) {
-        if let existing = window, existing.isVisible {
+        navigationModel.navigate(to: route)
+
+        if let existing = window {
+            if existing.isMiniaturized {
+                existing.deminiaturize(nil)
+            }
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -23,6 +54,7 @@ final class SettingsWindow {
 
         let settingsView = SettingsView(
             store: store,
+            navigation: navigationModel,
             onRecordingChanged: onRecordingChanged
         )
         let hostingController = NSHostingController(rootView: settingsView)

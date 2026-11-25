@@ -24,20 +24,6 @@ enum VoiceTimingLogger {
         return activeSessionID
     }
 
-    static func currentContinuityContext() -> AudioContinuitySessionContext? {
-        guard DiagnosticsRuntimeGate.shared.isEnabled, continuityEvidenceEnabled else { return nil }
-        lock.lock()
-        defer { lock.unlock() }
-        guard let activeSessionID,
-              let startNanoseconds = continuityLedger.sessionStartNanoseconds else {
-            return nil
-        }
-        return AudioContinuitySessionContext(
-            sessionID: activeSessionID,
-            startNanoseconds: startNanoseconds
-        )
-    }
-
     /// Start or reuse the opt-in continuity capture for AUDIO_START. A
     /// transport capture may begin before HID creates its gesture UUID, so it
     /// gets a stable capture identity and can be bound later without losing
@@ -360,21 +346,6 @@ enum VoiceTimingLogger {
         }
         _ = LongTermObservabilityService.shared.end(sessionID: sessionID)
         VoiceAttemptDiagnostics.shared.end(sessionID: sessionID)
-    }
-
-    static func observeControlPolicy(
-        policy: String,
-        classification: String,
-        triggerSource: String,
-        triggerKey: String = "unavailable"
-    ) {
-        guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
-        LongTermObservabilityService.shared.observeControl(
-            policy: policy,
-            classification: classification,
-            triggerSource: triggerSource,
-            triggerKey: triggerKey
-        )
     }
 
     @discardableResult

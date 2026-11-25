@@ -84,7 +84,7 @@ final class MappingStore: ObservableObject {
     static let floatTabsBundleIdentifier = "com.lost0rz.FloatTabs"
     static let defaultScrollLinesPerStep = 6
     static let scrollLinesPerStepRange = 1...40
-    static let defaultGloballyPinnedButtons: Set<RemoteButton> = [.home]
+    static let defaultGloballyPinnedButtons: Set<RemoteButton> = []
     static let defaultGloballyPinnedSlots: Set<GlobalMappingKey> = Set(
         defaultGloballyPinnedButtons.flatMap { button in
             GlobalMappingSlot.allCases.map { GlobalMappingKey(button: button, slot: $0) }
@@ -303,11 +303,6 @@ final class MappingStore: ObservableObject {
         return appTemplates.first {
             $0.id == activeID && $0.appBundleIdentifier == appBundleIdentifier
         }
-    }
-
-    func isActiveTemplate(_ templateID: UUID) -> Bool {
-        guard let template = template(withID: templateID) else { return false }
-        return activeTemplateIDs[template.appBundleIdentifier] == templateID
     }
 
     // MARK: - 运行时按键快照
@@ -560,10 +555,11 @@ final class MappingStore: ObservableObject {
 
     /// 重置通用映射。
     func resetAll() {
-        bindings = DefaultBindings.all
-        globalGestureProfiles.removeAll()
-        globallyPinnedSlots.removeAll()
-        save()
+        performSaveBatch {
+            bindings = DefaultBindings.all
+            globalGestureProfiles.removeAll()
+            globallyPinnedSlots = Self.defaultGloballyPinnedSlots
+        }
     }
 
     /// Set whether every behavior of a button inherits the global mapping.
@@ -627,15 +623,16 @@ final class MappingStore: ObservableObject {
             // 新模板从当前通用映射开始，之后可独立修改全部按钮。
             bindings: bindings
         )
-        var updatedTemplates = appTemplates
-        updatedTemplates.append(template)
-        appTemplates = updatedTemplates
-        if activeTemplateIDs[appBundleIdentifier] == nil {
-            var updatedActiveIDs = activeTemplateIDs
-            updatedActiveIDs[appBundleIdentifier] = template.id
-            activeTemplateIDs = updatedActiveIDs
+        performSaveBatch {
+            var updatedTemplates = appTemplates
+            updatedTemplates.append(template)
+            appTemplates = updatedTemplates
+            if activeTemplateIDs[appBundleIdentifier] == nil {
+                var updatedActiveIDs = activeTemplateIDs
+                updatedActiveIDs[appBundleIdentifier] = template.id
+                activeTemplateIDs = updatedActiveIDs
+            }
         }
-        save()
         print("[MappingStore] added template: \(template.displayName) [\(appBundleIdentifier)]")
         return template.id
     }
@@ -670,15 +667,73 @@ final class MappingStore: ObservableObject {
             bindings: preset.bindings,
             gestureProfiles: preset.gestureProfiles
         )
-        var updatedTemplates = appTemplates
-        updatedTemplates.append(template)
-        appTemplates = updatedTemplates
+        performSaveBatch {
+            var updatedTemplates = appTemplates
+            updatedTemplates.append(template)
+            appTemplates = updatedTemplates
 
-        var updatedActiveIDs = activeTemplateIDs
-        updatedActiveIDs[appBundleIdentifier] = template.id
-        activeTemplateIDs = updatedActiveIDs
-        save()
+            var updatedActiveIDs = activeTemplateIDs
+            updatedActiveIDs[appBundleIdentifier] = template.id
+            activeTemplateIDs = updatedActiveIDs
+        }
         print("[MappingStore] imported preset template: \(template.displayName)")
+        return template.id
+    }
+
+    /// Explicit user action from Settings ("套用预设…" / preset importer):
+    /// applies the preset's latest bindings & gestures even if a same-named
+    /// template already exists, and sets it Active.
+    @discardableResult
+    func applyTemplatePreset(
+        _ presetID: String,
+        for appBundleIdentifier: String,
+        appName: String
+    ) -> UUID? {
+        guard let preset = AppTemplatePresetLibrary.preset(id: presetID),
+              preset.appBundleIdentifier == appBundleIdentifier
+        else { return nil }
+
+        let resolvedAppName = appName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? preset.appName
+            : appName
+
+        if let existingIndex = appTemplates.firstIndex(where: {
+            $0.appBundleIdentifier == appBundleIdentifier &&
+            $0.templateName == preset.templateName
+        }) {
+            let existingID = appTemplates[existingIndex].id
+            performSaveBatch {
+                var updatedTemplates = appTemplates
+                updatedTemplates[existingIndex].appName = resolvedAppName
+                updatedTemplates[existingIndex].bindings = preset.bindings
+                updatedTemplates[existingIndex].gestureProfiles = preset.gestureProfiles
+                appTemplates = updatedTemplates
+
+                var updatedActiveIDs = activeTemplateIDs
+                updatedActiveIDs[appBundleIdentifier] = existingID
+                activeTemplateIDs = updatedActiveIDs
+            }
+            print("[MappingStore] applied preset to existing template: \(preset.displayName)")
+            return existingID
+        }
+
+        let template = AppMappingTemplate(
+            appBundleIdentifier: appBundleIdentifier,
+            appName: resolvedAppName,
+            templateName: preset.templateName,
+            bindings: preset.bindings,
+            gestureProfiles: preset.gestureProfiles
+        )
+        performSaveBatch {
+            var updatedTemplates = appTemplates
+            updatedTemplates.append(template)
+            appTemplates = updatedTemplates
+
+            var updatedActiveIDs = activeTemplateIDs
+            updatedActiveIDs[appBundleIdentifier] = template.id
+            activeTemplateIDs = updatedActiveIDs
+        }
+        print("[MappingStore] applied new preset template: \(template.displayName)")
         return template.id
     }
 
@@ -689,7 +744,6 @@ final class MappingStore: ObservableObject {
         var updatedActiveIDs = activeTemplateIDs
         updatedActiveIDs[template.appBundleIdentifier] = templateID
         activeTemplateIDs = updatedActiveIDs
-        save()
         print("[MappingStore] active template: \(template.displayName)")
     }
 
@@ -724,15 +778,12 @@ final class MappingStore: ObservableObject {
         guard let index = appTemplates.firstIndex(where: { $0.id == templateID }) else { return }
         var updatedTemplates = appTemplates
         let template = updatedTemplates[index]
-        let builtInBindings = AppTemplatePresetLibrary.all.first(where: {
+        let matchingPreset = AppTemplatePresetLibrary.all.first(where: {
             $0.appBundleIdentifier == template.appBundleIdentifier &&
             $0.templateName == template.templateName
-        })?.bindings
-        updatedTemplates[index].bindings = builtInBindings ?? DefaultBindings.all
-        updatedTemplates[index].gestureProfiles = AppTemplatePresetLibrary.all.first(where: {
-            $0.appBundleIdentifier == template.appBundleIdentifier &&
-            $0.templateName == template.templateName
-        })?.gestureProfiles
+        })
+        updatedTemplates[index].bindings = matchingPreset?.bindings ?? DefaultBindings.all
+        updatedTemplates[index].gestureProfiles = matchingPreset?.gestureProfiles
         appTemplates = updatedTemplates
     }
 
@@ -742,20 +793,21 @@ final class MappingStore: ObservableObject {
         guard let index = appTemplates.firstIndex(where: { $0.id == templateID }) else { return }
         let bundleID = appTemplates[index].appBundleIdentifier
         let wasActive = activeTemplateIDs[bundleID] == templateID
-        var updatedTemplates = appTemplates
-        updatedTemplates.remove(at: index)
-        appTemplates = updatedTemplates
+        performSaveBatch {
+            var updatedTemplates = appTemplates
+            updatedTemplates.remove(at: index)
+            appTemplates = updatedTemplates
 
-        if wasActive {
-            var updatedActiveIDs = activeTemplateIDs
-            if let replacement = updatedTemplates.first(where: { $0.appBundleIdentifier == bundleID }) {
-                updatedActiveIDs[bundleID] = replacement.id
-            } else {
-                updatedActiveIDs.removeValue(forKey: bundleID)
+            if wasActive {
+                var updatedActiveIDs = activeTemplateIDs
+                if let replacement = updatedTemplates.first(where: { $0.appBundleIdentifier == bundleID }) {
+                    updatedActiveIDs[bundleID] = replacement.id
+                } else {
+                    updatedActiveIDs.removeValue(forKey: bundleID)
+                }
+                activeTemplateIDs = updatedActiveIDs
             }
-            activeTemplateIDs = updatedActiveIDs
         }
-        save()
     }
 
     // MARK: - 配置导入与导出
@@ -962,7 +1014,8 @@ final class MappingStore: ObservableObject {
             appBundleIdentifier: preset.appBundleIdentifier,
             appName: preset.appName,
             templateName: preset.templateName,
-            bindings: preset.bindings
+            bindings: preset.bindings,
+            gestureProfiles: preset.gestureProfiles
         )
         appTemplates.append(template)
         print("[MappingStore] added built-in template: \(template.displayName)")
@@ -1010,272 +1063,6 @@ final class MappingStore: ObservableObject {
         return repaired
     }
 
-    /// 将本次内置模板调整应用到“仍保持旧内置内容”的模板。
-    ///
-    /// 只比较完整的旧模板快照：只要用户改过任意一个按钮，就保留用户配置，
-    /// 避免升级时覆盖自定义快捷键。新安装则直接使用 AppTemplatePresetLibrary
-    /// 的最新模板内容。
-    private func migrateBuiltInTemplateMappings() {
-        let migrations: [(String, String, String, [RemoteButton: ButtonBinding])] = [
-            (
-                Self.chatGPTBundleIdentifier,
-                "Codex 默认",
-                "codex.default",
-                Self.legacyCodexBindings(menu: .preset(.chatGPTPreviousChat))
-            ),
-            (
-                Self.chatGPTBundleIdentifier,
-                "Codex 默认",
-                "codex.default",
-                Self.legacyCodexBindings(menu: .preset(.disabled))
-            ),
-            (
-                Self.chatGPTBundleIdentifier,
-                "Codex 默认",
-                "codex.default",
-                Self.legacyCodexPresetBindings()
-            ),
-            (
-                Self.chatGPTBundleIdentifier,
-                "Codex 默认",
-                "codex.default",
-                Self.legacyCodexTerminalPresetBindings()
-            ),
-            (
-                "com.lost0rz.FloatTabs",
-                "FloatTabs 默认",
-                "floatTabs.default",
-                Self.legacyFloatTabsBindings()
-            ),
-            (
-                Self.chatGPTBundleIdentifier,
-                "Codex 默认",
-                "codex.default",
-                Self.legacyCodexCurrentBindings()
-            ),
-            (
-                "com.lost0rz.FloatTabs",
-                "FloatTabs 默认",
-                "floatTabs.default",
-                Self.legacyFloatTabsCurrentBindings()
-            ),
-            (
-                "com.lost0rz.FloatTabs",
-                "FloatTabs 浏览增强",
-                "floatTabs.browse",
-                Self.legacyFloatTabsBrowseBindings()
-            ),
-            (
-                "com.netease.163music",
-                "网易云音乐 默认",
-                "netease.default",
-                Self.legacyNeteaseBindings()
-            ),
-            (
-                "md.obsidian",
-                "Obsidian 默认",
-                "obsidian.default",
-                Self.legacyObsidianBindings()
-            ),
-        ]
-
-        var updatedTemplates = appTemplates
-        var didMigrate = false
-
-        for (bundleID, templateName, presetID, legacyBindings) in migrations {
-            guard let index = updatedTemplates.firstIndex(where: {
-                $0.appBundleIdentifier == bundleID &&
-                $0.templateName == templateName
-            }) else { continue }
-
-            guard let preset = AppTemplatePresetLibrary.preset(id: presetID),
-                  updatedTemplates[index].bindings == legacyBindings else {
-                continue
-            }
-
-            updatedTemplates[index].bindings = preset.bindings
-            didMigrate = true
-            print("[MappingStore] migrated built-in template: \(updatedTemplates[index].displayName)")
-        }
-
-        // The vertical direction is a semantic correction that also applies
-        // to a built-in template after the user customized other buttons.
-        // Change only the two affected bindings so those custom mappings are
-        // preserved. New templates already contain the desired pair and do
-        // not enter this migration.
-        let verticalDirectionScopes: Set<String> = [
-            "\(Self.chatGPTBundleIdentifier)\u{0}Codex 默认",
-            "com.lost0rz.FloatTabs\u{0}FloatTabs 默认",
-            "com.lost0rz.FloatTabs\u{0}FloatTabs 浏览增强",
-        ]
-        for index in updatedTemplates.indices {
-            let template = updatedTemplates[index]
-            let scopeKey = "\(template.appBundleIdentifier)\u{0}\(template.templateName)"
-            guard verticalDirectionScopes.contains(scopeKey),
-                  template.bindings[.up] == .preset(.pageDown),
-                  template.bindings[.down] == .preset(.pageUp) else {
-                continue
-            }
-
-            updatedTemplates[index].bindings[.up] = .preset(.pageUp)
-            updatedTemplates[index].bindings[.down] = .preset(.pageDown)
-            didMigrate = true
-            print(
-                "[MappingStore] corrected vertical direction: "
-                    + "\(updatedTemplates[index].displayName)"
-            )
-        }
-
-        guard didMigrate else { return }
-        appTemplates = updatedTemplates
-        save()
-    }
-
-    private static func legacyCodexBaseBindings() -> [RemoteButton: ButtonBinding] {
-        var bindings = DefaultBindings.all
-        bindings[.power] = .preset(.disabled)
-        bindings[.up] = .preset(.pageUp)
-        bindings[.down] = .preset(.pageDown)
-        bindings[.left] = .preset(.chatGPTToggleSidebar)
-        bindings[.right] = .preset(.chatGPTToggleBottomPanel)
-        bindings[.ok] = .preset(.returnKey)
-        bindings[.back] = .preset(.deleteBackward)
-        bindings[.home] = .preset(.chatGPTNextAttention)
-        bindings[.menu] = .preset(.disabled)
-        bindings[.tv] = .preset(.appSwitcher)
-        return bindings
-    }
-
-    private static func legacyCodexBindings(
-        menu: ButtonBinding
-    ) -> [RemoteButton: ButtonBinding] {
-        var bindings = legacyCodexBaseBindings()
-        bindings[.right] = .preset(.chatGPTToggleBottomPanel)
-        bindings[.menu] = menu
-        return bindings
-    }
-
-    /// Codex 预设曾经已经使用右键粘贴，但菜单键仍是禁用；只迁移完整的
-    /// 未自定义模板，避免覆盖用户已经改过的单个按键。
-    private static func legacyCodexPresetBindings() -> [RemoteButton: ButtonBinding] {
-        var bindings = legacyCodexBaseBindings()
-        bindings[.right] = .preset(.paste)
-        bindings[.menu] = .preset(.disabled)
-        return bindings
-    }
-
-    /// 最近一版本地测试预设已经使用右键粘贴和菜单键 Terminal；新默认改为
-    /// 左右方向键与菜单键侧边栏，只迁移未自定义的完整模板。
-    private static func legacyCodexTerminalPresetBindings() -> [RemoteButton: ButtonBinding] {
-        var bindings = legacyCodexPresetBindings()
-        bindings[.menu] = .preset(.chatGPTOpenTerminal)
-        return bindings
-    }
-
-    private static func legacyFloatTabsBindings() -> [RemoteButton: ButtonBinding] {
-        var bindings = DefaultBindings.all
-        bindings[.power] = .preset(.disabled)
-        bindings[.up] = .preset(.pageUp)
-        bindings[.down] = .preset(.pageDown)
-        bindings[.left] = .preset(.floatTabsPreviousTab)
-        bindings[.right] = .preset(.floatTabsNextTab)
-        bindings[.ok] = .preset(.returnKey)
-        bindings[.back] = .preset(.escape)
-        bindings[.home] = .preset(.floatTabsToggleVisibility)
-        bindings[.menu] = .preset(.floatTabsSettings)
-        bindings[.tv] = .preset(.appSwitcher)
-        bindings[.volumeUp] = .preset(.floatTabsNextTab)
-        bindings[.volumeDown] = .preset(.floatTabsPreviousTab)
-        return bindings
-    }
-
-    /// Snapshot of the immediately preceding Codex built-in template. This
-    /// pair used the opposite physical direction and is migrated only when
-    /// the complete template is still untouched.
-    private static func legacyCodexCurrentBindings() -> [RemoteButton: ButtonBinding] {
-        var bindings = DefaultBindings.all
-        bindings[.power] = .preset(.disabled)
-        bindings[.up] = .preset(.pageDown)
-        bindings[.down] = .preset(.pageUp)
-        bindings[.left] = .preset(.arrowLeft)
-        bindings[.right] = .preset(.arrowRight)
-        bindings[.ok] = .preset(.returnKey)
-        bindings[.back] = .preset(.deleteBackward)
-        bindings[.volumeUp] = .preset(.chatGPTPreviousChat)
-        bindings[.home] = .preset(.chatGPTNextAttention)
-        bindings[.volumeDown] = .preset(.chatGPTNextChat)
-        bindings[.menu] = .preset(.chatGPTToggleSidebar)
-        bindings[.tv] = .preset(.appSwitcher)
-        return bindings
-    }
-
-    /// Snapshot of the immediately preceding FloatTabs built-in template.
-    private static func legacyFloatTabsCurrentBindings() -> [RemoteButton: ButtonBinding] {
-        var bindings = DefaultBindings.all
-        bindings[.power] = .preset(.disabled)
-        bindings[.up] = .preset(.pageDown)
-        bindings[.down] = .preset(.pageUp)
-        bindings[.left] = .preset(.floatTabsToggleFocus)
-        bindings[.right] = .preset(.paste)
-        bindings[.ok] = .preset(.returnKey)
-        bindings[.back] = .preset(.escape)
-        bindings[.home] = .preset(.floatTabsToggleVisibility)
-        bindings[.menu] = .preset(.floatTabsToggleAlwaysOnTop)
-        bindings[.tv] = .preset(.appSwitcher)
-        bindings[.volumeUp] = .preset(.floatTabsPreviousTab)
-        bindings[.volumeDown] = .preset(.floatTabsNextTab)
-        return bindings
-    }
-
-    /// Snapshot of the immediately preceding FloatTabs browse template.
-    private static func legacyFloatTabsBrowseBindings() -> [RemoteButton: ButtonBinding] {
-        var bindings = legacyFloatTabsCurrentBindings()
-        bindings[.menu] = .preset(.reloadPage)
-        return bindings
-    }
-
-    /// Snapshot of the previous built-in Netease template. It left the
-    /// dedicated volume buttons inherited from DefaultBindings, which meant
-    /// Codex previous/next chat. Migrate only an untouched built-in template
-    /// so a user-customized Netease layout is not overwritten.
-    private static func legacyNeteaseBindings() -> [RemoteButton: ButtonBinding] {
-        var bindings = DefaultBindings.all
-        bindings[.power] = .preset(.disabled)
-        bindings[.up] = .preset(.volumeUp)
-        bindings[.down] = .preset(.volumeDown)
-        bindings[.left] = .preset(.neteasePreviousTrack)
-        bindings[.right] = .preset(.neteaseNextTrack)
-        bindings[.ok] = .preset(.playPause)
-        bindings[.back] = .preset(.escape)
-        bindings[.home] = .preset(.appSwitcher)
-        bindings[.menu] = .preset(.disabled)
-        bindings[.tv] = .preset(.appSwitcher)
-        bindings[.volumeUp] = .preset(.chatGPTPreviousChat)
-        bindings[.volumeDown] = .preset(.chatGPTNextChat)
-        return bindings
-    }
-
-    /// Snapshot of the preceding Obsidian template. It used the two sidebars
-    /// as left/right actions and reversed the vertical scroll pair. Migrate
-    /// only an untouched built-in template; any user-edited Obsidian mapping
-    /// remains intact.
-    private static func legacyObsidianBindings() -> [RemoteButton: ButtonBinding] {
-        var bindings = DefaultBindings.all
-        bindings[.power] = .preset(.disabled)
-        bindings[.up] = .preset(.pageDown)
-        bindings[.down] = .preset(.pageUp)
-        bindings[.left] = .preset(.obsidianToggleLeftSidebar)
-        bindings[.right] = .preset(.obsidianToggleRightSidebar)
-        bindings[.ok] = .preset(.returnKey)
-        bindings[.back] = .preset(.obsidianCloseTab)
-        bindings[.home] = .preset(.obsidianQuickSwitcher)
-        bindings[.menu] = .preset(.obsidianCommandPalette)
-        bindings[.tv] = .preset(.obsidianNewNote)
-        bindings[.volumeUp] = .preset(.obsidianNextTab)
-        bindings[.volumeDown] = .preset(.obsidianPreviousTab)
-        return bindings
-    }
-
     private static func mergedBindings(_ decoded: [RemoteButton: ButtonBinding]) -> [RemoteButton: ButtonBinding] {
         var merged = DefaultBindings.all
         for (button, binding) in decoded {
@@ -1288,8 +1075,22 @@ final class MappingStore: ObservableObject {
         min(max(value, scrollLinesPerStepRange.lowerBound), scrollLinesPerStepRange.upperBound)
     }
 
+    private var isBatchingMutations = false
+
+    private func performSaveBatch<T>(_ body: () -> T) -> T {
+        let wasBatching = isBatchingMutations
+        isBatchingMutations = true
+        defer {
+            isBatchingMutations = wasBatching
+            if !wasBatching {
+                save()
+            }
+        }
+        return body()
+    }
+
     private func save() {
-        guard hasLoaded, !isLoading else { return }
+        guard hasLoaded, !isLoading, !isBatchingMutations else { return }
         do {
             let data = try encodedCurrentConfiguration()
             let canonicalURL = configurationFileURL

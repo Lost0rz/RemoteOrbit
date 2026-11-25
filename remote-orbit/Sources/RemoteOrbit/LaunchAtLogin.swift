@@ -15,6 +15,21 @@ enum LaunchAtLogin {
         FileManager.default.fileExists(atPath: agentURL.path)
     }
 
+    static var registeredBundlePath: String? {
+        guard let data = try? Data(contentsOf: agentURL),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let args = plist["ProgramArguments"] as? [String],
+              args.count >= 2 else {
+            return nil
+        }
+        return args[1]
+    }
+
+    static var needsPathUpdate: Bool {
+        guard isEnabled, Bundle.main.bundlePath.hasSuffix(".app") else { return false }
+        return registeredBundlePath != Bundle.main.bundlePath
+    }
+
     static func setEnabled(_ enabled: Bool) throws {
         if enabled {
             try install()
