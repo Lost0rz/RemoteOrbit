@@ -21,10 +21,11 @@ preserved inside the generated driver bundle.
 The source snapshot under
 `remote-orbit/Sources/RemoteOrbitHIDBridge/vendor/upstream/` is from
 `pqrs-org/Karabiner-DriverKit-VirtualHIDDevice` v8.6.0 at commit
-`9036bc771259ff8d61341f4d1b7072b954fdb2fa`. Its upstream `LICENSE.md` is
-included in that snapshot and applies where a more specific header notice does
-not apply. The 620-file include closure and each file's Git blob ID and SHA-256
-are recorded in `vendor/upstream/manifest.json`.
+`9036bc771259ff8d61341f4d1b7072b954fdb2fa`, and `remote-orbit/Packaging/Karabiner-DriverKit-VirtualHIDDevice-8.6.0.pkg`
+is the upstream v8.6.0 release package distributed under The Unlicense (`vendor/upstream/LICENSE.md`).
+Its upstream `LICENSE.md` is included in that snapshot and applies where a more
+specific header notice does not apply. The 620-file include closure and each file's
+Git blob ID and SHA-256 are recorded in `vendor/upstream/manifest.json`.
 
 Specific vendored components retain their upstream terms:
 

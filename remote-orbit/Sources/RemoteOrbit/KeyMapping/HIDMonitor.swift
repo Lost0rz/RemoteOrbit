@@ -270,6 +270,26 @@ final class HIDMonitor {
             || pendingReconnectUsages.contains(button.hidUsage)
     }
 
+    /// Clear stuck pressed state when macOS Suppresses/drops a physical UP
+    /// report mid-hold (for example when Secure Event Input turns on).
+    @discardableResult
+    func clearStuckButtonHold(_ button: RemoteButton) -> Bool {
+        let usage = button.hidUsage
+        let wasDown = activeUsages.remove(usage) != nil
+            || pendingReconnectUsages.remove(usage) != nil
+        debouncedUsages.remove(usage)
+        repeatTimers.removeValue(forKey: usage)?.cancel()
+        if wasDown {
+            if !activeDeviceIsSeized {
+                eventSuppressor.updateHeld(button: button, isDown: false)
+            }
+            if button == .microphone {
+                DiagnosticRuntimeHealthRegistry.shared.setBool("physical_voice_key_down", false)
+            }
+        }
+        return wasDown
+    }
+
     // MARK: - 设备匹配/断开
 
     fileprivate func deviceDidMatch(result: IOReturn, device: IOHIDDevice) {

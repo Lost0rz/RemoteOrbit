@@ -10,6 +10,7 @@ final class VoiceReceiverReadinessTests: XCTestCase {
         var runningInputs: [AudioObjectID: Bool?] = [1: true]
         var inputDevices: [AudioObjectID: [AudioDeviceID]?] = [1: [79]]
         var bundleIDs: [AudioObjectID: String?] = [1: "com.bytedance.inputmethod.doubaoime"]
+        private(set) var pidReadCount = 0
         private(set) var runningInputReadCount = 0
         private(set) var inputDeviceReadCount = 0
         private(set) var bundleIDReadCount = 0
@@ -23,7 +24,8 @@ final class VoiceReceiverReadinessTests: XCTestCase {
         }
 
         func processPID(_ objectID: AudioObjectID) -> Int32? {
-            pids[objectID] ?? nil
+            pidReadCount += 1
+            return pids[objectID] ?? nil
         }
 
         func processIsRunningInput(_ objectID: AudioObjectID) -> Bool? {
@@ -552,5 +554,53 @@ final class VoiceReceiverReadinessTests: XCTestCase {
             XCTAssertEqual(state, .voiceAudioReady)
             XCTAssertNotEqual(state, .recording)
         }
+    }
+
+    func testFirstActivationPublishesUnsupportedStateWithoutSwallow() {
+        let probe = FakeProbe(samples: [.unsupported])
+        let timerStore = TimerStore()
+        let monitor = makeMonitor(probe: probe, timerStore: timerStore)
+        var delivered: [VoiceReceiverReadiness] = []
+        monitor.onStateChanged = { readiness in
+            delivered.append(readiness)
+        }
+
+        monitor.activate()
+        monitor.waitForIdleForTesting()
+        let mainFlushed = expectation(description: "main queue flushed")
+        DispatchQueue.main.async {
+            mainFlushed.fulfill()
+        }
+        wait(for: [mainFlushed], timeout: 1)
+
+        XCTAssertEqual(delivered, [.unsupported])
+        monitor.deactivate()
+        monitor.waitForIdleForTesting()
+    }
+
+    func testCoreAudioProbeCachesPIDAndBundleIDWithinGeneration() {
+        guard #available(macOS 14.2, *) else { return }
+        let source = FakeReadSource()
+        let probe = CoreAudioVoiceReceiverProbe(excludedPID: 100, source: source)
+
+        probe.beginGeneration()
+        XCTAssertEqual(
+            probe.sample(),
+            .listening(consumerPID: 200, bundleID: "com.bytedance.inputmethod.doubaoime")
+        )
+        XCTAssertEqual(
+            probe.sample(),
+            .listening(consumerPID: 200, bundleID: "com.bytedance.inputmethod.doubaoime")
+        )
+        XCTAssertEqual(source.pidReadCount, 1)
+        XCTAssertEqual(source.bundleIDReadCount, 1)
+
+        probe.beginGeneration()
+        XCTAssertEqual(
+            probe.sample(),
+            .listening(consumerPID: 200, bundleID: "com.bytedance.inputmethod.doubaoime")
+        )
+        XCTAssertEqual(source.pidReadCount, 2)
+        XCTAssertEqual(source.bundleIDReadCount, 2)
     }
 }

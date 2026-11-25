@@ -7,7 +7,6 @@
     "THIRD_PARTY_NOTICES.md",
     "LICENSE",
     "docs/**",
-    "remote-orbit/docs/**",
     "remote-orbit-audio-driver/README.md",
     "installer/DMG-README.txt",
     "RELEASE_NOTES_v0.2.5.md",
@@ -317,6 +316,7 @@
       "paths": [
         "remote-orbit/Sources/RemoteOrbitHIDBridge/**",
         "remote-orbit/Sources/RemoteOrbitHIDHelper/**",
+        "remote-orbit/Sources/RemoteOrbitHIDHelperDaemon/**",
         "remote-orbit/Sources/RemoteOrbit/VoiceShortcutHID*.swift",
         "remote-orbit/Tests/RemoteOrbitTests/VoiceShortcutHIDTests.swift"
       ],
@@ -396,7 +396,8 @@
         "remote-orbit/Packaging/**",
         "remote-orbit/Brand/**",
         "remote-orbit/package-app.sh",
-        "remote-orbit/Package.swift"
+        "remote-orbit/Package.swift",
+        "remote-orbit/Sources/RemoteOrbitHIDHelperDaemon/**"
       ],
       "runner": [
         "self-hosted",

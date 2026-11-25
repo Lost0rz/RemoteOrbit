@@ -1,6 +1,23 @@
 import CoreAudio
 import Foundation
 
+enum RuntimeEnvironment {
+    static let isRunningTests: Bool = {
+        let env = ProcessInfo.processInfo.environment
+        if env["XCTestConfigurationFilePath"] != nil
+            || env["XCTestBundlePath"] != nil
+            || env["REMOTE_ORBIT_UNIT_TESTING"] == "1" {
+            return true
+        }
+        if NSClassFromString("XCTestCase") != nil {
+            return true
+        }
+        return CommandLine.arguments.contains {
+            $0.contains("xctest") || $0.hasSuffix(".xctest")
+        }
+    }()
+}
+
 struct SystemAudioDevice: Identifiable, Equatable {
     let id: AudioDeviceID
     let uid: String
@@ -29,6 +46,9 @@ enum SystemAudioDeviceManager {
     static let remoteOrbitInputName = "RemoteOrbit Mic 2ch"
     static let remoteOrbitSelection = "__remoteorbit__"
     static let preferredInputKey = "RemoteOrbit.preferredInputDevice"
+    private static let cacheLock = NSLock()
+    private static var cachedRemoteOrbitDeviceID: AudioDeviceID?
+    private static var cachedInputDeviceIDByIdentifier: [String: AudioDeviceID] = [:]
 
     static func allDevices() -> [SystemAudioDevice] {
         var propertySize: UInt32 = 0
@@ -57,22 +77,11 @@ enum SystemAudioDeviceManager {
             &ids
         ) == noErr else { return [] }
 
-        return ids.compactMap { deviceID in
-            guard deviceID != 0,
-                  let name = stringProperty(deviceID, selector: kAudioObjectPropertyName)
-            else { return nil }
-            return SystemAudioDevice(
-                id: deviceID,
-                uid: stringProperty(deviceID, selector: kAudioDevicePropertyDeviceUID) ?? "",
-                name: name,
-                hasInput: channelCount(deviceID, scope: kAudioObjectPropertyScopeInput) > 0,
-                hasOutput: channelCount(deviceID, scope: kAudioObjectPropertyScopeOutput) > 0
-            )
-        }
+        return ids.compactMap { makeDevice(id: $0) }
     }
 
     static func inputDevices(from devices: [SystemAudioDevice] = allDevices()) -> [SystemAudioDevice] {
-        devices
+        let filtered = devices
             .filter { $0.hasInput && (!$0.isLoopback || $0.isRemoteOrbit) }
             .sorted { lhs, rhs in
                 if lhs.isRemoteOrbit != rhs.isRemoteOrbit {
@@ -80,6 +89,8 @@ enum SystemAudioDeviceManager {
                 }
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
+        updateCache(from: filtered)
+        return filtered
     }
 
     static func outputDevices(from devices: [SystemAudioDevice] = allDevices()) -> [SystemAudioDevice] {
@@ -92,6 +103,13 @@ enum SystemAudioDeviceManager {
 
     static var defaultInputDevice: SystemAudioDevice? {
         device(for: defaultDeviceID(selector: kAudioHardwarePropertyDefaultInputDevice))
+    }
+
+    static var defaultInputStableIdentifier: String? {
+        guard let id = defaultDeviceID(selector: kAudioHardwarePropertyDefaultInputDevice) else {
+            return nil
+        }
+        return stableIdentifier(for: id)
     }
 
     static var defaultOutputDevice: SystemAudioDevice? {
@@ -136,9 +154,33 @@ enum SystemAudioDeviceManager {
     /// the historical bridge behavior by selecting RemoteOrbit Mic 2ch until
     /// the user picks a physical microphone from the menu.
     static func applyPreferredInputSelection() {
-        let devices = inputDevices()
+        if RuntimeEnvironment.isRunningTests {
+            return
+        }
         let preferred = UserDefaults.standard.string(forKey: preferredInputKey)
             ?? remoteOrbitSelection
+
+        if preferred == remoteOrbitSelection,
+           let cachedID = validatedCachedRemoteOrbitID() {
+            if setDefaultDevice(
+                cachedID,
+                selector: kAudioHardwarePropertyDefaultInputDevice
+            ) {
+                print("[AUDIO] 已恢复系统默认输入: \(remoteOrbitInputName)")
+                return
+            }
+        } else if preferred != remoteOrbitSelection,
+                  let cachedID = validatedCachedInputID(for: preferred) {
+            if setDefaultDevice(
+                cachedID,
+                selector: kAudioHardwarePropertyDefaultInputDevice
+            ) {
+                print("[AUDIO] 已恢复系统默认输入: \(preferred)")
+                return
+            }
+        }
+
+        let devices = inputDevices()
         let candidate: SystemAudioDevice?
         if preferred == remoteOrbitSelection {
             candidate = devices.first(where: { $0.isRemoteOrbit })
@@ -175,15 +217,24 @@ enum SystemAudioDeviceManager {
     /// output drain.
     @discardableResult
     static func selectRemoteOrbitInputForVoice() -> Bool {
-        guard let remoteOrbit = inputDevices().first(where: { $0.isRemoteOrbit }) else {
+        if RuntimeEnvironment.isRunningTests {
+            return false
+        }
+        let targetID: AudioDeviceID?
+        if let cachedID = validatedCachedRemoteOrbitID() {
+            targetID = cachedID
+        } else {
+            targetID = inputDevices().first(where: { $0.isRemoteOrbit })?.id
+        }
+        guard let targetID else {
             print("[AUDIO] ⚠️ 遥控器语音需要 RemoteOrbit Mic 2ch，但设备当前不可用")
             return false
         }
         guard setDefaultDevice(
-            remoteOrbit.id,
+            targetID,
             selector: kAudioHardwarePropertyDefaultInputDevice
         ) else { return false }
-        print("[AUDIO] 遥控器语音已强制使用系统输入: \(remoteOrbit.name)")
+        print("[AUDIO] 遥控器语音已强制使用系统输入: \(remoteOrbitInputName)")
         return true
     }
 
@@ -208,7 +259,66 @@ enum SystemAudioDeviceManager {
 
     private static func device(for id: AudioDeviceID?) -> SystemAudioDevice? {
         guard let id else { return nil }
-        return allDevices().first(where: { $0.id == id })
+        return makeDevice(id: id)
+    }
+
+    private static func makeDevice(id deviceID: AudioDeviceID) -> SystemAudioDevice? {
+        guard deviceID != 0,
+              let name = stringProperty(deviceID, selector: kAudioObjectPropertyName)
+        else { return nil }
+        return SystemAudioDevice(
+            id: deviceID,
+            uid: stringProperty(deviceID, selector: kAudioDevicePropertyDeviceUID) ?? "",
+            name: name,
+            hasInput: channelCount(deviceID, scope: kAudioObjectPropertyScopeInput) > 0,
+            hasOutput: channelCount(deviceID, scope: kAudioObjectPropertyScopeOutput) > 0
+        )
+    }
+
+    private static func stableIdentifier(for deviceID: AudioDeviceID) -> String {
+        let uid = stringProperty(deviceID, selector: kAudioDevicePropertyDeviceUID) ?? ""
+        return uid.isEmpty ? "device:\(deviceID)" : uid
+    }
+
+    private static func updateCache(from inputDevices: [SystemAudioDevice]) {
+        var byIdentifier: [String: AudioDeviceID] = [:]
+        byIdentifier.reserveCapacity(inputDevices.count)
+        var remoteOrbitID: AudioDeviceID?
+        for device in inputDevices {
+            byIdentifier[device.stableIdentifier] = device.id
+            if device.isRemoteOrbit {
+                remoteOrbitID = device.id
+            }
+        }
+        cacheLock.lock()
+        cachedInputDeviceIDByIdentifier = byIdentifier
+        cachedRemoteOrbitDeviceID = remoteOrbitID
+        cacheLock.unlock()
+    }
+
+    private static func validatedCachedRemoteOrbitID() -> AudioDeviceID? {
+        cacheLock.lock()
+        let cached = cachedRemoteOrbitDeviceID
+        cacheLock.unlock()
+        guard let cached,
+              let name = stringProperty(cached, selector: kAudioObjectPropertyName),
+              isRemoteOrbitDeviceName(name) else {
+            return nil
+        }
+        return cached
+    }
+
+    private static func validatedCachedInputID(for identifier: String) -> AudioDeviceID? {
+        cacheLock.lock()
+        let cached = cachedInputDeviceIDByIdentifier[identifier]
+        cacheLock.unlock()
+        guard let cached,
+              stringProperty(cached, selector: kAudioObjectPropertyName) != nil,
+              stableIdentifier(for: cached) == identifier,
+              channelCount(cached, scope: kAudioObjectPropertyScopeInput) > 0 else {
+            return nil
+        }
+        return cached
     }
 
     private static func defaultDeviceID(

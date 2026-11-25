@@ -748,6 +748,42 @@ final class RemoteOrbitHIDHelperSessionTests: XCTestCase {
         XCTAssertEqual(transport.indices(for: 0).count, 2)
     }
 
+    func testHelperSessionManagerAcceptsSequenceOneFromNewConnectionAfterPriorConnectionUsedHigherSequences() {
+        let transport = ComboRecordingHelperTransport()
+        let manager = RemoteOrbitHIDHelperSessionManager(
+            transport: transport,
+            physicalModifierKeyCodesProvider: { [] }
+        )
+        let connectionA = UUID()
+        let connectionB = UUID()
+
+        for index in 1...2 {
+            let sessionA = UUID()
+            let seqBegin = UInt64(index * 2 - 1)
+            let seqEnd = UInt64(index * 2)
+            XCTAssertEqual(
+                submit(manager, request(connectionA, id: sessionA, seq: seqBegin, operation: .begin([54, 58]))).outcome,
+                .queued
+            )
+            XCTAssertEqual(
+                submit(manager, request(connectionA, id: sessionA, seq: seqEnd, operation: .release)).outcome,
+                .queued
+            )
+        }
+        manager.disconnect(connectionID: connectionA)
+
+        let sessionB = UUID()
+        XCTAssertEqual(
+            submit(manager, request(connectionB, id: sessionB, seq: 1, operation: .begin([54, 58]))).outcome,
+            .queued
+        )
+        XCTAssertEqual(
+            submit(manager, request(connectionB, id: sessionB, seq: 2, operation: .release)).outcome,
+            .queued
+        )
+        XCTAssertFalse(manager.hasUnresolvedOwnership)
+    }
+
     private func request(
         _ connection: UUID,
         id: UUID = UUID(),
@@ -912,6 +948,700 @@ final class VoicePressCoordinatorVirtualHIDTests: XCTestCase {
         press.stop()
         VoiceAttemptDiagnostics.shared.end(sessionID: nil)
     }
+
+    func testEverySupportedPrimaryKeyMapsBijectivelyAndBuildsPackedKeyboardReport() throws {
+        let supported = VoiceShortcutStore.allSupportedPrimaryKeyCodes.sorted()
+        XCTAssertEqual(supported.count, 100)
+
+        var seenUsages = Set<UInt16>()
+        let transport = ComboRecordingHelperTransport()
+        let manager = RemoteOrbitHIDHelperSessionManager(
+            transport: transport,
+            physicalModifierKeyCodesProvider: { [] }
+        )
+        let connectionID = UUID()
+        var sequence: UInt64 = 0
+
+        for keyCode in supported {
+            let usage = try XCTUnwrap(
+                VoiceShortcutHIDReportEncoder.usbUsage(forPrimaryKeyCode: keyCode),
+                "missing USB HID usage for macOS keyCode \(keyCode)"
+            )
+            XCTAssertNotEqual(usage, 0)
+            XCTAssertTrue(seenUsages.insert(usage).inserted, "duplicate USB usage \(usage) for keyCode \(keyCode)")
+
+            let binding = VoiceShortcutBinding.chord(
+                primaryKeyCode: keyCode,
+                preview: "⌥K\(keyCode)",
+                modifierKeyCodes: [58]
+            )
+            let encoded = try VoiceShortcutHIDReportEncoder.encode(binding: binding)
+            XCTAssertEqual(encoded.modifierBitmap, 0x04)
+            XCTAssertEqual(encoded.primaryKeyUsage, usage)
+            XCTAssertTrue(encoded.hasValidKeyboardReportLayout)
+            XCTAssertFalse(encoded.hasValidModifierOnlyLayout)
+
+            var rawReport = [UInt8](repeating: 0xFF, count: 67)
+            let usages = [usage]
+            let built = rawReport.withUnsafeMutableBufferPointer { outBuf in
+                usages.withUnsafeBufferPointer { keyBuf in
+                    rohid_build_keyboard_report(0x04, keyBuf.baseAddress, keyBuf.count, outBuf.baseAddress, outBuf.count)
+                }
+            }
+            XCTAssertTrue(built)
+            XCTAssertEqual(rawReport[0], 1)
+            XCTAssertEqual(rawReport[1], 0x04)
+            XCTAssertEqual(rawReport[2], 0)
+            XCTAssertEqual(UInt16(rawReport[3]) | (UInt16(rawReport[4]) << 8), usage)
+            XCTAssertTrue(rawReport[5...].allSatisfy { $0 == 0 })
+
+            sequence += 1
+            let sessionID = UUID()
+            let beginDone = expectation(description: "begin combo \(keyCode)")
+            manager.submit(RemoteOrbitHIDHelperRequest(
+                connectionID: connectionID,
+                sessionID: sessionID,
+                protocolVersion: 7,
+                connectionGeneration: 41,
+                requestSequence: sequence,
+                operation: .beginCombo(modifierKeyCodes: [58], primaryKeyUsage: usage)
+            )) { reply in
+                XCTAssertEqual(reply.outcome, .queued, "helper rejected supported keyCode \(keyCode) usage \(usage)")
+                beginDone.fulfill()
+            }
+            wait(for: [beginDone], timeout: 2)
+
+            sequence += 1
+            let releaseDone = expectation(description: "release combo \(keyCode)")
+            manager.submit(RemoteOrbitHIDHelperRequest(
+                connectionID: connectionID,
+                sessionID: sessionID,
+                protocolVersion: 7,
+                connectionGeneration: 41,
+                requestSequence: sequence,
+                operation: .release
+            )) { reply in
+                XCTAssertEqual(reply.outcome, .queued)
+                releaseDone.fulfill()
+            }
+            wait(for: [releaseDone], timeout: 2)
+        }
+    }
+
+    func testKeyboardReportSequencerProducesCumulativePressAndGracefulPeelRelease() {
+        let dualModifier = RemoteOrbitHIDKeyboardCombo(modifierBitmap: 0x84, primaryKeyUsage: nil)
+        XCTAssertEqual(
+            RemoteOrbitHIDKeyboardReportSequencer.beginSteps(for: dualModifier),
+            [
+                RemoteOrbitHIDKeyboardStep(modifierBitmap: 0x04, keyUsages: []),
+                RemoteOrbitHIDKeyboardStep(modifierBitmap: 0x84, keyUsages: []),
+            ]
+        )
+        XCTAssertEqual(
+            RemoteOrbitHIDKeyboardReportSequencer.releaseSteps(from: dualModifier, graceful: true),
+            [
+                RemoteOrbitHIDKeyboardStep(modifierBitmap: 0x04, keyUsages: []),
+                .neutral,
+            ]
+        )
+
+        let chordCombo = RemoteOrbitHIDKeyboardCombo(modifierBitmap: 0x05, primaryKeyUsage: 0x2C)
+        XCTAssertEqual(
+            RemoteOrbitHIDKeyboardReportSequencer.beginSteps(for: chordCombo),
+            [
+                RemoteOrbitHIDKeyboardStep(modifierBitmap: 0x01, keyUsages: []),
+                RemoteOrbitHIDKeyboardStep(modifierBitmap: 0x05, keyUsages: []),
+                RemoteOrbitHIDKeyboardStep(modifierBitmap: 0x05, keyUsages: [0x2C]),
+            ]
+        )
+        XCTAssertEqual(
+            RemoteOrbitHIDKeyboardReportSequencer.releaseSteps(from: chordCombo, graceful: true),
+            [
+                RemoteOrbitHIDKeyboardStep(modifierBitmap: 0x05, keyUsages: []),
+                RemoteOrbitHIDKeyboardStep(modifierBitmap: 0x01, keyUsages: []),
+                .neutral,
+            ]
+        )
+        XCTAssertEqual(
+            RemoteOrbitHIDKeyboardReportSequencer.releaseSteps(from: chordCombo, graceful: false),
+            [.neutral]
+        )
+    }
+
+    func testChordUsesVirtualHIDWhenReadyAndFallsBackToEmitterWhenDriverNotReady() {
+        let readyProvider = FakeVoiceShortcutHIDProvider()
+        let readyOwner = VoiceShortcutHIDSessionOwner(
+            provider: readyProvider,
+            physicalModifierKeyCodesProvider: { [] }
+        )
+        let sink = CountingVoiceShortcutSink()
+        let emitter = VoiceShortcutEmitter(
+            sink: sink,
+            physicalModifierKeyCodesProvider: { [] }
+        )
+        var fireTimer: (() -> Void)?
+        var drain: (() -> Void)?
+        let chordProfile = VoiceInputProfile(
+            id: "chord-ctrl-opt-space",
+            displayName: "⌃⌥Space",
+            binding: .chord(primaryKeyCode: 49, preview: "⌃⌥Space", modifierKeyCodes: [58, 59])
+        )
+        let press = VoicePressCoordinator(
+            voiceShortcutEmitter: emitter,
+            virtualHIDSessionOwner: readyOwner,
+            candidateTimerFactory: { _, fire in fireTimer = fire; return VoicePressCandidateTimer(cancelAction: {}) }
+        )
+        press.onRemoteOutputDrain = { _, completion in drain = completion }
+        let opened = expectation(description: "chord enters direct voice via VirtualHID")
+        press.onStateChanged = { if $0 == .opening { opened.fulfill() } }
+
+        let sessionID = UUID()
+        XCTAssertTrue(press.keyDown(sessionID: sessionID, profile: chordProfile))
+        fireTimer?()
+        wait(for: [opened], timeout: 3)
+        XCTAssertEqual(sink.postCount, 0, "ready VirtualHID must handle .chord without CGEvent fallback")
+        XCTAssertEqual(readyProvider.requests.count, 1)
+        XCTAssertEqual(readyProvider.requests.first?.report?.modifierBitmap, 0x05)
+        XCTAssertEqual(readyProvider.requests.first?.report?.primaryKeyUsage, 0x2C)
+
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        let closed = expectation(description: "chord VirtualHID session closes after drain")
+        press.onStateChanged = { if $0 == .idle { closed.fulfill() } }
+        drain?()
+        wait(for: [closed], timeout: 3)
+        XCTAssertEqual(readyProvider.requests.map(\.operation), [.begin, .release])
+        XCTAssertFalse(readyOwner.hasUnresolvedOwnership)
+        press.stop()
+
+        // When DriverKit is not yet approved/ready, .chord gracefully falls back to VoiceShortcutEmitter.
+        let unreadyProvider = FakeVoiceShortcutHIDProvider(state: .ready(
+            packageVersion: VoiceShortcutHIDProviderContract.packageVersion,
+            clientProtocolVersion: 7,
+            connectionGeneration: 41,
+            keyboardReady: false
+        ))
+        let unreadyOwner = VoiceShortcutHIDSessionOwner(
+            provider: unreadyProvider,
+            physicalModifierKeyCodesProvider: { [] }
+        )
+        let fallbackSink = CountingVoiceShortcutSink()
+        let fallbackEmitter = VoiceShortcutEmitter(
+            sink: fallbackSink,
+            physicalModifierKeyCodesProvider: { [] }
+        )
+        var fallbackFire: (() -> Void)?
+        let fallbackPress = VoicePressCoordinator(
+            voiceShortcutEmitter: fallbackEmitter,
+            virtualHIDSessionOwner: unreadyOwner,
+            candidateTimerFactory: { _, fire in fallbackFire = fire; return VoicePressCandidateTimer(cancelAction: {}) }
+        )
+        let fallbackID = UUID()
+        XCTAssertTrue(fallbackPress.keyDown(sessionID: fallbackID, profile: chordProfile))
+        fallbackFire?()
+        XCTAssertTrue(unreadyProvider.requests.isEmpty)
+        XCTAssertGreaterThan(fallbackSink.postCount, 0, "unready VirtualHID falls back to VoiceShortcutEmitter for .chord")
+        _ = fallbackPress.keyUp()
+        fallbackPress.stop()
+        VoiceAttemptDiagnostics.shared.end(sessionID: nil)
+    }
+
+    func testUnixDomainSocketRoundTripSupportsModifierChordAndChordAndEnforcesPeerAuth() {
+        let shortSuffix = String(UUID().uuidString.prefix(8))
+        let socketPath = "/tmp/rohid-\(shortSuffix).sock"
+        defer { unlink(socketPath) }
+
+        let transport = ComboRecordingHelperTransport()
+        let manager = RemoteOrbitHIDHelperSessionManager(
+            transport: transport,
+            physicalModifierKeyCodesProvider: { [] }
+        )
+        let server = RemoteOrbitHIDUnixSocketServer(
+            socketPath: socketPath,
+            socketMode: 0o600,
+            manager: manager,
+            peerAuthPolicy: .sameProcessForTesting()
+        )
+        XCTAssertTrue(server.start())
+        defer { server.stop() }
+
+        let client = VoiceShortcutHIDUnixSocketProvider(
+            socketPath: socketPath,
+            reconnectInterval: 0.1
+        )
+        client.start()
+        defer { client.stop() }
+
+        let becameReady = expectation(description: "socket client receives initial ready status")
+        let owner = VoiceShortcutHIDSessionOwner(
+            provider: client,
+            physicalModifierKeyCodesProvider: { [] }
+        )
+        DispatchQueue.global().async {
+            let deadline = Date().addingTimeInterval(2.5)
+            while Date() < deadline {
+                if owner.isReadyForDispatch {
+                    becameReady.fulfill()
+                    return
+                }
+                usleep(10_000)
+            }
+        }
+        wait(for: [becameReady], timeout: 3)
+        XCTAssertTrue(client.isDaemonConnected)
+        XCTAssertTrue(client.isDriverServiceConnected)
+
+        // 1. Dual-modifier chord: Left Option (58) + Right Command (54) -> 0x84
+        let modSession = UUID()
+        let modBegan = expectation(description: "socket modifierChord begin")
+        owner.begin(
+            sessionID: modSession,
+            binding: .modifierChord(modifierKeyCodes: [54, 58])
+        ) { admission in
+            XCTAssertEqual(admission, .accepted)
+            modBegan.fulfill()
+        }
+        wait(for: [modBegan], timeout: 2)
+
+        let modEnded = expectation(description: "socket modifierChord end")
+        owner.end(sessionID: modSession) { released in
+            XCTAssertTrue(released)
+            modEnded.fulfill()
+        }
+        wait(for: [modEnded], timeout: 2)
+
+        // 2. Arbitrary key chord: Control (59) + Option (58) + Space (49 -> 0x2C) -> 0x05 + 0x2C
+        let chordSession = UUID()
+        let chordBegan = expectation(description: "socket chord begin")
+        owner.begin(
+            sessionID: chordSession,
+            binding: .chord(primaryKeyCode: 49, preview: "⌃⌥Space", modifierKeyCodes: [58, 59])
+        ) { admission in
+            XCTAssertEqual(admission, .accepted)
+            chordBegan.fulfill()
+        }
+        wait(for: [chordBegan], timeout: 2)
+
+        let chordEnded = expectation(description: "socket chord end")
+        owner.end(sessionID: chordSession) { released in
+            XCTAssertTrue(released)
+            chordEnded.fulfill()
+        }
+        wait(for: [chordEnded], timeout: 2)
+
+        XCTAssertEqual(
+            transport.events,
+            [
+                .begin(RemoteOrbitHIDKeyboardCombo(modifierBitmap: 0x84, primaryKeyUsage: nil)),
+                .release(previous: RemoteOrbitHIDKeyboardCombo(modifierBitmap: 0x84, primaryKeyUsage: nil), graceful: true),
+                .begin(RemoteOrbitHIDKeyboardCombo(modifierBitmap: 0x05, primaryKeyUsage: 0x2C)),
+                .release(previous: RemoteOrbitHIDKeyboardCombo(modifierBitmap: 0x05, primaryKeyUsage: 0x2C), graceful: true),
+            ]
+        )
+
+        // 3. Reject unauthorized peer fail-closed
+        let deniedPath = "/tmp/rohid-deny-\(shortSuffix).sock"
+        defer { unlink(deniedPath) }
+        let deniedServer = RemoteOrbitHIDUnixSocketServer(
+            socketPath: deniedPath,
+            socketMode: 0o600,
+            manager: manager,
+            peerAuthPolicy: RemoteOrbitHIDPeerAuthPolicy { _ in false }
+        )
+        XCTAssertTrue(deniedServer.start())
+        defer { deniedServer.stop() }
+
+        let deniedClient = VoiceShortcutHIDUnixSocketProvider(
+            socketPath: deniedPath,
+            reconnectInterval: 0.5
+        )
+        deniedClient.start()
+        defer { deniedClient.stop() }
+        usleep(100_000)
+        let deniedOwner = VoiceShortcutHIDSessionOwner(
+            provider: deniedClient,
+            physicalModifierKeyCodesProvider: { [] }
+        )
+        XCTAssertFalse(deniedOwner.isReadyForDispatch)
+    }
+
+    func testSecureInputBLEPhysicalHTTDrivesModifierChordShortAndLongWithVirtualHID() {
+        let provider = FakeVoiceShortcutHIDProvider()
+        let owner = VoiceShortcutHIDSessionOwner(provider: provider, physicalModifierKeyCodesProvider: { [] })
+        var fireTimer: (() -> Void)?
+        var drain: (() -> Void)?
+        let voicePress = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger(keyedEventSink: { _, _ in }),
+            virtualHIDSessionOwner: owner,
+            candidateTimerFactory: { _, fire in fireTimer = fire; return VoicePressCandidateTimer(cancelAction: {}) }
+        )
+        let filter = VoiceKeyFilter(
+            syntheticOptionTrigger: VoiceOptionTrigger(keyedEventSink: { _, _ in })
+        )
+        let suite = "RemoteOrbitTests.SecureInputChord.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer {
+            voicePress.stop()
+            filter.stop()
+            AudioPipe.shared.cancelPreparedRemoteInputSelection()
+            VoiceAttemptDiagnostics.shared.end(sessionID: nil)
+            defaults.removePersistentDomain(forName: suite)
+        }
+
+        let controller = AppController(
+            filter: filter,
+            voicePress: voicePress,
+            initiallyHIDConnected: true,
+            isVoiceHIDMappingEnabled: { false },
+            applyVoiceHIDMapping: { _, _ in true },
+            usePersistedVoiceProfile: false,
+            voiceShortcutDefaults: defaults,
+            readPersistedVoiceTriggerKey: { .leftOption },
+            persistVoiceTriggerKey: { _ in },
+            isSecureEventInputActive: { true }
+        )
+        let bridge = controller.bleBridgeForTesting
+        defer { bridge.stop() }
+        voicePress.onRemoteOutputDrain = { _, completion in drain = completion }
+        bridge.onStreamingChanged = { [weak voicePress] streaming, _ in
+            voicePress?.setRemoteStreaming(streaming)
+        }
+        bridge.onPreHIDPhysicalStreamChanged = { [weak voicePress] streaming, _ in
+            voicePress?.setPreHIDPhysicalStreaming(streaming)
+        }
+
+        var chordSnapshot = VoiceShortcutSnapshot.seeded()
+        chordSnapshot.entries.append(VoiceShortcutEntry(
+            id: "dual-mod",
+            displayName: "左 Option + 右 Command",
+            binding: .modifierChord(modifierKeyCodes: [54, 58])
+        ))
+        chordSnapshot.activeEntryID = "dual-mod"
+        let configDone = expectation(description: "dual modifier chord committed")
+        controller.updateVoiceShortcutSnapshot(chordSnapshot) { result in
+            XCTAssertEqual(result, .applied)
+            configDone.fulfill()
+        }
+        wait(for: [configDone], timeout: 3)
+
+        bridge.prepareReadyTransportForTesting()
+
+        // 1. Short tap (< 300ms): AUDIO_START(0x03) -> AUDIO_STOP(0x02) -> 0 VirtualHID requests
+        bridge.receiveAudioStartForTesting(reason: 0x03, streamID: 1)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(voicePress.hasLongOnlyCandidateForTesting)
+        bridge.receiveAudioStopForTesting(reason: 0x02)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        XCTAssertTrue(provider.requests.isEmpty)
+        XCTAssertEqual(voicePress.currentStateForTesting, .idle)
+
+        // 2. Long hold (>= 300ms): promotes to VirtualHID [54, 58], adopts BLE stream, releases to neutral after drain
+        bridge.receiveAudioStartForTesting(reason: 0x03, streamID: 2)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(voicePress.hasLongOnlyCandidateForTesting)
+        fireTimer?()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin])
+        XCTAssertEqual(provider.requests.first?.report?.modifierBitmap, 0x84)
+        XCTAssertEqual(voicePress.currentStateForTesting, .streaming)
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .voiceSession)
+
+        bridge.receiveAudioStopForTesting(reason: 0x02)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        XCTAssertEqual(voicePress.currentStateForTesting, .draining)
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin], "neutral release waits for audio drain")
+        drain?()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin, .release])
+        XCTAssertEqual(provider.requests.last?.report, .neutral)
+        XCTAssertEqual(voicePress.currentStateForTesting, .idle)
+        XCTAssertFalse(owner.hasUnresolvedOwnership)
+    }
+
+    func testSecureInputBLEPhysicalHTTAdoptsLivePureModifierHoldWithoutStickyShortDiscard() {
+        var emittedEvents: [(VoiceTriggerKey, Bool)] = []
+        let trigger = VoiceOptionTrigger(keyedEventSink: { key, down in
+            emittedEvents.append((key, down))
+        })
+        let filter = VoiceKeyFilter(syntheticOptionTrigger: trigger)
+        var fireTimer: (() -> Void)?
+        var drain: (() -> Void)?
+        let voicePress = VoicePressCoordinator(
+            optionTrigger: trigger,
+            candidateTimerFactory: { _, fire in fireTimer = fire; return VoicePressCandidateTimer(cancelAction: {}) }
+        )
+        let suite = "RemoteOrbitTests.SecureInputPureMod.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer {
+            voicePress.stop()
+            filter.stop()
+            AudioPipe.shared.cancelPreparedRemoteInputSelection()
+            VoiceAttemptDiagnostics.shared.end(sessionID: nil)
+            defaults.removePersistentDomain(forName: suite)
+        }
+
+        let controller = AppController(
+            filter: filter,
+            voicePress: voicePress,
+            initiallyHIDConnected: true,
+            isVoiceHIDMappingEnabled: { true },
+            applyVoiceHIDMapping: { _, _ in true },
+            usePersistedVoiceProfile: false,
+            voiceShortcutDefaults: defaults,
+            readPersistedVoiceTriggerKey: { .leftOption },
+            persistVoiceTriggerKey: { _ in },
+            isSecureEventInputActive: { true },
+            hardwareModifierFlagsProvider: { .maskAlternate }
+        )
+        XCTAssertTrue(controller.restoreVoiceTriggerRuntime())
+        let bridge = controller.bleBridgeForTesting
+        defer { bridge.stop() }
+        voicePress.onRemoteOutputDrain = { _, completion in drain = completion }
+        voicePress.onHardwareOptionGatePhysicalUp = { [weak filter] gestureID in
+            filter?.armHardwareOptionRelease(gestureID: gestureID)
+        }
+        voicePress.onHardwareOptionGateOutputDrained = { [weak filter] gestureID in
+            filter?.releaseHeldHardwareOption(gestureID: gestureID, reason: "output-drained")
+        }
+        bridge.onStreamingChanged = { [weak voicePress] streaming, _ in
+            voicePress?.setRemoteStreaming(streaming)
+        }
+        bridge.onPreHIDPhysicalStreamChanged = { [weak voicePress] streaming, _ in
+            voicePress?.setPreHIDPhysicalStreaming(streaming)
+        }
+        bridge.prepareReadyTransportForTesting()
+
+        // 1. Short tap with already-active hardware Option does not arm sticky short-tap discard.
+        bridge.receiveAudioStartForTesting(reason: 0x03, streamID: 3)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(voicePress.hasLongOnlyCandidateForTesting)
+        XCTAssertFalse(filter.hasActiveHardwareTriggerOwnership)
+        bridge.receiveAudioStopForTesting(reason: 0x02)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        XCTAssertFalse(filter.hasShortTapDiscardOwnership)
+        XCTAssertEqual(voicePress.currentStateForTesting, .idle)
+
+        // 2. Long hold adopts the live Option hold without replaying a duplicate DOWN.
+        bridge.receiveAudioStartForTesting(reason: 0x03, streamID: 4)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        fireTimer?()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(voicePress.currentStateForTesting, .streaming)
+        XCTAssertEqual(bridge.streamOwnershipForTesting, .voiceSession)
+        XCTAssertTrue(filter.hasActiveHardwareTriggerOwnership)
+        XCTAssertFalse(filter.isSyntheticTriggerDown)
+        XCTAssertTrue(emittedEvents.isEmpty)
+
+        bridge.receiveAudioStopForTesting(reason: 0x02)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        XCTAssertEqual(voicePress.currentStateForTesting, .draining)
+        drain?()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(voicePress.currentStateForTesting, .idle)
+    }
+
+    func testRapidRepressDefersShortcutDownUntilPostReleaseQuietIntervalWhilePreservingCandidate() {
+        let provider = FakeVoiceShortcutHIDProvider()
+        let owner = VoiceShortcutHIDSessionOwner(provider: provider, physicalModifierKeyCodesProvider: { [] })
+        let profile = VoiceInputProfile(
+            id: "chord-ab",
+            displayName: "Left Option + Right Command",
+            binding: .modifierChord(modifierKeyCodes: [54, 58])
+        )
+        var now: TimeInterval = 9.0
+        var timers: [(delay: TimeInterval, fire: () -> Void)] = []
+        var drains: [() -> Void] = []
+        let press = VoicePressCoordinator(
+            virtualHIDSessionOwner: owner,
+            postShortcutReleaseQuietInterval: 0.55,
+            uptimeProvider: { now },
+            candidateTimerFactory: { delay, fire in
+                timers.append((delay, fire))
+                return VoicePressCandidateTimer(cancelAction: {})
+            }
+        )
+        press.onRemoteOutputDrain = { _, completion in drains.append(completion) }
+        defer {
+            press.stop()
+            VoiceAttemptDiagnostics.shared.end(sessionID: nil)
+        }
+
+        // Session A finishes at t = 10.00
+        let firstOpened = expectation(description: "Session A opens")
+        press.onStateChanged = { if $0 == .opening, provider.requests.count == 1 { firstOpened.fulfill() } }
+        let sessionA = UUID()
+        XCTAssertTrue(press.keyDown(sessionID: sessionA, profile: profile))
+        timers.removeLast().fire()
+        wait(for: [firstOpened], timeout: 3)
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        XCTAssertEqual(drains.count, 1)
+        let firstIdle = expectation(description: "Session A finishes release")
+        press.onStateChanged = { if $0 == .idle { firstIdle.fulfill() } }
+        now = 10.00
+        drains[0]()
+        wait(for: [firstIdle], timeout: 3)
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin, .release])
+
+        // Session B pressed at t = 10.10, crosses 300ms at t = 10.40 (< 0.55s after t = 10.00)
+        now = 10.10
+        let sessionB = UUID()
+        XCTAssertTrue(press.keyDown(sessionID: sessionB, profile: profile))
+        XCTAssertEqual(timers.count, 1)
+        now = 10.40
+        timers.removeLast().fire()
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin, .release], "VirtualHID begin must wait for 550ms quiet window")
+        XCTAssertEqual(timers.count, 1, "quiet gate timer must be armed")
+        XCTAssertEqual(timers[0].delay, 0.15, accuracy: 0.001)
+        XCTAssertTrue(press.hasLongOnlyCandidateForTesting)
+
+        // Advance past quiet interval and fire quiet gate timer -> Session B opens
+        now = 10.55
+        let secondOpened = expectation(description: "Session B opens after quiet window")
+        press.onStateChanged = { if $0 == .opening, provider.requests.count == 3 { secondOpened.fulfill() } }
+        timers.removeLast().fire()
+        wait(for: [secondOpened], timeout: 3)
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin, .release, .begin])
+        press.setRemoteStreaming(true)
+        XCTAssertTrue(press.keyUp())
+        press.setRemoteStreaming(false)
+        let secondIdle = expectation(description: "Session B finishes release")
+        press.onStateChanged = { if $0 == .idle { secondIdle.fulfill() } }
+        now = 11.00
+        drains[1]()
+        wait(for: [secondIdle], timeout: 3)
+
+        // Releasing Session C before quiet timer completes cancels cleanly without VirtualHID begin
+        now = 11.10
+        let sessionC = UUID()
+        XCTAssertTrue(press.keyDown(sessionID: sessionC, profile: profile))
+        now = 11.40
+        timers.removeLast().fire()
+        XCTAssertEqual(timers.count, 1)
+        XCTAssertTrue(press.keyUp())
+        XCTAssertFalse(press.hasLongOnlyCandidateForTesting)
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin, .release, .begin, .release])
+    }
+
+    func testMidHoldSecureEventInputActivationReleasesVoiceHoldOnBLEPhysicalStop() {
+        var secureInputActive = false
+        var stopVoiceInputCount = 0
+        let provider = FakeVoiceShortcutHIDProvider()
+        let owner = VoiceShortcutHIDSessionOwner(provider: provider, physicalModifierKeyCodesProvider: { [] })
+        var fireTimer: (() -> Void)?
+        var drain: (() -> Void)?
+        let voicePress = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger(keyedEventSink: { _, _ in }),
+            virtualHIDSessionOwner: owner,
+            candidateTimerFactory: { _, fire in fireTimer = fire; return VoicePressCandidateTimer(cancelAction: {}) }
+        )
+        let filter = VoiceKeyFilter(
+            syntheticOptionTrigger: VoiceOptionTrigger(keyedEventSink: { _, _ in })
+        )
+        let suite = "RemoteOrbitTests.MidHoldSecureInput.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer {
+            voicePress.stop()
+            filter.stop()
+            AudioPipe.shared.cancelPreparedRemoteInputSelection()
+            VoiceAttemptDiagnostics.shared.end(sessionID: nil)
+            defaults.removePersistentDomain(forName: suite)
+        }
+
+        let controller = AppController(
+            filter: filter,
+            voicePress: voicePress,
+            initiallyHIDConnected: true,
+            isVoiceHIDMappingEnabled: { false },
+            applyVoiceHIDMapping: { _, _ in true },
+            stopVoiceInput: { stopVoiceInputCount += 1 },
+            usePersistedVoiceProfile: false,
+            voiceShortcutDefaults: defaults,
+            readPersistedVoiceTriggerKey: { .leftOption },
+            persistVoiceTriggerKey: { _ in },
+            isSecureEventInputActive: { secureInputActive }
+        )
+        let bridge = controller.bleBridgeForTesting
+        defer { bridge.stop() }
+        voicePress.onRemoteOutputDrain = { _, completion in drain = completion }
+        bridge.onStreamingChanged = { [weak voicePress] streaming, _ in
+            voicePress?.setRemoteStreaming(streaming)
+        }
+        bridge.onPreHIDPhysicalStreamChanged = { [weak voicePress] streaming, _ in
+            voicePress?.setPreHIDPhysicalStreaming(streaming)
+        }
+
+        var chordSnapshot = VoiceShortcutSnapshot.seeded()
+        chordSnapshot.entries.append(VoiceShortcutEntry(
+            id: "dual-mod",
+            displayName: "左 Option + 右 Command",
+            binding: .modifierChord(modifierKeyCodes: [54, 58])
+        ))
+        chordSnapshot.activeEntryID = "dual-mod"
+        let configDone = expectation(description: "dual modifier chord committed")
+        controller.updateVoiceShortcutSnapshot(chordSnapshot) { result in
+            XCTAssertEqual(result, .applied)
+            configDone.fulfill()
+        }
+        wait(for: [configDone], timeout: 3)
+
+        bridge.prepareReadyTransportForTesting()
+        // Initial press arrives via normal HIDMonitor path while Secure Input is off.
+        controller.beginVoicePress(targetApplicationBundleIdentifier: nil, source: .hidMonitor)
+        bridge.receiveAudioStartForTesting(reason: 0x03, streamID: 7)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        fireTimer?()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(voicePress.currentStateForTesting, .streaming)
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin])
+
+        // Mid-hold: Secure Event Input activates, blocking HIDMonitor UP; BLE AUDIO_STOP arrives.
+        secureInputActive = true
+        bridge.receiveAudioStopForTesting(reason: 0x02)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        XCTAssertEqual(voicePress.currentStateForTesting, .draining)
+        XCTAssertGreaterThanOrEqual(stopVoiceInputCount, 1)
+        XCTAssertNotNil(drain)
+        drain?()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(provider.requests.map(\.operation), [.begin, .release])
+        XCTAssertEqual(provider.requests.last?.report, .neutral)
+        XCTAssertEqual(voicePress.currentStateForTesting, .idle)
+    }
+
+    func testKarabinerTransportStateDeduplicationAndCxxBridgeLifecycleDoNotLoop() {
+        let client = rohid_client_create()
+        XCTAssertNotNil(client)
+        var callbackCount = 0
+        withUnsafeMutablePointer(to: &callbackCount) { countPtr in
+            rohid_client_set_state_callback(client, { context, _, _, _ in
+                guard let context else { return }
+                let ptr = context.assumingMemoryBound(to: Int.self)
+                ptr.pointee += 1
+            }, countPtr)
+            rohid_client_set_state_callback(client, nil, nil)
+        }
+        rohid_client_destroy(client)
+        XCTAssertEqual(callbackCount, 0)
+
+        let transport = KarabinerVirtualHIDTransport()
+        var observed: [RemoteOrbitHIDHelperTransportState] = []
+        transport.setStateObserver { state in
+            observed.append(state)
+        }
+        transport.emitStateChangeForTesting(generation: 1, keyboardReady: true, serviceConnected: true)
+        transport.emitStateChangeForTesting(generation: 1, keyboardReady: true, serviceConnected: true)
+        transport.emitStateChangeForTesting(generation: 1, keyboardReady: true, serviceConnected: true)
+        transport.emitStateChangeForTesting(generation: 2, keyboardReady: false, serviceConnected: true)
+        transport.emitStateChangeForTesting(generation: 2, keyboardReady: false, serviceConnected: true)
+        XCTAssertEqual(observed.count, 2)
+        XCTAssertEqual(observed.map(\.connectionGeneration), [1, 2])
+    }
 }
 
 private final class FakeVoiceShortcutHIDProvider: VoiceShortcutHIDReportProvider {
@@ -1046,5 +1776,71 @@ private final class ControlledFakeHelperTransport: RemoteOrbitHIDHelperTransport
         let callback = submissions.indices.contains(index) ? submissions[index].completion : nil
         condition.unlock()
         callback?(outcome)
+    }
+}
+
+private final class ComboRecordingHelperTransport: RemoteOrbitHIDHelperTransport {
+    enum Event: Equatable {
+        case begin(RemoteOrbitHIDKeyboardCombo)
+        case release(previous: RemoteOrbitHIDKeyboardCombo?, graceful: Bool)
+    }
+
+    private let lock = NSLock()
+    private var recorded: [Event] = []
+
+    var state: RemoteOrbitHIDHelperTransportState? {
+        RemoteOrbitHIDHelperTransportState(
+            packageVersion: "8.6.0",
+            clientProtocolVersion: 7,
+            connectionGeneration: 41,
+            keyboardReady: true,
+            serviceConnected: true
+        )
+    }
+
+    var events: [Event] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func submitModifierBitmap(
+        _ modifierBitmap: UInt8,
+        completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void
+    ) {
+        submitKeyboardCombo(
+            RemoteOrbitHIDKeyboardCombo(modifierBitmap: modifierBitmap),
+            completion: completion
+        )
+    }
+
+    func submitKeyboardCombo(
+        _ combo: RemoteOrbitHIDKeyboardCombo,
+        completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void
+    ) {
+        lock.lock()
+        recorded.append(.begin(combo))
+        lock.unlock()
+        completion(.queued)
+    }
+
+    func submitNeutralRelease(
+        from previous: RemoteOrbitHIDKeyboardCombo?,
+        graceful: Bool,
+        completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void
+    ) {
+        lock.lock()
+        recorded.append(.release(previous: previous, graceful: graceful))
+        lock.unlock()
+        completion(.queued)
+    }
+}
+
+private final class CountingVoiceShortcutSink: VoiceShortcutEventSink {
+    private(set) var postCount = 0
+
+    func post(_ event: VoiceShortcutSyntheticEvent) -> VoiceShortcutEventPostResult {
+        postCount += 1
+        return .posted
     }
 }

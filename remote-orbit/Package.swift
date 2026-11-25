@@ -21,6 +21,11 @@ let package = Package(
             path: "Sources/RemoteOrbitHIDHelper"
         ),
         .executableTarget(
+            name: "RemoteOrbitHIDHelperDaemon",
+            dependencies: ["RemoteOrbitHIDBridge", "RemoteOrbitHIDHelper"],
+            path: "Sources/RemoteOrbitHIDHelperDaemon"
+        ),
+        .executableTarget(
             name: "RemoteOrbit",
             dependencies: ["RemoteOrbitHIDBridge", "RemoteOrbitHIDHelper"],
             path: "Sources/RemoteOrbit"

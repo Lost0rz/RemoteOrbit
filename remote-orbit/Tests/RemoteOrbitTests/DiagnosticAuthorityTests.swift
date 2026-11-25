@@ -234,6 +234,24 @@ final class DiagnosticAuthorityTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: fileURL).last, 0x0A)
     }
 
+    func testRepeatedAppendsKeepJournalQueryableAndDurableAcrossReopen() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("events.jsonl")
+        let journal = JSONLinesDiagnosticJournal(fileURL: fileURL)
+
+        for seq in UInt64(1)...5 {
+            try journal.append(makeEvent(wallMilliseconds: Int64(seq * 100), sequence: seq))
+        }
+
+        let livePage = try journal.query(DiagnosticQueryFilter(limit: 10))
+        XCTAssertEqual(livePage.events.map(\.sequenceNumber), [1, 2, 3, 4, 5])
+
+        let reopenedJournal = JSONLinesDiagnosticJournal(fileURL: fileURL)
+        let reopenedPage = try reopenedJournal.query(DiagnosticQueryFilter(limit: 10))
+        XCTAssertEqual(reopenedPage.events.map(\.sequenceNumber), [1, 2, 3, 4, 5])
+    }
+
     func testInteriorMalformedCompleteRecordStillFailsClosed() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

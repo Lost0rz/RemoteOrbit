@@ -60,6 +60,8 @@ final class AudioPipePlayoutReserveLifecycleGate: @unchecked Sendable {
 
     func acquireReset(onFirstWait: (() -> Void)? = nil) {
         var reportedWait = false
+        let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        var spins = 0
         while true {
             if OSAtomicCompareAndSwap32Barrier(0, 2, &state) {
                 return
@@ -68,7 +70,17 @@ final class AudioPipePlayoutReserveLifecycleGate: @unchecked Sendable {
                 onFirstWait?()
                 reportedWait = true
             }
-            sched_yield()
+            let currentState = OSAtomicAdd32Barrier(0, &state)
+            if clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- start > 500_000_000,
+               OSAtomicCompareAndSwap32Barrier(currentState, 2, &state) {
+                return
+            }
+            spins &+= 1
+            if spins < 64 {
+                sched_yield()
+            } else {
+                usleep(50)
+            }
         }
     }
 
@@ -153,8 +165,15 @@ final class AudioPipePlayoutReserve: @unchecked Sendable {
     }
 
     func snapshot(at timestampNanoseconds: UInt64) -> AudioPipePlayoutReserveSnapshot {
-        while true {
-            guard lifecycleGate.isIdle() else { continue }
+        for attempt in 0..<4_096 {
+            guard lifecycleGate.isIdle() else {
+                if attempt < 64 {
+                    sched_yield()
+                } else {
+                    usleep(20)
+                }
+                continue
+            }
             let stateBefore = atomicLoad32(&state)
             let reset = UInt64(max(0, atomicLoad64(&resetTimestampNanoseconds)))
             let startedAt = UInt64(max(0, atomicLoad64(&startTimestampNanoseconds)))
@@ -176,6 +195,23 @@ final class AudioPipePlayoutReserve: @unchecked Sendable {
                 startReason: started ? reason : nil
             )
         }
+
+        let stateAfter = atomicLoad32(&state)
+        let reset = UInt64(max(0, atomicLoad64(&resetTimestampNanoseconds)))
+        let startedAt = UInt64(max(0, atomicLoad64(&startTimestampNanoseconds)))
+        let depth = Int(max(0, atomicLoad64(&startDepthFrames)))
+        let reason = Self.reason(rawValue: atomicLoad32(&startReason))
+        let started = stateAfter == 2
+        let waitEnd = startedAt > 0 ? startedAt : timestampNanoseconds
+        return AudioPipePlayoutReserveSnapshot(
+            candidate: candidate,
+            configuredReserveFrames: candidate.frames,
+            selectedDefaultCandidate: .defaultCandidate,
+            state: started ? .started : .waitingForReserve,
+            startDepthFrames: started ? depth : nil,
+            waitDurationNanoseconds: waitEnd >= reset ? waitEnd - reset : 0,
+            startReason: started ? reason : nil
+        )
     }
 
     // Deterministic test seams exercise the same lifecycle gate used by the

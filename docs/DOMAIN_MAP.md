@@ -1,8 +1,8 @@
 # RemoteOrbit Domain Map
 
 Status: `DERIVED_PROJECTION`
-Last audited: 2026-11-09
-Source routing baseline: `997e51d3aebe65c3942530b10a3b63dbfdcd5476` (historical); additional HID/chord routes below are from Task 053 PR #52 candidate source, not verified production runtime behavior.
+Last audited: 2026-11-25
+Source routing baseline: merged Task 053 VirtualHID any-key voice shortcut architecture and current `main` governance.
 
 This is a derived map of RemoteOrbit product capabilities to source, runtime and tests. Current implementation and product behavior take precedence over stale routes.
 
@@ -28,10 +28,12 @@ This is a derived map of RemoteOrbit product capabilities to source, runtime and
 - `remote-orbit/Sources/RemoteOrbit/main.swift` — orchestration and runtime seams.
 - `VoiceOptionTrigger.swift` — trigger synthesis/ownership helper used by the current runtime.
 - `VoiceTriggerKey.swift` / `VoiceInputProfile.swift` — current selected trigger/profile model.
-- `VoiceShortcutBinding.swift` — side-preserving pure modifiers and modifier-only chord model, validated single snapshot, seed migration and settings projection.
-- `VoiceShortcutEmitter.swift` — session-owned chord edges released after the existing output-drain callback.
-- `VoiceShortcutHID.swift` / `VoiceShortcutHIDSecurity.swift` — Task 053 candidate HID report encoding, helper interactions and peer identity checks; real helper availability and input-method acceptance remain independently verifiable.
-- `remote-orbit/Sources/RemoteOrbitHIDBridge/` — candidate native virtual-HID report bridge and pinned third-party headers.
+- `VoiceShortcutBinding.swift` — side-preserving pure modifiers, modifier-only chords, and modifier+primary-key chords; validated single snapshot, seed migration and settings projection.
+- `VoiceShortcutEmitter.swift` — session-owned shortcut emitter compatibility layer and edge semantics.
+- `VoiceShortcutHID.swift` / `VoiceShortcutHIDSecurity.swift` — VirtualHID keyboard report encoding, Unix domain socket IPC client (`VoiceShortcutHIDUnixSocketProvider`), helper interactions and peer identity checks.
+- `remote-orbit/Sources/RemoteOrbitHIDBridge/` — native virtual-HID report bridge (`RemoteOrbitHIDBridge.cpp`) and pinned third-party headers.
+- `remote-orbit/Sources/RemoteOrbitHIDHelper/` — VirtualHID session manager and authenticated Unix domain socket server (`RemoteOrbitHIDHelper.swift`, `RemoteOrbitHIDUnixSocketIPC.swift`).
+- `remote-orbit/Sources/RemoteOrbitHIDHelperDaemon/main.swift` — root helper daemon hosting Karabiner VirtualHID connectivity for authenticated app clients.
 - `VoiceReceiverReadiness.swift` — receiver/readiness coordination.
 - `VoiceFocusTransactionTracker.swift` — bounded focus transaction tracking.
 - `PostReleaseCaptureGrace.swift` — post-release/repress grace mechanism.
@@ -199,13 +201,13 @@ Persistent session, dual Receiver / Receiver B, local-microphone voice-button ca
 
 **Primary routes**
 
-- `remote-orbit/Packaging/`
+- `remote-orbit/Packaging/` (includes `Karabiner-DriverKit-VirtualHIDDevice-8.6.0.pkg` and `Info.plist`)
 - `remote-orbit/package-app.sh`
 - `remote-orbit/install-app.sh`
 - `remote-orbit-audio-driver/`
 - `installer/`
 - `package-dmg.sh`
-- `InstallationSupport.swift`
+- `InstallationSupport.swift` — bundled HAL audio driver repair, VirtualHID + `RemoteOrbitHIDHelperDaemon` installation/update diagnostics, and SHA-256 helper drift detection.
 
 **Boundary:** Packaging and installation can replace the installed app or HAL driver and restart CoreAudio; these observable runtime effects are separate from building or inspecting source.
 

@@ -4,12 +4,47 @@ import AppKit
 import SwiftUI
 
 enum ProductIdentity {
-    static let name = "RemoteOrbit"
+    static let canonicalName = "RemoteOrbit"
     static let shortName = "RemoteOrbit"
     static let tagline = "Your remote. Your actions. Your Mac."
     static let defaultVersion = "0.2.10"
     static let defaultBuild = "36"
-    static let bundleIdentifier = "com.lost0rz.RemoteOrbit"
+    static let canonicalBundleIdentifier = "com.lost0rz.RemoteOrbit"
+
+    static var isRecognizedAppBundle: Bool {
+        guard Bundle.main.bundlePath.hasSuffix(".app"),
+              let bundleID = Bundle.main.bundleIdentifier else {
+            return false
+        }
+        return bundleID == canonicalBundleIdentifier ||
+            bundleID.hasPrefix(canonicalBundleIdentifier + ".")
+    }
+
+    static var name: String {
+        if isRecognizedAppBundle {
+            if let displayName = Bundle.main.object(
+                forInfoDictionaryKey: "CFBundleDisplayName"
+            ) as? String,
+               !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return displayName
+            }
+            if let bundleName = Bundle.main.object(
+                forInfoDictionaryKey: "CFBundleName"
+            ) as? String,
+               !bundleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return bundleName
+            }
+        }
+        return canonicalName
+    }
+
+    static var bundleIdentifier: String {
+        if isRecognizedAppBundle,
+           let bundleID = Bundle.main.bundleIdentifier {
+            return bundleID
+        }
+        return canonicalBundleIdentifier
+    }
 
     static var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -30,7 +65,16 @@ enum ProductIdentity {
 /// Geometry matches `remote-orbit/Brand/RemoteOrbitMark.svg`: one tilted orbit
 /// with a compact vertical remote passing in front of it.
 enum ProductBrandMark {
+    private static let defaultMenuBarImage: NSImage = renderMenuBarTemplateImage(size: 18)
+
     static func menuBarTemplateImage(size: CGFloat = 18) -> NSImage {
+        if size == 18 {
+            return defaultMenuBarImage
+        }
+        return renderMenuBarTemplateImage(size: size)
+    }
+
+    private static func renderMenuBarTemplateImage(size: CGFloat) -> NSImage {
         let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
 

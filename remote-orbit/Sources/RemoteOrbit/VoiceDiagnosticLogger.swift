@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 enum VoiceDiagnosticHIDVerification: String, Equatable {
@@ -14,6 +15,7 @@ struct VoiceDiagnosticHIDMappingEntry: Equatable {
 
 enum VoiceDiagnosticHIDMappingParser {
     static let voiceSource: UInt64 = 0x70000003E
+    static let noOpDestination: UInt64 = 0x0
 
     static func verify(
         stdout: String,
@@ -30,7 +32,9 @@ enum VoiceDiagnosticHIDMappingParser {
         guard let mapping = mappings.first(where: { $0.source == voiceSource }) else {
             return requested == nil ? .match : .mismatch
         }
-        guard let requested else { return .mismatch }
+        guard let requested else {
+            return mapping.destination == noOpDestination ? .match : .mismatch
+        }
         return mapping.destination == requested.hidutilDestination ? .match : .mismatch
     }
 
@@ -144,11 +148,16 @@ final class VoiceDiagnosticLogger {
     private let processIdentifierProvider: () -> Int32
     private let binaryPathProvider: () -> String
     private let beforeQueuedEventWriteForTesting: (() -> Void)?
+    private static let maxInFlightRecords: Int32 = 2_048
+
     private var fileHandle: FileHandle?
     private var isActive = false
     private var timestampFormatter: ISO8601DateFormatter?
     private var sequenceNumber: UInt64 = 0
     private var queuedRecordCount = 0
+    private var inFlightRecordCount: Int32 = 0
+    private var pendingUnsynchronizedWrites = false
+    private var coalescedSyncWorkItem: DispatchWorkItem?
     private var jsonSerializationCount = 0
     private var writeCount = 0
     private var synchronizeCount = 0
@@ -192,6 +201,9 @@ final class VoiceDiagnosticLogger {
         runFields["binary_path"] = binaryPathProvider()
 
         writerQueue.sync {
+            coalescedSyncWorkItem?.cancel()
+            coalescedSyncWorkItem = nil
+            pendingUnsynchronizedWrites = false
             do {
                 try FileManager.default.createDirectory(
                     at: fileURL.deletingLastPathComponent(),
@@ -226,6 +238,11 @@ final class VoiceDiagnosticLogger {
         fields: [String: Any] = [:]
     ) {
         guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
+        let inFlight = OSAtomicIncrement32Barrier(&inFlightRecordCount)
+        guard inFlight <= Self.maxInFlightRecords else {
+            _ = OSAtomicDecrement32Barrier(&inFlightRecordCount)
+            return
+        }
         // Capture event occurrence time before queue delay, but leave all
         // formatting, serialization, and file operations to the writer queue.
         let timestamp = dateProvider()
@@ -234,6 +251,7 @@ final class VoiceDiagnosticLogger {
 
         writerQueue.async { [weak self] in
             guard let self else { return }
+            defer { _ = OSAtomicDecrement32Barrier(&self.inFlightRecordCount) }
             self.queuedRecordCount += 1
             self.beforeQueuedEventWriteForTesting?()
             guard self.isActive, self.fileHandle != nil else { return }
@@ -258,6 +276,9 @@ final class VoiceDiagnosticLogger {
     func flush() {
         guard DiagnosticsRuntimeGate.shared.isEnabled else { return }
         writerQueue.sync {
+            coalescedSyncWorkItem?.cancel()
+            coalescedSyncWorkItem = nil
+            pendingUnsynchronizedWrites = false
             if fileHandle != nil {
                 synchronizeCount += 1
             }
@@ -288,7 +309,13 @@ final class VoiceDiagnosticLogger {
     /// Waits for queued records, makes them durable, and closes the log file.
     func close() {
         writerQueue.sync {
+            coalescedSyncWorkItem?.cancel()
+            coalescedSyncWorkItem = nil
+            if pendingUnsynchronizedWrites, fileHandle != nil {
+                synchronizeCount += 1
+            }
             try? fileHandle?.synchronize()
+            pendingUnsynchronizedWrites = false
             try? fileHandle?.close()
             fileHandle = nil
             isActive = false
@@ -335,11 +362,36 @@ final class VoiceDiagnosticLogger {
             data.append(0x0A)
             try fileHandle.write(contentsOf: data)
             writeCount += 1
-            synchronizeCount += 1
-            try fileHandle.synchronize()
+            if event == "RUN_START" {
+                coalescedSyncWorkItem?.cancel()
+                coalescedSyncWorkItem = nil
+                synchronizeCount += 1
+                try fileHandle.synchronize()
+                pendingUnsynchronizedWrites = false
+            } else {
+                pendingUnsynchronizedWrites = true
+                if coalescedSyncWorkItem == nil {
+                    let work = DispatchWorkItem { [weak self] in
+                        self?.synchronizeIfPendingOnQueue()
+                    }
+                    coalescedSyncWorkItem = work
+                    writerQueue.asyncAfter(deadline: .now() + 0.15, execute: work)
+                }
+            }
         } catch {
             // Diagnostics are best-effort and must never alter input behavior.
         }
+    }
+
+    private func synchronizeIfPendingOnQueue() {
+        coalescedSyncWorkItem = nil
+        guard pendingUnsynchronizedWrites, let fileHandle else {
+            pendingUnsynchronizedWrites = false
+            return
+        }
+        synchronizeCount += 1
+        try? fileHandle.synchronize()
+        pendingUnsynchronizedWrites = false
     }
 
     private func formatter() -> ISO8601DateFormatter {

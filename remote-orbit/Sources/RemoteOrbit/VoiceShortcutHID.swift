@@ -1,3 +1,4 @@
+import Darwin
 import Dispatch
 import Foundation
 import RemoteOrbitHIDHelper
@@ -10,7 +11,8 @@ enum VoiceShortcutHIDProviderContract {
     static let sourceURL = "https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice/tree/9036bc771259ff8d61341f4d1b7072b954fdb2fa"
 }
 
-/// Modifier-only view of the upstream packed `keyboard_input` report.
+/// View of the upstream packed `keyboard_input` report supporting both
+/// modifier-only combinations and modifier + primary key combinations.
 struct VoiceShortcutHIDModifierReport: Equatable {
     static let expectedReportID: UInt8 = 1
     static let ordinaryKeySlotCount = 32
@@ -20,14 +22,22 @@ struct VoiceShortcutHIDModifierReport: Equatable {
     let reservedByte: UInt8
     let ordinaryKeyUsages: [UInt16]
 
-    fileprivate init(modifierBitmap: UInt8) {
+    init(modifierBitmap: UInt8, primaryKeyUsage: UInt16? = nil) {
         reportID = Self.expectedReportID
         self.modifierBitmap = modifierBitmap
         reservedByte = 0
-        ordinaryKeyUsages = Array(repeating: 0, count: Self.ordinaryKeySlotCount)
+        var slots = Array(repeating: UInt16(0), count: Self.ordinaryKeySlotCount)
+        if let primaryKeyUsage, primaryKeyUsage != 0 {
+            slots[0] = primaryKeyUsage
+        }
+        ordinaryKeyUsages = slots
     }
 
     static let neutral = VoiceShortcutHIDModifierReport(modifierBitmap: 0)
+
+    var primaryKeyUsage: UInt16? {
+        ordinaryKeyUsages.first.flatMap { $0 == 0 ? nil : $0 }
+    }
 
     var hasValidModifierOnlyLayout: Bool {
         reportID == Self.expectedReportID
@@ -35,12 +45,20 @@ struct VoiceShortcutHIDModifierReport: Equatable {
             && ordinaryKeyUsages.count == Self.ordinaryKeySlotCount
             && ordinaryKeyUsages.allSatisfy { $0 == 0 }
     }
+
+    var hasValidKeyboardReportLayout: Bool {
+        reportID == Self.expectedReportID
+            && reservedByte == 0
+            && ordinaryKeyUsages.count == Self.ordinaryKeySlotCount
+            && ordinaryKeyUsages.dropFirst().allSatisfy { $0 == 0 }
+    }
 }
 
 enum VoiceShortcutHIDReportEncodingError: Error, Equatable {
     case emptyModifierSet
     case duplicateKeyCode(UInt16)
     case unsupportedKeyCode(UInt16)
+    case unsupportedBinding
 }
 
 enum VoiceShortcutHIDReportEncoder {
@@ -63,6 +81,30 @@ enum VoiceShortcutHIDReportEncoder {
         return VoiceShortcutHIDModifierReport(modifierBitmap: bitmap)
     }
 
+    /// Encodes any multi-key `VoiceShortcutBinding` (`.modifierChord` or `.chord`)
+    /// into its USB HID modifier bitmap + optional USB Keyboard/Keypad usage.
+    static func encode(binding: VoiceShortcutBinding) throws -> VoiceShortcutHIDModifierReport {
+        switch binding {
+        case .pureModifier:
+            throw VoiceShortcutHIDReportEncodingError.unsupportedBinding
+        case let .modifierChord(modifierKeyCodes):
+            return try encode(modifierKeyCodes: modifierKeyCodes)
+        case let .chord(primaryKeyCode, _, modifierKeyCodes):
+            let modifiersOnly = try encode(modifierKeyCodes: modifierKeyCodes)
+            guard let usage = usbUsage(forPrimaryKeyCode: primaryKeyCode) else {
+                throw VoiceShortcutHIDReportEncodingError.unsupportedKeyCode(primaryKeyCode)
+            }
+            return VoiceShortcutHIDModifierReport(
+                modifierBitmap: modifiersOnly.modifierBitmap,
+                primaryKeyUsage: usage
+            )
+        }
+    }
+
+    static func usbUsage(forPrimaryKeyCode keyCode: UInt16) -> UInt16? {
+        usbUsageByMacKeyCode[keyCode]
+    }
+
     private static let bitByMacKeyCode: [UInt16: UInt8] = [
         59: 0x01, // Left Control — E0
         56: 0x02, // Left Shift — E1
@@ -72,6 +114,25 @@ enum VoiceShortcutHIDReportEncoder {
         60: 0x20, // Right Shift — E5
         61: 0x40, // Right Option — E6
         54: 0x80, // Right Command — E7
+    ]
+
+    /// Complete macOS `CGKeyCode` (`HIToolbox/Events.h`) -> USB HID Keyboard/Keypad
+    /// (`0x07`) usage table covering all 103 keys in `VoiceShortcutStore`.
+    private static let usbUsageByMacKeyCode: [UInt16: UInt16] = [
+        0: 0x04, 1: 0x16, 2: 0x07, 3: 0x09, 4: 0x0B, 5: 0x0A, 6: 0x1D, 7: 0x1B,
+        8: 0x06, 9: 0x19, 10: 0x64, 11: 0x05, 12: 0x14, 13: 0x1A, 14: 0x08, 15: 0x15,
+        16: 0x1C, 17: 0x17, 18: 0x1E, 19: 0x1F, 20: 0x20, 21: 0x21, 22: 0x23, 23: 0x22,
+        24: 0x2E, 25: 0x26, 26: 0x24, 27: 0x2D, 28: 0x25, 29: 0x27, 30: 0x30, 31: 0x12,
+        32: 0x18, 33: 0x2F, 34: 0x0C, 35: 0x13, 36: 0x28, 37: 0x0F, 38: 0x0D, 39: 0x34,
+        40: 0x0E, 41: 0x33, 42: 0x31, 43: 0x36, 44: 0x38, 45: 0x11, 46: 0x10, 47: 0x37,
+        48: 0x2B, 49: 0x2C, 50: 0x35, 51: 0x2A,
+        64: 0x6C, 65: 0x63, 67: 0x55, 69: 0x57, 71: 0x53, 75: 0x54, 76: 0x58, 78: 0x56,
+        79: 0x6D, 80: 0x6E, 81: 0x67, 82: 0x62, 83: 0x59, 84: 0x5A, 85: 0x5B, 86: 0x5C,
+        87: 0x5D, 88: 0x5E, 89: 0x5F, 90: 0x6F, 91: 0x60, 92: 0x61, 93: 0x89, 94: 0x87,
+        95: 0x85, 96: 0x3E, 97: 0x3F, 98: 0x40, 99: 0x3C, 100: 0x41, 101: 0x42, 103: 0x44,
+        105: 0x68, 106: 0x6B, 109: 0x43, 111: 0x45, 115: 0x4A, 116: 0x4B, 117: 0x4C,
+        118: 0x3D, 119: 0x4D, 120: 0x3B, 121: 0x4E, 122: 0x3A, 123: 0x50, 124: 0x4F,
+        125: 0x51, 126: 0x52,
     ]
 }
 
@@ -161,6 +222,7 @@ final class VoiceShortcutHIDSessionOwner {
 
     private struct Session {
         let id: UUID
+        let bindingIdentity: String
         let modifierKeyCodes: [UInt16]
         let connectionGeneration: UInt64
         var phase: Phase
@@ -203,15 +265,31 @@ final class VoiceShortcutHIDSessionOwner {
         return unresolvedOwnershipSnapshot
     }
 
+    var isReadyForDispatch: Bool {
+        readyState()?.keyboardReady == true
+    }
+
     func begin(
         sessionID: UUID,
         modifierKeyCodes rawKeyCodes: [UInt16],
         completion: @escaping (VoiceShortcutHIDSessionAdmission) -> Void
     ) {
+        begin(
+            sessionID: sessionID,
+            binding: .modifierChord(modifierKeyCodes: rawKeyCodes),
+            completion: completion
+        )
+    }
+
+    func begin(
+        sessionID: UUID,
+        binding: VoiceShortcutBinding,
+        completion: @escaping (VoiceShortcutHIDSessionAdmission) -> Void
+    ) {
         ownerQueue.async { [weak self] in
             self?.beginLocked(
                 sessionID: sessionID,
-                rawKeyCodes: rawKeyCodes,
+                binding: binding,
                 completion: completion
             )
         }
@@ -255,22 +333,30 @@ final class VoiceShortcutHIDSessionOwner {
 
     private func beginLocked(
         sessionID: UUID,
-        rawKeyCodes: [UInt16],
+        binding: VoiceShortcutBinding,
         completion: @escaping (VoiceShortcutHIDSessionAdmission) -> Void
     ) {
-        guard (try? VoiceShortcutStore.validate(
-            binding: .modifierChord(modifierKeyCodes: rawKeyCodes)
-        )) != nil,
-        let report = try? VoiceShortcutHIDReportEncoder.encode(
-            modifierKeyCodes: rawKeyCodes
-        ) else {
+        let rawKeyCodes: [UInt16]
+        switch binding {
+        case let .modifierChord(modifierKeyCodes):
+            rawKeyCodes = modifierKeyCodes
+        case let .chord(_, _, modifierKeyCodes):
+            rawKeyCodes = modifierKeyCodes
+        case .pureModifier:
+            completion(.rejected(.invalidBinding))
+            return
+        }
+
+        guard (try? VoiceShortcutStore.validate(binding: binding)) != nil,
+              let report = try? VoiceShortcutHIDReportEncoder.encode(binding: binding) else {
             completion(.rejected(.invalidBinding))
             return
         }
 
         let keyCodes = rawKeyCodes.sorted()
+        let identity = binding.physicalIdentity
         if let current = session {
-            if current.id == sessionID, current.modifierKeyCodes != keyCodes {
+            if current.id == sessionID, current.bindingIdentity != identity {
                 completion(.rejected(.sessionBindingChanged))
                 return
             }
@@ -292,7 +378,7 @@ final class VoiceShortcutHIDSessionOwner {
                     } else if recovered {
                         self.beginLocked(
                             sessionID: sessionID,
-                            rawKeyCodes: rawKeyCodes,
+                            binding: binding,
                             completion: completion
                         )
                     } else {
@@ -345,6 +431,7 @@ final class VoiceShortcutHIDSessionOwner {
         )
         session = Session(
             id: sessionID,
+            bindingIdentity: identity,
             modifierKeyCodes: keyCodes,
             connectionGeneration: state.connectionGeneration,
             phase: .beginPending,
@@ -786,5 +873,348 @@ private final class VoiceShortcutHIDProviderOneShot {
         didFinish = true
         lock.unlock()
         completion(reply)
+    }
+}
+
+/// Asynchronous Unix Domain Socket client to the local `RemoteOrbitHIDHelperDaemon`.
+/// The daemon authenticates this peer via kernel `LOCAL_PEERCRED` + `LOCAL_PEERPID`
+/// and bridges validated keyboard combinations to Karabiner VirtualHID DriverKit.
+final class VoiceShortcutHIDUnixSocketProvider: VoiceShortcutHIDReportProvider {
+    static let shared = VoiceShortcutHIDUnixSocketProvider()
+
+    private struct PendingCall {
+        let request: VoiceShortcutHIDRequest
+        let completion: (VoiceShortcutHIDProviderReply) -> Void
+    }
+
+    private let socketPath: String
+    private let reconnectInterval: TimeInterval
+    private let ioQueue = DispatchQueue(label: "com.lost0rz.RemoteOrbit.voice-shortcut-hid-socket")
+    private let snapshotLock = NSLock()
+    private var stateSnapshot: VoiceShortcutHIDProviderState = .unavailable
+    private var daemonConnectedSnapshot = false
+    private var driverServiceConnectedSnapshot = false
+
+    private var isStarted = false
+    private var clientFD: Int32 = -1
+    private var readSource: DispatchSourceRead?
+    private var reconnectWorkItem: DispatchWorkItem?
+    private var decoder = RemoteOrbitHIDFrameStreamDecoder()
+    private var pendingCalls: [UUID: PendingCall] = [:]
+
+    init(
+        socketPath: String = RemoteOrbitHIDIPCContract.defaultSocketPath,
+        reconnectInterval: TimeInterval = 1.0
+    ) {
+        self.socketPath = socketPath
+        self.reconnectInterval = max(0.05, reconnectInterval)
+    }
+
+    deinit {
+        stop()
+    }
+
+    var state: VoiceShortcutHIDProviderState {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        return stateSnapshot
+    }
+
+    var isDaemonConnected: Bool {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        return daemonConnectedSnapshot
+    }
+
+    var isDriverServiceConnected: Bool {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        return driverServiceConnectedSnapshot
+    }
+
+    func start() {
+        ioQueue.async { [weak self] in
+            guard let self, !self.isStarted else { return }
+            self.isStarted = true
+            self.connectLocked()
+        }
+    }
+
+    func stop() {
+        ioQueue.sync {
+            isStarted = false
+            reconnectWorkItem?.cancel()
+            reconnectWorkItem = nil
+            disconnectLocked(scheduleReconnect: false)
+        }
+    }
+
+    func refreshStatusNow() {
+        ioQueue.async { [weak self] in
+            guard let self else { return }
+            if self.clientFD >= 0 {
+                let wire = RemoteOrbitHIDWireRequest(kind: .status)
+                if let frame = RemoteOrbitHIDWireFraming.encode(wire),
+                   !RemoteOrbitHIDWireFraming.writeAll(fd: self.clientFD, data: frame) {
+                    self.disconnectLocked(scheduleReconnect: self.isStarted)
+                }
+            } else if self.isStarted {
+                self.connectLocked()
+            }
+        }
+    }
+
+    func perform(
+        _ request: VoiceShortcutHIDRequest,
+        completion: @escaping (VoiceShortcutHIDProviderReply) -> Void
+    ) {
+        ioQueue.async { [weak self] in
+            guard let self else {
+                completion(VoiceShortcutHIDProviderReply(
+                    connectionGeneration: request.connectionGeneration,
+                    requestSequence: request.requestSequence,
+                    outcome: .outcomeUnknown
+                ))
+                return
+            }
+            guard self.clientFD >= 0 else {
+                if self.isStarted {
+                    self.connectLocked()
+                }
+                completion(VoiceShortcutHIDProviderReply(
+                    connectionGeneration: request.connectionGeneration,
+                    requestSequence: request.requestSequence,
+                    outcome: .outcomeUnknown
+                ))
+                return
+            }
+
+            let kind: RemoteOrbitHIDWireRequest.Kind
+            switch request.operation {
+            case .begin:
+                kind = .begin
+            case .release:
+                kind = .release
+            case .recover:
+                kind = .recover
+            case .status:
+                completion(VoiceShortcutHIDProviderReply(
+                    connectionGeneration: request.connectionGeneration,
+                    requestSequence: request.requestSequence,
+                    outcome: .rejected
+                ))
+                return
+            }
+
+            let wire = RemoteOrbitHIDWireRequest(
+                kind: kind,
+                requestID: UUID(),
+                sessionID: request.sessionID,
+                protocolVersion: request.protocolVersion,
+                connectionGeneration: request.connectionGeneration,
+                requestSequence: request.requestSequence,
+                modifierKeyCodes: request.operation == .begin ? request.modifierKeyCodes : nil,
+                primaryKeyUsage: request.operation == .begin ? request.report?.primaryKeyUsage : nil
+            )
+            guard let frame = RemoteOrbitHIDWireFraming.encode(wire) else {
+                completion(VoiceShortcutHIDProviderReply(
+                    connectionGeneration: request.connectionGeneration,
+                    requestSequence: request.requestSequence,
+                    outcome: .rejected
+                ))
+                return
+            }
+
+            self.pendingCalls[wire.requestID] = PendingCall(
+                request: request,
+                completion: completion
+            )
+            if !RemoteOrbitHIDWireFraming.writeAll(fd: self.clientFD, data: frame) {
+                self.pendingCalls.removeValue(forKey: wire.requestID)
+                self.disconnectLocked(scheduleReconnect: self.isStarted)
+                completion(VoiceShortcutHIDProviderReply(
+                    connectionGeneration: request.connectionGeneration,
+                    requestSequence: request.requestSequence,
+                    outcome: .outcomeUnknown
+                ))
+            }
+        }
+    }
+
+    private func connectLocked() {
+        guard isStarted, clientFD < 0 else { return }
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
+
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            scheduleReconnectLocked()
+            return
+        }
+        RemoteOrbitHIDWireFraming.configureNoSigPipe(fd: fd)
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = socketPath.utf8CString
+        let maxSunPath = MemoryLayout.size(ofValue: addr.sun_path)
+        guard pathBytes.count <= maxSunPath else {
+            Darwin.close(fd)
+            return
+        }
+        withUnsafeMutablePointer(to: &addr.sun_path) { sunPathPtr in
+            let rawPtr = UnsafeMutableRawPointer(sunPathPtr).assumingMemoryBound(to: CChar.self)
+            for index in 0..<pathBytes.count {
+                rawPtr[index] = pathBytes[index]
+            }
+        }
+        addr.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+
+        let connected = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                Darwin.connect(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size)) == 0
+            }
+        }
+        guard connected else {
+            Darwin.close(fd)
+            publishDisconnectedSnapshot()
+            scheduleReconnectLocked()
+            return
+        }
+
+        let flags = fcntl(fd, F_GETFL, 0)
+        _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+        clientFD = fd
+        decoder = RemoteOrbitHIDFrameStreamDecoder()
+
+        snapshotLock.lock()
+        daemonConnectedSnapshot = true
+        snapshotLock.unlock()
+
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: ioQueue)
+        source.setEventHandler { [weak self] in
+            self?.readFromServerLocked()
+        }
+        source.setCancelHandler {
+            Darwin.close(fd)
+        }
+        readSource = source
+        source.resume()
+    }
+
+    private func readFromServerLocked() {
+        guard clientFD >= 0 else { return }
+        var temp = [UInt8](repeating: 0, count: 4096)
+        while clientFD >= 0 {
+            let count = Darwin.read(clientFD, &temp, temp.count)
+            if count > 0 {
+                decoder.append(Data(temp[0..<count]))
+                frameLoop: while true {
+                    switch decoder.nextFrame() {
+                    case let .frame(payload):
+                        handleServerPayloadLocked(payload)
+                        if clientFD < 0 { return }
+                    case .needMoreData:
+                        break frameLoop
+                    case .invalidFrame:
+                        disconnectLocked(scheduleReconnect: isStarted)
+                        return
+                    }
+                }
+            } else if count == 0 {
+                disconnectLocked(scheduleReconnect: isStarted)
+                return
+            } else {
+                if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK { break }
+                disconnectLocked(scheduleReconnect: isStarted)
+                return
+            }
+        }
+    }
+
+    private func handleServerPayloadLocked(_ payload: Data) {
+        guard let message = try? JSONDecoder().decode(RemoteOrbitHIDWireServerMessage.self, from: payload) else {
+            disconnectLocked(scheduleReconnect: isStarted)
+            return
+        }
+        switch message.kind {
+        case .status:
+            let packageVersion = message.packageVersion ?? VoiceShortcutHIDProviderContract.packageVersion
+            let protocolVersion = message.clientProtocolVersion ?? VoiceShortcutHIDProviderContract.clientProtocolVersion
+            let keyboardReady = message.keyboardReady ?? false
+            let serviceConnected = message.serviceConnected ?? false
+            snapshotLock.lock()
+            daemonConnectedSnapshot = true
+            driverServiceConnectedSnapshot = serviceConnected
+            stateSnapshot = .ready(
+                packageVersion: packageVersion,
+                clientProtocolVersion: protocolVersion,
+                connectionGeneration: message.connectionGeneration,
+                keyboardReady: keyboardReady
+            )
+            snapshotLock.unlock()
+        case .reply:
+            guard let requestID = message.requestID,
+                  let pending = pendingCalls.removeValue(forKey: requestID) else {
+                return
+            }
+            let outcome: VoiceShortcutHIDSubmissionOutcome
+            switch message.outcome.flatMap(RemoteOrbitHIDHelperOutcome.init(rawValue:)) {
+            case .queued:
+                outcome = .queued
+            case .rejected:
+                outcome = .rejected
+            case .outcomeUnknown, .none:
+                outcome = .outcomeUnknown
+            }
+            pending.completion(VoiceShortcutHIDProviderReply(
+                connectionGeneration: message.connectionGeneration,
+                requestSequence: message.requestSequence ?? pending.request.requestSequence,
+                outcome: outcome
+            ))
+        }
+    }
+
+    private func disconnectLocked(scheduleReconnect: Bool) {
+        publishDisconnectedSnapshot()
+        let abandoned = Array(pendingCalls.values)
+        pendingCalls.removeAll()
+        if let source = readSource {
+            readSource = nil
+            clientFD = -1
+            source.cancel()
+        } else if clientFD >= 0 {
+            Darwin.close(clientFD)
+            clientFD = -1
+        }
+        for pending in abandoned {
+            pending.completion(VoiceShortcutHIDProviderReply(
+                connectionGeneration: pending.request.connectionGeneration,
+                requestSequence: pending.request.requestSequence,
+                outcome: .outcomeUnknown
+            ))
+        }
+        if scheduleReconnect {
+            scheduleReconnectLocked()
+        }
+    }
+
+    private func publishDisconnectedSnapshot() {
+        snapshotLock.lock()
+        stateSnapshot = .unavailable
+        daemonConnectedSnapshot = false
+        driverServiceConnectedSnapshot = false
+        snapshotLock.unlock()
+    }
+
+    private func scheduleReconnectLocked() {
+        guard isStarted, reconnectWorkItem == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.reconnectWorkItem = nil
+            self.connectLocked()
+        }
+        reconnectWorkItem = work
+        ioQueue.asyncAfter(deadline: .now() + reconnectInterval, execute: work)
     }
 }

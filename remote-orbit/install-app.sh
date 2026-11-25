@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="${0:A:h}"
-SOURCE="$SCRIPT_DIR/dist/RemoteOrbit.app"
+SOURCE="${REMOTE_ORBIT_SOURCE_APP:-$SCRIPT_DIR/dist/RemoteOrbit.app}"
 # Keep one canonical installation path. Launch-at-login and release DMGs both
 # resolve this location, so a developer build cannot silently coexist with an
 # older copy under ~/Applications.

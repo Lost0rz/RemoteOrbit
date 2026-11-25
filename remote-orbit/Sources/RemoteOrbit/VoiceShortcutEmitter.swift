@@ -87,16 +87,21 @@ struct CGEventVoiceShortcutSink: VoiceShortcutEventSink {
         case .keyUp:
             constructorKeyDown = false
         }
-        guard let cgEvent = CGEvent(
-            keyboardEventSource: nil,
-            virtualKey: CGKeyCode(event.keyCode),
-            keyDown: constructorKeyDown
-        ) else { return nil }
+        guard let source = CGEventSource(stateID: .privateState),
+              let cgEvent = CGEvent(
+                  keyboardEventSource: source,
+                  virtualKey: CGKeyCode(event.keyCode),
+                  keyDown: constructorKeyDown
+              ) else { return nil }
         let constructorType = cgEvent.type
         switch event.kind {
         case .flagsChanged: cgEvent.type = .flagsChanged
-        case .keyDown: cgEvent.type = .keyDown
-        case .keyUp: cgEvent.type = .keyUp
+        case .keyDown:
+            cgEvent.type = .keyDown
+            cgEvent.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+        case .keyUp:
+            cgEvent.type = .keyUp
+            cgEvent.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
         }
         cgEvent.flags = CGEventFlags(rawValue: event.flags)
         cgEvent.setIntegerValueField(.eventSourceUserData, value: Key.syntheticMarker)
@@ -183,6 +188,7 @@ final class VoiceShortcutEmitter {
 
     private let sink: VoiceShortcutEventSink
     private let physicalModifierKeyCodesProvider: () -> Set<UInt16>
+    private let usesSystemHIDModifierProvider: Bool
     private let physicalModifierFlagsProvider: () -> UInt64
     var diagnosticSink: (VoiceShortcutEmitterDiagnostic) -> Void
     private var sessions: [UUID: Session] = [:]
@@ -191,9 +197,12 @@ final class VoiceShortcutEmitter {
         sink: VoiceShortcutEventSink = CGEventVoiceShortcutSink(),
         physicalModifierKeyCodesProvider: (() -> Set<UInt16>)? = nil,
         physicalModifierFlagsProvider: (() -> UInt64)? = nil,
+        physicalProviderIncludesOwnedSyntheticEdges: Bool? = nil,
         diagnosticSink: @escaping (VoiceShortcutEmitterDiagnostic) -> Void = { _ in }
     ) {
         self.sink = sink
+        self.usesSystemHIDModifierProvider =
+            physicalProviderIncludesOwnedSyntheticEdges ?? (physicalModifierKeyCodesProvider == nil)
         if let physicalModifierKeyCodesProvider {
             self.physicalModifierKeyCodesProvider = physicalModifierKeyCodesProvider
             self.physicalModifierFlagsProvider = physicalModifierFlagsProvider ?? { 0 }
@@ -297,7 +306,7 @@ final class VoiceShortcutEmitter {
         )
 
         for keyCode in modifierKeyCodes {
-            let physicalNow = physicalModifierKeyCodesProvider()
+            let physicalNow = externalPhysicalModifiers(excludingOwned: session.ownedModifierKeyCodes)
             guard !physicalNow.contains(keyCode),
                   let mask = Self.modifierFlagMask(for: keyCode) else {
                 emit(
@@ -360,7 +369,9 @@ final class VoiceShortcutEmitter {
         }
 
         if let primaryKeyCode {
-            let physicalBeforePrimary = physicalModifierKeyCodesProvider()
+            let physicalBeforePrimary = externalPhysicalModifiers(
+                excludingOwned: session.ownedModifierKeyCodes
+            )
             let primaryConflict = Set(session.ownedModifierKeyCodes).intersection(physicalBeforePrimary)
             guard primaryConflict.isEmpty else {
                 emit(
@@ -489,7 +500,9 @@ final class VoiceShortcutEmitter {
 
         let wasPending = session.releasePending
         if session.primaryIsDown, let primaryKeyCode = session.primaryKeyCode {
-            let physicalNow = physicalModifierKeyCodesProvider()
+            let physicalNow = externalPhysicalModifiers(
+                excludingOwned: session.ownedModifierKeyCodes
+            )
             let event = VoiceShortcutSyntheticEvent(
                 kind: .keyUp,
                 keyCode: primaryKeyCode,
@@ -548,7 +561,9 @@ final class VoiceShortcutEmitter {
 
     private func releaseModifiers(_ session: inout Session, sessionID: UUID) {
         for keyCode in Array(session.ownedModifierKeyCodes.reversed()) {
-            let physicalNow = physicalModifierKeyCodesProvider()
+            let physicalNow = externalPhysicalModifiers(
+                excludingOwned: session.ownedModifierKeyCodes
+            )
             guard !physicalNow.contains(keyCode) else {
                 emit(.physicalModifierReleaseDeferred, sessionID: sessionID, session: session,
                      outcome: "physical_modifier_same_side_still_held")
@@ -651,51 +666,39 @@ final class VoiceShortcutEmitter {
         return order.filter { set.contains($0) }
     }
 
-    private func combinedFlags(owned: Set<UInt16>, physical: Set<UInt16>) -> UInt64 {
-        let physicalModifierFlags = physicalModifierFlagsProvider() & Self.physicalModifierFlagMask
-        return Self.flags(for: owned.union(physical)) | physicalModifierFlags
+    private func externalPhysicalModifiers(excludingOwned owned: [UInt16]) -> Set<UInt16> {
+        let raw = physicalModifierKeyCodesProvider()
+        guard usesSystemHIDModifierProvider else {
+            return raw
+        }
+        return raw.subtracting(owned)
     }
 
-    private static let physicalModifierFlagMask: UInt64 =
+    private func combinedFlags(owned: Set<UInt16>, physical: Set<UInt16>) -> UInt64 {
+        let nonKeyedFlags = physicalModifierFlagsProvider() & Self.nonKeyedModifierFlagMask
+        return Self.flags(for: owned.union(physical)) | nonKeyedFlags
+    }
+
+    private static let nonKeyedModifierFlagMask: UInt64 =
         CGEventFlags.maskAlphaShift.rawValue
-        | CGEventFlags.maskShift.rawValue
-        | CGEventFlags.maskControl.rawValue
-        | CGEventFlags.maskAlternate.rawValue
-        | CGEventFlags.maskCommand.rawValue
         | CGEventFlags.maskHelp.rawValue
         | CGEventFlags.maskSecondaryFn.rawValue
 
+    private static let allModifierKeyCodes: [UInt16] = [55, 54, 59, 62, 58, 61, 56, 60]
+
     private static func currentPhysicalModifierFlags() -> UInt64 {
-        CGEventSource.flagsState(.hidSystemState).rawValue & physicalModifierFlagMask
+        CGEventSource.flagsState(.hidSystemState).rawValue & nonKeyedModifierFlagMask
     }
 
-    private static func currentPhysicalModifierKeyCodes() -> Set<UInt16> {
-        let flags = CGEventSource.flagsState(.hidSystemState).rawValue
-        var keyCodes = modifierMasks.compactMap { keyCode, mask in
-            flags & mask == 0 ? nil : keyCode
-        }.reduce(into: Set<UInt16>()) { $0.insert($1) }
-        let ambiguousFamilies: [(UInt64, UInt16, UInt16)] = [
-            (CGEventFlags.maskCommand.rawValue, 55, 54),
-            (CGEventFlags.maskControl.rawValue, 59, 62),
-            (CGEventFlags.maskAlternate.rawValue, 58, 61),
-            (CGEventFlags.maskShift.rawValue, 56, 60),
-        ]
-        for (familyMask, left, right) in ambiguousFamilies
-        where flags & familyMask != 0 && !keyCodes.contains(left) && !keyCodes.contains(right) {
-            // If HID state reports only an aggregate family flag, treat either
-            // side as occupied. This is conservative and cannot steal a real edge.
-            keyCodes.insert(left)
-            keyCodes.insert(right)
+    static func currentPhysicalModifierKeyCodes() -> Set<UInt16> {
+        var keyCodes = Set<UInt16>()
+        for keyCode in allModifierKeyCodes {
+            if CGEventSource.keyState(.hidSystemState, key: CGKeyCode(keyCode)) {
+                keyCodes.insert(keyCode)
+            }
         }
         return keyCodes
     }
-
-    private static let modifierMasks: [(UInt16, UInt64)] = [
-        (55, UInt64(NX_DEVICELCMDKEYMASK)), (54, UInt64(NX_DEVICERCMDKEYMASK)),
-        (59, UInt64(NX_DEVICELCTLKEYMASK)), (62, UInt64(NX_DEVICERCTLKEYMASK)),
-        (58, UInt64(NX_DEVICELALTKEYMASK)), (61, UInt64(NX_DEVICERALTKEYMASK)),
-        (56, UInt64(NX_DEVICELSHIFTKEYMASK)), (60, UInt64(NX_DEVICERSHIFTKEYMASK)),
-    ]
 
     private static func flags(for keyCodes: Set<UInt16>) -> UInt64 {
         keyCodes.reduce(into: UInt64(0)) { result, keyCode in

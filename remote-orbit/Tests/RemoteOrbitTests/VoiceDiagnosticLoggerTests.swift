@@ -198,6 +198,46 @@ final class VoiceDiagnosticLoggerTests: XCTestCase {
         )
     }
 
+    func testHIDReadbackParserAcceptsZeroNoOpDestinationWhenModifierMappingDisabled() {
+        let zeroNoOpMapping = """
+        {"UserKeyMapping":[{"HIDKeyboardModifierMappingSrc":30064771134,"HIDKeyboardModifierMappingDst":0}]}
+        """
+        let emptyMapping = """
+        UserKeyMapping: ()
+        """
+        let leftOptionMapping = """
+        {"UserKeyMapping":[{"HIDKeyboardModifierMappingSrc":"0x70000003E","HIDKeyboardModifierMappingDst":"0x7000000E2"}]}
+        """
+
+        XCTAssertEqual(
+            VoiceDiagnosticHIDMappingParser.verify(
+                stdout: zeroNoOpMapping,
+                stderr: "",
+                exitStatus: 0,
+                requested: nil
+            ),
+            .match
+        )
+        XCTAssertEqual(
+            VoiceDiagnosticHIDMappingParser.verify(
+                stdout: emptyMapping,
+                stderr: "",
+                exitStatus: 0,
+                requested: nil
+            ),
+            .match
+        )
+        XCTAssertEqual(
+            VoiceDiagnosticHIDMappingParser.verify(
+                stdout: leftOptionMapping,
+                stderr: "",
+                exitStatus: 0,
+                requested: nil
+            ),
+            .mismatch
+        )
+    }
+
     func testMappedTriggerMismatchIsLoggedWithObservedAndConfiguredKeys() throws {
         let fileURL = temporaryLogURL()
         defer { try? FileManager.default.removeItem(at: fileURL) }

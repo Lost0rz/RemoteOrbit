@@ -20,8 +20,16 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
 
     private let fileURL: URL
     private let retentionPolicy: RetentionPolicy
+    private let encoder: JSONEncoder
     private let lock = NSLock()
+    private let syncQueue = DispatchQueue(
+        label: "com.remoteorbit.diagnostic-journal-sync",
+        qos: .utility
+    )
     private var fileHandle: FileHandle?
+    private var currentFileBytes: UInt64 = 0
+    private var pendingUnsynchronizedWrites = false
+    private var coalescedSyncWorkItem: DispatchWorkItem?
 
     init(
         fileURL: URL,
@@ -29,27 +37,54 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
     ) {
         self.fileURL = fileURL
         self.retentionPolicy = retentionPolicy
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        self.encoder = encoder
     }
 
     deinit {
+        coalescedSyncWorkItem?.cancel()
+        coalescedSyncWorkItem = nil
+        if pendingUnsynchronizedWrites {
+            try? fileHandle?.synchronize()
+            pendingUnsynchronizedWrites = false
+        }
         try? fileHandle?.close()
     }
 
     func append(_ event: DiagnosticEvent) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         var data = try encoder.encode(event)
         data.append(0x0A)
 
         lock.lock()
         defer { lock.unlock() }
         do {
-            try repairTrailingRecordIfNeeded(at: fileURL)
+            if fileHandle != nil, !FileManager.default.fileExists(atPath: fileURL.path) {
+                coalescedSyncWorkItem?.cancel()
+                coalescedSyncWorkItem = nil
+                pendingUnsynchronizedWrites = false
+                try? fileHandle?.close()
+                fileHandle = nil
+                currentFileBytes = 0
+            }
             try openForAppendIfNeeded()
             try rotateIfNeeded(incomingBytes: UInt64(data.count))
             guard let fileHandle else { throw DiagnosticQueryError.storageUnavailable }
             try fileHandle.write(contentsOf: data)
-            try fileHandle.synchronize()
+            currentFileBytes &+= UInt64(data.count)
+            pendingUnsynchronizedWrites = true
+            if event.severity == .error || event.severity == .critical {
+                coalescedSyncWorkItem?.cancel()
+                coalescedSyncWorkItem = nil
+                try fileHandle.synchronize()
+                pendingUnsynchronizedWrites = false
+            } else if coalescedSyncWorkItem == nil {
+                let work = DispatchWorkItem { [weak self] in
+                    self?.flushPendingSynchronize()
+                }
+                coalescedSyncWorkItem = work
+                syncQueue.asyncAfter(deadline: .now() + 0.15, execute: work)
+            }
         } catch let error as DiagnosticQueryError {
             throw error
         } catch {
@@ -60,6 +95,7 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
     func query(_ filter: DiagnosticQueryFilter) throws -> DiagnosticQueryPage {
         lock.lock()
         defer { lock.unlock() }
+        flushPendingSynchronizeLocked()
 
         let cursorID = filter.cursor.flatMap(UUID.init(uuidString:))
         var cursorFound = cursorID == nil
@@ -116,6 +152,7 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
 
     private func openForAppendIfNeeded() throws {
         guard fileHandle == nil else { return }
+        try repairTrailingRecordIfNeeded(at: fileURL)
         do {
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
@@ -127,7 +164,7 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
                 }
             }
             let handle = try FileHandle(forWritingTo: fileURL)
-            try handle.seekToEnd()
+            currentFileBytes = try handle.seekToEnd()
             fileHandle = handle
         } catch {
             throw DiagnosticQueryError.storageUnavailable
@@ -136,6 +173,20 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
 
     private func repairTrailingRecordIfNeeded(at url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            let readHandle = try FileHandle(forReadingFrom: url)
+            defer { try? readHandle.close() }
+            let endOffset = try readHandle.seekToEnd()
+            guard endOffset > 0 else { return }
+            try readHandle.seek(toOffset: endOffset - 1)
+            let lastByte = try readHandle.read(upToCount: 1)
+            if lastByte?.last == 0x0A {
+                return
+            }
+        } catch {
+            throw DiagnosticQueryError.storageUnavailable
+        }
+
         let data: Data
         do {
             data = try Data(contentsOf: url)
@@ -173,14 +224,15 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
 
     private func rotateIfNeeded(incomingBytes: UInt64) throws {
         guard let fileHandle else { throw DiagnosticQueryError.storageUnavailable }
-        let currentSize = try fileHandle.seekToEnd()
-        guard currentSize > 0,
-              currentSize &+ incomingBytes > retentionPolicy.maxSegmentBytes else {
+        guard currentFileBytes > 0,
+              currentFileBytes &+ incomingBytes > retentionPolicy.maxSegmentBytes else {
             return
         }
 
+        flushPendingSynchronizeLocked()
         try fileHandle.close()
         self.fileHandle = nil
+        currentFileBytes = 0
 
         let fileManager = FileManager.default
         if retentionPolicy.maxSegmentCount > 1 {
@@ -204,6 +256,23 @@ final class JSONLinesDiagnosticJournal: DiagnosticJournal, @unchecked Sendable {
         }
 
         try openForAppendIfNeeded()
+    }
+
+    private func flushPendingSynchronize() {
+        lock.lock()
+        flushPendingSynchronizeLocked()
+        lock.unlock()
+    }
+
+    private func flushPendingSynchronizeLocked() {
+        coalescedSyncWorkItem?.cancel()
+        coalescedSyncWorkItem = nil
+        guard pendingUnsynchronizedWrites, let fileHandle else {
+            pendingUnsynchronizedWrites = false
+            return
+        }
+        try? fileHandle.synchronize()
+        pendingUnsynchronizedWrites = false
     }
 
     private func segmentURL(index: Int) -> URL {

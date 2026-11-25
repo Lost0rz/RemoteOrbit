@@ -617,6 +617,78 @@ final class VoiceShortcutEmitterTests: XCTestCase {
             XCTAssertNil(diagnostic.fields["transcription"])
         }
     }
+
+    func testProductionSinkUsesIsolatedPrivateSourceAndKeyInjectorIncludesRightShift() throws {
+        let modifierDown = try XCTUnwrap(CGEventVoiceShortcutSink.makeEvent(
+            VoiceShortcutSyntheticEvent(
+                kind: .flagsChanged,
+                keyCode: 58,
+                flags: CGEventFlags.maskAlternate.rawValue,
+                modifierEdge: .down
+            )
+        ))
+        XCTAssertNotEqual(
+            modifierDown.event.getIntegerValueField(.eventSourceStateID),
+            Int64(CGEventSourceStateID.hidSystemState.rawValue)
+        )
+        XCTAssertNotEqual(
+            modifierDown.event.getIntegerValueField(.eventSourceStateID),
+            Int64(CGEventSourceStateID.combinedSessionState.rawValue)
+        )
+
+        let primaryDown = try XCTUnwrap(CGEventVoiceShortcutSink.makeEvent(
+            VoiceShortcutSyntheticEvent(
+                kind: .keyDown,
+                keyCode: 3,
+                flags: CGEventFlags.maskCommand.rawValue
+            )
+        ))
+        XCTAssertNotEqual(
+            primaryDown.event.getIntegerValueField(.eventSourceStateID),
+            Int64(CGEventSourceStateID.hidSystemState.rawValue)
+        )
+        XCTAssertNotEqual(
+            primaryDown.event.getIntegerValueField(.eventSourceStateID),
+            Int64(CGEventSourceStateID.combinedSessionState.rawValue)
+        )
+        XCTAssertEqual(
+            primaryDown.event.getIntegerValueField(.keyboardEventAutorepeat),
+            0
+        )
+        XCTAssertTrue(KeyInjector.releaseAllModifierKeyCodes.contains(60))
+    }
+
+    func testSystemHIDModifierShadowDoesNotDeferReleaseOrPolluteUpFlags() {
+        var observedSystemKeys = Set<UInt16>()
+        var observedSystemFlags: UInt64 = 0
+        let sink = RecordingVoiceShortcutSink(onPost: { event in
+            if event.kind == .flagsChanged {
+                if event.modifierEdge == .down {
+                    observedSystemKeys.insert(event.keyCode)
+                } else if event.modifierEdge == .up {
+                    observedSystemKeys.remove(event.keyCode)
+                }
+                observedSystemFlags = event.flags
+            }
+        })
+        let emitter = VoiceShortcutEmitter(
+            sink: sink,
+            physicalModifierKeyCodesProvider: { observedSystemKeys },
+            physicalModifierFlagsProvider: { observedSystemFlags },
+            physicalProviderIncludesOwnedSyntheticEdges: true
+        )
+        let sessionID = UUID()
+        let binding = VoiceShortcutBinding.modifierChord(modifierKeyCodes: [55, 58])
+
+        XCTAssertEqual(emitter.begin(sessionID: sessionID, binding: binding), .accepted)
+        XCTAssertEqual(observedSystemKeys, [55, 58])
+        XCTAssertTrue(emitter.end(sessionID: sessionID))
+        XCTAssertFalse(emitter.hasUnresolvedOwnership)
+        XCTAssertFalse(emitter.hasPendingReleaseOwnership)
+        XCTAssertEqual(observedSystemKeys, [])
+        XCTAssertEqual(sink.events.map(\.modifierEdge), [.down, .down, .up, .up])
+        XCTAssertEqual(sink.events.last?.flags, 0)
+    }
 }
 
 private final class RecordingVoiceShortcutSink: VoiceShortcutEventSink {
@@ -624,16 +696,19 @@ private final class RecordingVoiceShortcutSink: VoiceShortcutEventSink {
     private let failingCallIndexes: Set<Int>
     private let eventConstructionFailureCallIndexes: Set<Int>
     private let failurePredicate: ((VoiceShortcutSyntheticEvent, Int) -> Bool)?
+    private let onPost: ((VoiceShortcutSyntheticEvent) -> Void)?
     private var callIndex = 0
 
     init(
         failingCallIndexes: Set<Int> = [],
         eventConstructionFailureCallIndexes: Set<Int> = [],
-        failurePredicate: ((VoiceShortcutSyntheticEvent, Int) -> Bool)? = nil
+        failurePredicate: ((VoiceShortcutSyntheticEvent, Int) -> Bool)? = nil,
+        onPost: ((VoiceShortcutSyntheticEvent) -> Void)? = nil
     ) {
         self.failingCallIndexes = failingCallIndexes
         self.eventConstructionFailureCallIndexes = eventConstructionFailureCallIndexes
         self.failurePredicate = failurePredicate
+        self.onPost = onPost
     }
 
     func post(_ event: VoiceShortcutSyntheticEvent) -> VoiceShortcutEventPostResult {
@@ -644,6 +719,7 @@ private final class RecordingVoiceShortcutSink: VoiceShortcutEventSink {
         guard !failingCallIndexes.contains(callIndex) else { return .postFailed }
         guard failurePredicate?(event, callIndex) != true else { return .postFailed }
         events.append(event)
+        onPost?(event)
         return .posted
     }
 }

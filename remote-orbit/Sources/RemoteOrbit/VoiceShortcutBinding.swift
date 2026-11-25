@@ -281,6 +281,10 @@ enum VoiceShortcutStore {
         111, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126,
     ])
 
+    static var allSupportedPrimaryKeyCodes: Set<UInt16> {
+        supportedPrimaryKeyCodes
+    }
+
     /// AppController is the sole runtime owner and calls mutation APIs from its
     /// main-thread state transitions. Invalid bytes are never replaced by a seed.
     static func load(from defaults: UserDefaults) -> VoiceShortcutLoadResult {

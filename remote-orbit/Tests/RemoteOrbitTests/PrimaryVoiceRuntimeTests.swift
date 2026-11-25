@@ -1011,6 +1011,178 @@ final class PrimaryVoiceRuntimeTests: XCTestCase {
         wait(for: [completion], timeout: 5)
     }
 
+    func testRuntimeLockRecoversOnExplicitTriggerApplyWhenHardwareSucceeds() {
+        let harness = PrimaryVoiceRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            applyResults: [false, false, true, true]
+        )
+
+        XCTAssertEqual(apply(.rightCommand, to: harness.controller), .locked)
+        XCTAssertTrue(harness.controller.voiceTriggerRuntimeLocked)
+
+        // Immediate press stays locked after a rollback failure until explicit recovery.
+        harness.controller.beginVoicePress()
+        XCTAssertFalse(harness.controller.voicePress.hasLongOnlyCandidateForTesting)
+
+        // Explicit reconfiguration attempts self-healing recovery before applying new key.
+        XCTAssertEqual(apply(.rightCommand, to: harness.controller), .applied)
+        XCTAssertFalse(harness.controller.voiceTriggerRuntimeLocked)
+        XCTAssertFalse(harness.controller.voiceTriggerReconfigurationInProgress)
+        XCTAssertEqual(harness.controller.currentVoiceTriggerKey, .rightCommand)
+    }
+
+    func testStartupFilterLockRecoversAutomaticallyWhenAccessibilityBecomesGranted() {
+        var accessibilityGranted = false
+        let trigger = VoiceOptionTrigger(keyedEventSink: { _, _ in })
+        let tapResources = PrimaryVoiceTapResourceLifecycleFake()
+        let filter = VoiceKeyFilter(
+            syntheticOptionTrigger: trigger,
+            tapResourceLifecycle: tapResources,
+            accessibilityTrustCheck: { accessibilityGranted },
+            accessibilityTrustRequest: { _ in accessibilityGranted }
+        )
+        let voicePress = VoicePressCoordinator(optionTrigger: trigger)
+        let defaultsSuite = "RemoteOrbitTests.FilterRecovery.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: defaultsSuite)!
+        defaults.removePersistentDomain(forName: defaultsSuite)
+        defer {
+            voicePress.stop()
+            defaults.removePersistentDomain(forName: defaultsSuite)
+        }
+        let controller = AppController(
+            filter: filter,
+            voicePress: voicePress,
+            initiallyHIDConnected: true,
+            isVoiceHIDMappingEnabled: { true },
+            applyVoiceHIDMapping: { _, _ in true },
+            prepareVoiceTransport: {},
+            activateVoiceInput: {},
+            cancelVoiceTransportPreparation: {},
+            stopVoiceInput: {},
+            usePersistedVoiceProfile: false,
+            voiceShortcutDefaults: defaults,
+            readPersistedVoiceTriggerKey: { .leftOption },
+            persistVoiceTriggerKey: { _ in }
+        )
+
+        XCTAssertFalse(controller.startVoiceKeyFilterAtLaunch())
+        XCTAssertTrue(controller.voiceTriggerRuntimeLocked)
+        controller.beginVoicePress()
+        XCTAssertFalse(voicePress.hasLongOnlyCandidateForTesting)
+
+        accessibilityGranted = true
+        controller.beginVoicePress()
+        XCTAssertFalse(controller.voiceTriggerRuntimeLocked)
+        XCTAssertTrue(voicePress.hasLongOnlyCandidateForTesting)
+    }
+
+    func testRejectedShortcutBeginReleasesPreparedRouteAndRemoteInputLease() {
+        let emitter = VoiceShortcutEmitter(
+            sink: PrimaryVoiceChordEventSink(),
+            physicalModifierKeyCodesProvider: { [55] },
+            physicalModifierFlagsProvider: { CGEventFlags.maskCommand.rawValue }
+        )
+        var fireTimer: (() -> Void)?
+        var releaseLeaseCount = 0
+        let press = VoicePressCoordinator(
+            optionTrigger: VoiceOptionTrigger(keyedEventSink: { _, _ in }),
+            voiceShortcutEmitter: emitter,
+            candidateTimerFactory: { _, fire in
+                fireTimer = fire
+                return VoicePressCandidateTimer(cancelAction: {})
+            }
+        )
+        defer {
+            press.stop()
+            AudioPipe.shared.cancelPreparedRemoteInputSelection()
+            VoiceAttemptDiagnostics.shared.end(sessionID: nil)
+        }
+        press.onRemoteRoutePreparation = {
+            AudioPipe.shared.prepareRemoteInputSelectionForVoice()
+            AudioPipe.shared.armReceiverReadinessHold()
+        }
+        press.onRemoteInputLeaseRelease = {
+            releaseLeaseCount += 1
+        }
+
+        let profile = VoiceInputProfile(
+            id: "chord-ab",
+            displayName: "Command + Option",
+            binding: .modifierChord(modifierKeyCodes: [55, 58])
+        )
+        XCTAssertTrue(press.keyDown(sessionID: UUID(), profile: profile))
+        fireTimer?()
+
+        XCTAssertEqual(releaseLeaseCount, 1)
+        XCTAssertFalse(press.remoteInputLeaseHeldForTesting)
+        XCTAssertFalse(AudioPipe.shared.isInputPreparedForNextActivationForTesting)
+        XCTAssertFalse(AudioPipe.shared.isReceiverReadinessHoldArmedForTesting)
+        XCTAssertEqual(press.currentStateForTesting, .idle)
+    }
+
+    func testUpdateVoiceShortcutSnapshotDefersCurrentProfileMutationUntilRuntimeCommits() {
+        let harness = PrimaryVoiceRuntimeHarness(
+            connected: true,
+            mappingEnabled: true,
+            persistedKey: .leftOption,
+            applyDelay: 0.08
+        )
+        defer {
+            harness.controller.voicePress.stop()
+            AudioPipe.shared.cancelPreparedRemoteInputSelection()
+            VoiceAttemptDiagnostics.shared.end(sessionID: nil)
+        }
+        XCTAssertTrue(harness.controller.restoreVoiceTriggerRuntime())
+        let initialProfile = harness.controller.currentVoiceInputProfile
+        let chordSnapshot = harness.snapshotSelectingChord()
+
+        let done = expectation(description: "update snapshot completes")
+        var result: VoiceTriggerApplyResult?
+        harness.controller.updateVoiceShortcutSnapshot(chordSnapshot) {
+            result = $0
+            done.fulfill()
+        }
+        XCTAssertEqual(
+            harness.controller.currentVoiceInputProfile,
+            initialProfile,
+            "profile must stay unchanged while async HID mapping is still running"
+        )
+        wait(for: [done], timeout: 5)
+        XCTAssertEqual(result, .applied)
+        XCTAssertEqual(harness.controller.currentVoiceInputProfile.id, "custom-chord")
+    }
+
+    func testStartupRestoreFailurePreservesProfileAndRecoversOnPress() {
+        let harness = PrimaryVoiceRuntimeHarness(
+            connected: true,
+            mappingEnabled: false,
+            persistedKey: .rightOption,
+            applyResults: [false, true]
+        )
+        defer {
+            harness.controller.voicePress.stop()
+            AudioPipe.shared.cancelPreparedRemoteInputSelection()
+            VoiceAttemptDiagnostics.shared.end(sessionID: nil)
+        }
+
+        XCTAssertFalse(harness.controller.restoreVoiceTriggerRuntime())
+        XCTAssertTrue(harness.controller.voiceTriggerRuntimeLocked)
+        XCTAssertEqual(harness.controller.currentVoiceInputProfile.triggerKey, .rightOption)
+
+        harness.controller.beginVoicePress()
+        XCTAssertFalse(harness.controller.voiceTriggerRuntimeLocked)
+        XCTAssertTrue(harness.controller.voicePress.hasLongOnlyCandidateForTesting)
+
+        let recoveryFlushed = expectation(description: "async HID recovery flushed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            recoveryFlushed.fulfill()
+        }
+        wait(for: [recoveryFlushed], timeout: 2)
+        XCTAssertTrue(harness.mappingEnabled)
+    }
+
     private func apply(
         _ key: VoiceTriggerKey,
         to controller: AppController,

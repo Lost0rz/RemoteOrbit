@@ -118,6 +118,8 @@ enum RemoteVoiceKeyMapping {
         label: "com.remoteorbit.voice-trigger-hid-diagnostic-readback",
         qos: .utility
     )
+    static let noOpDestination: UInt64 = 0x0
+    static let noOpMappingJSON = "{\"UserKeyMapping\":[{\"HIDKeyboardModifierMappingSrc\":\(source),\"HIDKeyboardModifierMappingDst\":0x0}]}"
     static let emptyMappingJSON = "{\"UserKeyMapping\":[]}"
 
     static func mappingJSON(for target: VoiceTriggerKey) -> String {
@@ -137,6 +139,9 @@ enum RemoteVoiceKeyMapping {
         target: VoiceTriggerKey,
         verificationCompletion: ((VoiceDiagnosticHIDVerification) -> Void)? = nil
     ) -> Bool {
+        let requestedTargetHex = shouldEnable
+            ? String(format: "0x%llX", target.hidutilDestination)
+            : "0x0"
         VoiceDiagnosticLogger.shared.log(
             category: "hid",
             event: "HID_APPLY_REQUEST",
@@ -144,16 +149,37 @@ enum RemoteVoiceKeyMapping {
             fields: [
                 "enabled": shouldEnable,
                 "source": source,
-                "target": shouldEnable ? String(format: "0x%llX", target.hidutilDestination) : "none",
+                "target": requestedTargetHex,
                 "matching_vendor": "0x2717",
                 "matching_product": "0x32B8",
             ]
         )
+        if RuntimeEnvironment.isRunningTests {
+            lock.lock()
+            enabled = shouldEnable
+            lock.unlock()
+            VoiceDiagnosticLogger.shared.log(
+                category: "hid",
+                event: "HID_APPLY_EXIT",
+                key: target,
+                fields: [
+                    "enabled": shouldEnable,
+                    "status": 0,
+                    "requested_target": requestedTargetHex,
+                ]
+            )
+            scheduleDiagnosticReadback(
+                enabled: shouldEnable,
+                target: target,
+                verificationCompletion: verificationCompletion
+            )
+            return true
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/hidutil")
         process.arguments = [
             "property", "--matching", matching,
-            "--set", shouldEnable ? mappingJSON(for: target) : emptyMappingJSON,
+            "--set", shouldEnable ? mappingJSON(for: target) : noOpMappingJSON,
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -170,7 +196,7 @@ enum RemoteVoiceKeyMapping {
                 fields: [
                     "enabled": shouldEnable,
                     "status": -1,
-                    "requested_target": shouldEnable ? String(format: "0x%llX", target.hidutilDestination) : "none",
+                    "requested_target": requestedTargetHex,
                     "error": error.localizedDescription,
                 ]
             )
@@ -189,10 +215,17 @@ enum RemoteVoiceKeyMapping {
         lock.lock()
         enabled = shouldEnable && succeeded
         lock.unlock()
-        print(
-            "[HID-MAP] 遥控器语音键 → \(target.displayName) " +
-            (shouldEnable && succeeded ? "已启用" : shouldEnable ? "启用失败" : "已关闭")
-        )
+        if shouldEnable {
+            print(
+                "[HID-MAP] 遥控器语音键 → \(target.displayName) " +
+                (succeeded ? "已启用" : "启用失败")
+            )
+        } else {
+            print(
+                "[HID-MAP] 遥控器语音键 → 原生 F5 静默屏蔽(0x0) " +
+                (succeeded ? "已启用" : "启用失败")
+            )
+        }
         VoiceDiagnosticLogger.shared.log(
             category: "hid",
             event: "HID_APPLY_EXIT",
@@ -200,7 +233,7 @@ enum RemoteVoiceKeyMapping {
             fields: [
                 "enabled": shouldEnable,
                 "status": Int(process.terminationStatus),
-                "requested_target": shouldEnable ? String(format: "0x%llX", target.hidutilDestination) : "none",
+                "requested_target": requestedTargetHex,
             ]
         )
         scheduleDiagnosticReadback(
@@ -211,11 +244,44 @@ enum RemoteVoiceKeyMapping {
         return succeeded
     }
 
+    /// Clears RC003's device-scoped UserKeyMapping back to empty defaults on app
+    /// termination so macOS does not retain silent F5 blocking after exit.
+    @discardableResult
+    static func clear() -> Bool {
+        lock.lock()
+        enabled = false
+        lock.unlock()
+        if RuntimeEnvironment.isRunningTests {
+            return true
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/hidutil")
+        process.arguments = [
+            "property", "--matching", matching,
+            "--set", emptyMappingJSON,
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            print("[HID-MAP] 遥控器语音键映射已恢复默认")
+            return process.terminationStatus == 0
+        } catch {
+            print("[HID-MAP] 清除 hidutil 映射失败: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     private static func scheduleDiagnosticReadback(
         enabled shouldEnable: Bool,
         target: VoiceTriggerKey,
         verificationCompletion: ((VoiceDiagnosticHIDVerification) -> Void)? = nil
     ) {
+        guard !RuntimeEnvironment.isRunningTests else {
+            verificationCompletion?(.match)
+            return
+        }
         diagnosticReadbackQueue.async {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/hidutil")
@@ -258,7 +324,7 @@ enum RemoteVoiceKeyMapping {
                     event: "HID_VERIFY",
                     key: target,
                     fields: [
-                        "requested": shouldEnable ? String(format: "0x%llX", target.hidutilDestination) : "none",
+                        "requested": shouldEnable ? String(format: "0x%llX", target.hidutilDestination) : "0x0",
                         "observed": VoiceDiagnosticHIDMappingParser.observedVoiceDestination(in: stdout)
                             .map { String(format: "0x%llX", $0) } ?? "none",
                         "result": verification.rawValue,
@@ -282,7 +348,7 @@ enum RemoteVoiceKeyMapping {
                     event: "HID_VERIFY",
                     key: target,
                     fields: [
-                        "requested": shouldEnable ? String(format: "0x%llX", target.hidutilDestination) : "none",
+                        "requested": shouldEnable ? String(format: "0x%llX", target.hidutilDestination) : "0x0",
                         "observed": "none",
                         "result": VoiceDiagnosticHIDVerification.unparseable.rawValue,
                     ]
@@ -352,17 +418,20 @@ final class VoicePressCoordinator {
     private struct PendingRepress {
         let sessionID: UUID
         let usesHardwareOption: Bool
+        let hardwareTriggerAlreadyDownInSystem: Bool
         let profile: VoiceInputProfile
         var isStillHeld = true
 
         init(
             sessionID: UUID,
             usesHardwareOption: Bool,
+            hardwareTriggerAlreadyDownInSystem: Bool = false,
             profile: VoiceInputProfile,
             isStillHeld: Bool = true
         ) {
             self.sessionID = sessionID
             self.usesHardwareOption = usesHardwareOption
+            self.hardwareTriggerAlreadyDownInSystem = hardwareTriggerAlreadyDownInSystem
             self.profile = profile
             self.isStillHeld = isStillHeld
         }
@@ -384,6 +453,7 @@ final class VoicePressCoordinator {
         let profile: VoiceInputProfile
         let targetApplicationBundleIdentifier: String?
         let usesHardwareOption: Bool
+        let hardwareTriggerAlreadyDownInSystem: Bool
         let waitsForPreviousOwnership: Bool
         let candidateOwnsTransportPrewarm: Bool
         let candidateOwnsPhysicalAttempt: Bool
@@ -396,6 +466,7 @@ final class VoicePressCoordinator {
         var triggerOwnershipReady: Bool
         var virtualHIDBeginPending = false
         var promotingPendingHardwareRepress = false
+        var routePreparedBeforeVirtualHID = false
     }
 
     var onStateChanged: ((State) -> Void)?
@@ -409,6 +480,9 @@ final class VoicePressCoordinator {
     /// Result-bearing variant used by the LONG-only candidate. A rejected
     /// owner must reject the physical gesture before any candidate is armed.
     var onHardwareOptionGateBeginResult: ((UUID) -> Bool)?
+    /// Adopts an already-active hardware Option hold when BLE fallback enters
+    /// after hidutil's DOWN edge already passed the event tap.
+    var onHardwareOptionAdoptLiveHold: ((UUID) -> Void)?
     /// A SHORT tombstone keeps owning delayed mapped Option edges. A new
     /// hardware candidate may wait privately behind it, but must not steal it.
     var onHardwareOptionGateBeginDeferredBehindShortDiscard: ((UUID) -> Bool)?
@@ -477,11 +551,20 @@ final class VoicePressCoordinator {
     // output route alive long enough for those final frames to render even
     // when the physical Option edge has already been released.
     static let tailDrainDelay: TimeInterval = 0.80
+    /// Receivers such as DoubaoIme take ~475-550ms after the previous voice
+    /// shortcut key-up to tear down their previous audio capture pipeline before
+    /// they accept a new activation shortcut. Keep candidate PCM pre-roll recording
+    /// across this brief window, and defer only the next shortcut key-down edge.
+    static let defaultPostShortcutReleaseQuietInterval: TimeInterval = 0.55
     private var mode: State = .idle
     private var longOnlyCandidateTimer: VoicePressCandidateTimer?
+    private var receiverQuietGateTimer: VoicePressCandidateTimer?
     private var longOnlyCandidate: LongOnlyCandidate?
     private let candidateTimerFactory:
         (TimeInterval, @escaping () -> Void) -> VoicePressCandidateTimer
+    private let postShortcutReleaseQuietInterval: TimeInterval
+    private let uptimeProvider: () -> TimeInterval
+    private var lastShortcutReleaseCompletedUptime: TimeInterval?
     private var remoteStreaming = false
     private var preHIDPhysicalStreaming = false
     private var remoteAudioAvailable = false
@@ -522,6 +605,12 @@ final class VoicePressCoordinator {
         voiceShortcutEmitter: VoiceShortcutEmitter = VoiceShortcutEmitter(),
         virtualHIDSessionOwner: VoiceShortcutHIDSessionOwner? = nil,
         diagnosticLogger: VoiceDiagnosticLogger? = nil,
+        postShortcutReleaseQuietInterval: TimeInterval = RuntimeEnvironment.isRunningTests
+            ? 0
+            : VoicePressCoordinator.defaultPostShortcutReleaseQuietInterval,
+        uptimeProvider: @escaping () -> TimeInterval = {
+            ProcessInfo.processInfo.systemUptime
+        },
         candidateTimerFactory: @escaping
             (TimeInterval, @escaping () -> Void) -> VoicePressCandidateTimer =
             VoicePressCandidateTimer.gcdFactory
@@ -530,6 +619,8 @@ final class VoicePressCoordinator {
         self.voiceShortcutEmitter = voiceShortcutEmitter
         self.virtualHIDSessionOwner = virtualHIDSessionOwner
         self.diagnosticLogger = diagnosticLogger
+        self.postShortcutReleaseQuietInterval = max(0, postShortcutReleaseQuietInterval)
+        self.uptimeProvider = uptimeProvider
         self.candidateTimerFactory = candidateTimerFactory
         if let diagnosticLogger {
             self.voiceShortcutEmitter.diagnosticSink = { [weak diagnosticLogger] diagnostic in
@@ -692,6 +783,7 @@ final class VoicePressCoordinator {
     var hasAnyOwnershipForQATapRecreation: Bool {
         mode != .idle
             || longOnlyCandidateTimer != nil
+            || receiverQuietGateTimer != nil
             || longOnlyCandidate != nil
             || remoteStreaming
             || preHIDPhysicalStreaming
@@ -742,6 +834,7 @@ final class VoicePressCoordinator {
     func keyDown(
         sessionID: UUID,
         usesHardwareOption: Bool = false,
+        hardwareTriggerAlreadyDownInSystem: Bool = false,
         preparesRemoteTransport: Bool = false,
         profile: VoiceInputProfile? = nil,
         targetApplicationBundleIdentifier: String? = nil
@@ -750,6 +843,7 @@ final class VoicePressCoordinator {
             sessionID: sessionID,
             profile: profile ?? .defaultProfile,
             usesHardwareOption: usesHardwareOption,
+            hardwareTriggerAlreadyDownInSystem: hardwareTriggerAlreadyDownInSystem,
             preparesRemoteTransport: preparesRemoteTransport,
             targetApplicationBundleIdentifier: targetApplicationBundleIdentifier
         )
@@ -777,10 +871,12 @@ final class VoicePressCoordinator {
         sessionID: UUID,
         profile: VoiceInputProfile,
         usesHardwareOption: Bool,
+        hardwareTriggerAlreadyDownInSystem: Bool = false,
         preparesRemoteTransport: Bool,
         targetApplicationBundleIdentifier: String?
     ) -> Bool {
         let usesHardwareOption = usesHardwareOption && profile.triggerKey != nil
+        let hardwareTriggerAlreadyDownInSystem = usesHardwareOption && hardwareTriggerAlreadyDownInSystem
         guard longOnlyCandidate == nil else {
             logAdmissionDecision(
                 sessionID: sessionID,
@@ -799,7 +895,7 @@ final class VoicePressCoordinator {
                   let oldSessionID = gestureID else {
                 return false
             }
-            if usesHardwareOption {
+            if usesHardwareOption && !hardwareTriggerAlreadyDownInSystem {
                 guard let beginResult = onHardwareOptionGatePendingRepressBegin?(
                     sessionID,
                     oldSessionID
@@ -827,6 +923,7 @@ final class VoicePressCoordinator {
             pendingRepress = PendingRepress(
                 sessionID: sessionID,
                 usesHardwareOption: usesHardwareOption,
+                hardwareTriggerAlreadyDownInSystem: hardwareTriggerAlreadyDownInSystem,
                 profile: profile
             )
             deferredRepressAwaitingActivation = true
@@ -838,6 +935,7 @@ final class VoicePressCoordinator {
                 profile: profile,
                 targetApplicationBundleIdentifier: targetApplicationBundleIdentifier,
                 usesHardwareOption: usesHardwareOption,
+                hardwareTriggerAlreadyDownInSystem: hardwareTriggerAlreadyDownInSystem,
                 waitsForPreviousOwnership: true,
                 preparesRemoteTransport: preparesRemoteTransport,
                 triggerOwnershipReady: true
@@ -868,7 +966,7 @@ final class VoicePressCoordinator {
         var triggerStrategy: LongOnlyTriggerStrategy = profile.triggerKey == nil
             ? .voiceShortcutChord
             : .hardware
-        if usesHardwareOption {
+        if usesHardwareOption && !hardwareTriggerAlreadyDownInSystem {
             let began: Bool
             if let beginResult = onHardwareOptionGateBeginResult {
                 began = beginResult(sessionID)
@@ -906,6 +1004,7 @@ final class VoicePressCoordinator {
             profile: profile,
             targetApplicationBundleIdentifier: targetApplicationBundleIdentifier,
             usesHardwareOption: usesHardwareOption,
+            hardwareTriggerAlreadyDownInSystem: hardwareTriggerAlreadyDownInSystem,
             waitsForPreviousOwnership: false,
             preparesRemoteTransport: preparesRemoteTransport,
             triggerOwnershipReady: triggerOwnershipReady,
@@ -947,6 +1046,7 @@ final class VoicePressCoordinator {
         profile: VoiceInputProfile,
         targetApplicationBundleIdentifier: String?,
         usesHardwareOption: Bool,
+        hardwareTriggerAlreadyDownInSystem: Bool = false,
         waitsForPreviousOwnership: Bool,
         preparesRemoteTransport: Bool,
         triggerOwnershipReady: Bool,
@@ -961,6 +1061,7 @@ final class VoicePressCoordinator {
             profile: profile,
             targetApplicationBundleIdentifier: targetApplicationBundleIdentifier,
             usesHardwareOption: usesHardwareOption,
+            hardwareTriggerAlreadyDownInSystem: hardwareTriggerAlreadyDownInSystem,
             waitsForPreviousOwnership: waitsForPreviousOwnership,
             candidateOwnsTransportPrewarm: ownsTransportPrewarm,
             candidateOwnsPhysicalAttempt: physicalAttempt.ownsAttempt,
@@ -1037,6 +1138,10 @@ final class VoicePressCoordinator {
               isVoiceSessionAdmissionBlocked?() != true else {
             return
         }
+        if let quietDelay = remainingPostShortcutReleaseQuietDelay() {
+            scheduleReceiverQuietGate(delay: quietDelay, sessionID: sessionID)
+            return
+        }
         promoteLongOnlyCandidate(candidate)
     }
 
@@ -1044,6 +1149,8 @@ final class VoicePressCoordinator {
         guard longOnlyCandidate?.sessionID == candidate.sessionID else { return }
         longOnlyCandidateTimer?.cancel()
         longOnlyCandidateTimer = nil
+        receiverQuietGateTimer?.cancel()
+        receiverQuietGateTimer = nil
         if virtualHIDApplies(to: candidate.profile) {
             beginVirtualHIDPromotion(candidate)
             return
@@ -1055,6 +1162,7 @@ final class VoicePressCoordinator {
             usesHardwareOption: candidate.triggerStrategy == .hardware
                 ? candidate.usesHardwareOption
                 : false,
+            hardwareTriggerAlreadyDownInSystem: candidate.hardwareTriggerAlreadyDownInSystem,
             fromLongOnlyCandidate: true,
             syntheticHandoff: candidate.triggerStrategy == .syntheticHandoff
         )
@@ -1074,9 +1182,15 @@ final class VoicePressCoordinator {
     }
 
     private func virtualHIDApplies(to profile: VoiceInputProfile) -> Bool {
-        guard virtualHIDSessionOwner != nil else { return false }
-        if case .modifierChord = profile.binding { return true }
-        return false
+        guard let virtualHIDSessionOwner else { return false }
+        switch profile.binding {
+        case .modifierChord:
+            return true
+        case .chord:
+            return virtualHIDSessionOwner.isReadyForDispatch
+        case .pureModifier:
+            return false
+        }
     }
 
     private func beginVirtualHIDPromotion(
@@ -1087,13 +1201,15 @@ final class VoicePressCoordinator {
               var current = longOnlyCandidate,
               current.sessionID == candidate.sessionID,
               !current.virtualHIDBeginPending else { return }
-        guard case let .modifierChord(modifierKeyCodes) = candidate.profile.binding else { return }
+        guard candidate.profile.binding.usesVoiceShortcutEmitter else { return }
+        prepareRemoteRouteAndAcquireInputLease()
         current.virtualHIDBeginPending = true
         current.promotingPendingHardwareRepress = promotingPendingHardwareRepress
+        current.routePreparedBeforeVirtualHID = true
         longOnlyCandidate = current
         virtualHIDSessionOwner.begin(
             sessionID: candidate.sessionID,
-            modifierKeyCodes: modifierKeyCodes,
+            binding: candidate.profile.binding,
             completion: { [weak self] admission in
                 DispatchQueue.main.async {
                     self?.finishVirtualHIDPromotion(
@@ -1113,9 +1229,11 @@ final class VoicePressCoordinator {
               let candidate = longOnlyCandidate,
               candidate.sessionID == sessionID,
               candidate.virtualHIDBeginPending else {
+            AudioPipe.shared.cancelPreparedRemoteInputSelection()
             if admission == .accepted {
                 virtualHIDSessionOwner?.end(sessionID: sessionID) { _ in }
             }
+            releaseRemoteInputLeaseIfUnowned()
             return
         }
         longOnlyCandidate = nil
@@ -1123,6 +1241,16 @@ final class VoicePressCoordinator {
         longOnlyCandidateTimer = nil
 
         guard admission == .accepted else {
+            if case let .rejected(error) = admission {
+                logAdmissionDecision(
+                    sessionID: candidate.sessionID,
+                    result: "rejected",
+                    reason: "virtual_hid_\(error)"
+                )
+            }
+            if candidate.routePreparedBeforeVirtualHID {
+                AudioPipe.shared.cancelPreparedRemoteInputSelection()
+            }
             if candidate.promotingPendingHardwareRepress {
                 pendingRepress = nil
                 deferredRepressAwaitingActivation = false
@@ -1139,10 +1267,12 @@ final class VoicePressCoordinator {
             usesHardwareOption: candidate.triggerStrategy == .hardware
                 ? candidate.usesHardwareOption
                 : false,
+            hardwareTriggerAlreadyDownInSystem: candidate.hardwareTriggerAlreadyDownInSystem,
             promotingPendingHardwareRepress: candidate.promotingPendingHardwareRepress,
             fromLongOnlyCandidate: true,
             syntheticHandoff: candidate.triggerStrategy == .syntheticHandoff,
-            virtualHIDTriggerAlreadyStarted: true
+            virtualHIDTriggerAlreadyStarted: true,
+            routeAlreadyPrepared: candidate.routePreparedBeforeVirtualHID
         )
         if candidate.promotingPendingHardwareRepress {
             pendingRepress = nil
@@ -1151,6 +1281,9 @@ final class VoicePressCoordinator {
             clearPendingDirectHardwareRepressState()
         }
         guard activated else {
+            if candidate.routePreparedBeforeVirtualHID {
+                AudioPipe.shared.cancelPreparedRemoteInputSelection()
+            }
             virtualHIDSessionOwner.abort(sessionID: sessionID) { _ in }
             finishFailedLongOnlyCandidate(candidate)
             return
@@ -1175,11 +1308,13 @@ final class VoicePressCoordinator {
             _ = onHardwareOptionGateShortHandoffReleased?(candidate.sessionID)
                 ?? false
         } else if candidate.usesHardwareOption {
-            if candidate.triggerOwnershipReady {
+            if candidate.triggerOwnershipReady, !candidate.hardwareTriggerAlreadyDownInSystem {
                 _ = onHardwareOptionGateShortDiscard?(candidate.sessionID)
                     ?? false
             }
         } else if virtualHIDApplies(to: candidate.profile) {
+            virtualHIDSessionOwner?.abort(sessionID: candidate.sessionID) { _ in }
+        } else if candidate.virtualHIDBeginPending {
             virtualHIDSessionOwner?.abort(sessionID: candidate.sessionID) { _ in }
         } else if candidate.triggerStrategy == .voiceShortcutChord {
             _ = voiceShortcutEmitter.abort(sessionID: candidate.sessionID)
@@ -1205,8 +1340,13 @@ final class VoicePressCoordinator {
     private func cancelLongOnlyCandidate(reason: String) -> Bool {
         guard let candidate = longOnlyCandidate else { return false }
         defer { releaseRemoteInputLeaseIfUnowned() }
+        if candidate.routePreparedBeforeVirtualHID {
+            AudioPipe.shared.cancelPreparedRemoteInputSelection()
+        }
         longOnlyCandidateTimer?.cancel()
         longOnlyCandidateTimer = nil
+        receiverQuietGateTimer?.cancel()
+        receiverQuietGateTimer = nil
         longOnlyCandidate = nil
         if pendingRepress?.sessionID == candidate.sessionID {
             pendingRepress?.isStillHeld = false
@@ -1215,7 +1355,7 @@ final class VoicePressCoordinator {
             deferredRepressActivationWorkItem?.cancel()
             deferredRepressActivationWorkItem = nil
             deferredRepressWaitReason = nil
-            if candidate.usesHardwareOption {
+            if candidate.usesHardwareOption && !candidate.hardwareTriggerAlreadyDownInSystem {
                 onHardwareOptionGatePendingRepressCancel?(
                     candidate.sessionID,
                     reason
@@ -1226,10 +1366,12 @@ final class VoicePressCoordinator {
             _ = onHardwareOptionGateShortHandoffReleased?(candidate.sessionID)
                 ?? false
         } else if candidate.usesHardwareOption {
-            if candidate.triggerOwnershipReady {
+            if candidate.triggerOwnershipReady, !candidate.hardwareTriggerAlreadyDownInSystem {
                 _ = onHardwareOptionGateShortDiscard?(candidate.sessionID)
                     ?? false
             }
+        } else if candidate.virtualHIDBeginPending {
+            virtualHIDSessionOwner?.abort(sessionID: candidate.sessionID) { _ in }
         } else if candidate.triggerStrategy == .voiceShortcutChord {
             _ = voiceShortcutEmitter.abort(sessionID: candidate.sessionID)
         } else {
@@ -1262,18 +1404,21 @@ final class VoicePressCoordinator {
         sessionID: UUID,
         profile: VoiceInputProfile,
         usesHardwareOption: Bool,
+        hardwareTriggerAlreadyDownInSystem: Bool = false,
         promotingPendingHardwareRepress: Bool = false,
         fromLongOnlyCandidate: Bool = false,
         syntheticHandoff: Bool = false,
-        virtualHIDTriggerAlreadyStarted: Bool = false
+        virtualHIDTriggerAlreadyStarted: Bool = false,
+        routeAlreadyPrepared: Bool = false
     ) -> Bool {
         let usesHardwareOption = usesHardwareOption && profile.triggerKey != nil
+        let hardwareTriggerAlreadyDownInSystem = usesHardwareOption && hardwareTriggerAlreadyDownInSystem
         if directSession,
            directPhysicalUp,
            !directOutputDrained,
            livePhysicalCandidateForAdmission {
             if pendingRepress == nil && !deferredRepressAwaitingActivation {
-                if usesHardwareOption {
+                if usesHardwareOption && !hardwareTriggerAlreadyDownInSystem {
                     guard let oldSessionID = gestureID,
                           let beginResult = onHardwareOptionGatePendingRepressBegin?(
                               sessionID,
@@ -1307,6 +1452,7 @@ final class VoicePressCoordinator {
                 pendingRepress = PendingRepress(
                     sessionID: sessionID,
                     usesHardwareOption: usesHardwareOption,
+                    hardwareTriggerAlreadyDownInSystem: hardwareTriggerAlreadyDownInSystem,
                     profile: profile
                 )
                 deferredRepressAwaitingActivation = true
@@ -1352,6 +1498,7 @@ final class VoicePressCoordinator {
         // later admission rejection can strand a trigger owner.
         if promotingPendingHardwareRepress,
            usesHardwareOption,
+           !hardwareTriggerAlreadyDownInSystem,
            onHardwareOptionGatePendingRepressPromote?(sessionID) != true {
             onHardwareOptionGatePendingRepressCancel?(
                 sessionID,
@@ -1365,6 +1512,9 @@ final class VoicePressCoordinator {
             return false
         }
 
+        if !routeAlreadyPrepared {
+            prepareRemoteRouteAndAcquireInputLease()
+        }
         if profile.binding.usesVoiceShortcutEmitter, !virtualHIDTriggerAlreadyStarted {
             let beginResult = voiceShortcutEmitter.begin(
                 sessionID: sessionID,
@@ -1373,6 +1523,7 @@ final class VoicePressCoordinator {
             )
             guard beginResult.wasAccepted else {
                 _ = voiceShortcutEmitter.abort(sessionID: sessionID)
+                rollbackUncommittedPreparedRoute()
                 let reason: String
                 switch beginResult {
                 case .rejected(.unresolvedOwnership): reason = "voice_shortcut_unresolved_ownership"
@@ -1426,7 +1577,9 @@ final class VoicePressCoordinator {
         // promotion, confirm it independently of whether mapped DOWN has
         // arrived; the filter keeps the gate alive for a late mapped edge.
         if usesHardwareOption {
-            if !promotingPendingHardwareRepress {
+            if hardwareTriggerAlreadyDownInSystem {
+                onHardwareOptionAdoptLiveHold?(sessionID)
+            } else if !promotingPendingHardwareRepress {
                 if fromLongOnlyCandidate {
                     onHardwareOptionGateLongConfirmed?(sessionID)
                 } else {
@@ -1449,7 +1602,6 @@ final class VoicePressCoordinator {
 
         setMode(.opening)
         VoiceTimingLogger.mark("REMOTE_ROUTE_BEGIN", sessionID: sessionID)
-        onRemoteRoutePreparation?()
         setRemoteRouted(true)
         logAdmissionDecision(
             sessionID: sessionID,
@@ -1577,6 +1729,8 @@ final class VoicePressCoordinator {
                                     gestureID: sessionID,
                                     fields: ["voice_session_state": "draining"]
                                 )
+                                self.virtualHIDSessionOwner?.abort(sessionID: sessionID) { _ in }
+                                self.completeDirectVoiceSession(sessionID: sessionID)
                             }
                         }
                     }
@@ -1632,6 +1786,7 @@ final class VoicePressCoordinator {
         _ = setRemoteRouted(false)
         settleRemoteInputLeaseAtDirectCompletion()
         if mode != .idle { setMode(.idle) }
+        lastShortcutReleaseCompletedUptime = uptimeProvider()
         VoiceTimingLogger.mark("ROUTE_OFF", sessionID: sessionID)
         VoiceTimingLogger.end(sessionID: sessionID)
         tryActivatePendingDirectHardwareRepress()
@@ -1694,7 +1849,7 @@ final class VoicePressCoordinator {
         } else {
             guard pending.isStillHeld else { return }
         }
-        if pending.usesHardwareOption,
+        if pending.usesHardwareOption && !pending.hardwareTriggerAlreadyDownInSystem,
            !pendingDirectHardwareRepressDownCaptured {
             return
         }
@@ -1704,6 +1859,41 @@ final class VoicePressCoordinator {
             longOnlyCandidate = candidate
         }
         scheduleDeferredRepressActivation()
+    }
+
+    private func remainingPostShortcutReleaseQuietDelay() -> TimeInterval? {
+        guard postShortcutReleaseQuietInterval > 0,
+              let lastShortcutReleaseCompletedUptime else {
+            return nil
+        }
+        let elapsed = max(0, uptimeProvider() - lastShortcutReleaseCompletedUptime)
+        let remaining = postShortcutReleaseQuietInterval - elapsed
+        return remaining > 0.001 ? remaining : nil
+    }
+
+    private func scheduleReceiverQuietGate(delay: TimeInterval, sessionID: UUID) {
+        receiverQuietGateTimer?.cancel()
+        diagnosticLogger?.log(
+            category: "voice",
+            event: "VOICE_SHORTCUT_QUIET_GATE_DEFERRED",
+            gestureID: sessionID,
+            fields: [
+                "delay_ms": Int((delay * 1_000).rounded()),
+            ]
+        )
+        receiverQuietGateTimer = candidateTimerFactory(delay) { [weak self] in
+            self?.receiverQuietGateTimerFired(sessionID: sessionID)
+        }
+    }
+
+    private func receiverQuietGateTimerFired(sessionID: UUID) {
+        receiverQuietGateTimer = nil
+        if let candidate = longOnlyCandidate,
+           candidate.sessionID == sessionID {
+            tryPromoteLongOnlyCandidate(sessionID: sessionID)
+        } else if pendingRepress?.sessionID == sessionID {
+            tryActivatePendingDirectHardwareRepress()
+        }
     }
 
     func pendingHardwareOptionRepressDownCaptured(sessionID: UUID) {
@@ -1748,11 +1938,13 @@ final class VoicePressCoordinator {
         if deferredRepressWaitReason == .directOutputDrain,
            let pendingValue = pendingRepress {
             pendingRepress = nil
+            receiverQuietGateTimer?.cancel()
+            receiverQuietGateTimer = nil
             deferredRepressAwaitingActivation = false
             deferredRepressActivationWorkItem?.cancel()
             deferredRepressActivationWorkItem = nil
             deferredRepressWaitReason = nil
-            if pendingValue.usesHardwareOption {
+            if pendingValue.usesHardwareOption && !pendingValue.hardwareTriggerAlreadyDownInSystem {
                 onHardwareOptionGatePendingRepressCancel?(
                     pendingValue.sessionID,
                     "physical-up-before-activation"
@@ -1771,6 +1963,8 @@ final class VoicePressCoordinator {
         guard let pendingRepress else { return false }
         self.pendingRepress?.isStillHeld = false
         self.pendingRepress = nil
+        receiverQuietGateTimer?.cancel()
+        receiverQuietGateTimer = nil
         deferredRepressAwaitingActivation = false
         deferredRepressActivationWorkItem?.cancel()
         deferredRepressActivationWorkItem = nil
@@ -1941,6 +2135,8 @@ final class VoicePressCoordinator {
 
     func stop() {
         _ = cancelLongOnlyCandidate(reason: "stop")
+        receiverQuietGateTimer?.cancel()
+        receiverQuietGateTimer = nil
         if directSession, let sessionID = gestureID {
             if !directPhysicalUp {
                 _ = finishDirectVoicePressRelease()
@@ -1971,6 +2167,10 @@ final class VoicePressCoordinator {
         clearPendingDirectHardwareRepressState()
         _ = syntheticOptionTrigger.reset()
         voiceShortcutEmitter.abortAll()
+        if let activeHIDSessionID = virtualHIDSessionOwner?.activeSessionID {
+            virtualHIDSessionOwner?.abort(sessionID: activeHIDSessionID) { _ in }
+        }
+        AudioPipe.shared.releaseReceiverReadinessHold()
         releaseRemoteInputLeaseIfUnowned()
     }
 
@@ -2013,6 +2213,7 @@ final class VoicePressCoordinator {
     /// Called only after the filter has observed every replayed old UP
     /// component pass the event-tap boundary.
     func hardwareOptionUpPassAcknowledged(sessionID: UUID) {
+        lastShortcutReleaseCompletedUptime = uptimeProvider()
         guard pendingDirectHardwareRepressOldSessionID == sessionID else {
             return
         }
@@ -2071,6 +2272,20 @@ final class VoicePressCoordinator {
                 || !longOnlyCandidate.isStillHeld) {
             return
         }
+        guard pendingRepress.isStillHeld else {
+            self.pendingRepress = nil
+            deferredRepressWaitReason = nil
+            clearPendingDirectHardwareRepressState()
+            if let longOnlyCandidate,
+               longOnlyCandidate.sessionID == pendingRepress.sessionID {
+                _ = cancelLongOnlyCandidate(reason: "physical-up-before-activation")
+            }
+            return
+        }
+        if let quietDelay = remainingPostShortcutReleaseQuietDelay() {
+            scheduleReceiverQuietGate(delay: quietDelay, sessionID: pendingRepress.sessionID)
+            return
+        }
         if let longOnlyCandidate,
            virtualHIDApplies(to: longOnlyCandidate.profile) {
             beginVirtualHIDPromotion(
@@ -2081,10 +2296,6 @@ final class VoicePressCoordinator {
         }
         self.pendingRepress = nil
         deferredRepressWaitReason = nil
-        guard pendingRepress.isStillHeld else {
-            clearPendingDirectHardwareRepressState()
-            return
-        }
 
         guard livePhysicalCandidateForAdmission else {
             clearPendingDirectHardwareRepressState()
@@ -2095,6 +2306,7 @@ final class VoicePressCoordinator {
             sessionID: pendingRepress.sessionID,
             profile: pendingRepress.profile,
             usesHardwareOption: pendingRepress.usesHardwareOption,
+            hardwareTriggerAlreadyDownInSystem: pendingRepress.hardwareTriggerAlreadyDownInSystem,
             promotingPendingHardwareRepress: pendingRepress.usesHardwareOption
         )
         clearPendingDirectHardwareRepressState()
@@ -2134,6 +2346,16 @@ final class VoicePressCoordinator {
         }
         deferredRepressActivationWorkItem = work
         DispatchQueue.main.async(execute: work)
+    }
+
+    private func prepareRemoteRouteAndAcquireInputLease() {
+        remoteInputLeaseHeld = true
+        onRemoteRoutePreparation?()
+    }
+
+    private func rollbackUncommittedPreparedRoute() {
+        AudioPipe.shared.cancelPreparedRemoteInputSelection()
+        releaseRemoteInputLeaseIfUnowned()
     }
 
     @discardableResult
@@ -2237,6 +2459,7 @@ final class VoiceKeyFilter {
     private var tapCallbackDepth = 0
     private var qaTapRecreationAccepted = false
     private var qaTapRecreationInProgress = false
+    var isEventTapAbsent: Bool { tapResourceLifecycle.isAbsent }
     private var tapPort: CFMachPort? { tapResourceLifecycle.tapPort }
     private var voiceKeyIsDown = false
     private let optionGate = HardwareOptionGate()
@@ -2914,7 +3137,9 @@ final class VoiceKeyFilter {
             key: observed,
             fields: fields
         )
-        if !syntheticMarker, observed != momentaryVoiceTriggerKey {
+        if !syntheticMarker,
+           !suppressMappedTriggerMismatchDiagnostics,
+           observed != momentaryVoiceTriggerKey {
             diagnosticLogger?.log(
                 category: "filter",
                 event: "MAPPED_TRIGGER_MISMATCH",
@@ -3227,6 +3452,8 @@ final class VoiceKeyFilter {
 
     /// HIDMonitor 活跃时跳过语音键处理（防止双重触发）。
     var skipVoiceKey = false
+    /// 多键组合模式由 VirtualHID 发送目标修饰键时，抑制单键 `momentary` 对照错配噪声日志。
+    var suppressMappedTriggerMismatchDiagnostics = false
 
     /// Temporarily hold only the Option events generated by the Xiaomi
     /// voice-key remap. The event tap returns immediately; FloatTabs focus is
@@ -3374,6 +3601,53 @@ final class VoiceKeyFilter {
             fields: ["reason": reason]
         )
         scheduleSuppressedTriggerReleaseCompletion(sessionID: gestureID)
+        return true
+    }
+
+    /// Adopt an already-active hardware modifier hold (e.g. hidutil Left Option
+    /// whose DOWN edge passed before fallback BLE admission) so release still
+    /// waits for output drain without emitting a duplicate DOWN.
+    @discardableResult
+    func adoptAlreadyActiveHardwareTriggerHold(gestureID: UUID) -> Bool {
+        if let pendingGestureID = pendingReplayedHardwareOptionUpGestureID,
+           pendingGestureID != gestureID {
+            invalidatePendingReplayedHardwareOptionUp(
+                gestureID: pendingGestureID,
+                reason: "superseded"
+            )
+        }
+        if let shortTapOwner = optionGate.shortTapDiscardSessionID {
+            _ = resetSuppressedHardwareTrigger(
+                gestureID: shortTapOwner,
+                reason: "adopted-live-hold"
+            )
+        }
+        if let owner = optionGate.suppressedSessionID {
+            _ = resetSuppressedHardwareTrigger(
+                gestureID: owner,
+                reason: "adopted-live-hold"
+            )
+        }
+        if let activeGestureID = optionGate.activeSessionID,
+           activeGestureID != gestureID {
+            cancelDeferredOption(gestureID: activeGestureID, reason: "adopted-live-hold")
+        }
+        if let heldSessionID = heldHardwareOptionSessionID,
+           heldSessionID != gestureID {
+            abortHeldHardwareOption(gestureID: heldSessionID, reason: "superseded")
+        }
+        heldHardwareOptionSessionID = gestureID
+        heldHardwareOptionUpEvents.removeAll(keepingCapacity: true)
+        heldHardwareOptionFlagsUpSeen = false
+        heldHardwareOptionKeyUpSeen = false
+        hardwareOptionReleaseArmed = true
+        print("[VOICE] adopted live hardware Option hold gesture=\(gestureID.uuidString)")
+        diagnosticLogger?.log(
+            category: "filter",
+            event: "OPTION_GATE_ADOPT_LIVE_HOLD",
+            gestureID: gestureID,
+            key: momentaryVoiceTriggerKey
+        )
         return true
     }
 
@@ -4140,6 +4414,7 @@ enum VoiceTriggerApplyResult: Equatable {
 enum VoicePressInputSource: String {
     case hidMonitor = "hid_monitor"
     case voiceKeyFilterFallback = "voice_key_filter_fallback"
+    case blePhysicalHTTFallback = "ble_physical_htt_fallback"
 }
 
 final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -4189,7 +4464,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var voiceFocusSafetyWorkItem: DispatchWorkItem?
     private let voiceFocusSafetyTimeout: TimeInterval = 0.36
     private(set) var currentMomentaryVoiceTriggerKey: VoiceTriggerKey = .leftOption
-    private(set) var currentVoiceInputProfile: VoiceInputProfile = .defaultProfile
+    private(set) var currentVoiceInputProfile: VoiceInputProfile = .defaultProfile {
+        didSet {
+            filter.suppressMappedTriggerMismatchDiagnostics = (currentVoiceInputProfile.triggerKey == nil)
+        }
+    }
     private(set) var currentVoiceShortcutSnapshot = VoiceShortcutSnapshot.seeded()
     private(set) var voiceShortcutReadOnlyReason: VoiceShortcutValidationError?
     /// Compatibility alias: historical callers meant the mapped momentary
@@ -4197,7 +4476,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var currentVoiceTriggerKey: VoiceTriggerKey { currentMomentaryVoiceTriggerKey }
     private(set) var voiceTriggerReconfigurationInProgress = false
     private(set) var voiceTriggerRuntimeLocked = false
+    private var voiceFilterNeedsStartRecovery = false
+    private var voiceRuntimeNeedsRestoreRecovery = false
     private var pendingVoiceHIDMappingRefresh = false
+    private var hidConnectionMappingGeneration: UInt64 = 0
+    private var hidConnectionMappingGenerationAtomic: Int64 = 0
     private let isVoiceHIDMappingEnabled: () -> Bool
     private let applyVoiceHIDMapping: (Bool, VoiceTriggerKey) -> Bool
     private let prepareVoiceTransportAction: (() -> Void)?
@@ -4210,6 +4493,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let voiceShortcutDefaults: UserDefaults
     private let diagnosticUptimeProvider: () -> TimeInterval
     private let qaTapRecreationModifierFlagsProvider: () -> CGEventFlags
+    private let isSecureEventInputActive: () -> Bool
+    private let hardwareModifierFlagsProvider: () -> CGEventFlags
+    private var secureInputBLEVoicePressActive = false
+    private var bleFallbackReleaseWatchdog: DispatchWorkItem?
+    var bleBridgeForTesting: BLEBridge { ble }
     private let voiceHIDMappingQueue = DispatchQueue(
         label: "com.remoteorbit.voice-trigger-hid-mapping",
         qos: .userInitiated
@@ -4217,7 +4505,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     init(
         filter: VoiceKeyFilter = VoiceKeyFilter(diagnosticLogger: .shared),
-        voicePress: VoicePressCoordinator = VoicePressCoordinator(diagnosticLogger: .shared),
+        voicePress: VoicePressCoordinator = VoicePressCoordinator(
+            virtualHIDSessionOwner: RuntimeEnvironment.isRunningTests
+                ? nil
+                : VoiceShortcutHIDSessionOwner(
+                    provider: VoiceShortcutHIDUnixSocketProvider.shared,
+                    physicalModifierKeyCodesProvider: {
+                        VoiceShortcutEmitter.currentPhysicalModifierKeyCodes()
+                    }
+                ),
+            diagnosticLogger: .shared
+        ),
         initiallyHIDConnected: Bool = false,
         isVoiceHIDMappingEnabled: @escaping () -> Bool = {
             RemoteVoiceKeyMapping.isEnabled
@@ -4244,6 +4542,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         qaTapRecreationModifierFlagsProvider: @escaping () -> CGEventFlags = {
             CGEventSource.flagsState(.combinedSessionState)
                 .union(CGEventSource.flagsState(.hidSystemState))
+        },
+        isSecureEventInputActive: @escaping () -> Bool = {
+            SecureEventInputDiagnostics.isSecureEventInputEnabled
+        },
+        hardwareModifierFlagsProvider: @escaping () -> CGEventFlags = {
+            CGEventSource.flagsState(.hidSystemState)
         }
     ) {
         self.filter = filter
@@ -4262,6 +4566,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.persistVoiceTriggerKey = persistVoiceTriggerKey
         self.diagnosticUptimeProvider = uptimeProvider
         self.qaTapRecreationModifierFlagsProvider = qaTapRecreationModifierFlagsProvider
+        self.isSecureEventInputActive = isSecureEventInputActive
+        self.hardwareModifierFlagsProvider = hardwareModifierFlagsProvider
         super.init()
         voicePress.onStateChanged = { [weak self] state in
             if state == .opening {
@@ -4271,9 +4577,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         voicePress.onRemoteTransportPreparation = { [weak self] in
             self?.prepareVoiceTransport()
         }
+        voicePress.onHardwareOptionAdoptLiveHold = { [weak self] gestureID in
+            _ = self?.filter.adoptAlreadyActiveHardwareTriggerHold(gestureID: gestureID)
+        }
         voiceReceiverReadinessMonitor.onStateChanged = { [weak self] readiness in
             guard let self else { return }
             self.lastReceiverReadiness = readiness
+            if readiness.isListening || readiness == .unsupported {
+                AudioPipe.shared.releaseReceiverReadinessHold()
+            }
             self.diagnosticLogger.log(
                 category: "voice",
                 event: "VOICE_RECEIVER_READINESS",
@@ -4289,6 +4601,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         ble.onVoiceSessionAdmissionAvailable = { [weak self] in
             self?.voicePress.voiceSessionAdmissionBecameAvailable()
+        }
+        ble.onPhysicalHTTVoiceEdge = { [weak self] isDown in
+            self?.handleBLEPhysicalHTTVoiceEdge(isDown: isDown)
         }
         filter.onReplayedHardwareOptionUpPassAcknowledged = { [weak self] gestureID in
             self?.voicePress.hardwareOptionUpPassAcknowledged(sessionID: gestureID)
@@ -4394,8 +4709,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 ) ?? "none",
             ]
         )
+        currentMomentaryVoiceTriggerKey = restoredMomentaryKey
+        currentVoiceInputProfile = restoredProfile
         guard filter.configureVoiceTriggerKey(restoredMomentaryKey) else {
             voiceTriggerRuntimeLocked = true
+            voiceRuntimeNeedsRestoreRecovery = true
             print("[VOICE-KEY] startup restore failed; runtime locked")
             diagnosticLogger.log(
                 category: "configuration",
@@ -4404,14 +4722,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             )
             return false
         }
-        currentMomentaryVoiceTriggerKey = restoredMomentaryKey
-        currentVoiceInputProfile = restoredProfile
         let mappingShouldBeEnabled = restoredProfile.triggerKey != nil && hidConnected
         let restoredMapping = voiceHIDMappingQueue.sync {
             applyVoiceHIDMapping(mappingShouldBeEnabled, restoredMomentaryKey)
         }
         if !restoredMapping {
             voiceTriggerRuntimeLocked = true
+            voiceRuntimeNeedsRestoreRecovery = true
             diagnosticLogger.log(
                 category: "configuration",
                 event: "RUNTIME_RESTORE_FAIL",
@@ -4419,6 +4736,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             )
             return false
         }
+        voiceRuntimeNeedsRestoreRecovery = false
         print(
             "[VOICE-KEY] startup restored profile=\(restoredProfile.displayName)"
         )
@@ -4473,6 +4791,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func cancelVoiceGestureStateForHIDRemoval() {
         hidConnected = false
+        bleFallbackReleaseWatchdog?.cancel()
+        bleFallbackReleaseWatchdog = nil
         voicePress.cancelLongOnlyCandidateForHIDRemoval()
         if let pendingReplayGestureID = filter.pendingReplayedHardwareOptionUpGestureID {
             filter.cancelDeferredOption(
@@ -4488,6 +4808,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applyVoiceTriggerKey(
         _ newKey: VoiceTriggerKey,
         persistLegacy: Bool = true,
+        onRuntimeWillCommit: (() -> Void)? = nil,
         completion: @escaping (VoiceTriggerApplyResult) -> Void
     ) {
         guard Thread.isMainThread else {
@@ -4496,7 +4817,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     completion(.locked)
                     return
                 }
-                self.applyVoiceTriggerKey(newKey, persistLegacy: persistLegacy, completion: completion)
+                self.applyVoiceTriggerKey(
+                    newKey,
+                    persistLegacy: persistLegacy,
+                    onRuntimeWillCommit: onRuntimeWillCommit,
+                    completion: completion
+                )
             }
             return
         }
@@ -4513,6 +4839,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "mapping_enabled": RemoteVoiceKeyMapping.isEnabled,
             ]
         )
+        if voiceTriggerRuntimeLocked {
+            _ = attemptVoiceTriggerRuntimeRecovery(
+                fromPressAttempt: false,
+                synchronizeHIDMapping: true
+            )
+        }
         guard !voiceTriggerRuntimeLocked else {
             logReconfigurationBusy(reason: "runtime_locked", event: "MOMENTARY_RECONFIG_REJECTED")
             completion(.locked)
@@ -4536,6 +4868,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let hadHardwareMapping = isVoiceHIDMappingEnabled()
         guard newKey != oldKey || (hidConnected && !hadHardwareMapping) else {
+            onRuntimeWillCommit?()
             completion(.unchanged)
             return
         }
@@ -4550,6 +4883,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         voiceTriggerReconfigurationInProgress = true
+        let generation = bumpHIDMappingGeneration()
         diagnosticLogger.log(
             category: "configuration",
             event: "FILTER_RECONFIG_BEGIN",
@@ -4575,6 +4909,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
 
         guard hidConnected else {
+            onRuntimeWillCommit?()
             currentMomentaryVoiceTriggerKey = newKey
             if persistLegacy { persistVoiceTriggerKey(newKey) }
             completeVoiceTriggerReconfiguration(.applied, completion: completion)
@@ -4583,7 +4918,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         voiceHIDMappingQueue.async { [weak self] in
             guard let self else { return }
-            let succeeded = self.applyVoiceHIDMapping(true, newKey)
+            let isCurrentGeneration = OSAtomicAdd64Barrier(0, &self.hidConnectionMappingGenerationAtomic) == generation
+            let succeeded = isCurrentGeneration ? self.applyVoiceHIDMapping(true, newKey) : false
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 guard succeeded else {
@@ -4594,6 +4930,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     )
                     return
                 }
+                onRuntimeWillCommit?()
                 self.currentMomentaryVoiceTriggerKey = newKey
                 if persistLegacy { self.persistVoiceTriggerKey(newKey) }
                 print("[VOICE-KEY] runtime target committed=\(newKey.displayName)")
@@ -4685,16 +5022,26 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             outcome: "begin",
             reason: "active_binding_changed"
         )
-        currentVoiceInputProfile = target
+        let commitRuntimeProfile: () -> Void = { [weak self] in
+            self?.currentVoiceInputProfile = target
+        }
         let apply: (@escaping (VoiceTriggerApplyResult) -> Void) -> Void
         if let key = target.triggerKey {
             apply = { [weak self] done in
-                self?.applyVoiceTriggerKey(key, persistLegacy: false, completion: done)
-                    ?? done(.locked)
+                self?.applyVoiceTriggerKey(
+                    key,
+                    persistLegacy: false,
+                    onRuntimeWillCommit: commitRuntimeProfile,
+                    completion: done
+                ) ?? done(.locked)
             }
         } else {
             apply = { [weak self] done in
-                self?.applyVoiceShortcutChordRuntime(entry: targetEntry, completion: done) ?? done(.locked)
+                self?.applyVoiceShortcutChordRuntime(
+                    entry: targetEntry,
+                    onRuntimeWillCommit: commitRuntimeProfile,
+                    completion: done
+                ) ?? done(.locked)
             }
         }
         apply { [weak self] result in
@@ -4791,11 +5138,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func applyVoiceShortcutChordRuntime(
         entry: VoiceShortcutEntry? = nil,
+        onRuntimeWillCommit: (() -> Void)? = nil,
         completion: @escaping (VoiceTriggerApplyResult) -> Void
     ) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
-                self?.applyVoiceShortcutChordRuntime(entry: entry, completion: completion) ?? completion(.locked)
+                self?.applyVoiceShortcutChordRuntime(
+                    entry: entry,
+                    onRuntimeWillCommit: onRuntimeWillCommit,
+                    completion: completion
+                ) ?? completion(.locked)
             }
             return
         }
@@ -4805,6 +5157,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             entry: targetEntry,
             outcome: "requested"
         )
+        if voiceTriggerRuntimeLocked {
+            _ = attemptVoiceTriggerRuntimeRecovery(
+                fromPressAttempt: false,
+                synchronizeHIDMapping: true
+            )
+        }
         guard !voiceTriggerRuntimeLocked else {
             logVoiceShortcutConfiguration(
                 event: "VOICE_SHORTCUT_CONFIG_BUSY",
@@ -4857,6 +5215,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
            !hadHardwareMapping,
            filter.isVoiceTriggerConfiguredConsistently(for: key),
            !filter.shouldSuppressDuringVoiceTriggerReconfiguration(keyCode: VK.voiceKey) {
+            onRuntimeWillCommit?()
             completion(.unchanged)
             return
         }
@@ -4872,6 +5231,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         voiceTriggerReconfigurationInProgress = true
+        let generation = bumpHIDMappingGeneration()
         guard filter.configureVoiceTriggerKey(key) else {
             voiceTriggerReconfigurationInProgress = false
             filter.endVoiceTriggerReconfiguration()
@@ -4886,7 +5246,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         voiceHIDMappingQueue.async { [weak self] in
             guard let self else { return }
-            let disabled = self.applyVoiceHIDMapping(false, key)
+            let isCurrentGeneration = OSAtomicAdd64Barrier(0, &self.hidConnectionMappingGenerationAtomic) == generation
+            let disabled = isCurrentGeneration ? self.applyVoiceHIDMapping(false, key) : false
             DispatchQueue.main.async { [weak self] in
                 guard let self else { completion(.locked); return }
                 guard disabled else {
@@ -4897,9 +5258,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         reason: "chord_mapping_disable_failed"
                     )
                     if hadHardwareMapping {
+                        let rollbackGeneration = self.bumpHIDMappingGeneration()
                         self.voiceHIDMappingQueue.async { [weak self] in
                             guard let self else { return }
-                            let restored = self.applyVoiceHIDMapping(true, key)
+                            let isCurrentRollbackGeneration = OSAtomicAdd64Barrier(0, &self.hidConnectionMappingGenerationAtomic) == rollbackGeneration
+                            let restored = isCurrentRollbackGeneration ? self.applyVoiceHIDMapping(true, key) : false
                             DispatchQueue.main.async { [weak self] in
                                 guard let self else { completion(.locked); return }
                                 if restored {
@@ -4933,6 +5296,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     }
                     return
                 }
+                onRuntimeWillCommit?()
                 self.logVoiceShortcutConfiguration(
                     event: "VOICE_SHORTCUT_RUNTIME_RECONFIG_COMMITTED",
                     entry: targetEntry,
@@ -4985,9 +5349,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
 
+        let generation = bumpHIDMappingGeneration()
         voiceHIDMappingQueue.async { [weak self] in
             guard let self else { return }
-            let hidRollbackSucceeded = self.applyVoiceHIDMapping(true, oldKey)
+            let isCurrentGeneration = OSAtomicAdd64Barrier(0, &self.hidConnectionMappingGenerationAtomic) == generation
+            let hidRollbackSucceeded = isCurrentGeneration ? self.applyVoiceHIDMapping(true, oldKey) : false
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 guard localRollbackSucceeded && hidRollbackSucceeded else {
@@ -5038,9 +5404,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pendingVoiceHIDMappingRefresh = false
         let shouldEnable = hidConnected && currentVoiceInputProfile.triggerKey != nil
         let target = currentMomentaryVoiceTriggerKey
+        let generation = bumpHIDMappingGeneration()
         voiceHIDMappingQueue.async { [weak self] in
             guard let self else { return }
-            let succeeded = self.applyVoiceHIDMapping(shouldEnable, target)
+            let isCurrentGeneration = OSAtomicAdd64Barrier(0, &self.hidConnectionMappingGenerationAtomic) == generation
+            let succeeded = isCurrentGeneration ? self.applyVoiceHIDMapping(shouldEnable, target) : true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 if shouldEnable && !succeeded {
@@ -5164,10 +5532,159 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    @discardableResult
+    func attemptVoiceTriggerRuntimeRecovery(
+        fromPressAttempt: Bool = false,
+        synchronizeHIDMapping: Bool = true
+    ) -> Bool {
+        guard Thread.isMainThread else { return false }
+        guard voiceTriggerRuntimeLocked else { return true }
+        if fromPressAttempt && !voiceFilterNeedsStartRecovery && !voiceRuntimeNeedsRestoreRecovery {
+            return false
+        }
+        if voiceFilterNeedsStartRecovery {
+            do {
+                try filter.start()
+                voiceFilterNeedsStartRecovery = false
+            } catch {
+                return false
+            }
+        }
+        guard !voicePress.hasVoiceKeyHeldForReconfiguration,
+              !voicePress.hasReleaseOrTailOwnershipForReconfiguration,
+              !filter.isVoiceKeyHeld else {
+            return false
+        }
+        let target = currentMomentaryVoiceTriggerKey
+        guard filter.configureVoiceTriggerKey(target) else {
+            return false
+        }
+        let shouldEnable = hidConnected && currentVoiceInputProfile.triggerKey != nil
+        let mappingGeneration = bumpHIDMappingGeneration()
+        if synchronizeHIDMapping {
+            let mappingOK = voiceHIDMappingQueue.sync {
+                applyVoiceHIDMapping(shouldEnable, target)
+            }
+            guard mappingOK else {
+                return false
+            }
+        } else {
+            voiceHIDMappingQueue.async { [weak self] in
+                guard let self,
+                      OSAtomicAdd64Barrier(0, &self.hidConnectionMappingGenerationAtomic) == mappingGeneration else {
+                    return
+                }
+                let mappingOK = self.applyVoiceHIDMapping(shouldEnable, target)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          OSAtomicAdd64Barrier(0, &self.hidConnectionMappingGenerationAtomic) == mappingGeneration else {
+                        return
+                    }
+                    if !mappingOK {
+                        self.voiceRuntimeNeedsRestoreRecovery = true
+                        self.lockVoiceTriggerRuntime(reason: "async runtime recovery HID mapping failed")
+                    }
+                }
+            }
+        }
+        voiceTriggerRuntimeLocked = false
+        voiceRuntimeNeedsRestoreRecovery = false
+        voiceTriggerReconfigurationInProgress = false
+        pendingVoiceHIDMappingRefresh = false
+        filter.endVoiceTriggerReconfiguration()
+        print("[VOICE-KEY] runtime lock recovered target=\(target.displayName) hid_enabled=\(shouldEnable)")
+        diagnosticLogger.log(
+            category: "configuration",
+            event: "MOMENTARY_RUNTIME_RECOVERED",
+            key: target,
+            fields: [
+                "hid_connected": hidConnected,
+                "hid_mapping_enabled": shouldEnable,
+                "from_press_attempt": fromPressAttempt,
+            ]
+        )
+        updateStatus()
+        return true
+    }
+
+    func handleBLEPhysicalHTTVoiceEdge(isDown: Bool) {
+        if isDown {
+            bleFallbackReleaseWatchdog?.cancel()
+            bleFallbackReleaseWatchdog = nil
+            if isSecureEventInputActive(),
+               !voicePress.hasVoiceKeyHeldForReconfiguration,
+               hidMonitor.isButtonDown(.microphone) {
+                _ = hidMonitor.clearStuckButtonHold(.microphone)
+            }
+            guard !hidMonitor.isButtonDown(.microphone),
+                  !secureInputBLEVoicePressActive,
+                  !voicePress.hasVoiceKeyHeldForReconfiguration,
+                  isSecureEventInputActive() || (!RuntimeEnvironment.isRunningTests && !hidMonitor.isRunning) else {
+                return
+            }
+            let alreadyDown = isVoiceHIDMappingEnabled()
+                && (currentVoiceInputProfile.triggerKey.map {
+                    hardwareModifierFlagsProvider().contains($0.cgEventFlag)
+                } ?? false)
+            secureInputBLEVoicePressActive = true
+            beginVoicePress(
+                targetApplicationBundleIdentifier: nil,
+                source: .blePhysicalHTTFallback,
+                hardwareTriggerAlreadyDownInSystem: alreadyDown
+            )
+            if !voicePress.hasVoiceKeyHeldForReconfiguration {
+                secureInputBLEVoicePressActive = false
+            }
+        } else {
+            bleFallbackReleaseWatchdog?.cancel()
+            bleFallbackReleaseWatchdog = nil
+            if secureInputBLEVoicePressActive {
+                secureInputBLEVoicePressActive = false
+                _ = hidMonitor.clearStuckButtonHold(.microphone)
+                finishVoicePressRelease(source: .blePhysicalHTTFallback) {
+                    self.stopVoiceInput()
+                }
+                return
+            }
+            guard voicePress.hasVoiceKeyHeldForReconfiguration
+                    || hidMonitor.isButtonDown(.microphone) else {
+                return
+            }
+            if isSecureEventInputActive() {
+                _ = hidMonitor.clearStuckButtonHold(.microphone)
+                if voicePress.hasVoiceKeyHeldForReconfiguration {
+                    finishVoicePressRelease(source: .blePhysicalHTTFallback) {
+                        self.stopVoiceInput()
+                    }
+                }
+                return
+            }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.bleFallbackReleaseWatchdog = nil
+                let cleared = self.hidMonitor.clearStuckButtonHold(.microphone)
+                if cleared || self.voicePress.hasVoiceKeyHeldForReconfiguration {
+                    self.finishVoicePressRelease(source: .blePhysicalHTTFallback) {
+                        self.stopVoiceInput()
+                    }
+                }
+            }
+            bleFallbackReleaseWatchdog = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+        }
+    }
+
     func beginVoicePress(
         targetApplicationBundleIdentifier lockedTarget: String? = nil,
-        source: VoicePressInputSource = .voiceKeyFilterFallback
+        source: VoicePressInputSource = .voiceKeyFilterFallback,
+        hardwareTriggerAlreadyDownInSystem: Bool = false
     ) {
+        if voiceTriggerRuntimeLocked {
+            _ = attemptVoiceTriggerRuntimeRecovery(
+                fromPressAttempt: true,
+                synchronizeHIDMapping: false
+            )
+        }
         guard !voiceTriggerReconfigurationInProgress,
               !voiceTriggerRuntimeLocked else {
             print("[VOICE] press rejected during trigger reconfiguration or runtime lock")
@@ -5183,6 +5700,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let pressAccepted = voicePress.keyDown(
             sessionID: gestureID,
             usesHardwareOption: isVoiceHIDMappingEnabled(),
+            hardwareTriggerAlreadyDownInSystem: hardwareTriggerAlreadyDownInSystem,
             preparesRemoteTransport: true,
             profile: currentVoiceInputProfile,
             targetApplicationBundleIdentifier: target
@@ -5311,6 +5829,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         AppStorage.prepare()
+        if !RuntimeEnvironment.isRunningTests {
+            VoiceShortcutHIDUnixSocketProvider.shared.start()
+        }
         DiagnosticRuntimeHealthService.shared.start()
         let diagnosticsEnabled = DiagnosticsRuntimeGate.shared.isEnabled
         if diagnosticsEnabled {
@@ -5451,6 +5972,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .draining, .idle:
                 self?.lastReceiverReadiness = .inactive
                 self?.voiceReceiverReadinessMonitor.deactivate()
+                AudioPipe.shared.releaseReceiverReadinessHold()
             }
             self?.updateVoiceHUD(for: state)
         }
@@ -5464,6 +5986,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         voicePress.onHardwareOptionGateBeginResult = { [weak self] gestureID in
             self?.filter.beginLongOnlyOptionDeferral(gestureID: gestureID) ?? false
+        }
+        voicePress.onHardwareOptionAdoptLiveHold = { [weak self] gestureID in
+            _ = self?.filter.adoptAlreadyActiveHardwareTriggerHold(gestureID: gestureID)
         }
         voicePress.onHardwareOptionGateBeginDeferredBehindShortDiscard = { [weak self] _ in
             self?.filter.hasShortTapDiscardOwnership ?? false
@@ -5506,6 +6031,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 sessionID: gestureID,
                 reason: reason
             )
+        }
+        voicePress.onRemoteRoutePreparation = {
+            AudioPipe.shared.prepareRemoteInputSelectionForVoice()
+            if !RuntimeEnvironment.isRunningTests {
+                AudioPipe.shared.armReceiverReadinessHold()
+            }
         }
         voicePress.onRemoteTransportPreparation = { [weak self] in
             self?.prepareVoiceTransport()
@@ -5619,6 +6150,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.filter.skipVoiceKey = active
             self.hidConnected = active
+            if !RuntimeEnvironment.isRunningTests {
+                self.ble.setKeepTransportReady(active)
+            }
             if !active {
                 self.cancelVoiceGestureStateForHIDRemoval()
             }
@@ -5713,6 +6247,34 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 print("[HID] \(button.displayName) reconnect release recovered")
                 return
             }
+            if button == .microphone {
+                self.bleFallbackReleaseWatchdog?.cancel()
+                self.bleFallbackReleaseWatchdog = nil
+                if isDown {
+                    if self.secureInputBLEVoicePressActive {
+                        return
+                    }
+                    DiagnosticRuntimeHealthRegistry.shared.setBool("mapping_enabled", true)
+                    DiagnosticRuntimeHealthRegistry.shared.setBool("mapping_verified", true)
+                    VoiceAttemptDiagnostics.shared.stage(
+                        "MAPPING_RESOLVED",
+                        state: [
+                            "mapping_enabled": .bool(true),
+                            "mapping_verified": .bool(true),
+                        ]
+                    )
+                    self.beginVoicePress(
+                        targetApplicationBundleIdentifier: nil,
+                        source: .hidMonitor
+                    )
+                } else {
+                    self.secureInputBLEVoicePressActive = false
+                    self.finishVoicePressRelease(source: .hidMonitor) {
+                        self.ble.stopVoiceInput()
+                    }
+                }
+                return
+            }
             let binding: ButtonBinding
             let targetApplicationBundleIdentifier: String?
             if isDown {
@@ -5720,21 +6282,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 targetApplicationBundleIdentifier = self.mappingStore
                     .activePressApplicationBundleIdentifier(for: button)
                 let profile = self.mappingStore.activePressGestureProfile(for: button)
-                if button == .microphone {
-                    DiagnosticRuntimeHealthRegistry.shared.setBool(
-                        "mapping_enabled",
-                        !binding.isDisabled
-                    )
-                    DiagnosticRuntimeHealthRegistry.shared.setBool("mapping_verified", true)
-                    VoiceAttemptDiagnostics.shared.stage(
-                        "MAPPING_RESOLVED",
-                        state: [
-                            "mapping_enabled": .bool(!binding.isDisabled),
-                            "mapping_verified": .bool(true),
-                        ]
-                    )
-                }
-                if button != .microphone, profile.isEnabled {
+                if profile.isEnabled {
                     print(
                         "[GESTURE-ROUTE] " + button.displayName + " down "
                             + "advanced=\(profile.usesAdvancedGestures) "
@@ -5743,7 +6291,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             + "longAction=\(profile.longPress?.displayName ?? "none")"
                     )
                 }
-                if button != .microphone, profile.usesAdvancedGestures {
+                if profile.usesAdvancedGestures {
                     self.actionHUD.show(
                         button: button,
                         gesture: "识别中",
@@ -5766,14 +6314,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 targetApplicationBundleIdentifier = self.mappingStore
                     .activePressApplicationBundleIdentifier(for: button)
                 let profile = self.mappingStore.activePressGestureProfile(for: button)
-                if button != .microphone, profile.isEnabled {
+                if profile.isEnabled {
                     print(
                         "[GESTURE-ROUTE] " + button.displayName + " up "
                             + "advanced=\(profile.usesAdvancedGestures) "
                             + "long=\(profile.longPressBehavior.rawValue)"
                     )
                 }
-                if button != .microphone, profile.usesAdvancedGestures {
+                if profile.usesAdvancedGestures {
                     if profile.longPressBehavior == .repeatWhileHeld,
                        let longPressBinding = profile.longPress,
                        self.shouldCancelFloatTabsScroll(
@@ -5794,24 +6342,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     return
                 }
                 binding = self.mappingStore.endPress(for: button)
-            }
-
-            // Gate A voice control: every physical microphone DOWN/UP owns one
-            // transport session. App mappings and short/long classification do
-            // not participate in this path.
-            if button == .microphone {
-                if isDown {
-                    self.beginVoicePress(
-                        targetApplicationBundleIdentifier: self.mappingStore
-                            .activePressApplicationBundleIdentifier(for: button),
-                        source: .hidMonitor
-                    )
-                } else {
-                    self.finishVoicePressRelease(source: .hidMonitor) {
-                        self.ble.stopVoiceInput()
-                    }
-                }
-                return
             }
 
             // 其他按钮：使用按下时锁定的映射并注入
@@ -5864,6 +6394,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return HIDButtonDownPolicy(
                     shouldDebounce: !repeatable,
                     shouldRepeat: repeatable
+                )
+            }
+            if button == .microphone {
+                return HIDButtonDownPolicy.resolve(
+                    button: .microphone,
+                    shouldRepeat: false,
+                    usesAdvancedGestures: false,
+                    hasLivePhysicalCandidate: self.ble.hasLivePreHIDPhysicalCandidate
                 )
             }
 
@@ -5921,14 +6459,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ = AudioPipe.shared
 
         // F6 filter (may prompt for Accessibility).
-        do {
-            try filter.start()
-        } catch {
-            voiceTriggerRuntimeLocked = true
-            let msg = error.localizedDescription
-            setStatusSummary("状态 · \(msg)", color: .systemOrange)
-            setStatusIcon(systemName: "exclamationmark.triangle", color: .systemOrange)
-            print("[ERR] filter: \(msg)")
+        if !startVoiceKeyFilterAtLaunch() {
+            print("[ERR] filter startup failed; waiting for accessibility recovery")
         }
 
         // The persisted target is configured and the EventTap is ready before
@@ -5936,16 +6468,60 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hidMonitor.start()
     }
 
+    @discardableResult
+    func startVoiceKeyFilterAtLaunch() -> Bool {
+        do {
+            try filter.start()
+            voiceFilterNeedsStartRecovery = false
+            return true
+        } catch {
+            voiceFilterNeedsStartRecovery = true
+            voiceTriggerRuntimeLocked = true
+            let msg = error.localizedDescription
+            setStatusSummary("状态 · \(msg)", color: .systemOrange)
+            setStatusIcon(systemName: "exclamationmark.triangle", color: .systemOrange)
+            print("[ERR] filter: \(msg)")
+            return false
+        }
+    }
+
+    private func storeHIDConnectionMappingGeneration(_ value: Int64) {
+        while true {
+            let current = OSAtomicAdd64Barrier(0, &hidConnectionMappingGenerationAtomic)
+            if OSAtomicCompareAndSwap64Barrier(current, value, &hidConnectionMappingGenerationAtomic) {
+                return
+            }
+        }
+    }
+
+    @discardableResult
+    private func bumpHIDMappingGeneration() -> Int64 {
+        hidConnectionMappingGeneration &+= 1
+        let generation = Int64(bitPattern: hidConnectionMappingGeneration)
+        storeHIDConnectionMappingGeneration(generation)
+        return generation
+    }
+
     private func applyVoiceHIDMappingForConnection(_ active: Bool) {
+        if active,
+           voiceTriggerRuntimeLocked,
+           attemptVoiceTriggerRuntimeRecovery(fromPressAttempt: false, synchronizeHIDMapping: false) {
+            return
+        }
         let shouldEnable = active
             && !voiceTriggerRuntimeLocked
             && currentVoiceInputProfile.triggerKey != nil
         let primaryKey = currentVoiceInputProfile.triggerKey ?? currentMomentaryVoiceTriggerKey
-        let succeeded = voiceHIDMappingQueue.sync {
-            applyVoiceHIDMapping(shouldEnable, primaryKey)
-        }
-        if shouldEnable && !succeeded {
-            print("[HID-MAP] connect mapping failed; synthetic fallback remains available")
+        let generation = bumpHIDMappingGeneration()
+        voiceHIDMappingQueue.async { [weak self] in
+            guard let self,
+                  OSAtomicAdd64Barrier(0, &self.hidConnectionMappingGenerationAtomic) == generation else {
+                return
+            }
+            let succeeded = self.applyVoiceHIDMapping(shouldEnable, primaryKey)
+            if shouldEnable && !succeeded {
+                print("[HID-MAP] connect mapping failed; synthetic fallback remains available")
+            }
         }
     }
 
@@ -6069,6 +6645,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        _ = attemptVoiceTriggerRuntimeRecovery(fromPressAttempt: false, synchronizeHIDMapping: false)
         refreshAudioDeviceMenus()
         rebuildVoiceInputProfileMenu()
         updateStatus()
@@ -6211,7 +6788,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             setStatusIcon(systemName: "exclamationmark.triangle", color: .systemRed)
         }
 
-        setMenuStatus(remoteStatusItem, title: "遥控器 · " + (hidConnected ? "HID 已连接" : "未连接"), color: hidConnected ? .systemGreen : .systemRed)
+        let remoteTitle: String
+        let remoteColor: NSColor
+        if hidConnected && isSecureEventInputActive() {
+            remoteTitle = "遥控器 · HID 已连接（安全输入激活，语音可用）"
+            remoteColor = .systemOrange
+        } else if hidConnected {
+            remoteTitle = "遥控器 · HID 已连接"
+            remoteColor = .systemGreen
+        } else {
+            remoteTitle = "遥控器 · 未连接"
+            remoteColor = .systemRed
+        }
+        setMenuStatus(remoteStatusItem, title: remoteTitle, color: remoteColor)
         let audioTitle: String
         let audioColor: NSColor
         if remoteStreaming, audioOutputReady {
@@ -6243,12 +6832,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 不创建额外窗口或动画视图，避免影响音频和 HID 事件线程。
     private func startRecordingStatusPulse() {
         renderRecordingStatusIcon()
-        guard statusPulseTimer == nil else { return }
-        statusPulseTimer = Timer.scheduledTimer(withTimeInterval: 0.28, repeats: true) {
-            [weak self] _ in
-            self?.statusPulsePhase.toggle()
-            self?.renderRecordingStatusIcon()
-        }
     }
 
     private func renderRecordingStatusIcon() {
@@ -6277,8 +6860,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setStatusIcon(systemName _: String, color _: NSColor = .white) {
         let image = ProductBrandMark.menuBarTemplateImage(size: 18)
-        statusItem?.button?.image = image
-        statusItem?.button?.title = ""
+        if statusItem?.button?.image !== image {
+            statusItem?.button?.image = image
+        }
+        if statusItem?.button?.title != "" {
+            statusItem?.button?.title = ""
+        }
         statusItem?.button?.imageScaling = .scaleProportionallyDown
         statusItem?.button?.contentTintColor = nil
     }
@@ -6299,15 +6886,22 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         contextualOverlayButton = nil
         reconnectHeldButtons.removeAll()
         voicePress.stop()
+        if !RuntimeEnvironment.isRunningTests {
+            VoiceShortcutHIDUnixSocketProvider.shared.stop()
+        }
         filter.stop()
         hidMonitor.stop()
         mappingStore.clearPressedBindings()
         KeyInjector.releaseAll()
+        ble.setKeepTransportReady(false)
         ble.stop()
         AudioPipe.shared.stop()
         DiagnosticRuntimeHealthService.shared.stop()
         voiceHIDMappingQueue.sync {
             _ = applyVoiceHIDMapping(false, currentMomentaryVoiceTriggerKey)
+            if !RuntimeEnvironment.isRunningTests {
+                _ = RemoteVoiceKeyMapping.clear()
+            }
         }
         diagnosticLogger.close()
     }
@@ -6339,19 +6933,73 @@ if let diagnosticCLIExitCode = DiagnosticCLI.runIfRequested() {
 /// or CoreAudio IOProcs cannot compete for the same remote.
 private func terminateDuplicateInstanceIfNeeded() -> Bool {
     guard let bundleIdentifier = Bundle.main.bundleIdentifier,
-          bundleIdentifier == ProductIdentity.bundleIdentifier
+          ProductIdentity.isRecognizedAppBundle
     else { return false }
 
     let currentPID = ProcessInfo.processInfo.processIdentifier
-    guard let existing = NSRunningApplication.runningApplications(
+    if let existing = NSRunningApplication.runningApplications(
         withBundleIdentifier: bundleIdentifier
-    ).first(where: { $0.processIdentifier != currentPID }) else {
+    ).first(where: { !$0.isTerminated && $0.processIdentifier != currentPID }) {
+        _ = existing.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        Swift.print("[APP] duplicate launch ignored; existing pid=\(existing.processIdentifier)")
+        return true
+    }
+
+    let canonicalID = ProductIdentity.canonicalBundleIdentifier
+    guard let sibling = NSWorkspace.shared.runningApplications.first(where: { app in
+        guard !app.isTerminated,
+              app.processIdentifier != currentPID,
+              let siblingID = app.bundleIdentifier
+        else {
+            return false
+        }
+        return siblingID == canonicalID || siblingID.hasPrefix(canonicalID + ".")
+    }) else {
         return false
     }
 
-    _ = existing.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-    Swift.print("[APP] duplicate launch ignored; existing pid=\(existing.processIdentifier)")
-    return true
+    let siblingName: String = {
+        if let localized = sibling.localizedName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !localized.isEmpty {
+            return localized
+        }
+        return sibling.bundleIdentifier ?? ProductIdentity.canonicalName
+    }()
+
+    _ = NSApplication.shared
+    NSApp.activate(ignoringOtherApps: true)
+
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = "检测到 \(siblingName) 正在后台运行"
+    alert.informativeText =
+        "同一时间只能运行一个 RemoteOrbit 实例，否则两个进程会同时争抢蓝牙遥控器、按键拦截与虚拟声卡。\n\n是否先退出正在运行的 \(siblingName)（PID \(sibling.processIdentifier)），再启动 \(ProductIdentity.name)？"
+    alert.addButton(withTitle: "退出旧实例并启动")
+    alert.addButton(withTitle: "取消")
+
+    guard alert.runModal() == .alertFirstButtonReturn else {
+        Swift.print("[APP] launch cancelled due to running sibling pid=\(sibling.processIdentifier)")
+        return true
+    }
+
+    _ = sibling.terminate()
+    let deadline = Date().addingTimeInterval(2.5)
+    while !sibling.isTerminated && Date() < deadline {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    if !sibling.isTerminated {
+        let failedAlert = NSAlert()
+        failedAlert.alertStyle = .warning
+        failedAlert.messageText = "未能自动退出 \(siblingName)"
+        failedAlert.informativeText =
+            "未能自动退出 \(siblingName)（PID \(sibling.processIdentifier)），请先从菜单栏手动退出后再重试。"
+        failedAlert.addButton(withTitle: "好")
+        _ = failedAlert.runModal()
+        return true
+    }
+
+    return false
 }
 
 if terminateDuplicateInstanceIfNeeded() {

@@ -6,6 +6,7 @@
 
 import AudioToolbox
 import CoreAudio
+import Darwin
 import Foundation
 
 final class AudioPipe: NSObject {
@@ -23,13 +24,21 @@ final class AudioPipe: NSObject {
     /// +26 dB and use a soft limiter so a nearby speaker does not hard-clip.
     private static let remoteGain: Float = 20.0
 
+    static let defaultReceiverReadinessMaxHoldNanoseconds: UInt64 = 320_000_000
+    static let receiverHoldMaxSafeBufferedFrames: Int = 36_000
+
     private let stateLock = NSLock()
     private var remoteActive = false
     private var remoteCandidateActive = false
+    private var inputPreparedForNextActivation = false
+    private var receiverHoldDeadlineNanoseconds: Int64 = 0
+    private var lastResampleInputSample: Float?
+    private var feedFloatScratch: [Float] = []
+    private var resampledFloatScratch: [Float] = []
     // ATVV starts sending PCM before VoicePressCoordinator crosses the hold
     // guard. Keep only a short pre-roll so the first syllable is not lost.
     private var pendingRemotePrebuffer: [Int16] = []
-    private let remotePrebufferLimit = 16_000 / 2
+    private let remotePrebufferLimit = 16_000
     private var outputDeviceID: AudioDeviceID?
     private var outputIOProcID: AudioDeviceIOProcID?
     private var outputDeviceName: String?
@@ -74,15 +83,17 @@ final class AudioPipe: NSObject {
     private override init() {
         super.init()
 
-        if let output = Self.findOutputDevice() {
-            startOutputDevice(output.id, name: output.name)
-            SystemAudioDeviceManager.applyPreferredInputSelection()
-        } else {
-            print(
-                "[AUDIO] ⚠️ 找不到语音输出设备；已查找: "
-                    + Self.targetDeviceNames.joined(separator: ", ")
-                    + "，请确认 RemoteOrbitAudio.driver 已安装"
-            )
+        if !RuntimeEnvironment.isRunningTests {
+            if let output = Self.findOutputDevice() {
+                startOutputDevice(output.id, name: output.name)
+                SystemAudioDeviceManager.applyPreferredInputSelection()
+            } else {
+                print(
+                    "[AUDIO] ⚠️ 找不到语音输出设备；已查找: "
+                        + Self.targetDeviceNames.joined(separator: ", ")
+                        + "，请确认 RemoteOrbitAudio.driver 已安装"
+                )
+            }
         }
 
         DiagnosticsRuntimeGate.shared.observe { [weak self] enabled in
@@ -390,24 +401,88 @@ final class AudioPipe: NSObject {
             stateLock.unlock()
             return
         }
-        stateLock.unlock()
-
-        let floatSamples = samples.map { sample -> Float in
-            let amplified = Float(sample) / 32768.0 * Self.remoteGain
-            return Float(tanh(Double(amplified)))
+        guard inputSampleRate > 0 else {
+            stateLock.unlock()
+            return
         }
-        schedule(
-            monoSamples: floatSamples,
-            sampleRate: inputSampleRate
+        feedFloatScratch.removeAll(keepingCapacity: true)
+        if feedFloatScratch.capacity < samples.count {
+            feedFloatScratch.reserveCapacity(samples.count)
+        }
+        for sample in samples {
+            let amplified = Float(sample) / 32768.0 * Self.remoteGain
+            feedFloatScratch.append(Float(tanh(Double(amplified))))
+        }
+        var previousSample = lastResampleInputSample
+        Self.resample(
+            feedFloatScratch,
+            from: inputSampleRate,
+            to: Self.outputSampleRate,
+            previousSample: &previousSample,
+            into: &resampledFloatScratch
         )
+        lastResampleInputSample = previousSample
+        guard !resampledFloatScratch.isEmpty else {
+            stateLock.unlock()
+            return
+        }
+        scheduleLocked(resampledSamples: resampledFloatScratch)
+        stateLock.unlock()
+    }
+
+    func prepareRemoteInputSelectionForVoice() {
+        stateLock.lock()
+        inputPreparedForNextActivation = true
+        stateLock.unlock()
+        guard !RuntimeEnvironment.isRunningTests else { return }
+        _ = SystemAudioDeviceManager.selectRemoteOrbitInputForVoice()
+        DiagnosticRuntimeHealthRegistry.shared.recordSelectedInputIdentity(
+            SystemAudioDeviceManager.defaultInputStableIdentifier
+        )
+    }
+
+    func cancelPreparedRemoteInputSelection() {
+        stateLock.lock()
+        inputPreparedForNextActivation = false
+        stateLock.unlock()
+        releaseReceiverReadinessHold()
+    }
+
+    var isInputPreparedForNextActivationForTesting: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return inputPreparedForNextActivation
+    }
+
+    func armReceiverReadinessHold(
+        nowNanoseconds: UInt64 = P1A4MonotonicClock.nowNanoseconds(),
+        maxHoldNanoseconds: UInt64 = AudioPipe.defaultReceiverReadinessMaxHoldNanoseconds
+    ) {
+        let deadline = Int64(min(nowNanoseconds &+ maxHoldNanoseconds, UInt64(Int64.max)))
+        atomicStore64(deadline, to: &receiverHoldDeadlineNanoseconds)
+    }
+
+    func releaseReceiverReadinessHold() {
+        atomicStore64(0, to: &receiverHoldDeadlineNanoseconds)
+    }
+
+    func noteRemoteTransportStopReceived() {
+        realtimeDiagnostics.setRemoteTransportStopping(true)
+    }
+
+    var isReceiverReadinessHoldArmedForTesting: Bool {
+        atomicLoad64(&receiverHoldDeadlineNanoseconds) > 0
     }
 
     @discardableResult
     func setRemoteActive(_ active: Bool) -> Int {
         var prebuffer: [Int16] = []
+        var alreadyPrepared = false
         stateLock.lock()
         remoteActive = active
         if active {
+            alreadyPrepared = inputPreparedForNextActivation
+            inputPreparedForNextActivation = false
             // A new voice session must never inherit a previous session's
             // samples. On deactivation, however, keep the already queued
             // frames alive so the BLE tail-drain window can render them.
@@ -427,6 +502,7 @@ final class AudioPipe: NSObject {
                 },
                 resetSessionBookkeeping: {
                     lastRemoteSubmittedMonotonicNanoseconds = nil
+                    lastResampleInputSample = nil
                     prebuffer = pendingRemotePrebuffer
                     pendingRemotePrebuffer.removeAll(keepingCapacity: true)
                 },
@@ -438,6 +514,7 @@ final class AudioPipe: NSObject {
                 }
             )
         } else {
+            inputPreparedForNextActivation = false
             realtimeDiagnostics.setRemoteActive(false)
             // A replacement physical candidate may already own this
             // prebuffer while A's route is being retired. Only discard a
@@ -447,8 +524,11 @@ final class AudioPipe: NSObject {
             }
         }
         stateLock.unlock()
+        if !active {
+            releaseReceiverReadinessHold()
+        }
         DiagnosticRuntimeHealthRegistry.shared.setBool("audio_pipe_remote_active", active)
-        if active {
+        if active, !alreadyPrepared, !RuntimeEnvironment.isRunningTests {
             // A target app can cache the physical microphone selected in its
             // own audio session. Re-assert the bridge as the app-facing input
             // at the exact remote-voice transition, before the synthetic
@@ -457,7 +537,7 @@ final class AudioPipe: NSObject {
             // restores that preference only after the final output drain.
             _ = SystemAudioDeviceManager.selectRemoteOrbitInputForVoice()
             DiagnosticRuntimeHealthRegistry.shared.recordSelectedInputIdentity(
-                SystemAudioDeviceManager.defaultInputDevice?.stableIdentifier
+                SystemAudioDeviceManager.defaultInputStableIdentifier
             )
         }
         print(active
@@ -499,11 +579,14 @@ final class AudioPipe: NSObject {
         outputDeviceName = nil
         stateLock.lock()
         outputDeviceReady = false
+        inputPreparedForNextActivation = false
+        lastResampleInputSample = nil
         outputRing.reset()
         realtimeDiagnostics.setRemoteActive(false)
         realtimeDiagnostics.setDrainWaiterRequested(false)
         remoteOutputDrainWaiter = nil
         stateLock.unlock()
+        releaseReceiverReadinessHold()
         DiagnosticRuntimeHealthRegistry.shared.markOutputDevice(ready: false, identity: nil)
         endRemoteCandidate()
     }
@@ -515,18 +598,30 @@ final class AudioPipe: NSObject {
         sampleRate: Double
     ) {
         guard !monoSamples.isEmpty, sampleRate > 0 else { return }
-        let resampled = Self.resample(
-            monoSamples,
-            from: sampleRate,
-            to: Self.outputSampleRate
-        )
-        guard !resampled.isEmpty else { return }
 
         stateLock.lock()
         guard remoteActive else {
             stateLock.unlock()
             return
         }
+        var previousSample = lastResampleInputSample
+        Self.resample(
+            monoSamples,
+            from: sampleRate,
+            to: Self.outputSampleRate,
+            previousSample: &previousSample,
+            into: &resampledFloatScratch
+        )
+        lastResampleInputSample = previousSample
+        guard !resampledFloatScratch.isEmpty else {
+            stateLock.unlock()
+            return
+        }
+        scheduleLocked(resampledSamples: resampledFloatScratch)
+        stateLock.unlock()
+    }
+
+    private func scheduleLocked(resampledSamples resampled: [Float]) {
         let remoteQueueBeforeSubmission = outputRing.queuedFrames
         let writeResult = outputRing.write(resampled)
         scheduledRemoteBuffers += 1
@@ -578,33 +673,64 @@ final class AudioPipe: NSObject {
                 }
             }
         }
-        scheduledPeak = max(
-            scheduledPeak,
-            resampled.reduce(0) { max($0, abs($1)) }
-        )
+        var peak = scheduledPeak
+        for sample in resampled {
+            let magnitude = abs(sample)
+            if magnitude > peak {
+                peak = magnitude
+            }
+        }
+        scheduledPeak = peak
         recordQueueDepthLocked(outputRing.queuedFrames)
-        stateLock.unlock()
+    }
+
+    static func resample(
+        _ input: [Float],
+        from inputRate: Double,
+        to outputRate: Double,
+        previousSample: inout Float?
+    ) -> [Float] {
+        var output: [Float] = []
+        resample(
+            input,
+            from: inputRate,
+            to: outputRate,
+            previousSample: &previousSample,
+            into: &output
+        )
+        return output
     }
 
     private static func resample(
         _ input: [Float],
         from inputRate: Double,
-        to outputRate: Double
-    ) -> [Float] {
+        to outputRate: Double,
+        previousSample: inout Float?,
+        into output: inout [Float]
+    ) {
+        output.removeAll(keepingCapacity: true)
+        guard !input.isEmpty else { return }
         if abs(inputRate - outputRate) < 1 {
-            return input
+            previousSample = input.last
+            output.append(contentsOf: input)
+            return
         }
         let ratio = outputRate / inputRate
         let outputCount = max(1, Int((Double(input.count) * ratio).rounded(.down)))
-        var output = [Float](repeating: 0, count: outputCount)
-        for index in 0..<outputCount {
-            let position = Double(index) / ratio
-            let lower = min(Int(position), input.count - 1)
-            let upper = min(lower + 1, input.count - 1)
-            let fraction = Float(position - Double(lower))
-            output[index] = input[lower] + (input[upper] - input[lower]) * fraction
+        if output.capacity < outputCount {
+            output.reserveCapacity(outputCount)
         }
-        return output
+        let prev = previousSample ?? input[0]
+        for index in 0..<outputCount {
+            let position = Double(index + 1) / ratio
+            let lowerIndex = min(Int(position), input.count)
+            let upperIndex = min(lowerIndex + 1, input.count)
+            let s0 = lowerIndex == 0 ? prev : input[lowerIndex - 1]
+            let s1 = upperIndex == 0 ? prev : input[upperIndex - 1]
+            let fraction = Float(position - Double(lowerIndex))
+            output.append(s0 + (s1 - s0) * fraction)
+        }
+        previousSample = input.last
     }
 
     // MARK: - CoreAudio direct output
@@ -644,6 +770,13 @@ final class AudioPipe: NSObject {
     }
 
     func render(_ outputData: UnsafeMutablePointer<AudioBufferList>) {
+        renderAtTimestamp(outputData, nowNanoseconds: P1A4MonotonicClock.nowNanoseconds())
+    }
+
+    private func renderAtTimestamp(
+        _ outputData: UnsafeMutablePointer<AudioBufferList>,
+        nowNanoseconds renderTimestamp: UInt64
+    ) {
         let buffers = UnsafeMutableAudioBufferListPointer(outputData)
         guard let first = buffers.first else { return }
         let firstChannels = max(1, Int(first.mNumberChannels))
@@ -655,12 +788,19 @@ final class AudioPipe: NSObject {
         let remoteActive = realtimeDiagnostics.currentRemoteActive()
         let remoteWasActive = realtimeDiagnostics.currentRemoteWasActive()
         let diagnosticsActive = realtimeDiagnostics.beginRenderDiagnosticsIfActive()
-        let renderTimestamp = P1A4MonotonicClock.nowNanoseconds()
-        let reserveDecision = playoutReserve.decision(
+        let currentDepth = outputRing.queuedFrames
+        let holdingForReceiver = isHoldingForReceiverReadiness(
             remoteActive: remoteActive,
-            queuedFrames: outputRing.queuedFrames,
-            now: renderTimestamp
+            queuedFrames: currentDepth,
+            nowNanoseconds: renderTimestamp
         )
+        let reserveDecision: AudioPipePlayoutReserveDecision = holdingForReceiver
+            ? .wait
+            : playoutReserve.decision(
+                remoteActive: remoteActive,
+                queuedFrames: currentDepth,
+                now: renderTimestamp
+            )
         let readResult: AudioPipePCMReadResult
         if reserveDecision == .wait {
             readResult = outputRing.writeReserveSilence(
@@ -673,12 +813,15 @@ final class AudioPipe: NSObject {
                 requestedFrames: frameCount
             )
         }
+        let effectiveRemoteActiveForAccounting = remoteActive
+            && !(realtimeDiagnostics.isRemoteTransportStopping()
+                && readResult.remoteQueueDepthBeforeFrames < frameCount)
         let renderAccounting = AudioPipeRenderAccounting.measure(
             requestedFrames: frameCount,
             availableRemoteFrames: readResult.remoteQueueDepthBeforeFrames,
             pendingRemoteFrames: readResult.remoteQueueDepthBeforeFrames,
-            remoteActive: remoteActive,
-            remoteWasActive: remoteWasActive,
+            remoteActive: effectiveRemoteActiveForAccounting,
+            remoteWasActive: remoteWasActive || remoteActive,
             reserveWaiting: reserveDecision == .wait
         )
         realtimeDiagnostics.recordMeter(
@@ -992,6 +1135,40 @@ final class AudioPipe: NSObject {
         }
         stateLock.unlock()
     }
+    func renderForTesting(
+        _ outputData: UnsafeMutablePointer<AudioBufferList>,
+        nowNanoseconds: UInt64
+    ) {
+        renderAtTimestamp(outputData, nowNanoseconds: nowNanoseconds)
+    }
+
+    private func isHoldingForReceiverReadiness(
+        remoteActive: Bool,
+        queuedFrames: Int,
+        nowNanoseconds: UInt64
+    ) -> Bool {
+        guard remoteActive else { return false }
+        let deadline = atomicLoad64(&receiverHoldDeadlineNanoseconds)
+        guard deadline > 0 else { return false }
+        if nowNanoseconds >= UInt64(deadline)
+            || queuedFrames >= Self.receiverHoldMaxSafeBufferedFrames {
+            _ = OSAtomicCompareAndSwap64Barrier(deadline, 0, &receiverHoldDeadlineNanoseconds)
+            return false
+        }
+        return true
+    }
+
+    private func atomicLoad64(_ value: UnsafeMutablePointer<Int64>) -> Int64 {
+        OSAtomicAdd64Barrier(0, value)
+    }
+
+    private func atomicStore64(_ newValue: Int64, to value: UnsafeMutablePointer<Int64>) {
+        while true {
+            let oldValue = atomicLoad64(value)
+            if OSAtomicCompareAndSwap64Barrier(oldValue, newValue, value) { return }
+        }
+    }
+
     private static func findOutputDevice() -> (id: AudioDeviceID, name: String)? {
         var propertySize: UInt32 = 0
         var address = AudioObjectPropertyAddress(

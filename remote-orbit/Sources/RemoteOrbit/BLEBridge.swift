@@ -9,6 +9,7 @@
 //   → audio frames flow on TX char → ADPCM decode → AudioPipe.feed
 
 import CoreBluetooth
+import Darwin
 import Foundation
 
 enum BLEAudioStartDisposition: Equatable {
@@ -236,6 +237,10 @@ final class BLEBridge: NSObject {
     /// Called after the old stream's AUDIO_STOP drain has fully retired and a
     /// deferred physical press may be admitted on a fresh lifecycle.
     var onVoiceSessionAdmissionAvailable: (() -> Void)?
+    /// Authoritative ATVV physical push-to-talk edges (AUDIO_START 0x03 /
+    /// AUDIO_STOP / disconnect). Used only as a fallback when macOS blocks
+    /// IOHIDManager input reports (such as during Secure Event Input).
+    var onPhysicalHTTVoiceEdge: ((Bool) -> Void)?
 
     private let bleQueue: DispatchQueue
     private let bleQueueKey = DispatchSpecificKey<Void>()
@@ -247,6 +252,8 @@ final class BLEBridge: NSObject {
     private var discoveredATVVCharacteristics = Set<CBUUID>()
     private var capabilitiesRequested = false
     private var transportState = BLEVoiceTransportState()
+    private var cachedSavedUUID: UUID?
+    private var didLoadSavedUUIDFromDisk = false
 
     // HID and ATVV are separate CoreBluetooth transports. Keep a reconnect
     // state machine for the voice transport so an HID reconnect does not
@@ -258,7 +265,13 @@ final class BLEBridge: NSObject {
     private var connectTimeoutWorkItem: DispatchWorkItem?
     private var handshakeTimeoutWorkItem: DispatchWorkItem?
     private var voiceCloseTimeoutWorkItem: DispatchWorkItem?
-    private var audioStopDrainWorkItem: DispatchWorkItem?
+    private var audioStopDrainWorkItem: DispatchWorkItem? {
+        didSet {
+            atomicStore32(audioStopDrainWorkItem != nil ? 1 : 0, to: &audioStopDrainActiveAtomic)
+        }
+    }
+    private var audioStopDrainActiveAtomic: Int32 = 0
+    private var preHIDPhysicalCandidateActiveAtomic: Int32 = 0
     /// Identity of the transport epoch that owns the current drain barrier.
     /// A canceled work item may still execute, so the work item itself is not
     /// sufficient protection against an old completion retiring a new stream.
@@ -271,7 +284,7 @@ final class BLEBridge: NSObject {
     /// The remote often sends AUDIO_STOP before the final audio notifications
     /// reach CoreBluetooth. Keep the decoder and output path alive briefly so
     /// those packets can still be recorded and rendered.
-    private let audioStopDrainDelay: TimeInterval = 0.35
+    private let audioStopDrainDelay: TimeInterval = 0.08
     /// Preserve the existing bounded post-close safety window, but use it only
     /// to classify a missing AUDIO_STOP as a transport failure. A healthy
     /// session retires through the normal AUDIO_STOP drain and keeps READY.
@@ -280,8 +293,16 @@ final class BLEBridge: NSObject {
     private let protocolHandler = ATVVProtocol()
     private var transportEpoch: UInt64 = 0
     private var streamID: UInt8 = 0
-    private var isStreaming = false
-    private var streamOwnership: BLEStreamOwnership = .none
+    private var isStreaming = false {
+        didSet {
+            refreshPreHIDPhysicalCandidateAtomic()
+        }
+    }
+    private var streamOwnership: BLEStreamOwnership = .none {
+        didSet {
+            refreshPreHIDPhysicalCandidateAtomic()
+        }
+    }
     private var levelSumSq: Int64 = 0
     private var levelCount: Int = 0
     private var levelPeak: Int = 0
@@ -310,6 +331,8 @@ final class BLEBridge: NSObject {
     private var audioStopReceivedAt: Date?
     private var drainFinishedAt: Date?
     private var prewarmVoiceInputActive = false
+    private var keepTransportReady = false
+    private var physicalHTTEdgeActive = false
     private var maxAudioFrameGap: TimeInterval = 0
     private var streamDrainFrameCount = 0
     private var audioFramesOutsideStream = 0
@@ -334,7 +357,7 @@ final class BLEBridge: NSObject {
         if DispatchQueue.getSpecific(key: bleQueueKey) != nil {
             return audioStopDrainWorkItem != nil
         }
-        return bleQueue.sync { audioStopDrainWorkItem != nil }
+        return OSAtomicAdd32Barrier(0, &audioStopDrainActiveAtomic) != 0
     }
 
     /// BLE-owned live truth for the narrow physical-candidate boundary. HID
@@ -343,8 +366,20 @@ final class BLEBridge: NSObject {
         if DispatchQueue.getSpecific(key: bleQueueKey) != nil {
             return isStreaming && streamOwnership == .preHIDPhysical
         }
-        return bleQueue.sync {
-            isStreaming && streamOwnership == .preHIDPhysical
+        return OSAtomicAdd32Barrier(0, &preHIDPhysicalCandidateActiveAtomic) != 0
+    }
+
+    private func refreshPreHIDPhysicalCandidateAtomic() {
+        atomicStore32(
+            (isStreaming && streamOwnership == .preHIDPhysical) ? 1 : 0,
+            to: &preHIDPhysicalCandidateActiveAtomic
+        )
+    }
+
+    private func atomicStore32(_ newValue: Int32, to value: UnsafeMutablePointer<Int32>) {
+        while true {
+            let oldValue = OSAtomicAdd32Barrier(0, value)
+            if OSAtomicCompareAndSwap32Barrier(oldValue, newValue, value) { return }
         }
     }
 
@@ -490,11 +525,35 @@ final class BLEBridge: NSObject {
         }
     }
 
+    func prepareReadyTransportForTesting() {
+        performOnBLEQueueSynchronously {
+            try? self.protocolHandler.acceptCapabilities(
+                ATVVCapabilities(
+                    version: .v10,
+                    codecs: ATVVCodec.adpcm16k.rawValue,
+                    interactionModel: 0,
+                    frameSize: 120
+                )
+            )
+            self.transportState.prepareTransport()
+            self.transportState.connectionState = .ready
+            self.transportState.transportPrepared = true
+            self.transportState.atvvReady = true
+            self.keepTransportReady = true
+        }
+    }
+
     func receiveAudioStartForTesting(reason: UInt8, streamID: UInt8) {
         performOnBLEQueueSynchronously {
             self.handleControl(
                 Data([0x04, reason, ATVVCodec.adpcm16k.rawValue, streamID])
             )
+        }
+    }
+
+    func receiveAudioStopForTesting(reason: UInt8 = 0x02) {
+        performOnBLEQueueSynchronously {
+            self.handleControl(Data([0x00, reason]))
         }
     }
 
@@ -602,6 +661,22 @@ final class BLEBridge: NSObject {
         }
     }
 
+    /// Keeps ATVV connected and subscribed in the background whenever RC003 is
+    /// present so PHYSICAL_HTT AUDIO_START / AUDIO_STOP notifications arrive
+    /// reliably even when macOS Secure Event Input blocks IOHIDManager reports.
+    func setKeepTransportReady(_ enabled: Bool) {
+        bleQueue.async { [weak self] in
+            guard let self else { return }
+            self.keepTransportReady = enabled
+            if enabled {
+                self.startOnBLEQueue()
+            } else if !self.transportState.voiceInputRequested,
+                      !self.transportState.pendingPreCaptureRequested {
+                self.stopOnBLEQueue()
+            }
+        }
+    }
+
     private func startOnBLEQueue() {
         if !transportState.isStarted {
             transportState.prepareTransport()
@@ -621,6 +696,7 @@ final class BLEBridge: NSObject {
 
     func stop() {
         performOnBLEQueueSynchronously {
+            self.keepTransportReady = false
             self.stopOnBLEQueue()
         }
     }
@@ -711,7 +787,7 @@ final class BLEBridge: NSObject {
         transportState.cancelTransportPreparation()
         prewarmVoiceInputActive = false
         guard transportState.isStarted else { return }
-        if transportState.canReuseReadyTransport {
+        if transportState.canReuseReadyTransport || keepTransportReady {
             updateDiagnosticTransportState()
             print("[BLE] prepared transport retained READY after prewarm cancellation")
         } else {
@@ -1051,9 +1127,7 @@ final class BLEBridge: NSObject {
                 return
             }
         }
-        guard let uuidString = try? String(contentsOfFile: Self.savedUUIDPath, encoding: .utf8),
-              let uuid = UUID(uuidString: uuidString.trimmingCharacters(in: .whitespacesAndNewlines))
-        else {
+        guard let uuid = loadSavedUUID() else {
             if connectToAlreadyConnectedPeripheral() { return }
             print("[BLE] 新版本无已存 UUID，转扫描")
             return beginScan()
@@ -1105,7 +1179,23 @@ final class BLEBridge: NSObject {
         )
     }
 
+    private func loadSavedUUID() -> UUID? {
+        if didLoadSavedUUIDFromDisk {
+            return cachedSavedUUID
+        }
+        didLoadSavedUUIDFromDisk = true
+        guard let uuidString = try? String(contentsOfFile: Self.savedUUIDPath, encoding: .utf8) else {
+            cachedSavedUUID = nil
+            return nil
+        }
+        let parsed = UUID(uuidString: uuidString.trimmingCharacters(in: .whitespacesAndNewlines))
+        cachedSavedUUID = parsed
+        return parsed
+    }
+
     fileprivate func saveUUID(_ id: UUID) {
+        cachedSavedUUID = id
+        didLoadSavedUUIDFromDisk = true
         let path = Self.savedUUIDPath
         let url = URL(fileURLWithPath: path)
         try? FileManager.default.createDirectory(
@@ -1170,7 +1260,9 @@ final class BLEBridge: NSObject {
 
     private func scheduleReconnect(reason: String, immediate: Bool = false) {
         guard transportState.isStarted,
-              transportState.voiceInputRequested,
+              transportState.voiceInputRequested
+                  || transportState.pendingPreCaptureRequested
+                  || keepTransportReady,
               central.state == .poweredOn else { return }
         guard reconnectWorkItem == nil else { return }
 
@@ -1224,7 +1316,12 @@ final class BLEBridge: NSObject {
             wavRecorder = nil
         }
         let wasStreaming = isStreaming
+        if wasStreaming {
+            AudioPipe.shared.noteRemoteTransportStopReceived()
+        }
         let wasStreamOwnership = streamOwnership
+        let hadPhysicalHTTEdge = physicalHTTEdgeActive
+        physicalHTTEdgeActive = false
         let hadVoiceIntent = transportState.voiceInputRequested
             || transportState.micOpenRequested
         adoptedPhysicalRetirement = nil
@@ -1247,6 +1344,9 @@ final class BLEBridge: NSObject {
             } else {
                 notifyStreaming(false)
             }
+        }
+        if hadPhysicalHTTEdge {
+            notifyPhysicalHTTVoiceEdge(false)
         }
         if wasReady || (notify && hadVoiceIntent) {
             notifyConnectionChanged(false)
@@ -1463,6 +1563,13 @@ final class BLEBridge: NSObject {
         DispatchQueue.main.async(execute: callback)
     }
 
+    private func notifyPhysicalHTTVoiceEdge(_ isDown: Bool) {
+        guard let callback = onPhysicalHTTVoiceEdge else { return }
+        DispatchQueue.main.async {
+            callback(isDown)
+        }
+    }
+
     private func adoptPreHIDPhysicalStreamIfNeeded() -> Bool {
         guard isStreaming, streamOwnership == .preHIDPhysical else { return false }
         streamOwnership = .voiceSession
@@ -1474,6 +1581,9 @@ final class BLEBridge: NSObject {
                 + "session_id=\(streamSessionID)"
         )
         notifyStreaming(true)
+        if firstAudioAt != nil {
+            notifyAudioFrame()
+        }
         return true
     }
 
@@ -1542,7 +1652,9 @@ extension BLEBridge: CBCentralManagerDelegate {
         switch central.state {
         case .poweredOn:
             print("[BLE] 蓝牙已就绪")
-            if transportState.voiceInputRequested {
+            if transportState.voiceInputRequested
+                || transportState.pendingPreCaptureRequested
+                || keepTransportReady {
                 scheduleReconnect(reason: "bluetooth-ready", immediate: true)
             }
         case .poweredOff:
@@ -1869,6 +1981,14 @@ extension BLEBridge: CBPeripheralDelegate {
                 )
             if supersedingPhysicalDrain {
                 notifyPhysicalTransportSuperseded()
+                if physicalHTTEdgeActive {
+                    physicalHTTEdgeActive = false
+                    notifyPhysicalHTTVoiceEdge(false)
+                }
+            }
+            if reason == 0x03, !physicalHTTEdgeActive {
+                physicalHTTEdgeActive = true
+                notifyPhysicalHTTVoiceEdge(true)
             }
             if streamOwnership == .preHIDPhysical {
                 notifyPreHIDPhysicalStreaming(true)
@@ -1951,7 +2071,12 @@ extension BLEBridge: CBPeripheralDelegate {
             if cancelPostReleaseGrace(reason: "remote_audio_stop") {
                 transportState.finishVoiceSession()
             }
+            if physicalHTTEdgeActive {
+                physicalHTTEdgeActive = false
+                notifyPhysicalHTTVoiceEdge(false)
+            }
             stopKeepAliveTimer()
+            AudioPipe.shared.noteRemoteTransportStopReceived()
             VoiceTimingLogger.mark("AUDIO_STOP")
             VoiceTimingLogger.mark("AUDIO_DRAIN_BEGIN")
             print(
@@ -2100,18 +2225,26 @@ extension BLEBridge: CBPeripheralDelegate {
         if audioStopDrainWorkItem != nil {
             streamDrainFrameCount += 1
         }
+        var framePeak = 0
+        var frameSumSquares: Int64 = 0
+        var frameClipped = 0
+        for sample in frame.samples {
+            let intSample = Int(sample)
+            let magnitude = abs(intSample)
+            if magnitude > framePeak {
+                framePeak = magnitude
+            }
+            let sample64 = Int64(sample)
+            frameSumSquares += sample64 * sample64
+            if magnitude >= 32_760 {
+                frameClipped += 1
+            }
+        }
         streamFrameCount += 1
         streamSampleCount += frame.samples.count
-        streamPeak = max(
-            streamPeak,
-            frame.samples.map { Int(abs(Int($0))) }.max() ?? 0
-        )
-        streamSumSquares += frame.samples.reduce(into: Int64(0)) {
-            $0 += Int64($1) * Int64($1)
-        }
-        streamClippedSampleCount += frame.samples.reduce(into: 0) {
-            if abs(Int($1)) >= 32_760 { $0 += 1 }
-        }
+        streamPeak = max(streamPeak, framePeak)
+        streamSumSquares += frameSumSquares
+        streamClippedSampleCount += frameClipped
 
         if Self.diagnosticsEnabled, diagFrameCount < 5 {
             let rawHex = rawData.prefix(16).map { String(format: "%02X", $0) }.joined(separator: " ")
@@ -2131,14 +2264,9 @@ extension BLEBridge: CBPeripheralDelegate {
         notifyAudioFrame()
         let needsLevel = onLevel != nil || Self.diagnosticsEnabled
         if needsLevel {
-            levelSumSq += frame.samples.reduce(into: 0) {
-                $0 += Int64($1) * Int64($1)
-            }
+            levelSumSq += frameSumSquares
             levelCount += frame.samples.count
-            levelPeak = max(
-                levelPeak,
-                frame.samples.map { Int(abs(Int($0))) }.max() ?? 0
-            )
+            levelPeak = max(levelPeak, framePeak)
         }
         if needsLevel, now.timeIntervalSince(levelLogAt) >= 0.5 {
             let rms = levelCount > 0 ? sqrt(Double(levelSumSq) / Double(levelCount)) : 0

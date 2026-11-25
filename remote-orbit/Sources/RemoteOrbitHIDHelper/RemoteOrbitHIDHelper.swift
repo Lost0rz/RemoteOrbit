@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import RemoteOrbitHIDBridge
 
@@ -36,41 +37,185 @@ public enum RemoteOrbitHIDHelperOutcome: Int, Equatable {
     case outcomeUnknown = 2
 }
 
+public struct RemoteOrbitHIDKeyboardCombo: Equatable, Codable {
+    public let modifierBitmap: UInt8
+    public let primaryKeyUsage: UInt16?
+
+    public init(modifierBitmap: UInt8, primaryKeyUsage: UInt16? = nil) {
+        self.modifierBitmap = modifierBitmap
+        self.primaryKeyUsage = primaryKeyUsage
+    }
+
+    public static let neutral = RemoteOrbitHIDKeyboardCombo(modifierBitmap: 0, primaryKeyUsage: nil)
+}
+
+public struct RemoteOrbitHIDKeyboardStep: Equatable {
+    public let modifierBitmap: UInt8
+    public let keyUsages: [UInt16]
+
+    public init(modifierBitmap: UInt8, keyUsages: [UInt16] = []) {
+        self.modifierBitmap = modifierBitmap
+        self.keyUsages = keyUsages
+    }
+
+    public static let neutral = RemoteOrbitHIDKeyboardStep(modifierBitmap: 0, keyUsages: [])
+}
+
+public enum RemoteOrbitHIDKeyboardReportSequencer {
+    /// Emits cumulative modifier press steps followed by the optional primary
+    /// key so macOS IOHIDEventSystem, AppKit, Carbon hotkeys, and external IMEs
+    /// observe natural human key-down ordering.
+    public static func beginSteps(for combo: RemoteOrbitHIDKeyboardCombo) -> [RemoteOrbitHIDKeyboardStep] {
+        var steps: [RemoteOrbitHIDKeyboardStep] = []
+        var cumulative: UInt8 = 0
+        for bitIndex in 0..<8 {
+            let mask = UInt8(1) << bitIndex
+            if (combo.modifierBitmap & mask) != 0 {
+                cumulative |= mask
+                steps.append(RemoteOrbitHIDKeyboardStep(modifierBitmap: cumulative, keyUsages: []))
+            }
+        }
+        if let usage = combo.primaryKeyUsage, usage != 0 {
+            steps.append(RemoteOrbitHIDKeyboardStep(modifierBitmap: cumulative, keyUsages: [usage]))
+        }
+        if steps.isEmpty {
+            steps.append(.neutral)
+        }
+        return steps
+    }
+
+    /// Releases the primary key while modifiers are still held, then peels
+    /// modifiers in reverse order down to neutral `(0, [])`. Emergency recovery
+    /// or disconnect jumps straight to neutral `(0, [])`.
+    public static func releaseSteps(
+        from previous: RemoteOrbitHIDKeyboardCombo?,
+        graceful: Bool
+    ) -> [RemoteOrbitHIDKeyboardStep] {
+        guard graceful, let previous else {
+            return [.neutral]
+        }
+        var steps: [RemoteOrbitHIDKeyboardStep] = []
+        var remaining = previous.modifierBitmap
+        if previous.primaryKeyUsage != nil, remaining != 0 {
+            steps.append(RemoteOrbitHIDKeyboardStep(modifierBitmap: remaining, keyUsages: []))
+        }
+        for bitIndex in stride(from: 7, through: 0, by: -1) {
+            let mask = UInt8(1) << bitIndex
+            if (remaining & mask) != 0 {
+                remaining &= ~mask
+                steps.append(RemoteOrbitHIDKeyboardStep(modifierBitmap: remaining, keyUsages: []))
+            }
+        }
+        if steps.last != .neutral {
+            steps.append(.neutral)
+        }
+        return steps
+    }
+}
+
 public struct RemoteOrbitHIDHelperTransportState: Equatable {
     public let packageVersion: String
     public let clientProtocolVersion: Int
     public let connectionGeneration: UInt64
     public let keyboardReady: Bool
+    public let serviceConnected: Bool
 
     public init(
         packageVersion: String,
         clientProtocolVersion: Int,
         connectionGeneration: UInt64,
-        keyboardReady: Bool
+        keyboardReady: Bool,
+        serviceConnected: Bool = true
     ) {
         self.packageVersion = packageVersion
         self.clientProtocolVersion = clientProtocolVersion
         self.connectionGeneration = connectionGeneration
         self.keyboardReady = keyboardReady
+        self.serviceConnected = serviceConnected
     }
 }
 
 public protocol RemoteOrbitHIDHelperTransport: AnyObject {
     var state: RemoteOrbitHIDHelperTransportState? { get }
+    var reportedStatus: RemoteOrbitHIDHelperTransportState { get }
     func submitModifierBitmap(
         _ modifierBitmap: UInt8,
         completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void
     )
+    func submitKeyboardCombo(
+        _ combo: RemoteOrbitHIDKeyboardCombo,
+        completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void
+    )
+    func submitNeutralRelease(
+        from previous: RemoteOrbitHIDKeyboardCombo?,
+        graceful: Bool,
+        completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void
+    )
+}
+
+public extension RemoteOrbitHIDHelperTransport {
+    var reportedStatus: RemoteOrbitHIDHelperTransportState {
+        if let state {
+            return state
+        }
+        return RemoteOrbitHIDHelperTransportState(
+            packageVersion: "8.6.0",
+            clientProtocolVersion: 7,
+            connectionGeneration: 0,
+            keyboardReady: false,
+            serviceConnected: false
+        )
+    }
+
+    func submitKeyboardCombo(
+        _ combo: RemoteOrbitHIDKeyboardCombo,
+        completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void
+    ) {
+        submitModifierBitmap(combo.modifierBitmap, completion: completion)
+    }
+
+    func submitNeutralRelease(
+        from previous: RemoteOrbitHIDKeyboardCombo?,
+        graceful: Bool,
+        completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void
+    ) {
+        submitModifierBitmap(0, completion: completion)
+    }
 }
 
 /// Thin adapter over the pinned pqrs `client.hpp`. Construction does not start
-/// the dispatcher or connect to the privileged driver service. The caller has
-/// to opt in to `start()` explicitly; this repository never does so at runtime.
+/// the dispatcher or connect to the privileged driver service; only the root
+/// helper daemon calls `start()` explicitly.
 public final class KarabinerVirtualHIDTransport: RemoteOrbitHIDHelperTransport {
+    private final class CallbackBox {
+        weak var owner: KarabinerVirtualHIDTransport?
+        init(owner: KarabinerVirtualHIDTransport) {
+            self.owner = owner
+        }
+    }
+
     private let queue = DispatchQueue(label: "com.lost0rz.RemoteOrbitHIDHelper.karabiner-client")
+    private let stateObserverLock = NSLock()
+    private var stateObserver: ((RemoteOrbitHIDHelperTransportState) -> Void)?
+    private var lastNotifiedState: RemoteOrbitHIDHelperTransportState?
     private var client: OpaquePointer?
+    private var callbackBox: CallbackBox?
 
     public init() {}
+
+    deinit {
+        if let client {
+            rohid_client_set_state_callback(client, nil, nil)
+            rohid_client_destroy(client)
+        }
+    }
+
+    public func setStateObserver(_ observer: ((RemoteOrbitHIDHelperTransportState) -> Void)?) {
+        stateObserverLock.lock()
+        stateObserver = observer
+        lastNotifiedState = nil
+        stateObserverLock.unlock()
+    }
 
     public var state: RemoteOrbitHIDHelperTransportState? {
         queue.sync {
@@ -81,7 +226,29 @@ public final class KarabinerVirtualHIDTransport: RemoteOrbitHIDHelperTransport {
                 packageVersion: "8.6.0",
                 clientProtocolVersion: Int(rohid_client_protocol_version()),
                 connectionGeneration: generation,
-                keyboardReady: true
+                keyboardReady: true,
+                serviceConnected: rohid_client_service_connected(client)
+            )
+        }
+    }
+
+    public var reportedStatus: RemoteOrbitHIDHelperTransportState {
+        queue.sync {
+            guard let client else {
+                return RemoteOrbitHIDHelperTransportState(
+                    packageVersion: "8.6.0",
+                    clientProtocolVersion: Int(rohid_client_protocol_version()),
+                    connectionGeneration: 0,
+                    keyboardReady: false,
+                    serviceConnected: false
+                )
+            }
+            return RemoteOrbitHIDHelperTransportState(
+                packageVersion: "8.6.0",
+                clientProtocolVersion: Int(rohid_client_protocol_version()),
+                connectionGeneration: rohid_client_connection_generation(client),
+                keyboardReady: rohid_client_keyboard_ready(client),
+                serviceConnected: rohid_client_service_connected(client)
             )
         }
     }
@@ -90,7 +257,19 @@ public final class KarabinerVirtualHIDTransport: RemoteOrbitHIDHelperTransport {
         queue.async { [weak self] in
             guard let self, self.client == nil else { return }
             guard let client = rohid_client_create() else { return }
+            let box = CallbackBox(owner: self)
+            self.callbackBox = box
             self.client = client
+            let rawBox = Unmanaged.passUnretained(box).toOpaque()
+            rohid_client_set_state_callback(client, { context, generation, ready, connected in
+                guard let context else { return }
+                let box = Unmanaged<CallbackBox>.fromOpaque(context).takeUnretainedValue()
+                box.owner?.notifyStateChanged(
+                    generation: generation,
+                    keyboardReady: ready,
+                    serviceConnected: connected
+                )
+            }, rawBox)
             rohid_client_start(client)
         }
     }
@@ -98,8 +277,13 @@ public final class KarabinerVirtualHIDTransport: RemoteOrbitHIDHelperTransport {
     public func stop() {
         queue.async { [weak self] in
             guard let self, let client = self.client else { return }
+            rohid_client_set_state_callback(client, nil, nil)
             rohid_client_destroy(client)
             self.client = nil
+            self.callbackBox = nil
+            self.stateObserverLock.lock()
+            self.lastNotifiedState = nil
+            self.stateObserverLock.unlock()
         }
     }
 
@@ -115,10 +299,117 @@ public final class KarabinerVirtualHIDTransport: RemoteOrbitHIDHelperTransport {
                 completion(.rejected)
                 return
             }
-            // The upstream API returns void. This reply records that its async
-            // report method was invoked, never DriverKit or IME acknowledgement.
             completion(.queued)
         }
+    }
+
+    public func submitKeyboardCombo(
+        _ combo: RemoteOrbitHIDKeyboardCombo,
+        completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void
+    ) {
+        queue.async { [weak self] in
+            guard let self,
+                  let client = self.client,
+                  rohid_client_keyboard_ready(client) else {
+                completion(.rejected)
+                return
+            }
+            let steps = RemoteOrbitHIDKeyboardReportSequencer.beginSteps(for: combo)
+            for (index, step) in steps.enumerated() {
+                if index > 0 {
+                    // Yield 2 ms between multi-step HID reports so WindowServer
+                    // and IMEs observe distinct key/modifier transitions.
+                    Darwin.usleep(2_000)
+                }
+                let posted = step.keyUsages.withUnsafeBufferPointer { buffer in
+                    rohid_client_post_keyboard_report(
+                        client,
+                        step.modifierBitmap,
+                        buffer.baseAddress,
+                        buffer.count
+                    )
+                }
+                if !posted {
+                    _ = rohid_client_post_modifier_bitmap(client, 0)
+                    completion(.rejected)
+                    return
+                }
+            }
+            completion(.queued)
+        }
+    }
+
+    public func submitNeutralRelease(
+        from previous: RemoteOrbitHIDKeyboardCombo?,
+        graceful: Bool,
+        completion: @escaping (RemoteOrbitHIDHelperOutcome) -> Void
+    ) {
+        queue.async { [weak self] in
+            guard let self,
+                  let client = self.client,
+                  rohid_client_keyboard_ready(client) else {
+                completion(.rejected)
+                return
+            }
+            let steps = RemoteOrbitHIDKeyboardReportSequencer.releaseSteps(
+                from: previous,
+                graceful: graceful
+            )
+            for (index, step) in steps.enumerated() {
+                if index > 0 {
+                    Darwin.usleep(2_000)
+                }
+                let posted = step.keyUsages.withUnsafeBufferPointer { buffer in
+                    rohid_client_post_keyboard_report(
+                        client,
+                        step.modifierBitmap,
+                        buffer.baseAddress,
+                        buffer.count
+                    )
+                }
+                if !posted {
+                    _ = rohid_client_post_modifier_bitmap(client, 0)
+                    completion(.rejected)
+                    return
+                }
+            }
+            completion(.queued)
+        }
+    }
+
+    private func notifyStateChanged(
+        generation: UInt64,
+        keyboardReady: Bool,
+        serviceConnected: Bool
+    ) {
+        let snapshot = RemoteOrbitHIDHelperTransportState(
+            packageVersion: "8.6.0",
+            clientProtocolVersion: Int(rohid_client_protocol_version()),
+            connectionGeneration: generation,
+            keyboardReady: keyboardReady,
+            serviceConnected: serviceConnected
+        )
+        stateObserverLock.lock()
+        if lastNotifiedState == snapshot {
+            stateObserverLock.unlock()
+            return
+        }
+        lastNotifiedState = snapshot
+        let observer = stateObserver
+        stateObserverLock.unlock()
+        observer?(snapshot)
+    }
+
+    public func emitStateChangeForTesting(
+        generation: UInt64,
+        keyboardReady: Bool,
+        serviceConnected: Bool
+    ) {
+        notifyStateChanged(
+            generation: generation,
+            keyboardReady: keyboardReady,
+            serviceConnected: serviceConnected
+        )
     }
 }
 
@@ -160,6 +451,7 @@ public struct RemoteOrbitHIDHelperSigningPolicy {
 public struct RemoteOrbitHIDHelperRequest: Equatable {
     public enum Operation: Equatable {
         case begin([UInt16])
+        case beginCombo(modifierKeyCodes: [UInt16], primaryKeyUsage: UInt16?)
         case release
         case recover
     }
@@ -204,9 +496,9 @@ public struct RemoteOrbitHIDHelperReply: Equatable {
     }
 }
 
-/// Serial helper-side session owner. It accepts only a narrow modifier set,
-/// caches exact duplicates, rejects sequence replay, and retains ownership
-/// whenever a neutral request was rejected or has an unknown outcome.
+/// Serial helper-side session owner. It accepts validated modifier-only or
+/// modifier+key combinations, caches exact duplicates, rejects sequence replay,
+/// and retains ownership whenever a neutral request was rejected or unknown.
 public final class RemoteOrbitHIDHelperSessionManager {
     private struct Owner {
         let identity: UUID
@@ -214,6 +506,8 @@ public final class RemoteOrbitHIDHelperSessionManager {
         let sessionID: UUID
         let generation: UInt64
         let modifierKeyCodes: [UInt16]
+        let primaryKeyUsage: UInt16?
+        let combo: RemoteOrbitHIDKeyboardCombo
         var releasePending: Bool
     }
 
@@ -230,7 +524,13 @@ public final class RemoteOrbitHIDHelperSessionManager {
         var waiters: [NeutralWaiter]
     }
 
+    private struct SequenceScopeKey: Hashable {
+        let connectionID: UUID
+        let generation: UInt64
+    }
+
     private struct RequestKey: Hashable {
+        let connectionID: UUID
         let generation: UInt64
         let sequence: UInt64
     }
@@ -240,13 +540,25 @@ public final class RemoteOrbitHIDHelperSessionManager {
         let reply: RemoteOrbitHIDHelperReply
     }
 
+    private static let allowedPrimaryUsages: Set<UInt16> = {
+        var usages = Set<UInt16>(0x04...0x38)
+        usages.formUnion(0x3A...0x45) // F1-F12
+        usages.formUnion(0x4A...0x64) // Navigation, Keypad, ISO Section
+        usages.insert(0x67)           // Keypad Equal
+        usages.formUnion(0x68...0x6F) // F13-F20
+        usages.insert(0x85)           // JIS Keypad Comma
+        usages.insert(0x87)           // JIS Underscore
+        usages.insert(0x89)           // JIS Yen
+        return usages
+    }()
+
     private let transport: RemoteOrbitHIDHelperTransport
     private let physicalModifierKeyCodesProvider: () -> Set<UInt16>?
     private let queue = DispatchQueue(label: "com.lost0rz.RemoteOrbitHIDHelper.session-owner")
     private var owner: Owner?
     private var neutralFlight: NeutralFlight?
-    private var lastSequenceByGeneration: [UInt64: UInt64] = [:]
-    private var generationOrder: [UInt64] = []
+    private var lastSequenceByScope: [SequenceScopeKey: UInt64] = [:]
+    private var sequenceScopeOrder: [SequenceScopeKey] = []
     private var cache: [RequestKey: CachedReply] = [:]
     private var cacheOrder: [RequestKey] = []
     private var releasedSessions = Set<String>()
@@ -284,11 +596,19 @@ public final class RemoteOrbitHIDHelperSessionManager {
 
     public func disconnect(connectionID: UUID) {
         queue.async { [weak self] in
-            guard let self, var current = self.owner,
+            guard let self else { return }
+            self.lastSequenceByScope = self.lastSequenceByScope.filter { $0.key.connectionID != connectionID }
+            self.sequenceScopeOrder.removeAll { $0.connectionID == connectionID }
+            let staleCacheKeys = self.cache.keys.filter { $0.connectionID == connectionID }
+            for key in staleCacheKeys {
+                self.cache.removeValue(forKey: key)
+            }
+            self.cacheOrder.removeAll { $0.connectionID == connectionID }
+            guard var current = self.owner,
                   current.connectionID == connectionID else { return }
             current.releasePending = true
             self.owner = current
-            self.submitNeutral(for: current)
+            self.submitNeutral(for: current, graceful: false)
         }
     }
 
@@ -296,8 +616,28 @@ public final class RemoteOrbitHIDHelperSessionManager {
         transport.state
     }
 
+    public func reportedStatus() -> RemoteOrbitHIDHelperTransportState {
+        transport.reportedStatus
+    }
+
     public func status(completion: @escaping (RemoteOrbitHIDHelperTransportState?) -> Void) {
         queue.async { [weak self] in completion(self?.transport.state) }
+    }
+
+    public func reportedStatus(completion: @escaping (RemoteOrbitHIDHelperTransportState) -> Void) {
+        queue.async { [weak self] in
+            guard let self else {
+                completion(RemoteOrbitHIDHelperTransportState(
+                    packageVersion: "8.6.0",
+                    clientProtocolVersion: 7,
+                    connectionGeneration: 0,
+                    keyboardReady: false,
+                    serviceConnected: false
+                ))
+                return
+            }
+            completion(self.transport.reportedStatus)
+        }
     }
 
     private enum ReplayDecision {
@@ -306,21 +646,29 @@ public final class RemoteOrbitHIDHelperSessionManager {
     }
 
     private func replayOrAccept(_ request: RemoteOrbitHIDHelperRequest) -> ReplayDecision? {
-        let key = RequestKey(generation: request.connectionGeneration, sequence: request.requestSequence)
+        let key = RequestKey(
+            connectionID: request.connectionID,
+            generation: request.connectionGeneration,
+            sequence: request.requestSequence
+        )
         let fingerprint = requestFingerprint(request)
         if let cached = cache[key] {
             return cached.fingerprint == fingerprint ? .replay(cached.reply) : nil
         }
-        if lastSequenceByGeneration[request.connectionGeneration] == nil {
-            generationOrder.append(request.connectionGeneration)
-            if generationOrder.count > 4 {
-                let expiredGeneration = generationOrder.removeFirst()
-                lastSequenceByGeneration.removeValue(forKey: expiredGeneration)
+        let scopeKey = SequenceScopeKey(
+            connectionID: request.connectionID,
+            generation: request.connectionGeneration
+        )
+        if lastSequenceByScope[scopeKey] == nil {
+            sequenceScopeOrder.append(scopeKey)
+            if sequenceScopeOrder.count > 16 {
+                let expiredScope = sequenceScopeOrder.removeFirst()
+                lastSequenceByScope.removeValue(forKey: expiredScope)
             }
         }
-        let previous = lastSequenceByGeneration[request.connectionGeneration, default: 0]
+        let previous = lastSequenceByScope[scopeKey, default: 0]
         guard request.requestSequence > previous else { return nil }
-        lastSequenceByGeneration[request.connectionGeneration] = request.requestSequence
+        lastSequenceByScope[scopeKey] = request.requestSequence
         return .proceed
     }
 
@@ -340,60 +688,27 @@ public final class RemoteOrbitHIDHelperSessionManager {
 
         switch request.operation {
         case let .begin(rawKeyCodes):
-            guard let bitmap = modifierBitmap(for: rawKeyCodes),
-                  let physical = physicalModifierKeyCodesProvider() else {
-                finish(request, .rejected, completion)
-                return
-            }
-            let requestedFamilies = Set(rawKeyCodes.compactMap(Self.modifierFamily))
-            let physicalFamilies = Set(physical.compactMap(Self.modifierFamily))
-            guard requestedFamilies.count == rawKeyCodes.count,
-                  requestedFamilies.isDisjoint(with: physicalFamilies) else {
-                finish(request, .rejected, completion)
-                return
-            }
-            if let current = owner {
-                if current.connectionID == request.connectionID,
-                   current.sessionID == request.sessionID,
-                   current.modifierKeyCodes == rawKeyCodes.sorted(),
-                   !current.releasePending {
-                    finish(request, .queued, completion)
-                } else {
-                    finish(request, .rejected, completion)
-                }
-                return
-            }
-            let candidate = Owner(
-                identity: UUID(),
-                connectionID: request.connectionID,
-                sessionID: request.sessionID,
-                generation: request.connectionGeneration,
-                modifierKeyCodes: rawKeyCodes.sorted(),
-                releasePending: false
+            handleBeginRequest(
+                request,
+                rawKeyCodes: rawKeyCodes,
+                primaryKeyUsage: nil,
+                minimumModifiers: 2,
+                completion: completion
             )
-            owner = candidate
-            transport.submitModifierBitmap(bitmap) { [weak self] outcome in
-                guard let self else { return }
-                self.queue.async {
-                    if self.owner?.identity == candidate.identity {
-                        switch outcome {
-                        case .rejected:
-                            let neutralIsUnresolved = self.owner?.releasePending == true
-                                || self.neutralFlight?.ownerIdentity == candidate.identity
-                            if neutralIsUnresolved {
-                                self.owner?.releasePending = true
-                            } else {
-                                self.owner = nil
-                            }
-                        case .outcomeUnknown:
-                            self.owner?.releasePending = true
-                        case .queued:
-                            break
-                        }
-                    }
-                    self.finish(request, outcome, completion)
+        case let .beginCombo(rawKeyCodes, primaryKeyUsage):
+            if let primaryKeyUsage {
+                guard Self.allowedPrimaryUsages.contains(primaryKeyUsage) else {
+                    finish(request, .rejected, completion)
+                    return
                 }
             }
+            handleBeginRequest(
+                request,
+                rawKeyCodes: rawKeyCodes,
+                primaryKeyUsage: primaryKeyUsage,
+                minimumModifiers: primaryKeyUsage == nil ? 2 : 1,
+                completion: completion
+            )
         case .release, .recover:
             guard let current = owner else {
                 let key = releaseKey(request.sessionID, request.connectionGeneration)
@@ -423,12 +738,88 @@ public final class RemoteOrbitHIDHelperSessionManager {
             }
             submitNeutral(
                 for: reboundOwner,
+                graceful: request.operation == .release,
                 waiter: NeutralWaiter(request: request, completion: completion)
             )
         }
     }
 
-    private func submitNeutral(for current: Owner, waiter: NeutralWaiter? = nil) {
+    private func handleBeginRequest(
+        _ request: RemoteOrbitHIDHelperRequest,
+        rawKeyCodes: [UInt16],
+        primaryKeyUsage: UInt16?,
+        minimumModifiers: Int,
+        completion: @escaping (RemoteOrbitHIDHelperReply) -> Void
+    ) {
+        guard let bitmap = modifierBitmap(for: rawKeyCodes, minimumCount: minimumModifiers),
+              let physical = physicalModifierKeyCodesProvider() else {
+            finish(request, .rejected, completion)
+            return
+        }
+        let requestedFamilies = Set(rawKeyCodes.compactMap(Self.modifierFamily))
+        let physicalFamilies = Set(physical.compactMap(Self.modifierFamily))
+        guard requestedFamilies.count == rawKeyCodes.count,
+              requestedFamilies.isDisjoint(with: physicalFamilies) else {
+            finish(request, .rejected, completion)
+            return
+        }
+        let sortedKeyCodes = rawKeyCodes.sorted()
+        if let current = owner {
+            if current.connectionID == request.connectionID,
+               current.sessionID == request.sessionID,
+               current.modifierKeyCodes == sortedKeyCodes,
+               current.primaryKeyUsage == primaryKeyUsage,
+               !current.releasePending {
+                finish(request, .queued, completion)
+            } else {
+                finish(request, .rejected, completion)
+            }
+            return
+        }
+        let combo = RemoteOrbitHIDKeyboardCombo(
+            modifierBitmap: bitmap,
+            primaryKeyUsage: primaryKeyUsage
+        )
+        let candidate = Owner(
+            identity: UUID(),
+            connectionID: request.connectionID,
+            sessionID: request.sessionID,
+            generation: request.connectionGeneration,
+            modifierKeyCodes: sortedKeyCodes,
+            primaryKeyUsage: primaryKeyUsage,
+            combo: combo,
+            releasePending: false
+        )
+        owner = candidate
+        transport.submitKeyboardCombo(combo) { [weak self] outcome in
+            guard let self else { return }
+            self.queue.async {
+                if self.owner?.identity == candidate.identity {
+                    switch outcome {
+                    case .rejected:
+                        let neutralIsUnresolved = self.owner?.releasePending == true
+                            || self.neutralFlight?.ownerIdentity == candidate.identity
+                        if neutralIsUnresolved {
+                            self.owner?.releasePending = true
+                        } else {
+                            self.owner = nil
+                        }
+                    case .outcomeUnknown:
+                        self.owner?.releasePending = true
+                    case .queued:
+                        break
+                    }
+                }
+                self.finish(request, outcome, completion)
+            }
+        }
+    }
+
+    private func submitNeutral(
+        for current: Owner,
+        graceful: Bool,
+        waiter: NeutralWaiter? = nil
+    ) {
         if var currentFlight = neutralFlight {
             guard currentFlight.ownerIdentity == current.identity else {
                 if let waiter { finish(waiter.request, .outcomeUnknown, waiter.completion) }
@@ -447,7 +838,7 @@ public final class RemoteOrbitHIDHelperSessionManager {
             waiters: waiter.map { [$0] } ?? []
         )
         neutralFlight = flight
-        transport.submitModifierBitmap(0) { [weak self] outcome in
+        transport.submitNeutralRelease(from: current.combo, graceful: graceful) { [weak self] outcome in
             guard let self else { return }
             self.queue.async {
                 guard let activeFlight = self.neutralFlight,
@@ -475,7 +866,11 @@ public final class RemoteOrbitHIDHelperSessionManager {
         _ completion: @escaping (RemoteOrbitHIDHelperReply) -> Void
     ) {
         let reply = reply(for: request, outcome: outcome)
-        let key = RequestKey(generation: request.connectionGeneration, sequence: request.requestSequence)
+        let key = RequestKey(
+            connectionID: request.connectionID,
+            generation: request.connectionGeneration,
+            sequence: request.requestSequence
+        )
         cache[key] = CachedReply(fingerprint: requestFingerprint(request), reply: reply)
         cacheOrder.append(key)
         if cacheOrder.count > 256 {
@@ -506,9 +901,15 @@ public final class RemoteOrbitHIDHelperSessionManager {
     private func requestFingerprint(_ request: RemoteOrbitHIDHelperRequest) -> String {
         let operation: String
         switch request.operation {
-        case let .begin(keyCodes): operation = "begin:" + keyCodes.map(String.init).joined(separator: ",")
-        case .release: operation = "release"
-        case .recover: operation = "recover"
+        case let .begin(keyCodes):
+            operation = "begin:" + keyCodes.map(String.init).joined(separator: ",")
+        case let .beginCombo(keyCodes, primaryKeyUsage):
+            let primaryPart = primaryKeyUsage.map(String.init) ?? "none"
+            operation = "beginCombo:" + keyCodes.map(String.init).joined(separator: ",") + "|primary:" + primaryPart
+        case .release:
+            operation = "release"
+        case .recover:
+            operation = "recover"
         }
         return "\(request.connectionID.uuidString)|\(request.sessionID.uuidString)|\(request.protocolVersion)|\(operation)"
     }
@@ -517,8 +918,9 @@ public final class RemoteOrbitHIDHelperSessionManager {
         "\(sessionID.uuidString)|\(generation)"
     }
 
-    private func modifierBitmap(for rawKeyCodes: [UInt16]) -> UInt8? {
-        guard rawKeyCodes.count >= 2, Set(rawKeyCodes).count == rawKeyCodes.count else { return nil }
+    private func modifierBitmap(for rawKeyCodes: [UInt16], minimumCount: Int) -> UInt8? {
+        guard rawKeyCodes.count >= minimumCount,
+              Set(rawKeyCodes).count == rawKeyCodes.count else { return nil }
         let bits: [UInt16: UInt8] = [59: 0x01, 56: 0x02, 58: 0x04, 55: 0x08,
                                      62: 0x10, 60: 0x20, 61: 0x40, 54: 0x80]
         var result: UInt8 = 0
