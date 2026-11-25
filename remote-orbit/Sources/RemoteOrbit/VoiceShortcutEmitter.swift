@@ -8,10 +8,28 @@ enum VoiceShortcutEventKind: Equatable, Hashable {
     case keyUp
 }
 
+enum VoiceShortcutModifierEdge: Equatable, Hashable {
+    case down
+    case up
+}
+
 struct VoiceShortcutSyntheticEvent: Equatable {
     let kind: VoiceShortcutEventKind
     let keyCode: UInt16
     let flags: UInt64
+    let modifierEdge: VoiceShortcutModifierEdge?
+
+    init(
+        kind: VoiceShortcutEventKind,
+        keyCode: UInt16,
+        flags: UInt64,
+        modifierEdge: VoiceShortcutModifierEdge? = nil
+    ) {
+        self.kind = kind
+        self.keyCode = keyCode
+        self.flags = flags
+        self.modifierEdge = modifierEdge
+    }
 }
 
 protocol VoiceShortcutEventSink {
@@ -46,20 +64,48 @@ enum VoiceShortcutEmitResult: Equatable {
 
 struct CGEventVoiceShortcutSink: VoiceShortcutEventSink {
     func post(_ event: VoiceShortcutSyntheticEvent) -> VoiceShortcutEventPostResult {
-        guard let cgEvent = CGEvent(
-            keyboardEventSource: nil,
-            virtualKey: CGKeyCode(event.keyCode),
-            keyDown: event.kind != .keyUp
-        ) else { return .eventConstructionFailed }
+        guard let construction = Self.makeEvent(event) else {
+            return .eventConstructionFailed
+        }
+        construction.event.post(tap: .cghidEventTap)
+        return .posted
+    }
+
+    static func makeEvent(
+        _ event: VoiceShortcutSyntheticEvent
+    ) -> (event: CGEvent, constructorType: CGEventType, constructorKeyDown: Bool)? {
+        // CGEventCreateKeyboardEvent's keyDown argument describes key position,
+        // not the final event type. Modifier edges both become flagsChanged,
+        // so their direction must come from the separate modifierEdge value.
+        let constructorKeyDown: Bool
+        switch event.kind {
+        case .flagsChanged:
+            guard let modifierEdge = event.modifierEdge else { return nil }
+            constructorKeyDown = modifierEdge == .down
+        case .keyDown:
+            constructorKeyDown = true
+        case .keyUp:
+            constructorKeyDown = false
+        }
+        guard let source = CGEventSource(stateID: .privateState),
+              let cgEvent = CGEvent(
+                  keyboardEventSource: source,
+                  virtualKey: CGKeyCode(event.keyCode),
+                  keyDown: constructorKeyDown
+              ) else { return nil }
+        let constructorType = cgEvent.type
         switch event.kind {
         case .flagsChanged: cgEvent.type = .flagsChanged
-        case .keyDown: cgEvent.type = .keyDown
-        case .keyUp: cgEvent.type = .keyUp
+        case .keyDown:
+            cgEvent.type = .keyDown
+            cgEvent.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+        case .keyUp:
+            cgEvent.type = .keyUp
+            cgEvent.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
         }
         cgEvent.flags = CGEventFlags(rawValue: event.flags)
         cgEvent.setIntegerValueField(.eventSourceUserData, value: Key.syntheticMarker)
-        cgEvent.post(tap: .cghidEventTap)
-        return .posted
+        return (cgEvent, constructorType, constructorKeyDown)
     }
 }
 
@@ -91,7 +137,8 @@ struct VoiceShortcutEmitterDiagnostic: Equatable {
     let sessionID: UUID
     let relatedSessionID: UUID?
     let entryID: String
-    let primaryKeyCode: UInt16
+    let bindingKind: String
+    let primaryKeyCode: UInt16?
     let modifierKeyCodes: [UInt16]
     let ownedModifierKeyCodes: [UInt16]
     let primaryIsDown: Bool
@@ -100,8 +147,7 @@ struct VoiceShortcutEmitterDiagnostic: Equatable {
     var fields: [String: Any] {
         var result: [String: Any] = [
             "entry_id": entryID,
-            "binding_kind": "chord",
-            "primary_key_code": Int(primaryKeyCode),
+            "binding_kind": bindingKind,
             "modifier_key_codes": modifierKeyCodes.map { Int($0) },
             "owned_modifier_key_codes": ownedModifierKeyCodes.map { Int($0) },
             "primary_is_down": primaryIsDown,
@@ -109,6 +155,9 @@ struct VoiceShortcutEmitterDiagnostic: Equatable {
                 ? "owned" : "released",
             "outcome": outcome,
         ]
+        if let primaryKeyCode {
+            result["primary_key_code"] = Int(primaryKeyCode)
+        }
         if let relatedSessionID {
             result["related_session_id"] = relatedSessionID.uuidString
         }
@@ -122,7 +171,8 @@ struct VoiceShortcutEmitterDiagnostic: Equatable {
 final class VoiceShortcutEmitter {
     private struct Session {
         let entryID: String
-        let primaryKeyCode: UInt16
+        let bindingKind: String
+        let primaryKeyCode: UInt16?
         let modifierKeyCodes: [UInt16]
         var ownedModifierKeyCodes: [UInt16] = []
         var flags: UInt64 = 0
@@ -138,6 +188,7 @@ final class VoiceShortcutEmitter {
 
     private let sink: VoiceShortcutEventSink
     private let physicalModifierKeyCodesProvider: () -> Set<UInt16>
+    private let usesSystemHIDModifierProvider: Bool
     private let physicalModifierFlagsProvider: () -> UInt64
     var diagnosticSink: (VoiceShortcutEmitterDiagnostic) -> Void
     private var sessions: [UUID: Session] = [:]
@@ -146,9 +197,12 @@ final class VoiceShortcutEmitter {
         sink: VoiceShortcutEventSink = CGEventVoiceShortcutSink(),
         physicalModifierKeyCodesProvider: (() -> Set<UInt16>)? = nil,
         physicalModifierFlagsProvider: (() -> UInt64)? = nil,
+        physicalProviderIncludesOwnedSyntheticEdges: Bool? = nil,
         diagnosticSink: @escaping (VoiceShortcutEmitterDiagnostic) -> Void = { _ in }
     ) {
         self.sink = sink
+        self.usesSystemHIDModifierProvider =
+            physicalProviderIncludesOwnedSyntheticEdges ?? (physicalModifierKeyCodesProvider == nil)
         if let physicalModifierKeyCodesProvider {
             self.physicalModifierKeyCodesProvider = physicalModifierKeyCodesProvider
             self.physicalModifierFlagsProvider = physicalModifierFlagsProvider ?? { 0 }
@@ -166,8 +220,23 @@ final class VoiceShortcutEmitter {
         entryID: String = "unknown",
         binding: VoiceShortcutBinding
     ) -> VoiceShortcutEmitResult {
-        guard (try? VoiceShortcutStore.validate(binding: binding)) != nil,
-              case let .chord(primaryKeyCode, _, rawModifiers) = binding else {
+        guard (try? VoiceShortcutStore.validate(binding: binding)) != nil else {
+            return .rejected(.invalidBinding)
+        }
+
+        let primaryKeyCode: UInt16?
+        let rawModifiers: [UInt16]
+        let bindingKind: String
+        switch binding {
+        case let .chord(primary, _, modifiers):
+            primaryKeyCode = primary
+            rawModifiers = modifiers
+            bindingKind = "chord"
+        case let .modifierChord(modifiers):
+            primaryKeyCode = nil
+            rawModifiers = modifiers
+            bindingKind = "modifier_chord"
+        case .pureModifier:
             return .rejected(.invalidBinding)
         }
 
@@ -183,6 +252,7 @@ final class VoiceShortcutEmitter {
                 sessionID: sessionID,
                 relatedSessionID: ownerID,
                 entryID: entryID,
+                bindingKind: bindingKind,
                 primaryKeyCode: primaryKeyCode,
                 modifierKeyCodes: rawModifiers,
                 ownedModifierKeyCodes: owner?.ownedModifierKeyCodes ?? [],
@@ -199,6 +269,7 @@ final class VoiceShortcutEmitter {
                 sessionID: sessionID,
                 relatedSessionID: ownerID,
                 entryID: entryID,
+                bindingKind: bindingKind,
                 primaryKeyCode: primaryKeyCode,
                 modifierKeyCodes: rawModifiers,
                 ownedModifierKeyCodes: owner?.ownedModifierKeyCodes ?? [],
@@ -208,7 +279,9 @@ final class VoiceShortcutEmitter {
             return .rejected(.unresolvedOwnership)
         }
 
-        let modifierKeyCodes = ordered(rawModifiers)
+        let modifierKeyCodes = bindingKind == "modifier_chord"
+            ? rawModifiers.sorted()
+            : ordered(rawModifiers)
         let physicalAtStart = physicalModifierKeyCodesProvider()
         let overlap = Set(modifierKeyCodes).intersection(physicalAtStart)
         guard overlap.isEmpty else {
@@ -216,6 +289,7 @@ final class VoiceShortcutEmitter {
                 .physicalModifierConflict,
                 sessionID: sessionID,
                 entryID: entryID,
+                bindingKind: bindingKind,
                 primaryKeyCode: primaryKeyCode,
                 modifierKeyCodes: modifierKeyCodes,
                 outcome: "same_side_physical_modifier_held"
@@ -225,19 +299,21 @@ final class VoiceShortcutEmitter {
 
         var session = Session(
             entryID: entryID,
+            bindingKind: bindingKind,
             primaryKeyCode: primaryKeyCode,
             modifierKeyCodes: modifierKeyCodes,
             flags: Self.flags(for: physicalAtStart)
         )
 
         for keyCode in modifierKeyCodes {
-            let physicalNow = physicalModifierKeyCodesProvider()
+            let physicalNow = externalPhysicalModifiers(excludingOwned: session.ownedModifierKeyCodes)
             guard !physicalNow.contains(keyCode),
                   let mask = Self.modifierFlagMask(for: keyCode) else {
                 emit(
                     .physicalModifierConflict,
                     sessionID: sessionID,
                     entryID: entryID,
+                    bindingKind: bindingKind,
                     primaryKeyCode: primaryKeyCode,
                     modifierKeyCodes: modifierKeyCodes,
                     ownedModifierKeyCodes: session.ownedModifierKeyCodes,
@@ -253,7 +329,8 @@ final class VoiceShortcutEmitter {
             let event = VoiceShortcutSyntheticEvent(
                 kind: .flagsChanged,
                 keyCode: keyCode,
-                flags: nextFlags
+                flags: nextFlags,
+                modifierEdge: .down
             )
             switch sink.post(event) {
             case .posted:
@@ -263,6 +340,7 @@ final class VoiceShortcutEmitter {
                     .beginEdgeFailed,
                     sessionID: sessionID,
                     entryID: entryID,
+                    bindingKind: bindingKind,
                     primaryKeyCode: primaryKeyCode,
                     modifierKeyCodes: modifierKeyCodes,
                     ownedModifierKeyCodes: session.ownedModifierKeyCodes,
@@ -275,6 +353,7 @@ final class VoiceShortcutEmitter {
                     .beginEdgeFailed,
                     sessionID: sessionID,
                     entryID: entryID,
+                    bindingKind: bindingKind,
                     primaryKeyCode: primaryKeyCode,
                     modifierKeyCodes: modifierKeyCodes,
                     ownedModifierKeyCodes: session.ownedModifierKeyCodes,
@@ -289,53 +368,57 @@ final class VoiceShortcutEmitter {
             emit(.modifierDownPosted, sessionID: sessionID, session: session, outcome: "posted")
         }
 
-        let physicalBeforePrimary = physicalModifierKeyCodesProvider()
-        let primaryConflict = Set(session.ownedModifierKeyCodes).intersection(physicalBeforePrimary)
-        guard primaryConflict.isEmpty else {
-            emit(
-                .physicalModifierConflict,
-                sessionID: sessionID,
-                session: session,
-                outcome: "same_side_physical_modifier_started_before_primary_down"
+        if let primaryKeyCode {
+            let physicalBeforePrimary = externalPhysicalModifiers(
+                excludingOwned: session.ownedModifierKeyCodes
             )
-            _ = retainOrReleasePartial(session, sessionID: sessionID)
-            return .rejected(.physicalModifierConflict)
-        }
+            let primaryConflict = Set(session.ownedModifierKeyCodes).intersection(physicalBeforePrimary)
+            guard primaryConflict.isEmpty else {
+                emit(
+                    .physicalModifierConflict,
+                    sessionID: sessionID,
+                    session: session,
+                    outcome: "same_side_physical_modifier_started_before_primary_down"
+                )
+                _ = retainOrReleasePartial(session, sessionID: sessionID)
+                return .rejected(.physicalModifierConflict)
+            }
 
-        let primaryDown = VoiceShortcutSyntheticEvent(
-            kind: .keyDown,
-            keyCode: primaryKeyCode,
-            flags: combinedFlags(
-                owned: Set(session.ownedModifierKeyCodes),
-                physical: physicalBeforePrimary
+            let primaryDown = VoiceShortcutSyntheticEvent(
+                kind: .keyDown,
+                keyCode: primaryKeyCode,
+                flags: combinedFlags(
+                    owned: Set(session.ownedModifierKeyCodes),
+                    physical: physicalBeforePrimary
+                )
             )
-        )
-        switch sink.post(primaryDown) {
-        case .posted:
-            break
-        case .eventConstructionFailed:
-            emit(
-                .beginEdgeFailed,
-                sessionID: sessionID,
-                session: session,
-                outcome: "primary_down_event_construction_failed"
-            )
-            _ = retainOrReleasePartial(session, sessionID: sessionID)
-            return .rejected(.eventConstructionFailed)
-        case .postFailed:
-            emit(
-                .beginEdgeFailed,
-                sessionID: sessionID,
-                session: session,
-                outcome: "primary_down_post_failed"
-            )
-            _ = retainOrReleasePartial(session, sessionID: sessionID)
-            return .rejected(.postFailed)
+            switch sink.post(primaryDown) {
+            case .posted:
+                break
+            case .eventConstructionFailed:
+                emit(
+                    .beginEdgeFailed,
+                    sessionID: sessionID,
+                    session: session,
+                    outcome: "primary_down_event_construction_failed"
+                )
+                _ = retainOrReleasePartial(session, sessionID: sessionID)
+                return .rejected(.eventConstructionFailed)
+            case .postFailed:
+                emit(
+                    .beginEdgeFailed,
+                    sessionID: sessionID,
+                    session: session,
+                    outcome: "primary_down_post_failed"
+                )
+                _ = retainOrReleasePartial(session, sessionID: sessionID)
+                return .rejected(.postFailed)
+            }
+            session.flags = primaryDown.flags
+            session.primaryIsDown = true
+            sessions[sessionID] = session
+            emit(.primaryDownPosted, sessionID: sessionID, session: session, outcome: "posted")
         }
-        session.flags = primaryDown.flags
-        session.primaryIsDown = true
-        sessions[sessionID] = session
-        emit(.primaryDownPosted, sessionID: sessionID, session: session, outcome: "posted")
         return .accepted
     }
 
@@ -382,12 +465,14 @@ final class VoiceShortcutEmitter {
         entryID: String,
         binding: VoiceShortcutBinding
     ) {
-        let primary = binding.diagnosticPrimaryKeyCode ?? 0
+        let bindingKind = binding.diagnosticFields["binding_kind"] as? String ?? "unknown"
+        let primary = binding.diagnosticPrimaryKeyCode
         let modifiers = binding.diagnosticModifierKeyCodes
         emit(
             .lateDrainCallbackIgnored,
             sessionID: sessionID,
             entryID: entryID,
+            bindingKind: bindingKind,
             primaryKeyCode: primary,
             modifierKeyCodes: modifiers,
             outcome: "stale_callback_ignored"
@@ -405,7 +490,7 @@ final class VoiceShortcutEmitter {
                     .lateDrainCallbackIgnored,
                     sessionID: sessionID,
                     entryID: "unknown",
-                    primaryKeyCode: 0,
+                    bindingKind: "unknown",
                     modifierKeyCodes: [],
                     outcome: "no_owner"
                 )
@@ -414,11 +499,13 @@ final class VoiceShortcutEmitter {
         }
 
         let wasPending = session.releasePending
-        if session.primaryIsDown {
-            let physicalNow = physicalModifierKeyCodesProvider()
+        if session.primaryIsDown, let primaryKeyCode = session.primaryKeyCode {
+            let physicalNow = externalPhysicalModifiers(
+                excludingOwned: session.ownedModifierKeyCodes
+            )
             let event = VoiceShortcutSyntheticEvent(
                 kind: .keyUp,
-                keyCode: session.primaryKeyCode,
+                keyCode: primaryKeyCode,
                 flags: combinedFlags(
                     owned: Set(session.ownedModifierKeyCodes),
                     physical: physicalNow
@@ -474,7 +561,9 @@ final class VoiceShortcutEmitter {
 
     private func releaseModifiers(_ session: inout Session, sessionID: UUID) {
         for keyCode in Array(session.ownedModifierKeyCodes.reversed()) {
-            let physicalNow = physicalModifierKeyCodesProvider()
+            let physicalNow = externalPhysicalModifiers(
+                excludingOwned: session.ownedModifierKeyCodes
+            )
             guard !physicalNow.contains(keyCode) else {
                 emit(.physicalModifierReleaseDeferred, sessionID: sessionID, session: session,
                      outcome: "physical_modifier_same_side_still_held")
@@ -486,7 +575,8 @@ final class VoiceShortcutEmitter {
             let event = VoiceShortcutSyntheticEvent(
                 kind: .flagsChanged,
                 keyCode: keyCode,
-                flags: nextFlags
+                flags: nextFlags,
+                modifierEdge: .up
             )
             switch sink.post(event) {
             case .posted:
@@ -528,7 +618,8 @@ final class VoiceShortcutEmitter {
         sessionID: UUID,
         relatedSessionID: UUID? = nil,
         entryID: String,
-        primaryKeyCode: UInt16,
+        bindingKind: String = "chord",
+        primaryKeyCode: UInt16? = nil,
         modifierKeyCodes: [UInt16],
         ownedModifierKeyCodes: [UInt16] = [],
         primaryIsDown: Bool = false,
@@ -539,6 +630,7 @@ final class VoiceShortcutEmitter {
             sessionID: sessionID,
             relatedSessionID: relatedSessionID,
             entryID: entryID,
+            bindingKind: bindingKind,
             primaryKeyCode: primaryKeyCode,
             modifierKeyCodes: modifierKeyCodes,
             ownedModifierKeyCodes: ownedModifierKeyCodes,
@@ -559,6 +651,7 @@ final class VoiceShortcutEmitter {
             sessionID: sessionID,
             relatedSessionID: relatedSessionID,
             entryID: session.entryID,
+            bindingKind: session.bindingKind,
             primaryKeyCode: session.primaryKeyCode,
             modifierKeyCodes: session.modifierKeyCodes,
             ownedModifierKeyCodes: session.ownedModifierKeyCodes,
@@ -573,51 +666,39 @@ final class VoiceShortcutEmitter {
         return order.filter { set.contains($0) }
     }
 
-    private func combinedFlags(owned: Set<UInt16>, physical: Set<UInt16>) -> UInt64 {
-        let physicalModifierFlags = physicalModifierFlagsProvider() & Self.physicalModifierFlagMask
-        return Self.flags(for: owned.union(physical)) | physicalModifierFlags
+    private func externalPhysicalModifiers(excludingOwned owned: [UInt16]) -> Set<UInt16> {
+        let raw = physicalModifierKeyCodesProvider()
+        guard usesSystemHIDModifierProvider else {
+            return raw
+        }
+        return raw.subtracting(owned)
     }
 
-    private static let physicalModifierFlagMask: UInt64 =
+    private func combinedFlags(owned: Set<UInt16>, physical: Set<UInt16>) -> UInt64 {
+        let nonKeyedFlags = physicalModifierFlagsProvider() & Self.nonKeyedModifierFlagMask
+        return Self.flags(for: owned.union(physical)) | nonKeyedFlags
+    }
+
+    private static let nonKeyedModifierFlagMask: UInt64 =
         CGEventFlags.maskAlphaShift.rawValue
-        | CGEventFlags.maskShift.rawValue
-        | CGEventFlags.maskControl.rawValue
-        | CGEventFlags.maskAlternate.rawValue
-        | CGEventFlags.maskCommand.rawValue
         | CGEventFlags.maskHelp.rawValue
         | CGEventFlags.maskSecondaryFn.rawValue
 
+    private static let allModifierKeyCodes: [UInt16] = [55, 54, 59, 62, 58, 61, 56, 60]
+
     private static func currentPhysicalModifierFlags() -> UInt64 {
-        CGEventSource.flagsState(.hidSystemState).rawValue & physicalModifierFlagMask
+        CGEventSource.flagsState(.hidSystemState).rawValue & nonKeyedModifierFlagMask
     }
 
-    private static func currentPhysicalModifierKeyCodes() -> Set<UInt16> {
-        let flags = CGEventSource.flagsState(.hidSystemState).rawValue
-        var keyCodes = modifierMasks.compactMap { keyCode, mask in
-            flags & mask == 0 ? nil : keyCode
-        }.reduce(into: Set<UInt16>()) { $0.insert($1) }
-        let ambiguousFamilies: [(UInt64, UInt16, UInt16)] = [
-            (CGEventFlags.maskCommand.rawValue, 55, 54),
-            (CGEventFlags.maskControl.rawValue, 59, 62),
-            (CGEventFlags.maskAlternate.rawValue, 58, 61),
-            (CGEventFlags.maskShift.rawValue, 56, 60),
-        ]
-        for (familyMask, left, right) in ambiguousFamilies
-        where flags & familyMask != 0 && !keyCodes.contains(left) && !keyCodes.contains(right) {
-            // If HID state reports only an aggregate family flag, treat either
-            // side as occupied. This is conservative and cannot steal a real edge.
-            keyCodes.insert(left)
-            keyCodes.insert(right)
+    static func currentPhysicalModifierKeyCodes() -> Set<UInt16> {
+        var keyCodes = Set<UInt16>()
+        for keyCode in allModifierKeyCodes {
+            if CGEventSource.keyState(.hidSystemState, key: CGKeyCode(keyCode)) {
+                keyCodes.insert(keyCode)
+            }
         }
         return keyCodes
     }
-
-    private static let modifierMasks: [(UInt16, UInt64)] = [
-        (55, UInt64(NX_DEVICELCMDKEYMASK)), (54, UInt64(NX_DEVICERCMDKEYMASK)),
-        (59, UInt64(NX_DEVICELCTLKEYMASK)), (62, UInt64(NX_DEVICERCTLKEYMASK)),
-        (58, UInt64(NX_DEVICELALTKEYMASK)), (61, UInt64(NX_DEVICERALTKEYMASK)),
-        (56, UInt64(NX_DEVICELSHIFTKEYMASK)), (60, UInt64(NX_DEVICERSHIFTKEYMASK)),
-    ]
 
     private static func flags(for keyCodes: Set<UInt16>) -> UInt64 {
         keyCodes.reduce(into: UInt64(0)) { result, keyCode in

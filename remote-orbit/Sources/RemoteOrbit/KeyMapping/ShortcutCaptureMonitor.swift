@@ -36,6 +36,7 @@ enum ShortcutCaptureInput: Equatable {
 struct ShortcutCaptureDecision: Equatable {
     let shouldSuppress: Bool
     let preview: KeyChord?
+    let voicePreview: String?
     let committed: KeyChord?
     let voiceCommitted: VoiceShortcutBinding?
     let didStop: Bool
@@ -44,10 +45,12 @@ struct ShortcutCaptureDecision: Equatable {
 
 struct ShortcutCaptureStateMachine {
     private(set) var phase: ShortcutCapturePhase
+    private let voiceCaptureEnabled: Bool
 
     private var waitingModifiers: KeyChord.Modifiers
     private var waitingForFn: Bool
     private var ownedModifierKeyCodes = Set<UInt16>()
+    private var capturedModifierKeyCodes = Set<UInt16>()
     private var ownedAdditionalKeyCodes = Set<UInt16>()
     private var primaryKeyCode: UInt16?
     private var primaryKeyReleased = false
@@ -59,8 +62,10 @@ struct ShortcutCaptureStateMachine {
 
     init(
         initiallyHeldModifiers: KeyChord.Modifiers = [],
-        initiallyHoldingFn: Bool = false
+        initiallyHoldingFn: Bool = false,
+        voiceCaptureEnabled: Bool = false
     ) {
+        self.voiceCaptureEnabled = voiceCaptureEnabled
         waitingModifiers = initiallyHeldModifiers
         waitingForFn = initiallyHoldingFn
         phase = initiallyHeldModifiers.isEmpty && !initiallyHoldingFn
@@ -72,9 +77,11 @@ struct ShortcutCaptureStateMachine {
         initiallyHeldModifiers: KeyChord.Modifiers = [],
         initiallyHoldingFn: Bool = false
     ) {
+        let voiceCaptureEnabled = self.voiceCaptureEnabled
         self = Self(
             initiallyHeldModifiers: initiallyHeldModifiers,
-            initiallyHoldingFn: initiallyHoldingFn
+            initiallyHoldingFn: initiallyHoldingFn,
+            voiceCaptureEnabled: voiceCaptureEnabled
         )
     }
 
@@ -117,6 +124,7 @@ struct ShortcutCaptureStateMachine {
     mutating func abandon() {
         phase = .inactive
         ownedModifierKeyCodes.removeAll()
+        capturedModifierKeyCodes.removeAll()
         ownedAdditionalKeyCodes.removeAll()
         primaryKeyCode = nil
         frozenChord = nil
@@ -162,20 +170,31 @@ struct ShortcutCaptureStateMachine {
         case let .flagsChanged(keyCode, _, label, isDown):
             if isDown {
                 ownedModifierKeyCodes.insert(keyCode)
+                capturedModifierKeyCodes.insert(keyCode)
                 if primaryKeyCode == nil, pureModifierKeyCode == nil {
                     pureModifierKeyCode = keyCode
                     pureModifierLabel = label
                 }
-                return decision(shouldSuppress: true)
+                return decision(
+                    shouldSuppress: true,
+                    voicePreview: voiceCaptureEnabled
+                        ? voiceModifierPreview(capturedModifierKeyCodes)
+                        : nil
+                )
             }
 
             guard ownedModifierKeyCodes.remove(keyCode) != nil else {
                 return decision()
             }
             if primaryKeyCode == nil, ownedModifierKeyCodes.isEmpty {
-                return commitPureModifier()
+                return commitModifierGesture()
             }
-            return decision(shouldSuppress: true)
+            return decision(
+                shouldSuppress: true,
+                voicePreview: voiceCaptureEnabled
+                    ? voiceModifierPreview(ownedModifierKeyCodes)
+                    : nil
+            )
 
         case let .keyDown(keyCode, keyLabel, modifiers, isRepeat):
             guard !isRepeat else {
@@ -214,6 +233,7 @@ struct ShortcutCaptureStateMachine {
         case let .flagsChanged(keyCode, _, _, isDown):
             if isDown {
                 ownedModifierKeyCodes.insert(keyCode)
+                capturedModifierKeyCodes.insert(keyCode)
                 return decision(shouldSuppress: true)
             }
 
@@ -225,7 +245,7 @@ struct ShortcutCaptureStateMachine {
                     phase = .inactive
                     return decision(shouldSuppress: true, didStop: true)
                 }
-                return commitPureModifier()
+                return commitModifierGesture()
             }
             return finishIfReady(shouldSuppress: true)
 
@@ -274,6 +294,20 @@ struct ShortcutCaptureStateMachine {
         )
     }
 
+    private mutating func commitModifierGesture() -> ShortcutCaptureDecision {
+        let keyCodes = capturedModifierKeyCodes.sorted()
+        guard voiceCaptureEnabled, keyCodes.count >= 2 else {
+            return commitPureModifier()
+        }
+
+        phase = .inactive
+        return decision(
+            shouldSuppress: true,
+            voiceCommitted: .modifierChord(modifierKeyCodes: keyCodes),
+            didStop: true
+        )
+    }
+
     private mutating func finishIfReady(
         shouldSuppress: Bool
     ) -> ShortcutCaptureDecision {
@@ -300,6 +334,7 @@ struct ShortcutCaptureStateMachine {
     private func decision(
         shouldSuppress: Bool = false,
         preview: KeyChord? = nil,
+        voicePreview: String? = nil,
         committed: KeyChord? = nil,
         voiceCommitted: VoiceShortcutBinding? = nil,
         didStop: Bool = false
@@ -307,6 +342,7 @@ struct ShortcutCaptureStateMachine {
         ShortcutCaptureDecision(
             shouldSuppress: shouldSuppress,
             preview: preview,
+            voicePreview: voicePreview,
             committed: committed,
             voiceCommitted: voiceCommitted,
             didStop: didStop,
@@ -322,6 +358,19 @@ struct ShortcutCaptureStateMachine {
         case 56, 60: return .shift
         default: return []
         }
+    }
+
+    private func voiceModifierPreview(_ keyCodes: Set<UInt16>) -> String {
+        let labels: [UInt16: String] = [
+            55: "左 Command", 54: "右 Command",
+            59: "左 Control", 62: "右 Control",
+            58: "左 Option", 61: "右 Option",
+            56: "左 Shift", 60: "右 Shift",
+            63: "Fn/Globe",
+        ]
+        let order: [UInt16] = [59, 62, 58, 61, 56, 60, 55, 54, 63]
+        return order.compactMap { code in keyCodes.contains(code) ? labels[code] : nil }
+            .joined(separator: " + ")
     }
 
     private static func voiceTriggerKey(for keyCode: UInt16) -> VoiceTriggerKey? {
@@ -394,7 +443,8 @@ final class ShortcutCaptureMonitor {
         self.voiceCaptureEnabled = voiceCaptureEnabled
         stateMachine = ShortcutCaptureStateMachine(
             initiallyHeldModifiers: Self.modifiers(from: initiallyHeldFlags),
-            initiallyHoldingFn: initiallyHeldFlags.contains(.maskSecondaryFn)
+            initiallyHoldingFn: initiallyHeldFlags.contains(.maskSecondaryFn),
+            voiceCaptureEnabled: voiceCaptureEnabled
         )
     }
 
@@ -486,13 +536,18 @@ final class ShortcutCaptureMonitor {
             decision = ShortcutCaptureDecision(
                 shouldSuppress: true,
                 preview: nil,
+                voicePreview: nil,
                 committed: nil,
                 voiceCommitted: nil,
                 didStop: cancellation.didStop,
                 phase: cancellation.phase
             )
         }
-        if decision.preview == nil, decision.committed == nil, !decision.didStop {
+        if decision.preview == nil,
+           decision.voicePreview == nil,
+           decision.committed == nil,
+           decision.voiceCommitted == nil,
+           !decision.didStop {
             return decision.shouldSuppress ? nil : Unmanaged.passUnretained(event)
         }
 
@@ -503,16 +558,18 @@ final class ShortcutCaptureMonitor {
             }
             if let preview = decision.preview {
                 self.onPreview(preview.displayName)
+            } else if let voicePreview = decision.voicePreview {
+                self.onPreview(voicePreview)
             }
             if let committed = decision.committed {
                 self.onRecord(committed, self.triggerModeProvider())
-                if self.voiceCaptureEnabled {
-                    if let voiceBinding = decision.voiceCommitted {
-                        self.onVoiceRecord(voiceBinding)
-                    } else {
-                        self.onError("语音快捷键只支持左右 Option、Control、Command、Shift，或带这些修饰键的组合。")
-                    }
-                }
+            }
+            if self.voiceCaptureEnabled, let voiceBinding = decision.voiceCommitted {
+                self.onVoiceRecord(voiceBinding)
+            } else if self.voiceCaptureEnabled, decision.committed != nil {
+                self.onError(
+                    "语音快捷键支持左右 Option、Control、Command 纯修饰键、两个或更多不同类型的左右修饰键，或带这些修饰键的普通按键组合。Fn/Globe 当前未验证。"
+                )
             }
             if decision.didStop {
                 if self.keyboardCancellationPending {

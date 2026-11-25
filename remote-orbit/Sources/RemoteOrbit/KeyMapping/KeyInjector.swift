@@ -869,7 +869,7 @@ enum KeyInjector {
     }
 
     /// 进程退出前释放可能由旧版 CGEvent 路径留下的修饰键状态。
-    static let releaseAllModifierKeyCodes: [CGKeyCode] = [55, 54, 59, 62, 58, 61, 56]
+    static let releaseAllModifierKeyCodes: [CGKeyCode] = [55, 54, 59, 62, 58, 61, 56, 60]
 
     static func releaseAll() {
         guard let source = CGEventSource(stateID: .hidSystemState) else { return }

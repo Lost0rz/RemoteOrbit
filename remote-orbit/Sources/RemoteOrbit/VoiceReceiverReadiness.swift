@@ -337,6 +337,9 @@ final class CoreAudioVoiceReceiverProbe: VoiceReceiverReadinessProbe {
     private let excludedPID: Int32
     private let targetDeviceName: String
     private var cachedTargetDeviceID: AudioDeviceID?
+    private var cachedPIDs: [AudioObjectID: Int32] = [:]
+    private var cachedBundleIDs: [AudioObjectID: String] = [:]
+    private var lastListeningObjectID: AudioObjectID?
 
     init(
         excludedPID: Int32 = Int32(getpid()),
@@ -350,6 +353,9 @@ final class CoreAudioVoiceReceiverProbe: VoiceReceiverReadinessProbe {
 
     func beginGeneration() {
         cachedTargetDeviceID = nil
+        cachedPIDs.removeAll(keepingCapacity: true)
+        cachedBundleIDs.removeAll(keepingCapacity: true)
+        lastListeningObjectID = nil
     }
 
     func sample() -> VoiceReceiverReadiness {
@@ -368,32 +374,76 @@ final class CoreAudioVoiceReceiverProbe: VoiceReceiverReadinessProbe {
             return .unsupported
         }
 
-        for objectID in processObjectIDs {
-            guard let pid = source.processPID(objectID) else {
-                continue
-            }
-            if pid == excludedPID {
-                continue
-            }
-            guard let runningInput = source.processIsRunningInput(objectID) else {
-                continue
-            }
-            if !runningInput {
-                continue
-            }
-            guard let inputDeviceIDs = source.processInputDeviceIDs(objectID),
-                  inputDeviceIDs.contains(targetDeviceID)
-            else {
-                continue
-            }
+        if cachedPIDs.count > processObjectIDs.count {
+            let liveSet = Set(processObjectIDs)
+            cachedPIDs = cachedPIDs.filter { liveSet.contains($0.key) }
+            cachedBundleIDs = cachedBundleIDs.filter { liveSet.contains($0.key) }
+        }
 
-            return .listening(
-                consumerPID: pid,
-                bundleID: source.processBundleID(objectID)
-            )
+        var checkedLastObjectID: AudioObjectID?
+        if let lastID = lastListeningObjectID {
+            if processObjectIDs.contains(lastID),
+               let listening = inspectCandidate(lastID, targetDeviceID: targetDeviceID) {
+                return listening
+            }
+            lastListeningObjectID = nil
+            checkedLastObjectID = lastID
+        }
+
+        for objectID in processObjectIDs {
+            if objectID == checkedLastObjectID {
+                continue
+            }
+            if let listening = inspectCandidate(objectID, targetDeviceID: targetDeviceID) {
+                lastListeningObjectID = objectID
+                return listening
+            }
         }
 
         return .inactive
+    }
+
+    private func inspectCandidate(
+        _ objectID: AudioObjectID,
+        targetDeviceID: AudioDeviceID
+    ) -> VoiceReceiverReadiness? {
+        let pid: Int32
+        if let cachedPID = cachedPIDs[objectID] {
+            pid = cachedPID
+        } else if let fetchedPID = source.processPID(objectID) {
+            cachedPIDs[objectID] = fetchedPID
+            pid = fetchedPID
+        } else {
+            return nil
+        }
+        if pid == excludedPID {
+            return nil
+        }
+        guard let runningInput = source.processIsRunningInput(objectID) else {
+            return nil
+        }
+        if !runningInput {
+            return nil
+        }
+        guard let inputDeviceIDs = source.processInputDeviceIDs(objectID),
+              inputDeviceIDs.contains(targetDeviceID)
+        else {
+            return nil
+        }
+
+        let bundleID: String?
+        if let cachedBundle = cachedBundleIDs[objectID] {
+            bundleID = cachedBundle
+        } else if let fetchedBundle = source.processBundleID(objectID) {
+            cachedBundleIDs[objectID] = fetchedBundle
+            bundleID = fetchedBundle
+        } else {
+            bundleID = nil
+        }
+        return .listening(
+            consumerPID: pid,
+            bundleID: bundleID
+        )
     }
 }
 
@@ -453,10 +503,13 @@ final class VoiceReceiverReadinessMonitor {
     private let timerFactory: TimerFactory
     private let timerInterval: DispatchTimeInterval
     private let timerLeeway: DispatchTimeInterval
+    private let steadyListeningTimerInterval: DispatchTimeInterval
+    private let steadyListeningTimerLeeway: DispatchTimeInterval
     private var timer: VoiceReceiverReadinessTimer?
     private var generation: UInt64 = 0
     private var isActive = false
-    private var state: VoiceReceiverReadiness = .unsupported
+    private var usingSteadyInterval = false
+    private var state: VoiceReceiverReadiness?
 
     var onStateChanged: StateHandler?
 
@@ -469,14 +522,18 @@ final class VoiceReceiverReadinessMonitor {
         timerFactory: @escaping TimerFactory = {
             DispatchSourceVoiceReceiverReadinessTimer(queue: $0)
         },
-        timerInterval: DispatchTimeInterval = .milliseconds(100),
-        timerLeeway: DispatchTimeInterval = .milliseconds(20)
+        timerInterval: DispatchTimeInterval = .milliseconds(25),
+        timerLeeway: DispatchTimeInterval = .milliseconds(5),
+        steadyListeningTimerInterval: DispatchTimeInterval = .milliseconds(125),
+        steadyListeningTimerLeeway: DispatchTimeInterval = .milliseconds(20)
     ) {
         self.probe = probe
         self.queue = queue
         self.timerFactory = timerFactory
         self.timerInterval = timerInterval
         self.timerLeeway = timerLeeway
+        self.steadyListeningTimerInterval = steadyListeningTimerInterval
+        self.steadyListeningTimerLeeway = steadyListeningTimerLeeway
     }
 
     func activate() {
@@ -500,16 +557,20 @@ final class VoiceReceiverReadinessMonitor {
         generation &+= 1
         let activeGeneration = generation
         probe.beginGeneration()
-        publish(probe.sample())
+        let initialSample = probe.sample()
+        publish(initialSample)
+        usingSteadyInterval = initialSample.isListening
 
         let newTimer = timerFactory(queue)
         newTimer.eventHandler = { [weak self] in
             self?.handleTimerTick(generation: activeGeneration)
         }
+        let interval = usingSteadyInterval ? steadyListeningTimerInterval : timerInterval
+        let leeway = usingSteadyInterval ? steadyListeningTimerLeeway : timerLeeway
         newTimer.schedule(
-            deadline: .now() + timerInterval,
-            repeating: timerInterval,
-            leeway: timerLeeway
+            deadline: .now() + interval,
+            repeating: interval,
+            leeway: leeway
         )
         timer = newTimer
         newTimer.resume()
@@ -521,6 +582,7 @@ final class VoiceReceiverReadinessMonitor {
         }
 
         isActive = false
+        usingSteadyInterval = false
         generation &+= 1
         timer?.cancel()
         timer = nil
@@ -534,7 +596,18 @@ final class VoiceReceiverReadinessMonitor {
         guard isActive, timerGeneration == generation else {
             return
         }
-        publish(probe.sample())
+        let sampled = probe.sample()
+        publish(sampled)
+        if sampled.isListening != usingSteadyInterval {
+            usingSteadyInterval = sampled.isListening
+            let interval = usingSteadyInterval ? steadyListeningTimerInterval : timerInterval
+            let leeway = usingSteadyInterval ? steadyListeningTimerLeeway : timerLeeway
+            timer?.schedule(
+                deadline: .now() + interval,
+                repeating: interval,
+                leeway: leeway
+            )
+        }
     }
 
     private func publish(_ newState: VoiceReceiverReadiness) {
@@ -551,7 +624,7 @@ final class VoiceReceiverReadinessMonitor {
     // Deterministic test seams. They execute on the same serial queue as the
     // production timer and expose only bounded scheduler state.
     var currentStateForTesting: VoiceReceiverReadiness {
-        queue.sync { state }
+        queue.sync { state ?? .inactive }
     }
 
     func waitForIdleForTesting() {

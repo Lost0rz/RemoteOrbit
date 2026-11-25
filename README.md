@@ -17,9 +17,9 @@ RC003 麦克风键只有一种用户可见语音模式：
 - **LONG**：按住达到约 300 ms 后进入直接远程语音生命周期；RemoteOrbit 使用遥控器 ATVV 音频并向 `RemoteOrbit Mic 2ch` 供给 PCM，松开后等待输出收尾，再释放语音快捷键。
 - Persistent、双 Receiver、Receiver B、本地麦克风短按等旧业务语义均不是当前产品合同。
 
-在 Control Center 的麦克风设置中可以管理具名语音快捷键，并为其中一个配置选择 Active；菜单栏“语音输入”也可以切换 Active。首次配置保留原有六种左右 Option、Control、Command 纯修饰键。自定义组合会保留左右修饰键侧别。活动语音会话或输出收尾期间，切换 Active 或更改/删除当前 Active 会被拒绝，完成后可重试。
+在 Control Center 的麦克风设置中可以管理具名语音快捷键，并为其中一个配置选择 Active；菜单栏“语音输入”也可以切换 Active。首次配置保留原有六种左右 Option、Control、Command 纯修饰键；自定义组合会保留左右修饰键侧别，支持单修饰键、多修饰键组合以及“修饰键 + 主键”组合快捷键。纯修饰键单键沿用 `hidutil` 硬件映射，多键与组合快捷键通过 Karabiner VirtualHID（`Karabiner-DriverKit-VirtualHIDDevice` v8.6.0 与 `RemoteOrbitHIDHelperDaemon`，可在 Control Center 设置中按需一键安装或更新）注入真实虚拟键盘 HID 报告；系统处于安全输入（Secure Event Input）状态时，多键会话会自动走 BLE 物理按键回退以保证松手收尾。Fn/Globe 尚未通过目标硬件验证，当前不可录制。活动语音会话或输出收尾期间，切换 Active 或更改/删除当前 Active 会被拒绝，完成后可重试。
 
-语音快捷键不会自动切换 macOS 输入法。组合键通过系统键盘事件发送，具体输入法是否接受该事件取决于输入法自身；软件测试不能证明输入法接收或语音文本完成。
+语音快捷键不会自动切换 macOS 输入法。组合键通过系统键映射或虚拟 HID 键盘报告发送，具体输入法是否接受该事件取决于输入法自身；软件测试不能证明输入法接收或语音文本完成。
 
 源码中若仍存在历史命名，只能按其当前调用关系和测试判断用途；不能因为符号名包含 Persistent/Dual 等字样就推断旧业务仍有效。
 

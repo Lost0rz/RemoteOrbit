@@ -114,10 +114,10 @@ enum VoiceTimingLogger {
         lock.unlock()
         guard diagnosticsEnabled else { return }
         DiagnosticRuntimeHealthService.shared.start()
-        if let input = SystemAudioDeviceManager.defaultInputDevice {
+        if let inputIdentifier = SystemAudioDeviceManager.defaultInputStableIdentifier {
             DiagnosticRuntimeHealthRegistry.shared.setString(
                 "selected_input_identity",
-                input.stableIdentifier
+                inputIdentifier
             )
         }
         LongTermObservabilityService.shared.begin(

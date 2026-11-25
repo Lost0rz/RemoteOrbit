@@ -2,7 +2,9 @@ import Foundation
 import Darwin
 
 enum LaunchAtLogin {
-    private static let label = "com.lost0rz.RemoteOrbit.login"
+    private static var label: String {
+        "\(ProductIdentity.bundleIdentifier).login"
+    }
 
     private static var agentURL: URL {
         FileManager.default.homeDirectoryForCurrentUser

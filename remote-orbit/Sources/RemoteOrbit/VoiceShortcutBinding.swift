@@ -6,6 +6,7 @@ import Combine
 enum VoiceShortcutBinding: Equatable, Hashable, Codable {
     case pureModifier(VoiceTriggerKey)
     case chord(primaryKeyCode: UInt16, preview: String, modifierKeyCodes: [UInt16])
+    case modifierChord(modifierKeyCodes: [UInt16])
 
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -18,6 +19,7 @@ enum VoiceShortcutBinding: Equatable, Hashable, Codable {
     private enum Kind: String, Codable {
         case pureModifier
         case chord
+        case modifierChord
     }
 
     init(from decoder: Decoder) throws {
@@ -29,6 +31,10 @@ enum VoiceShortcutBinding: Equatable, Hashable, Codable {
             self = .chord(
                 primaryKeyCode: try container.decode(UInt16.self, forKey: .primaryKeyCode),
                 preview: try container.decode(String.self, forKey: .preview),
+                modifierKeyCodes: try container.decode([UInt16].self, forKey: .modifierKeyCodes)
+            )
+        case .modifierChord:
+            self = .modifierChord(
                 modifierKeyCodes: try container.decode([UInt16].self, forKey: .modifierKeyCodes)
             )
         }
@@ -45,6 +51,9 @@ enum VoiceShortcutBinding: Equatable, Hashable, Codable {
             try container.encode(primaryKeyCode, forKey: .primaryKeyCode)
             try container.encode(preview, forKey: .preview)
             try container.encode(modifierKeyCodes, forKey: .modifierKeyCodes)
+        case let .modifierChord(modifierKeyCodes):
+            try container.encode(Kind.modifierChord, forKey: .kind)
+            try container.encode(modifierKeyCodes.sorted(), forKey: .modifierKeyCodes)
         }
     }
 
@@ -57,6 +66,7 @@ enum VoiceShortcutBinding: Equatable, Hashable, Codable {
         switch self {
         case let .pureModifier(key): return key.displayName
         case let .chord(_, preview, _): return preview
+        case .modifierChord: return sideDescription
         }
     }
 
@@ -77,14 +87,37 @@ enum VoiceShortcutBinding: Equatable, Hashable, Codable {
             let primaryLabel = String(preview.drop(while: { "⌃⌥⇧⌘".contains($0) }))
             let keyLabel = primaryLabel.isEmpty ? "键码 \(primaryKeyCode)" : primaryLabel
             return (modifiers + [keyLabel]).joined(separator: " + ")
+        case let .modifierChord(modifierKeyCodes):
+            let labels = Self.modifierDisplayLabels
+            return Self.modifierDisplayOrder.compactMap { code in
+                modifierKeyCodes.contains(code) ? labels[code] : nil
+            }.joined(separator: " + ")
         }
     }
+
+    private static let modifierDisplayLabels: [UInt16: String] = [
+        55: "左 Command", 54: "右 Command",
+        59: "左 Control", 62: "右 Control",
+        58: "左 Option", 61: "右 Option",
+        56: "左 Shift", 60: "右 Shift",
+    ]
+
+    private static let modifierDisplayOrder: [UInt16] = [59, 62, 58, 61, 56, 60, 55, 54]
 
     var physicalIdentity: String {
         switch self {
         case let .pureModifier(key): return "modifier:\(key.rawValue)"
         case let .chord(primary, _, modifiers):
             return "chord:\(primary):\(modifiers.sorted().map(String.init).joined(separator: ","))"
+        case let .modifierChord(modifiers):
+            return "modifier-chord:\(modifiers.sorted().map(String.init).joined(separator: ","))"
+        }
+    }
+
+    var usesVoiceShortcutEmitter: Bool {
+        switch self {
+        case .chord, .modifierChord: return true
+        case .pureModifier: return false
         }
     }
 
@@ -102,18 +135,26 @@ enum VoiceShortcutBinding: Equatable, Hashable, Codable {
                 "primary_key_code": Int(primaryKeyCode),
                 "modifier_key_codes": modifierKeyCodes.map(Int.init),
             ]
+        case let .modifierChord(modifierKeyCodes):
+            return [
+                "binding_kind": "modifier_chord",
+                "modifier_key_codes": modifierKeyCodes.sorted().map(Int.init),
+            ]
         }
     }
 
     var diagnosticPrimaryKeyCode: UInt16? {
-        guard case let .chord(primaryKeyCode, _, _) = self else { return nil }
-        return primaryKeyCode
+        switch self {
+        case let .chord(primaryKeyCode, _, _): return primaryKeyCode
+        case .pureModifier, .modifierChord: return nil
+        }
     }
 
     var diagnosticModifierKeyCodes: [UInt16] {
         switch self {
         case let .pureModifier(key): [key.cgKeyCode]
         case let .chord(_, _, modifierKeyCodes): modifierKeyCodes
+        case let .modifierChord(modifierKeyCodes): modifierKeyCodes.sorted()
         }
     }
 }
@@ -240,6 +281,10 @@ enum VoiceShortcutStore {
         111, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126,
     ])
 
+    static var allSupportedPrimaryKeyCodes: Set<UInt16> {
+        supportedPrimaryKeyCodes
+    }
+
     /// AppController is the sole runtime owner and calls mutation APIs from its
     /// main-thread state transitions. Invalid bytes are never replaced by a seed.
     static func load(from defaults: UserDefaults) -> VoiceShortcutLoadResult {
@@ -338,14 +383,21 @@ enum VoiceShortcutStore {
                   preview.count <= 24,
                   !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   !modifiers.isEmpty,
-                  Set(modifiers).count == modifiers.count,
-                  modifiers.allSatisfy({ modifierKeyCodes.contains($0) })
+                  isValidModifierCombination(modifiers)
             else { throw VoiceShortcutValidationError.invalidBinding }
-            let modifierFamilies = modifiers.map(Self.modifierFamily(for:))
-            guard Set(modifierFamilies).count == modifierFamilies.count else {
-                throw VoiceShortcutValidationError.invalidBinding
-            }
+        case let .modifierChord(modifiers):
+            guard modifiers.count >= 2,
+                  isValidModifierCombination(modifiers)
+            else { throw VoiceShortcutValidationError.invalidBinding }
         }
+    }
+
+    private static func isValidModifierCombination(_ modifiers: [UInt16]) -> Bool {
+        guard Set(modifiers).count == modifiers.count,
+              modifiers.allSatisfy({ modifierKeyCodes.contains($0) })
+        else { return false }
+        let families = modifiers.map(modifierFamily(for:))
+        return Set(families).count == families.count
     }
 
     private static func modifierFamily(for keyCode: UInt16) -> UInt16 {

@@ -372,13 +372,24 @@ final class FixedCapacityPCMFrameRing: @unchecked Sendable {
     }
 
     private func acquireResetGate() {
+        let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        var spins = 0
         while true {
             let state = OSAtomicAdd32Barrier(0, &readerGate)
             if state == 0,
                OSAtomicCompareAndSwap32Barrier(0, 2, &readerGate) {
                 return
             }
-            sched_yield()
+            if clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- start > 500_000_000,
+               OSAtomicCompareAndSwap32Barrier(state, 2, &readerGate) {
+                return
+            }
+            spins &+= 1
+            if spins < 64 {
+                sched_yield()
+            } else {
+                usleep(50)
+            }
         }
     }
 
@@ -479,6 +490,7 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
     private var diagnosticsRenderInFlight: Int32 = 0
     private var remoteActive: Int32 = 0
     private var remoteWasActive: Int32 = 0
+    private var remoteTransportStopping: Int32 = 0
     private var drainWaiterRequested: Int32 = 0
 
     private var renderCallbackCount: Int64 = 0
@@ -516,10 +528,19 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
     }
 
     func setRemoteActive(_ active: Bool) {
+        atomicStore32(0, to: &remoteTransportStopping)
         atomicStore32(active ? 1 : 0, to: &remoteActive)
         if active, atomicLoad32(&diagnosticsActive) != 0 {
             atomicStore32(1, to: &remoteWasActive)
         }
+    }
+
+    func setRemoteTransportStopping(_ stopping: Bool) {
+        atomicStore32(stopping ? 1 : 0, to: &remoteTransportStopping)
+    }
+
+    func isRemoteTransportStopping() -> Bool {
+        atomicLoad32(&remoteTransportStopping) != 0
     }
 
     func currentRemoteActive() -> Bool {
@@ -550,8 +571,19 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
 
     func endDiagnosticsAndWait() {
         atomicStore32(0, to: &diagnosticsActive)
+        let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        var spins = 0
         while atomicLoad32(&diagnosticsRenderInFlight) != 0 {
-            sched_yield()
+            if clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- start > 250_000_000 {
+                atomicStore32(0, to: &diagnosticsRenderInFlight)
+                break
+            }
+            spins &+= 1
+            if spins < 64 {
+                sched_yield()
+            } else {
+                usleep(50)
+            }
         }
     }
 
@@ -813,6 +845,7 @@ final class AudioPipeRealtimeDiagnostics: @unchecked Sendable {
         atomicStore64(0, to: &meterRenderCallbackCount)
         atomicStore64(0, to: &meterRenderedFrames)
         atomicStore32(0, to: &meterRenderedPeakBits)
+        atomicStore32(0, to: &remoteTransportStopping)
     }
 
     private func marker(for state: AudioPipeRenderState) -> Int32 {

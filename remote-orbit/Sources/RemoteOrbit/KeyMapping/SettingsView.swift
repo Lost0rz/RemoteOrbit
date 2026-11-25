@@ -29,6 +29,7 @@ struct SettingsView: View {
     @State private var loggingEnabled = Log.isEnabled
     @State private var recordingEnabled = AppStorage.recordingEnabled
     @State private var isRepairingInstallation = false
+    @State private var isInstallingVirtualHID = false
     @State private var installationMessage: String?
     @State private var installationRefreshID = UUID()
     @State private var configurationMessage: String?
@@ -1760,6 +1761,21 @@ struct SettingsView: View {
             }
             return ("未检测到", .red)
         }()
+        let virtualHIDState = InstallationDiagnostics.virtualHIDStatus
+        let virtualHIDDisplay: (String, Color) = {
+            switch virtualHIDState {
+            case .ready:
+                return ("已就绪 · 支持任意真实组合键", .green)
+            case .helperUpdateRequired:
+                return ("已就绪 · 守护服务有可用更新", .orange)
+            case .awaitingDriverApproval:
+                return ("等待系统扩展批准（请在登录项与扩展中允许）", .orange)
+            case .daemonDisconnected:
+                return ("守护服务未连接", .orange)
+            case .notInstalled:
+                return ("未安装", .red)
+            }
+        }()
 
         return workspaceCard(title: "安装与设备检查", symbolName: "shippingbox") {
             VStack(alignment: .leading, spacing: 12) {
@@ -1774,6 +1790,11 @@ struct SettingsView: View {
                     color: driverStatus.1
                 )
                 installationStatusRow(
+                    label: "虚拟键盘驱动",
+                    value: virtualHIDDisplay.0,
+                    color: virtualHIDDisplay.1
+                )
+                installationStatusRow(
                     label: "输入监控",
                     value: HIDMonitor.isInputMonitoringGranted ? "已授权" : "需要授权",
                     color: HIDMonitor.isInputMonitoringGranted ? .green : .orange
@@ -1783,6 +1804,13 @@ struct SettingsView: View {
                     value: KeyInjector.isAccessibilityTrusted ? "已授权" : "需要授权",
                     color: KeyInjector.isAccessibilityTrusted ? .green : .orange
                 )
+                if SecureEventInputDiagnostics.isSecureEventInputEnabled {
+                    installationStatusRow(
+                        label: "系统安全输入",
+                        value: "\(SecureEventInputDiagnostics.secureInputOwnerSummary ?? "已开启") · 已切换 BLE 语音旁路，普通遥控器改键暂时受系统限制",
+                        color: .orange
+                    )
+                }
 
                 Divider()
 
@@ -1805,9 +1833,65 @@ struct SettingsView: View {
                             !InstallationDiagnostics.bundledAudioDriverAvailable
                     )
 
+                    if virtualHIDState == .helperUpdateRequired,
+                       InstallationDiagnostics.bundledHIDHelperDaemonURL != nil {
+                        Button {
+                            beginVirtualHIDHelperUpdate()
+                        } label: {
+                            if isInstallingVirtualHID {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("正在更新守护服务…")
+                            } else {
+                                Label("更新虚拟键盘守护服务", systemImage: "arrow.triangle.2.circlepath.circle")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(isInstallingVirtualHID || isRepairingInstallation)
+                    } else if virtualHIDState != .ready, InstallationDiagnostics.bundledVirtualHIDAvailable {
+                        Button {
+                            beginVirtualHIDInstallation()
+                        } label: {
+                            if isInstallingVirtualHID {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("正在安装虚拟键盘…")
+                            } else {
+                                Label(
+                                    virtualHIDState == .notInstalled ? "安装并启用虚拟键盘驱动" : "修复虚拟键盘服务",
+                                    systemImage: "keyboard.badge.ellipsis"
+                                )
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(isInstallingVirtualHID || isRepairingInstallation)
+                    }
+
+                    if virtualHIDState == .awaitingDriverApproval, InstallationDiagnostics.karabinerManagerInstalled {
+                        Button("激活虚拟键盘扩展") {
+                            InstallationRepair.activateVirtualHIDDriverExtension { result in
+                                switch result {
+                                case let .success(msg):
+                                    installationMessage = msg
+                                case let .failure(err):
+                                    installationMessage = err.localizedDescription
+                                }
+                                installationRefreshID = UUID()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+
                     Button("重新检测") {
                         installationMessage = nil
+                        VoiceShortcutHIDUnixSocketProvider.shared.refreshStatusNow()
                         installationRefreshID = UUID()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            installationRefreshID = UUID()
+                        }
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -1885,6 +1969,45 @@ struct SettingsView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 AudioPipe.shared.restartOutputDevice()
                 installationRefreshID = UUID()
+            }
+        }
+    }
+
+    private func beginVirtualHIDInstallation() {
+        guard !isInstallingVirtualHID else { return }
+        isInstallingVirtualHID = true
+        installationMessage = nil
+
+        InstallationRepair.reinstallBundledVirtualHIDStack { result in
+            finishVirtualHIDRepair(result)
+        }
+    }
+
+    private func beginVirtualHIDHelperUpdate() {
+        guard !isInstallingVirtualHID else { return }
+        isInstallingVirtualHID = true
+        installationMessage = nil
+
+        InstallationRepair.updateBundledHIDHelperDaemon { result in
+            finishVirtualHIDRepair(result)
+        }
+    }
+
+    private func finishVirtualHIDRepair(_ result: Result<String, Error>) {
+        isInstallingVirtualHID = false
+        switch result {
+        case let .success(msg):
+            installationMessage = msg
+        case let .failure(error):
+            installationMessage = error.localizedDescription
+        }
+        installationRefreshID = UUID()
+        for delay in [0.6, 1.2] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                VoiceShortcutHIDUnixSocketProvider.shared.refreshStatusNow()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    installationRefreshID = UUID()
+                }
             }
         }
     }
@@ -3114,7 +3237,7 @@ private struct VoiceShortcutEditorSheet: View {
                     .buttonStyle(.bordered)
             }
 
-            Text("录制支持左右 Option、Control、Command、Shift 及其组合。Fn 与 Escape 用于取消录制。")
+            Text("录制支持左右 Option、Control、Command 纯修饰键、两个或更多不同类型的修饰键，以及修饰键加普通按键。Fn/Globe 尚未验证，按 Fn 会取消录制。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -3166,7 +3289,7 @@ private struct VoiceShortcutRecorderSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("录制语音快捷键")
                 .font(.title3.weight(.semibold))
-            Text("按住一个纯修饰键，或按住修饰键再按主键；等全部相关按键释放后完成录制。")
+            Text("按住一个可用的纯修饰键、两个或更多不同类型的修饰键，或修饰键和普通按键；等全部相关按键释放后完成录制。")
                 .foregroundStyle(.secondary)
 
             HStack {
@@ -3186,7 +3309,7 @@ private struct VoiceShortcutRecorderSheet: View {
                     .foregroundStyle(.red)
             }
 
-            Text("录制会独占并抑制本次按键边沿；Escape 或 Fn 可取消。")
+            Text("录制会独占并抑制本次按键边沿。Fn/Globe 尚未验证，当前不可作为快捷键；按 Fn、Escape 或点击取消均可结束录制。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 

@@ -428,6 +428,7 @@ final class MappingStore: ObservableObject {
         guard AXIsProcessTrusted() else { return nil }
 
         let systemWide = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(systemWide, 0.05)
         var focusedValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
             systemWide,

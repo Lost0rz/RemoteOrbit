@@ -50,4 +50,12 @@ final class RemoteVoiceKeyMappingTests: XCTestCase {
             "{\"UserKeyMapping\":[]}"
         )
     }
+
+    func testNoOpMappingUsesZeroDestinationForChordSilence() {
+        XCTAssertEqual(RemoteVoiceKeyMapping.noOpDestination, 0)
+        XCTAssertEqual(
+            RemoteVoiceKeyMapping.noOpMappingJSON,
+            "{\"UserKeyMapping\":[{\"HIDKeyboardModifierMappingSrc\":0x70000003E,\"HIDKeyboardModifierMappingDst\":0x0}]}"
+        )
+    }
 }
