@@ -201,7 +201,7 @@ class RemoteOrbitCIRoutingContractTests(unittest.TestCase):
         self.assertFalse(driver.get("fork_safe", False))
 
     def test_workflow_trust_and_milestone_main_push(self):
-        self.assertIn("ci-router-reusable.yml@v0.10.1", WORKFLOW)
+        self.assertIn("ci-router-reusable.yml@1ae3de7a1db762a4af48c4f9580257dd88d0e098", WORKFLOW)
         self.assertNotIn("@v0.10.0", WORKFLOW)
         self.assertIn("  pull_request:", WORKFLOW)
         self.assertIn("  push:", WORKFLOW)
